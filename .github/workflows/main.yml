@@ -2,7 +2,8 @@ name: Build Windows EXE
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'claude/**' ]
+  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -18,14 +19,29 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: 測試計算邏輯
+        run: python -m unittest discover -s tests -v
+
       - name: 安裝 PyInstaller
         run: pip install pyinstaller
 
       - name: 打包成單一 exe
         run: pyinstaller --onefile --windowed --name 計算機 calculator.py
 
+      - name: 實際啟動 exe 測試
+        shell: pwsh
+        run: ./tests/smoke_test_exe.ps1 -ExePath "dist/計算機.exe" -Title "計算機" -OutDir smoke
+
       - name: 上傳打包結果
         uses: actions/upload-artifact@v4
         with:
           name: 計算機-windows-exe
           path: dist/計算機.exe
+
+      - name: 上傳測試截圖
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 測試截圖
+          path: smoke/
+          if-no-files-found: ignore

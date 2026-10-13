@@ -3,6 +3,7 @@
 可用 PyInstaller 打包成單一 .exe 執行檔，免安裝雙擊即可開啟。
 """
 
+import os
 import tkinter as tk
 
 # ---------- 顏色設定 ----------
@@ -44,6 +45,12 @@ class Calculator(tk.Tk):
         self._build_keys()
         self._bind_keyboard()
         self._update_screen()
+        # 開啟後直接取得鍵盤焦點，不用先點視窗就能打字
+        self.after(200, self._grab_focus)
+
+    def _grab_focus(self):
+        self.lift()
+        self.focus_force()
 
     # ---------- 畫面 ----------
     def _build_screen(self):
@@ -191,6 +198,14 @@ class Calculator(tk.Tk):
             self.expr_var.set(f"{self._format_number(self.previous)} {self.operator}")
         else:
             self.expr_var.set(" ")
+        self._write_display_for_test()
+
+    def _write_display_for_test(self):
+        # 自動測試用：設定 CALC_DISPLAY_FILE 時，把螢幕上的數字寫到檔案
+        path = os.environ.get("CALC_DISPLAY_FILE")
+        if path:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(self._format_number(self.current))
 
     def _input_number(self, digit):
         if self.just_evaluated or self.fresh_operand or self.current == "Error":

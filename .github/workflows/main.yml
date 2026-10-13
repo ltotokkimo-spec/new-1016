@@ -19,29 +19,44 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: 測試計算邏輯
+      - name: 安裝套件
+        run: pip install pyinstaller pillow
+
+      - name: 測試程式邏輯
         run: python -m unittest discover -s tests -v
 
-      - name: 安裝 PyInstaller
-        run: pip install pyinstaller
-
-      - name: 打包成單一 exe
+      - name: 打包計算機
         run: pyinstaller --onefile --windowed --name 計算機 calculator.py
 
-      - name: 實際啟動 exe 測試
+      - name: 打包小畫家
+        run: pyinstaller --onefile --windowed --name 小畫家 paint.py
+
+      - name: 實際啟動計算機測試
         shell: pwsh
         run: ./tests/smoke_test_exe.ps1 -ExePath "dist/計算機.exe" -Title "計算機" -OutDir smoke
 
-      - name: 上傳打包結果
+      - name: 實際啟動小畫家測試
+        shell: pwsh
+        run: ./tests/smoke_test_paint.ps1 -ExePath "dist/小畫家.exe" -OutDir smoke-paint
+
+      - name: 上傳計算機
         uses: actions/upload-artifact@v4
         with:
           name: 計算機-windows-exe
           path: dist/計算機.exe
+
+      - name: 上傳小畫家
+        uses: actions/upload-artifact@v4
+        with:
+          name: 小畫家-windows-exe
+          path: dist/小畫家.exe
 
       - name: 上傳測試截圖
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: 測試截圖
-          path: smoke/
+          path: |
+            smoke/
+            smoke-paint/
           if-no-files-found: ignore

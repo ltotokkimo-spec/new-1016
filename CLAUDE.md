@@ -10,7 +10,10 @@
 ## 一次到位，自己驗證
 - 不要做一半交給使用者驗證。完成後自己實際執行、測試、檢查結果（含截圖或輸出），確認真的正確才說完成。
 - 「測試通過」必須檢查實際結果，不能只檢查程式有沒有當掉。
-- 這個專案的 Windows 執行檔由 GitHub Actions（`.github/workflows/main.yml`）在 Windows 上打包，並用 `tests/smoke_test_exe.ps1` 實際啟動 exe 測試；改動 `calculator.py` 後要確認這個流程通過，並查看截圖。
+- 這個專案的 Windows 執行檔由 GitHub Actions（`.github/workflows/main.yml`）在 Windows 上打包，並實際啟動 exe 用真的滑鼠鍵盤測試：
+  - 計算機 `calculator.py` → `tests/smoke_test_exe.ps1`
+  - 小畫家 `paint.py` → `tests/smoke_test_paint.ps1`
+  改動程式後要確認這個流程通過，並自己查看截圖（截圖以 base64 印在 Actions 紀錄中）。
 
 ## 等待時要讓使用者知道進度
 - 開始等待前，說明在等什麼、預計多久，並明確寫「背景執行中，不需要你操作」。

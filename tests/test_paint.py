@@ -56,6 +56,25 @@ class TestDrawing(unittest.TestCase):
         self.assertEqual(px(self.doc, 50, 50), WHITE)
         self.assertEqual(px(self.doc, 50, 80), (0, 0, 0))
 
+    def test_eraser_same_width_leaves_no_dots(self):
+        pts = [(x, 50) for x in range(10, 190, 6)]
+        for w in (1, 2, 3, 4, 5, 8, 13):
+            doc = PaintDocument(200, 100)
+            doc.stroke(pts, "#000000", w)
+            doc.stroke(pts, "#ffffff", w)
+            self.assertEqual(doc.image.getcolors(), [(200 * 100, WHITE)], f"筆寬 {w} 擦完還有殘留")
+
+    def test_stroke_has_no_bumps(self):
+        # 水平筆畫的厚度要剛好等於筆寬，接點的圓不能凸出來
+        for w in (3, 4, 5, 8):
+            doc = PaintDocument(200, 100)
+            doc.stroke([(x, 50) for x in range(20, 180, 5)], "#000000", w)
+            heights = set()
+            for x in range(30, 170):
+                col = [doc.image.getpixel((x, y)) for y in range(100)]
+                heights.add(sum(1 for c in col if c != WHITE))
+            self.assertEqual(heights, {w}, f"筆寬 {w} 的線條粗細不一致：{sorted(heights)}")
+
     def test_line(self):
         self.doc.line((0, 0), (99, 99), "#000000", 3)
         self.assertEqual(px(self.doc, 50, 50), (0, 0, 0))

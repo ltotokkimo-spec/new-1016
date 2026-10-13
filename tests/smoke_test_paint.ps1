@@ -114,6 +114,22 @@ function Assert-Pixel([int]$x, [int]$y, [string]$expected, [string]$step) {
     Write-Host "通過 $step（($x, $y) = $actual）"
 }
 
+function Assert-AllWhite([int]$x1, [int]$y1, [int]$x2, [int]$y2, [string]$step) {
+    $bytes = [IO.File]::ReadAllBytes($exportFile)
+    $ms = New-Object IO.MemoryStream (, $bytes)
+    $bmp = [System.Drawing.Bitmap]::FromStream($ms)
+    $left = 0
+    for ($x = $x1; $x -le $x2; $x++) {
+        for ($y = $y1; $y -le $y2; $y++) {
+            $c = $bmp.GetPixel($x, $y)
+            if ($c.R -ne 255 -or $c.G -ne 255 -or $c.B -ne 255) { $left++ }
+        }
+    }
+    $bmp.Dispose(); $ms.Dispose()
+    if ($left -gt 0) { Save-Shot "失敗畫面"; throw "$step：範圍內還有 $left 個沒擦乾淨的像素" }
+    Write-Host "通過 $step"
+}
+
 $BLACK = "#000000"; $WHITE = "#ffffff"; $RED = "#ed1c24"; $BLUE = "#00a2e8"; $YELLOW = "#ffc90e"
 
 # ---------- 啟動 ----------
@@ -135,6 +151,15 @@ $script:cx = $info.canvas[0]; $script:cy = $info.canvas[1]
 Write-Host "找到視窗「$($app.MainWindowTitle)」，畫布在螢幕 ($cx, $cy)，大小 $($info.canvas[2])x$($info.canvas[3])"
 if ($info.canvas[2] -ne 800 -or $info.canvas[3] -ne 520) { throw "畫布大小不對" }
 Save-Shot "1-start"
+
+# 視窗要完整落在螢幕可用範圍內（不能被工作列擋住）
+$r = New-Object W+RECT
+[W]::GetWindowRect($script:hwnd, [ref]$r) | Out-Null
+$work = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+if ($r.Bottom -gt $work.Bottom + 8 -or $r.Right -gt $work.Right + 8) {
+    throw "視窗超出螢幕可用範圍：視窗 ($($r.Left),$($r.Top))-($($r.Right),$($r.Bottom))，可用範圍 $work"
+}
+Write-Host "通過 視窗在螢幕可用範圍內（視窗下緣 $($r.Bottom)，工作列上緣 $($work.Bottom)）"
 Assert-Pixel 400 260 $WHITE "剛開啟是白色畫布"
 
 # ---------- 畫筆（預設黑色）----------
@@ -174,6 +199,7 @@ Keys "e"
 Drag (Line-Points 150 100 250 100)
 Assert-Pixel 200 100 $WHITE "橡皮擦擦掉黑線"
 Assert-Pixel 120 100 $BLACK "沒擦到的地方還在"
+Assert-AllWhite 152 90 248 110 "橡皮擦擦過的範圍沒有殘留"
 
 # ---------- 滴管 → 用吸到的顏色畫 ----------
 Keys "i"
@@ -214,10 +240,10 @@ Write-Host "通過 選「否」後正常關閉"
 
 # 截圖用 base64 印在紀錄裡，方便不下載也能檢查
 foreach ($f in Get-ChildItem $OutDir -Filter "*.png" | Where-Object { $_.Name -match '^\d-' } | Sort-Object Name) {
-    Write-Host "=====BEGIN $($f.Name)====="
+    Write-Host "=====BEGIN paint-$($f.Name)====="
     $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($f.FullName))
     for ($i = 0; $i -lt $b64.Length; $i += 1000) { Write-Host $b64.Substring($i, [Math]::Min(1000, $b64.Length - $i)) }
-    Write-Host "=====END $($f.Name)====="
+    Write-Host "=====END paint-$($f.Name)====="
 }
 Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Id -eq $launcher.Id } | Stop-Process -Force -ErrorAction SilentlyContinue
 Write-Host "小畫家冒煙測試通過"

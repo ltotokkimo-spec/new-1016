@@ -116,12 +116,19 @@ class PaintDocument:
         self._checkpoint()
         draw = ImageDraw.Draw(self.image)
         rgb = hex_to_rgb(color)
-        r = width / 2
         if len(points) > 1:
             draw.line(points, fill=rgb, width=width)
         if width > 2 or len(points) == 1:
-            for x, y in points:
-                draw.ellipse((x - r, y - r, x + r, y + r), fill=rgb)
+            for p in points:
+                self._dot(draw, p, rgb, width)
+
+    @staticmethod
+    def _dot(draw, point, rgb, width):
+        """畫一個直徑剛好等於筆寬的圓點，接在線段上不會凸出來。"""
+        # 偏移量與 PIL 畫線一致：線寬 w 會涵蓋 -(w-1)//2 到 +w//2
+        x, y = point
+        lo, hi = (width - 1) // 2, width // 2
+        draw.ellipse((x - lo, y - lo, x + hi, y + hi), fill=rgb)
 
     def line(self, p1, p2, color, width):
         self._checkpoint()
@@ -129,9 +136,8 @@ class PaintDocument:
         rgb = hex_to_rgb(color)
         draw.line([p1, p2], fill=rgb, width=width)
         if width > 2:
-            r = width / 2
-            for x, y in (p1, p2):
-                draw.ellipse((x - r, y - r, x + r, y + r), fill=rgb)
+            for p in (p1, p2):
+                self._dot(draw, p, rgb, width)
 
     def rect(self, p1, p2, color, width, filled=False, square=False):
         box = normalize_box(p1, p2, square)
@@ -187,8 +193,7 @@ class PaintApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("小畫家")
-        self.geometry("1040x680")
-        self.minsize(760, 520)
+        self._fit_to_screen(1040, 680)
         self.configure(bg=COLOR_BG)
 
         self.doc = PaintDocument()
@@ -210,6 +215,15 @@ class PaintApp(tk.Tk):
         self._update_title()
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(200, self._grab_focus)
+
+    def _fit_to_screen(self, want_w, want_h):
+        """視窗不超過螢幕（扣掉工作列和標題列），小螢幕上狀態列才不會被擋住。"""
+        w = min(want_w, self.winfo_screenwidth() - 20)
+        h = min(want_h, self.winfo_screenheight() - 110)
+        x = max((self.winfo_screenwidth() - w) // 2, 0)
+        y = max((self.winfo_screenheight() - 80 - h) // 2, 0)
+        self.geometry(f"{w}x{h}+{x}+{y}")
+        self.minsize(min(760, w), min(520, h))
 
     def _grab_focus(self):
         self.lift()

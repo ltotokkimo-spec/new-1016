@@ -38,6 +38,7 @@ class Calculator(tk.Tk):
         self.previous = None
         self.operator = None
         self.just_evaluated = False
+        self.fresh_operand = False  # 剛按完運算子、還沒輸入第二個數
 
         self._build_screen()
         self._build_keys()
@@ -192,9 +193,10 @@ class Calculator(tk.Tk):
             self.expr_var.set(" ")
 
     def _input_number(self, digit):
-        if self.just_evaluated:
+        if self.just_evaluated or self.fresh_operand or self.current == "Error":
             self.current = digit
             self.just_evaluated = False
+            self.fresh_operand = False
         elif self.current == "0":
             self.current = digit
         else:
@@ -204,9 +206,10 @@ class Calculator(tk.Tk):
         self._update_screen()
 
     def _input_decimal(self):
-        if self.just_evaluated:
+        if self.just_evaluated or self.fresh_operand or self.current == "Error":
             self.current = "0."
             self.just_evaluated = False
+            self.fresh_operand = False
         elif "." not in self.current:
             self.current += "."
         self._update_screen()
@@ -229,15 +232,25 @@ class Calculator(tk.Tk):
         return round(num, 10)
 
     def _choose_operator(self, op):
+        if self.current == "Error":
+            return
+        # 連按運算子時只替換運算子，不拿 0 去算
+        if self.fresh_operand:
+            self.operator = op
+            self._update_screen()
+            return
         if self.operator and self.previous is not None and not self.just_evaluated:
             result = self._compute(self.previous, self.current, self.operator)
-            self.previous = 0 if result is None else self._trim_result(result)
-            self.current = self._num_to_str(self.previous)
+            if result is None:
+                self._show_error()
+                return
+            self.previous = self._num_to_str(self._trim_result(result))
         else:
             self.previous = self.current
         self.operator = op
         self.just_evaluated = False
-        self.current = "0"
+        self.fresh_operand = True
+        self.current = self.previous
         self._update_screen()
 
     def _num_to_str(self, num):
@@ -252,17 +265,21 @@ class Calculator(tk.Tk):
             return
         result = self._compute(self.previous, self.current, self.operator)
         if result is None:
-            self.current = "Error"
-            self.result_var.set("Error")
-            self.expr_var.set(" ")
-            self.operator = None
-            self.previous = None
-            self.just_evaluated = True
+            self._show_error()
             return
         self.current = self._num_to_str(self._trim_result(result))
         self.operator = None
         self.previous = None
         self.just_evaluated = True
+        self.fresh_operand = False
+        self._update_screen()
+
+    def _show_error(self):
+        self.current = "Error"
+        self.operator = None
+        self.previous = None
+        self.just_evaluated = True
+        self.fresh_operand = False
         self._update_screen()
 
     def _clear_all(self):
@@ -270,11 +287,14 @@ class Calculator(tk.Tk):
         self.previous = None
         self.operator = None
         self.just_evaluated = False
+        self.fresh_operand = False
         self._update_screen()
 
     def _backspace(self):
-        if self.just_evaluated:
+        if self.just_evaluated or self.current == "Error":
             self._clear_all()
+            return
+        if self.fresh_operand:
             return
         if len(self.current) <= 1 or (len(self.current) == 2 and self.current.startswith("-")):
             self.current = "0"
@@ -283,6 +303,9 @@ class Calculator(tk.Tk):
         self._update_screen()
 
     def _percent(self):
+        if self.current == "Error":
+            return
+        self.fresh_operand = False
         self.current = self._num_to_str(self._trim_result(float(self.current) / 100))
         self._update_screen()
 

@@ -725,13 +725,16 @@ function UpdateCard() {
 /** 把提問複製到剪貼簿，再打開 Claude App（或網頁）並帶入提問 */
 function ClaudeAppButton({ prompt }: { prompt: string }) {
   const [copied, setCopied] = useState<"" | "ok" | "fail">("");
-  const copy = async () => {
-    try { await navigator.clipboard.writeText(prompt); setCopied("ok"); return; } catch { /* 改用舊方法 */ }
+  // 要在離開 App 之前同步複製完，所以先用同步的 execCommand，失敗才用非同步的 clipboard API
+  const copy = () => {
     const ta = document.createElement("textarea");
-    ta.value = prompt; ta.style.position = "fixed"; ta.style.opacity = "0";
+    ta.value = prompt; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
     document.body.appendChild(ta); ta.select();
-    try { setCopied(document.execCommand("copy") ? "ok" : "fail"); } catch { setCopied("fail"); }
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch { /* 改用 clipboard API */ }
     ta.remove();
+    if (ok) { setCopied("ok"); return; }
+    navigator.clipboard?.writeText(prompt).then(() => setCopied("ok"), () => setCopied("fail"));
   };
   return (
     <div class="stack">

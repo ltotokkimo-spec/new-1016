@@ -103,9 +103,11 @@ function check(ok, name, detail = "") {
   log("免費解析", free.slice(0, 1500));
   check(/結論/.test(free) && /趨勢與技術面/.test(free) && /法人籌碼/.test(free) && /支撐/.test(free) && /\d+\/100/.test(free), "免費解析產生結論、技術面、籌碼與支撐壓力", free.slice(0, 120));
   // 營收是另外下載的，等它補上（最多 30 秒）
-  const hasRev = await page.waitForFunction(() => /每月營收/.test(document.querySelector('[data-testid="free-report"]')?.innerText || ""), null, { timeout: 30000 }).then(() => true).catch(() => false);
+  const hasRev = await page.waitForFunction(() => /每月營收（/.test(document.querySelector('[data-testid="free-report"]')?.innerText || ""), null, { timeout: 30000 }).then(() => true).catch(() => false);
+  await page.waitForFunction(() => !/正在下載每月營收/.test(document.body.innerText), null, { timeout: 30000 }).catch(() => {});
   log("免費解析含每月營收", hasRev, JSON.stringify(await page.evaluate(() => window.__srRevenue)));
-  if (hasRev) log("營收段落", (await page.$eval('[data-testid="free-report"]', (e) => e.innerText)).split("每月營收")[1]?.slice(0, 200));
+  if (hasRev) log("營收段落", (await page.$eval('[data-testid="free-report"]', (e) => e.innerText)).split("每月營收（")[1]?.slice(0, 200));
+  check(hasRev, "免費解析含證交所每月營收", JSON.stringify(await page.evaluate(() => window.__srRevenue)));
   await page.evaluate(() => document.querySelector(".sheet .body").scrollTo(0, document.querySelector('[data-testid="free-report"]').offsetTop - 60));
   await sleep(400);
   await shot("03b-免費解析");
@@ -121,12 +123,11 @@ function check(ok, name, detail = "") {
   await shot("03c-開啟Claude");
   await device.shell(`am start -n ${PKG}/.MainActivity`);
   await sleep(2000);
-  log("已複製提問", await page.$('[data-testid="claude-app-copied"]').then((x) => !!x).catch(() => "?"));
+  check(await page.$('[data-testid="claude-app-copied"]').then((x) => !!x).catch(() => false), "按下 Claude App 解析時已複製提問");
   await page.click('button[aria-label="返回"]');
 
-  // ETF 分頁：證交所資料裡的 ETF 單獨評分
+  // ETF 分頁：證交所資料裡的 ETF 單獨評分（只有「全部」，不分評等）
   await page.click(".seg button:nth-child(2)");
-  await page.click(".chips button:nth-child(4)");
   await page.waitForSelector(".item", { timeout: 10000 });
   const etf = await page.evaluate(() => ({
     chips: [...document.querySelectorAll(".chips .chip")].map((c) => c.textContent).join(" "),

@@ -265,7 +265,7 @@ export function getKv() { return kv; }
 export function getFetcher() { return fetcher; }
 
 export async function clearCache() {
-  for (const k of await kv.keys()) if (/^(tw|us|snap):/.test(k)) await kv.del(k);
+  for (const k of await kv.keys()) if (/^(tw2?|us|snap):/.test(k)) await kv.del(k);
   set({ tw: empty(), etf: empty(), us: empty() });
   refreshTw(); refreshUs(); refreshEsb();
 }

@@ -113,6 +113,7 @@ export class TwLoader {
     const total = 10 + 8 + 1;
     let step = 0;
     const companiesP = this.companies();
+    companiesP.catch(() => {}); // 前面步驟失敗時不要留下未處理的錯誤；後面仍會 await 它
     for (const d of candidates) {
       if (dates.length >= 10) break;
       progress(dates.length, total, `三大法人 ${d.slice(4, 6)}/${d.slice(6)}`);

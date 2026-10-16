@@ -81,3 +81,15 @@ describe("buildTwInputs", () => {
     expect(r.trust5).toBe(5000);
   });
 });
+
+describe("清除快取", () => {
+  it("刪掉台股（含新版 tw2）、美股與快照，但保留持股與設定", async () => {
+    const { memoryKV } = await import("../src/lib/kv");
+    const store = await import("../src/store");
+    const kv = memoryKV();
+    for (const k of ["tw2:q:twse:20261016", "tw:companies:202610", "us:bars", "snap:tw", "holdings", "settings", "spend", "reports"]) await kv.set(k, 1);
+    store._inject(kv, async () => { throw new Error("offline"); });
+    await store.clearCache();
+    expect((await kv.keys()).sort()).toEqual(["holdings", "reports", "settings", "spend"]);
+  });
+});

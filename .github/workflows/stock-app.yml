@@ -67,7 +67,8 @@ jobs:
         timeout-minutes: 25
         uses: reactivecircus/android-emulator-runner@v2
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Claude AI 實測會花 API 額度（約 US$1.5/次），只有手動執行時才測；平常推送不花錢
+          ANTHROPIC_API_KEY: ${{ github.event_name == 'workflow_dispatch' && secrets.ANTHROPIC_API_KEY || '' }}
         with:
           api-level: 34
           arch: x86_64

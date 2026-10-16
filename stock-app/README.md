@@ -39,6 +39,6 @@ npm run dev               # 瀏覽器開發；網路會經過 /proxy 轉發
 FIXTURE_DIR=<資料夾> npm run dev   # 用存下來的真實回應開發（連不到交易所時）
 npm run build && npx cap sync android && (cd android && ./gradlew assembleDebug)
 ```
-GitHub Actions（`.github/workflows/stock-app.yml`）會打包 APK、在 Android 模擬器上用真實網路資料實測（`tools/e2e-android.cjs`），通過後發布到 Releases。若在 repo 的 Secrets 設定 `ANTHROPIC_API_KEY`，會一併實測照片辨識與 AI 解析。
+GitHub Actions（`.github/workflows/stock-app.yml`）會打包 APK、在 Android 模擬器上用真實網路資料實測（`tools/e2e-android.cjs`），通過後發布到 Releases。若在 repo 的 Secrets 設定 `ANTHROPIC_API_KEY`，手動執行（workflow_dispatch）時會一併實測照片辨識與 AI 解析（約花 US$1.5）；平常推送不會呼叫 Claude、不花錢。
 
 > 本 App 為個人研究工具，評等依公開數據以固定規則計算，AI 解析可能有誤，不構成投資建議。

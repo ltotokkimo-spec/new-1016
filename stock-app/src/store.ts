@@ -10,6 +10,9 @@ import { scoreStocks, reviewHolding, type Holding, type HoldingView, type Scored
 import type { AiReport } from "./ai/claude";
 import { taipeiToday } from "./lib/dates";
 import * as upd from "./lib/update";
+import type { BacktestResult } from "./engine/backtest";
+
+export const BACKTEST_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/backtest.json";
 
 export type Market = "TW" | "ETF" | "US";
 
@@ -53,6 +56,7 @@ export interface State {
     info?: upd.UpdateInfo; error?: string; done?: number; total?: number;
   };
   spend: { at: number; usd: number; kind: string }[]; // 這支手機呼叫 Claude 的實際花費紀錄
+  backtest?: { data: BacktestResult; fetchedAt: number };
   loaded: boolean;
 }
 
@@ -96,6 +100,9 @@ export async function init() {
     kv.get<TwSnapshot>("snap:tw"), kv.get<UsSnapshot>("snap:us"), kv.get<State["spend"]>("spend"),
     kv.get<EsbSnapshot>("snap:esb"),
   ]);
+  const bt = await kv.get<State["backtest"]>("backtest");
+  if (bt) set({ backtest: bt });
+  if (!bt || Date.now() - bt.fetchedAt > 6 * 3600_000) refreshBacktest();
   // 舊版快照沒有 ETF，直接當作沒有資料重抓
   const twSnap = twSnap0?.version === TW_SNAPSHOT_VERSION ? twSnap0 : undefined;
   mark("kvRead");
@@ -293,3 +300,14 @@ export async function installUpdate() {
 /** 自動測試用：假裝有新版，測試下載與安裝流程（手機上一般不會用到） */
 (globalThis as any).__srForceUpdate = () =>
   set({ update: { status: "ready", info: { current: state.update.info?.current, latest: { versionCode: 999999, versionName: "測試版", notes: "測試下載流程" }, available: true } } });
+
+// ---------- 回測結果（GitHub Actions 算好，App 只下載） ----------
+export async function refreshBacktest() {
+  try {
+    const data = (await fetcher(`${BACKTEST_URL}?t=${Date.now()}`)) as BacktestResult;
+    if (data?.version !== 1 || !data.stocks) return;
+    const bt = { data, fetchedAt: Date.now() };
+    await kv.set("backtest", bt);
+    set({ backtest: bt });
+  } catch { /* 回測只是參考，下載失敗就沿用上次的結果 */ }
+}

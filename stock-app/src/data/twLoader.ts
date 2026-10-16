@@ -12,8 +12,8 @@ import type { StockInput } from "../engine/score";
 export type Progress = (done: number, total: number, label: string) => void;
 
 // 精簡格式存檔：[代號, 名稱, 收盤, 漲跌, 成交金額, 成交股數]
-type QRow = [string, string, number, number, number, number];
-type FRow = [string, number, number, number]; // [代號, 外資, 投信, 自營]
+export type QRow = [string, string, number, number, number, number];
+export type FRow = [string, number, number, number]; // [代號, 外資, 投信, 自營]
 
 interface DayQuotes { rows: QRow[]; indices?: MarketIndex[] }
 const HOLIDAY = { holiday: true } as const;

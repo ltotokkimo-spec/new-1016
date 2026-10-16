@@ -42,6 +42,7 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
         ))}
         {sector && <button class="chip" aria-pressed="true" onClick={() => setSector("")}>{sector} ✕</button>}
       </div>
+      <BacktestCard market={market} />
       {ms.error && <div class="error" style={{ marginTop: "10px" }}>{ms.error}</div>}
       {ms.warning && <div class="notice" style={{ marginTop: "10px" }}>{ms.warning}</div>}
       {ms.status === "loading" && <Progress p={ms.progress} />}
@@ -103,6 +104,95 @@ function StockRow({ s, onClick }: { s: Scored; onClick: () => void }) {
         <div class="score num">{s.score} 分</div>
       </div>
     </button>
+  );
+}
+
+// ---------------- 回測 ----------------
+type BtGroup = "買入" | "觀望" | "離場" | "全部";
+
+/** 選股頁上方的回測摘要：這套評等過去準不準 */
+function BacktestCard({ market }: { market: Market }) {
+  const bt = useStore((s) => s.backtest);
+  const [open, setOpen] = useState(false);
+  if (market === "US" || !bt) return null;
+  const u = market === "ETF" ? bt.data.etf : bt.data.stocks;
+  const b = u.groups["買入"][20], a = u.groups["全部"][20];
+  if (!u.signals || !b || !a) return null;
+  const word = market === "ETF" ? "ETF" : "股票";
+  return (
+    <>
+      <button class="card" style={{ width: "100%", textAlign: "left", marginTop: "10px", cursor: "pointer", display: "block" }} onClick={() => setOpen(true)} data-testid="backtest-card">
+        <div class="row" style={{ justifyContent: "space-between" }}>
+          <b style={{ fontSize: "14px" }}>回測參考：評「買入」之後 20 個交易日</b>
+          <span class="muted" style={{ fontSize: "12px" }}>詳情 ›</span>
+        </div>
+        <div class="num" style={{ marginTop: "6px", fontSize: "14px", lineHeight: 1.7 }}>
+          平均 <span class={cls(b.avg)}>{fmtPct(b.avg)}</span>・上漲機率 {Math.round(b.win * 100)}%
+          <span class="muted">（全部{word}平均 <span class={cls(a.avg)}>{fmtPct(a.avg)}</span>）</span>
+        </div>
+        <div class="muted" style={{ fontSize: "12px" }}>{pretty(bt.data.from)}～{pretty(bt.data.to)} 每週評等一次，共 {u.signals} 次・過去表現不代表未來</div>
+      </button>
+      {open && <BacktestSheet market={market} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+function BacktestSheet({ market, onClose }: { market: Market; onClose: () => void }) {
+  const bt = useStore((s) => s.backtest)!;
+  const u = market === "ETF" ? bt.data.etf : bt.data.stocks;
+  const word = market === "ETF" ? "ETF" : "股票";
+  const row = (g: BtGroup, h: 5 | 20) => {
+    const x = u.groups[g][h];
+    return (
+      <tr>
+        <td>{g === "全部" ? `全部${word}` : <RatingPill rating={g} />}</td>
+        <td class="num">{x ? x.n.toLocaleString() : "—"}</td>
+        <td class={`num ${cls(x?.avg)}`}>{fmtPct(x?.avg)}</td>
+        <td class={`num ${cls(x?.median)}`}>{fmtPct(x?.median)}</td>
+        <td class="num">{x ? `${Math.round(x.win * 100)}%` : "—"}</td>
+        <td class="num">{x && g !== "全部" ? `${Math.round(x.beat * 100)}%` : "—"}</td>
+      </tr>
+    );
+  };
+  return (
+    <Sheet title={`回測：${market === "ETF" ? "ETF" : "台股"}評等準不準`} onClose={onClose}>
+      <div class="notice" style={{ lineHeight: 1.7 }}>
+        方法：從 {pretty(bt.data.from)} 到 {pretty(bt.data.to)}，每 5 個交易日用和 App 完全相同的規則重新評等一次，再看每檔{word}之後 5 天、20 天的實際漲跌（已還原除權息）。資料來自證交所與櫃買中心，每次更新 App 資料時會一起下載最新結果。
+      </div>
+      {([5, 20] as const).map((h) => (
+        <>
+          <div class="section-title"><span>之後 {h} 個交易日</span></div>
+          <div class="scroll-x">
+            <table class="sectors">
+              <thead><tr><th>評等</th><th>樣本</th><th>平均</th><th>中位數</th><th>上漲機率</th><th>贏過平均</th></tr></thead>
+              <tbody>{(["買入", "觀望", "離場", "全部"] as const).map((g) => row(g, h))}</tbody>
+            </table>
+          </div>
+        </>
+      ))}
+      <div class="section-title"><span>每次評等的結果（買入 vs 全部平均）</span></div>
+      <div class="scroll-x">
+        <table class="sectors">
+          <thead><tr><th>評等日</th><th>買入檔數</th><th>買入 5日</th><th>全部 5日</th><th>買入 20日</th><th>全部 20日</th></tr></thead>
+          <tbody>
+            {u.series.map((r) => (
+              <tr>
+                <td class="num">{pretty(r.date)}</td>
+                <td class="num">{r.nBuy}</td>
+                <td class={`num ${cls(r.buy[5])}`}>{fmtPct(r.buy[5])}</td>
+                <td class={`num ${cls(r.all[5])}`}>{fmtPct(r.all[5])}</td>
+                <td class={`num ${cls(r.buy[20])}`}>{fmtPct(r.buy[20])}</td>
+                <td class={`num ${cls(r.all[20])}`}>{fmtPct(r.all[20])}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p class="muted" style={{ fontSize: "12px", lineHeight: 1.7 }}>
+        怎麼看：「買入」的平均和上漲機率如果明顯高於「全部」，代表這套評等過去有參考價值；「贏過平均」是同一天評等的{word}中，之後表現贏過全部平均的比例（50% 表示和亂選差不多）。
+        注意：只有約 6 個月的資料，不同行情（多頭、空頭）結果可能差很多；沒有計算手續費與交易稅；最近 20 天內的評等還沒有 20 日結果。過去表現不代表未來，僅供參考。
+      </p>
+    </Sheet>
   );
 }
 

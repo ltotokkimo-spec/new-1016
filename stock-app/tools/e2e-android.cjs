@@ -55,7 +55,18 @@ function check(ok, name, detail = "") {
   await shot("01-啟動下載中");
 
   // ---------- 台股：真實證交所／櫃買資料 ----------
-  await page.waitForSelector(".item", { timeout: 8 * 60_000 });
+  // 每 30 秒記錄下載進度；卡住時印出原生網路紀錄方便查原因
+  const watch = setInterval(async () => {
+    const t = await page.evaluate(() => document.querySelector(".progress")?.innerText.replace(/\s+/g, " ") || "（沒有進度列）").catch(() => "?");
+    log("下載進度", t);
+  }, 30_000);
+  try {
+    await page.waitForSelector(".item", { timeout: 8 * 60_000 });
+  } catch (e) {
+    log("原生紀錄", String(await device.shell("logcat -d -t 400 | grep -iE 'capacitor|http|socket|ssl|timeout|exception' | tail -80")));
+    log("連線測試", String(await device.shell("ping -c 2 -W 3 www.twse.com.tw; ping -c 2 -W 3 www.tpex.org.tw")));
+    throw e;
+  } finally { clearInterval(watch); }
   log("台股資料載入完成", JSON.stringify(await page.evaluate(() => window.__srTimings)));
   await sleep(800);
   const tw = await page.evaluate(() => ({

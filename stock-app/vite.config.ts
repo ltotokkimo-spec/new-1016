@@ -49,6 +49,7 @@ function fixtureFor(dir: string, url: string): string | null {
   if (u.pathname.includes("STOCK_DAY")) return pick("twse_stock_day.json");
   if (u.pathname.includes("tradingStock")) return pick("tpex_stock_hist.json");
   if (u.pathname.includes("tpex_esb_latest_statistics")) return pick("esb_latest.json");
+  if (u.pathname.endsWith("/backtest.json")) return pick("backtest.json");
   return null;
 }
 

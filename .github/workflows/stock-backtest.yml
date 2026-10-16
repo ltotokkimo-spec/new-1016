@@ -5,9 +5,7 @@ on:
   push:
     branches: [ main, 'claude/**' ]
     paths: [ 'stock-app/src/engine/**', 'stock-app/src/data/**', 'stock-app/tools/backtest.ts', '.github/workflows/stock-backtest.yml' ]
-  workflow_dispatch:
-  schedule:
-    - cron: '40 10 * * 1-5' # 台灣時間 18:40（證交所資料公布後）；只在預設分支有效
+  workflow_dispatch: # 每天由預設分支的 stock-backtest-daily.yml 觸發（台灣時間 18:40）
 
 permissions:
   contents: write

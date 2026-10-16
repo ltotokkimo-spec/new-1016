@@ -34,8 +34,18 @@ function check(ok, name, detail = "") {
     log("截圖", name, buf.length);
   };
   await device.shell(`am start -n ${PKG}/.MainActivity`);
-  const webview = await withTimeout(device.webView({ pkg: PKG }), 90_000, "等待 App 的 WebView");
-  const page = await withTimeout(webview.page(), 60_000, "連接 WebView 頁面");
+  // 模擬器剛開機時，App 第一次啟動偶爾會被系統重建一次畫面，舊的連線就會斷掉；斷掉就重新連
+  let webview, page;
+  for (let attempt = 1; ; attempt++) {
+    webview = await withTimeout(device.webView({ pkg: PKG }), 90_000, "等待 App 的 WebView");
+    page = await withTimeout(webview.page(), 60_000, "連接 WebView 頁面");
+    await sleep(10000);
+    if (!page.isClosed()) break;
+    log(`App 畫面連線中斷（第 ${attempt} 次），重新連接`, String(await device.shell("logcat -d -b crash -t 30")).slice(-1500));
+    if (attempt >= 3) throw new Error("App 畫面一直中斷");
+    await device.shell(`am start -n ${PKG}/.MainActivity`);
+    await sleep(2000);
+  }
   log("已連上 App 畫面");
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));

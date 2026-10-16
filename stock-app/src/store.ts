@@ -9,6 +9,7 @@ import { cnbcUrl, MACRO_SYMBOLS, parseCnbcQuotes, type MacroQuote } from "./data
 import { scoreStocks, reviewHolding, type Holding, type HoldingView, type Scored, type SectorStat } from "./engine/score";
 import type { AiReport } from "./ai/claude";
 import { taipeiToday } from "./lib/dates";
+import * as upd from "./lib/update";
 
 export type Market = "TW" | "ETF" | "US";
 
@@ -23,7 +24,17 @@ export interface MarketState {
   fetchedAt?: number;
 }
 
-export interface Settings { apiKey: string }
+export interface Settings {
+  apiKey: string;
+  balance?: { usd: number; at: number }; // 使用者從官網抄下來的餘額與時間
+}
+
+/** 估計剩餘額度＝使用者填的餘額 − 填寫之後這支手機的花費 */
+export function estimatedBalance(s: State = state): number | undefined {
+  const b = s.settings.balance;
+  if (!b) return undefined;
+  return b.usd - s.spend.filter((x) => x.at > b.at).reduce((a, x) => a + x.usd, 0);
+}
 
 export interface State {
   tw: MarketState;
@@ -37,7 +48,11 @@ export interface State {
   settings: Settings;
   reports: Record<string, AiReport>; // key: "stock:2330:20261016" / "brief:20261016"
   prices: Record<string, { name: string; close: number }>;
-  spend: { at: number; usd: number; kind: string }[]; // 這支手機呼叫 Claude 的實際花費紀錄 // 全市場收盤價（含未評分的低成交股）
+  update: {
+    status: "idle" | "checking" | "ready" | "error" | "downloading" | "installing" | "needPermission";
+    info?: upd.UpdateInfo; error?: string; done?: number; total?: number;
+  };
+  spend: { at: number; usd: number; kind: string }[]; // 這支手機呼叫 Claude 的實際花費紀錄
   loaded: boolean;
 }
 
@@ -46,7 +61,7 @@ const starting = (): MarketState => ({ status: "loading", scored: [], sectors: [
 
 let state: State = {
   tw: starting(), etf: starting(), us: starting(), esb: {}, twIndices: [], usSectorEtfs: [],
-  macro: { status: "idle", quotes: [] }, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], loaded: false,
+  macro: { status: "idle", quotes: [] }, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], update: { status: "idle" }, loaded: false,
 };
 const listeners = new Set<() => void>();
 
@@ -94,6 +109,7 @@ export async function init() {
   if (!usSnap || taipeiToday(usSnap.fetchedAt) !== today) refreshUs();
   if (!esbSnap || taipeiToday(esbSnap.fetchedAt) !== today || Date.now() - esbSnap.fetchedAt > 3 * 3600_000) refreshEsb();
   refreshMacro();
+  if (upd.isNative()) checkForUpdate();
 }
 
 function pricesOf(stocks: { code: string; name: string; close: number }[]) {
@@ -246,3 +262,34 @@ export async function clearCache() {
   set({ tw: empty(), etf: empty(), us: empty() });
   refreshTw(); refreshUs(); refreshEsb();
 }
+
+// ---------- App 內更新 ----------
+export async function checkForUpdate() {
+  set({ update: { ...state.update, status: "checking", error: undefined } });
+  try {
+    set({ update: { status: "ready", info: await upd.checkUpdate() } });
+  } catch (e: any) {
+    const current = await upd.currentVersion().catch(() => undefined);
+    set({ update: { status: "error", info: { current, available: false }, error: `檢查更新失敗：${e?.message ?? e}` } });
+  }
+}
+
+export async function installUpdate() {
+  const info = state.update.info;
+  if (!(await upd.canInstall())) {
+    set({ update: { status: "needPermission", info } });
+    await upd.openInstallSettings();
+    return;
+  }
+  set({ update: { status: "downloading", info, done: 0, total: 0 } });
+  try {
+    await upd.downloadAndInstall((done, total) => set({ update: { status: "downloading", info, done, total } }));
+    set({ update: { status: "installing", info } });
+  } catch (e: any) {
+    set({ update: { status: "error", info, error: `下載更新失敗：${e?.message ?? e}` } });
+  }
+}
+
+/** 自動測試用：假裝有新版，測試下載與安裝流程（手機上一般不會用到） */
+(globalThis as any).__srForceUpdate = () =>
+  set({ update: { status: "ready", info: { current: state.update.info?.current, latest: { versionCode: 999999, versionName: "測試版", notes: "測試下載流程" }, available: true } } });

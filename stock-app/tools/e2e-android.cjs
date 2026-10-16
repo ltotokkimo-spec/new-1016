@@ -237,6 +237,44 @@ function check(ok, name, detail = "") {
     log("沒有設定 ANTHROPIC_API_KEY，跳過 Claude AI 實測");
   }
 
+  // ---------- App 內更新：檢查版本、權限、從 GitHub 下載並打開系統安裝畫面 ----------
+  const fg = async () => String(await device.shell("dumpsys activity activities | grep -m1 -E 'topResumedActivity|mResumedActivity'"));
+  await page2.click("nav.tabs button:nth-child(5)");
+  await page2.waitForSelector('[data-testid="update-card"]', { timeout: 10000 });
+  await page2.waitForFunction(() => /已是最新版本|有新版本|檢查更新失敗/.test(document.querySelector('[data-testid="update-card"]').innerText), null, { timeout: 60000 });
+  const card = await page2.$eval('[data-testid="update-card"]', (e) => e.innerText.replace(/\s+/g, " "));
+  log("更新", card);
+  const run = process.env.GITHUB_RUN_NUMBER || "0";
+  check(card.includes(`目前版本 1.0.${run}`), "App 讀到自己的版本號", card);
+  // 上一版還沒有 version.json 時會是 404，之後的版本都要讀得到
+  check(/已是最新版本/.test(card) || /HTTP 404/.test(card), "檢查更新可以讀到 GitHub 上的最新版資訊", card);
+  await page2.evaluate(() => window.__srForceUpdate());
+  await device.shell(`appops set ${PKG} REQUEST_INSTALL_PACKAGES default`);
+  await page2.click('[data-testid="install-update"]');
+  await sleep(3000);
+  const f1 = await fg();
+  log("沒有安裝權限時", f1);
+  check(/settings/i.test(f1), "第一次更新會打開「允許安裝」設定頁", f1);
+  await shot("12-更新-允許安裝設定");
+  await device.shell("input keyevent 4");
+  await sleep(1500);
+  await device.shell(`appops set ${PKG} REQUEST_INSTALL_PACKAGES allow`);
+  await page2.click('[data-testid="install-update"]');
+  let f2 = "";
+  for (let i = 0; i < 90; i++) {
+    await sleep(2000);
+    f2 = await fg();
+    if (/packageinstaller/i.test(f2)) break;
+    const st = await page2.evaluate(() => document.querySelector('[data-testid="update-card"]')?.innerText || "").catch(() => "");
+    if (/下載更新失敗/.test(st)) { f2 = st; break; }
+  }
+  log("下載後", f2);
+  check(/packageinstaller/i.test(f2), "從 GitHub 下載新版並打開 Android 安裝畫面", f2);
+  await sleep(1500);
+  await shot("13-更新-安裝畫面");
+  await device.shell("input keyevent 4");
+  await sleep(1000);
+
   log("美股提示", await page2.evaluate(() => document.querySelector("main .notice")?.textContent || "無"));
   log("console 錯誤", JSON.stringify(errors));
   // 網路請求失敗（例如某檔美股一時下載不到）App 會顯示提示並允許重試，這裡只檢查程式本身的錯誤

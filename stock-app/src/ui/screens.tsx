@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
   findScored, getFetcher, getKv, getState, holdingViews, refreshEsb, refreshMacro, refreshTw, refreshUs, saveHoldings, saveReport,
-  saveSettings, clearCache, useStore, usBars, recordSpend, type Market,
+  saveSettings, clearCache, useStore, usBars, recordSpend, estimatedBalance, checkForUpdate, installUpdate, type Market,
 } from "../store";
 import type { Holding, Rating, Scored, SectorStat } from "../engine/score";
 import { analyzeStock, client, explainError, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
@@ -234,6 +234,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
           {busy ? "Claude 搜尋與分析中（約 2 分鐘）…" : report ? "重新解析" : "AI 深度解析"}
         </button>
         {!apiKey && <div class="muted" style={{ fontSize: "13px", textAlign: "center" }}>先到「設定」貼上 Claude API 金鑰才能使用</div>}
+        {apiKey && <BalanceHint />}
         {!holding && <button class="btn secondary block" onClick={() => setAdding(true)}>加入我的持股</button>}
       </div>
       {adding && <HoldingForm initial={{ code: s.code, name: s.name, market: s.market, shares: 1000, cost: s.close }} onDone={() => setAdding(false)} />}
@@ -519,11 +520,71 @@ export function MacroScreen() {
         {busy ? "Claude 搜尋與分析中（約 3~4 分鐘）…" : report ? "重新解讀" : "產生今日解讀"}
       </button>
       {!st.apiKey && <div class="muted" style={{ fontSize: "13px", textAlign: "center", marginTop: "8px" }}>先到「設定」貼上 Claude API 金鑰</div>}
+      {st.apiKey && <div style={{ marginTop: "8px" }}><BalanceHint /></div>}
     </div>
   );
 }
 
 // ---------------- 設定 ----------------
+// ---------------- App 更新 ----------------
+function UpdateBody({ compact }: { compact?: boolean }) {
+  const u = useStore((s) => s.update);
+  const latest = u.info?.latest;
+  const pct = u.total ? Math.round(((u.done ?? 0) / u.total) * 100) : 0;
+  if (u.status === "downloading") return (
+    <div class="stack">
+      <div>正在下載新版 {latest?.versionName}… {u.total ? `${pct}%（${((u.done ?? 0) / 1e6).toFixed(1)} / ${(u.total / 1e6).toFixed(1)} MB）` : ""}</div>
+      <div class="bar"><i style={{ width: `${pct}%` }} /></div>
+    </div>
+  );
+  if (u.status === "installing") return <div>下載完成，請在跳出的畫面按「更新」。資料和持股都會保留。</div>;
+  if (u.status === "needPermission") return (
+    <div class="stack">
+      <div>第一次更新需要允許：請在剛打開的設定頁開啟「允許安裝這個來源的應用程式」，回到 App 再按一次「立即更新」。</div>
+      <button class="btn block" onClick={installUpdate}>立即更新</button>
+    </div>
+  );
+  if (u.info?.available && latest) return (
+    <div class="stack">
+      <div><b>有新版本 {latest.versionName}</b>{compact ? "" : `（目前 ${u.info.current?.versionName}）`}</div>
+      {latest.notes && <div class="muted" style={{ fontSize: "13px", lineHeight: 1.6, whiteSpace: "pre-line" }}>{latest.notes}</div>}
+      <button class="btn block" onClick={installUpdate} data-testid="install-update">立即更新</button>
+    </div>
+  );
+  return null;
+}
+
+/** 有新版時顯示在每個分頁最上面 */
+export function UpdateBanner() {
+  const u = useStore((s) => s.update);
+  if (!(u.info?.available || u.status === "downloading" || u.status === "installing" || u.status === "needPermission")) return null;
+  return <div class="card" style={{ marginBottom: "12px", borderColor: "var(--accent)" }} data-testid="update-banner"><UpdateBody compact /></div>;
+}
+
+function UpdateCard() {
+  const u = useStore((s) => s.update);
+  const cur = u.info?.current;
+  return (
+    <div class="card stack" data-testid="update-card">
+      <div class="row" style={{ justifyContent: "space-between" }}>
+        <div>目前版本 <span class="num">{cur?.versionName ?? "—"}</span></div>
+        <button class="btn secondary" disabled={u.status === "checking" || u.status === "downloading"} onClick={checkForUpdate}>{u.status === "checking" ? "檢查中…" : "檢查更新"}</button>
+      </div>
+      {u.error && <div class="error">{u.error}</div>}
+      {u.status === "ready" && !u.info?.available && <div class="muted" data-testid="up-to-date">已是最新版本{u.info?.latest ? `（最新 ${u.info.latest.versionName}）` : ""}</div>}
+      <UpdateBody />
+      <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>每次打開 App 會自動檢查；有新版會在畫面最上方提示，按「立即更新」就會在 App 裡下載並安裝，持股與設定都會保留。</div>
+    </div>
+  );
+}
+
+/** 付費按鈕下方的小字：估計剩餘額度 */
+function BalanceHint() {
+  const left = useStore((s) => estimatedBalance(s));
+  if (left === undefined) return null;
+  return <div class={`num ${left < 1 ? "down" : "muted"}`} style={{ fontSize: "13px", textAlign: "center" }}>估計剩餘額度 US${left.toFixed(2)}{left < 1 ? "，快用完了" : ""}</div>;
+}
+
 function SpendCard() {
   const spend = useStore((s) => s.spend);
   const now = new Date();
@@ -536,8 +597,37 @@ function SpendCard() {
     k.n++; k.usd += x.usd; byKind.set(x.kind, k);
   }
   const twd = (usd: number) => `約台幣 ${Math.round(usd * 32)} 元`;
+  const settings = useStore((s) => s.settings);
+  const left = useStore((s) => estimatedBalance(s));
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState("");
+  const [err, setErr] = useState("");
+  const saveBal = async () => {
+    const v = Number(val.replace(/[^\d.]/g, ""));
+    if (!val.trim() || !Number.isFinite(v)) return setErr("請輸入官網顯示的金額，例如 2.05");
+    await saveSettings({ ...settings, balance: { usd: v, at: Date.now() } });
+    setEditing(false); setErr("");
+  };
+  const b = settings.balance;
   return (
     <div class="card stack">
+      <div class="metric" data-testid="balance">
+        <div class="k">估計剩餘額度</div>
+        {left === undefined
+          ? <div class="v muted" style={{ fontSize: "15px" }}>尚未填入</div>
+          : <><div class={`v num ${left < 1 ? "down" : ""}`}>US${left.toFixed(2)}</div>
+            <div class="d muted">{twd(Math.max(left, 0))}・{new Date(b!.at).toLocaleDateString("zh-TW")} 填入 US${b!.usd.toFixed(2)}，之後花了 US${(b!.usd - left).toFixed(2)}</div></>}
+        {left !== undefined && left < 1 && <div class="d down">額度快用完了，請到官網儲值，儲值後再更新這裡的金額</div>}
+      </div>
+      {editing ? (
+        <div class="stack">
+          <label class="field">官網顯示的 Credit balance（美元）<input inputMode="decimal" value={val} onInput={(e) => setVal((e.target as HTMLInputElement).value)} placeholder="例如 2.05" id="balance-input" /></label>
+          {err && <div class="error">{err}</div>}
+          <div class="row"><button class="btn" style={{ flex: 1 }} onClick={saveBal}>儲存餘額</button><button class="btn secondary" onClick={() => setEditing(false)}>取消</button></div>
+        </div>
+      ) : (
+        <button class="btn secondary block" onClick={() => { setVal(b ? b.usd.toFixed(2) : ""); setEditing(true); }}>{b ? "更新餘額（儲值後）" : "填入目前餘額"}</button>
+      )}
       <div class="grid2">
         <div class="metric"><div class="k">本月花費</div><div class="v num">US${sum(month).toFixed(2)}</div><div class="d muted">{twd(sum(month))}</div></div>
         <div class="metric"><div class="k">累計花費</div><div class="v num">US${sum(spend).toFixed(2)}</div><div class="d muted">{spend.length} 次呼叫</div></div>
@@ -548,7 +638,7 @@ function SpendCard() {
         </div>
       )}
       <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
-        這是 App 依 Claude 回傳的用量自己算的，只包含這支手機的使用；Anthropic 沒有開放用一般金鑰查詢剩餘額度，實際餘額請到官網查看。
+        花費是 App 依 Claude 回傳的用量自己算的，只包含這支手機的使用。Anthropic 沒有開放用金鑰查詢餘額，所以剩餘額度要你從官網抄一次，之後 App 會自動扣掉每次的花費；儲值後再按「更新餘額」。
       </div>
       <a class="btn secondary block" href="https://platform.claude.com/settings/billing" target="_blank" rel="noreferrer">查看剩餘額度／儲值</a>
     </div>
@@ -588,8 +678,10 @@ export function SettingsScreen() {
           金鑰只存在這支手機裡，直接用來呼叫 Anthropic。到 platform.claude.com 建立金鑰並儲值。使用模型：{MODEL}。
         </div>
       </div>
-      <div class="section-title"><span>Claude 花費</span></div>
+      <div class="section-title"><span>Claude 額度與花費</span></div>
       <SpendCard />
+      <div class="section-title"><span>App 更新</span></div>
+      <UpdateCard />
       <div class="section-title"><span>資料</span></div>
       <div class="card stack">
         <div class="row">

@@ -27,7 +27,14 @@ export function explainError(e: unknown): string {
 }
 
 export interface Source { title: string; url: string }
-export interface AiReport { text: string; sources: Source[]; model: string; at: number }
+export interface AiReport { text: string; sources: Source[]; model: string; at: number; costUsd?: number }
+
+// Claude Opus 5.5 價格：輸入 $4、輸出 $20（每百萬 tokens），快取讀取 $0.20、寫入 $5；網路搜尋每次 $0.01
+export function costOf(u: any): number {
+  if (!u) return NaN;
+  return ((u.input_tokens ?? 0) * 4 + (u.output_tokens ?? 0) * 20 + (u.cache_read_input_tokens ?? 0) * 0.2 + (u.cache_creation_input_tokens ?? 0) * 5) / 1e6
+    + (u.server_tool_use?.web_search_requests ?? 0) * 0.01;
+}
 
 function collect(msg: Anthropic.Beta.BetaMessage): AiReport {
   if (msg.stop_reason === "refusal") throw new AiError("Claude 這次沒有回答，請換個方式再試一次");
@@ -44,7 +51,7 @@ function collect(msg: Anthropic.Beta.BetaMessage): AiReport {
     }
   }
   if (!text.trim()) throw new AiError("Claude 沒有產生內容，請再試一次");
-  return { text: text.trim(), sources: [...sources.values()].slice(0, 12), model: msg.model, at: Date.now() };
+  return { text: text.trim(), sources: [...sources.values()].slice(0, 12), model: msg.model, at: Date.now(), costUsd: costOf(msg.usage) };
 }
 
 const SYSTEM = `你是台灣投資人的私人研究助理，用繁體中文、台灣慣用語回答。
@@ -62,6 +69,8 @@ export function stockBrief(s: Scored, holding?: Holding): string {
   const lines = [
     `股票：${s.name}（${s.code}，${s.market === "US" ? "美股" : s.market === "TPEX" ? "上櫃" : "上市"}，${s.sector}）`,
     `收盤價：${s.close}`,
+    `當日成交金額：${s.market === "US" ? `${(s.value / 1e6).toFixed(0)} 百萬美元` : `${(s.value / 1e8).toFixed(2)} 億元`}`,
+    ...(s.foreignRatio5 !== undefined && Number.isFinite(s.foreignRatio5) ? [`外資 5 日買賣超金額約佔 5 日成交金額 ${(s.foreignRatio5 * 100).toFixed(1)}%（以當日成交金額估算）`] : []),
     `報酬：近1週 ${fmtPct(s.ret1w)}、近1月 ${fmtPct(s.ret1m)}、近3月 ${fmtPct(s.ret3m)}`,
     `App 評分：${s.score}/100（動能 ${Math.round(s.momentum * 100)}、${s.market === "US" ? "趨勢" : "籌碼"} ${Math.round(s.flow * 100)}、族群 ${Math.round(s.sectorScore * 100)}），規則評等：${s.rating}`,
     ...s.reasons.map((r) => `- ${r}`),
@@ -98,7 +107,7 @@ ${stockBrief(s, holding)}
 3. 近期新聞與公司事件（搜尋最近消息：法說會、營收、訂單、產品）
 4. 國內外數據發表的影響（搜尋最近一週發表的總經數據與央行動態，說明對這檔股票的影響）
 5. 風險與觀察重點（什麼情況要改變評等，例如跌破哪個價位或外資轉賣）${holding ? "\n6. 針對我的持股：續抱、加碼、減碼或停損的建議" : ""}`;
-  return run(apiKey, prompt, 6);
+  return run(apiKey, prompt, 12);
 }
 
 export function marketBrief(apiKey: string, today: string, sectorsTw: SectorStat[], sectorsUs: SectorStat[], macro: MacroQuote[], top: Scored[]) {
@@ -124,7 +133,7 @@ ${top.slice(0, 10).map((s) => `${s.name}(${s.code}) ${s.score}分 ${s.rating}`).
 3. 接下來一週要注意的數據與事件（日期）
 4. 族群輪動解讀：資金從哪裡流到哪裡、外資動向
 5. 操作建議：哪些族群偏多、哪些要避開`;
-  return run(apiKey, prompt, 8);
+  return run(apiKey, prompt, 12);
 }
 
 // ---------- 照片辨識持股 ----------

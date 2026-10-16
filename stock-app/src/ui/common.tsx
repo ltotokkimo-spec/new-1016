@@ -72,9 +72,29 @@ export function Markdown({ text }: { text: string }) {
     out.push(list.ordered ? <ol key={out.length}>{items}</ol> : <ul key={out.length}>{items}</ul>);
     list = null;
   };
+  let table: string[][] | null = null;
+  const flushTable = () => {
+    if (!table) return;
+    const [head, ...body] = table;
+    out.push(
+      <div class="table-wrap" key={out.length}><table>
+        <thead><tr>{head.map((c) => <th>{inline(c)}</th>)}</tr></thead>
+        <tbody>{body.map((r) => <tr>{r.map((c) => <td>{inline(c)}</td>)}</tr>)}</tbody>
+      </table></div>);
+    table = null;
+  };
   for (const raw of text.split("\n")) {
     const line = raw.trim();
     let m: RegExpExecArray | null;
+    // Markdown 表格：| a | b |；分隔列 |---|---| 略過
+    if (/^\|.*\|$/.test(line)) {
+      flush();
+      if (/^\|[\s:|-]+\|$/.test(line)) continue;
+      (table ??= []).push(line.slice(1, -1).split("|").map((c) => c.trim()));
+      continue;
+    }
+    if (!line && table) continue; // 表格列之間的空行
+    flushTable();
     if (!line || /^---+$/.test(line)) { flush(); continue; }
     if ((m = /^#{1,4}\s+(.*)$/.exec(line))) { flush(); out.push(<h3 key={out.length}>{inline(m[1])}</h3>); continue; }
     if ((m = /^[-*•]\s+(.*)$/.exec(line))) {
@@ -92,6 +112,7 @@ export function Markdown({ text }: { text: string }) {
     out.push(<p key={out.length}>{inline(line)}</p>);
   }
   flush();
+  flushTable();
   return <div class="report">{out}</div>;
 }
 

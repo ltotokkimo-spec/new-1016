@@ -241,7 +241,7 @@ function Metric({ k, v, c = "", d = "" }: { k: string; v: string; c?: string; d?
   return <div class="metric"><div class="k">{k}</div><div class={`v num ${c}`}>{v}</div>{d && <div class="d muted">{d}</div>}</div>;
 }
 
-function AiReportView({ r }: { r: { text: string; sources: { title: string; url: string }[]; model: string } }) {
+function AiReportView({ r }: { r: { text: string; sources: { title: string; url: string }[]; model: string; costUsd?: number } }) {
   const m = /^\s*\**評等\**\s*[:：]\s*\**\s*(買入|觀望|離場)/.exec(r.text);
   const body = m ? r.text.slice(r.text.indexOf("\n") + 1) : r.text;
   return (
@@ -254,7 +254,9 @@ function AiReportView({ r }: { r: { text: string; sources: { title: string; url:
           <ol class="sources">{r.sources.map((x) => <li><a href={x.url} target="_blank" rel="noreferrer">{x.title}</a></li>)}</ol>
         </>
       )}
-      <div class="muted" style={{ fontSize: "11px", marginTop: "8px" }}>由 {r.model} 產生，僅供研究參考，非投資建議</div>
+      <div class="muted" style={{ fontSize: "11px", marginTop: "8px" }}>
+        由 {r.model} 產生{r.costUsd !== undefined && Number.isFinite(r.costUsd) ? `・本次約 US$${r.costUsd.toFixed(2)}（約台幣 ${Math.round(r.costUsd * 32)} 元）` : ""}，僅供研究參考，非投資建議
+      </div>
     </div>
   );
 }
@@ -424,7 +426,7 @@ function ImportReview({ data, onDone }: { data: { rows: ImportedHolding[]; note:
       <div class="list" style={{ marginTop: "12px" }}>
         {rows.map((r, i) => (
           <div class="import-row">
-            <label class="field" style={{ gridColumn: "1 / -1", flexDirection: "row", display: "flex", alignItems: "center", gap: "8px", color: "var(--fg)" }}>
+            <label class="check">
               <input type="checkbox" checked={r.keep} onChange={(e) => upd(i, { keep: (e.target as HTMLInputElement).checked })} />
               <b>{r.name || "（未辨識名稱）"}</b>
             </label>

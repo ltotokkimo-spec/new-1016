@@ -3,7 +3,9 @@ name: Build Windows EXE
 on:
   push:
     branches: [ main, 'claude/**' ]
+    paths-ignore: [ 'stock-app/**', '.github/workflows/stock-app.yml' ]
   pull_request:
+    paths-ignore: [ 'stock-app/**', '.github/workflows/stock-app.yml' ]
   workflow_dispatch:
 
 jobs:

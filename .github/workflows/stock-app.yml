@@ -1,0 +1,18 @@
+name: Stock App
+
+on:
+  push:
+    branches: [ main, 'claude/**' ]
+    paths: [ 'stock-app/**', '.github/workflows/stock-app.yml' ]
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 探測資料來源
+        run: node stock-app/tools/probe.mjs --dump

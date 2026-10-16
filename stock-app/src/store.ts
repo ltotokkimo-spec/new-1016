@@ -11,6 +11,7 @@ import type { AiReport } from "./ai/claude";
 import { taipeiToday } from "./lib/dates";
 import * as upd from "./lib/update";
 import type { BacktestResult } from "./engine/backtest";
+import { parseRevenue, revenueUrls, type Revenue } from "./data/revenue";
 
 export const BACKTEST_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/backtest.json";
 
@@ -363,4 +364,18 @@ export async function removeUsSymbol(symbol: string) {
   await saveUsExtra(state.usExtra.filter((x) => x.symbol !== symbol));
   const snap = await kv.get<UsSnapshot>("snap:us");
   if (snap) applyUs({ ...snap, stocks: snap.stocks.filter((x) => x.code !== symbol) });
+}
+
+// ---------- 每月營收（免費解析用，每天下載一次） ----------
+export async function revenueOf(code: string, market: "TWSE" | "TPEX"): Promise<Revenue | undefined> {
+  const key = `rev:${market}:${taipeiToday()}`;
+  let list = await kv.get<Revenue[]>(key);
+  if (!list) {
+    try { list = parseRevenue(await fetcher(market === "TWSE" ? revenueUrls.twse : revenueUrls.tpex)); }
+    catch { return undefined; }
+    if (!list.length) return undefined;
+    for (const k of await kv.keys()) if (k.startsWith(`rev:${market}:`)) await kv.del(k);
+    await kv.set(key, list);
+  }
+  return list.find((r) => r.code === code);
 }

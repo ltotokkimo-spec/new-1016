@@ -74,7 +74,7 @@ for (const u of ["stocks", "etf"] as const) {
   log(`== ${u}：${r[u].signals} 個評等日（${r.from} ~ ${r.to}）`);
   for (const g of ["買入", "觀望", "離場", "全部"] as const) {
     const s5 = r[u].groups[g][5], s20 = r[u].groups[g][20];
-    log(`${g}  5日 n=${s5?.n ?? 0} 平均 ${pct(s5?.avg)} 上漲 ${pct(s5?.win)} 贏過平均 ${pct(s5?.beat)} | 20日 n=${s20?.n ?? 0} 平均 ${pct(s20?.avg)} 上漲 ${pct(s20?.win)} 贏過平均 ${pct(s20?.beat)}`);
+    log(`${g}  5日 n=${s5?.n ?? 0} 平均 ${pct(s5?.avg)} 上漲 ${pct(s5?.win)} 贏過一半 ${pct(s5?.beat)} | 20日 n=${s20?.n ?? 0} 平均 ${pct(s20?.avg)} 中位數 ${pct(s20?.median)} 上漲 ${pct(s20?.win)} 贏過一半 ${pct(s20?.beat)}`);
   }
 }
 log("完成", outFile, fs.statSync(outFile).size, "bytes，網路請求", requests);

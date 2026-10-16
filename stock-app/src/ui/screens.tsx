@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import {
   findScored, getFetcher, getKv, getState, holdingViews, refreshEsb, refreshMacro, refreshTw, refreshUs, saveHoldings, saveReport,
   saveSettings, clearCache, useStore, usBars, recordSpend, estimatedBalance, checkForUpdate, installUpdate,
-  addUsSymbol, removeUsSymbol, type Market,
+  addUsSymbol, removeUsSymbol, revenueOf, type Market,
 } from "../store";
 import type { Holding, Rating, Scored, SectorStat } from "../engine/score";
 import { analyzeStock, client, explainError, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
 import { twHistory } from "../data/history";
 import { isEtf } from "../data/tw";
+import { freeReport } from "../engine/freeReport";
 import { isUsSymbol, MACRO_SYMBOLS } from "../data/us";
 import { pretty, taipeiToday } from "../lib/dates";
 import { cls, fmtMoney, fmtPct, fmtPrice, lots, Markdown, PriceChart, Progress, RatingPill, Sheet } from "./common";
@@ -186,7 +187,7 @@ function BacktestSheet({ market, onClose }: { market: Market; onClose: () => voi
           <div class="section-title"><span>之後 {h} 個交易日</span></div>
           <div class="scroll-x">
             <table class="sectors">
-              <thead><tr><th>評等</th><th>樣本</th><th>平均</th><th>中位數</th><th>上漲機率</th><th>贏過平均</th></tr></thead>
+              <thead><tr><th>評等</th><th>樣本</th><th>平均</th><th>中位數</th><th>上漲機率</th><th>贏過一半</th></tr></thead>
               <tbody>{(["買入", "觀望", "離場", "全部"] as const).map((g) => row(g, h))}</tbody>
             </table>
           </div>
@@ -211,7 +212,7 @@ function BacktestSheet({ market, onClose }: { market: Market; onClose: () => voi
         </table>
       </div>
       <p class="muted" style={{ fontSize: "12px", lineHeight: 1.7 }}>
-        怎麼看：「買入」的平均和上漲機率如果明顯高於「全部」，代表這套評等過去有參考價值；「贏過平均」是同一天評等的{word}中，之後表現贏過全部平均的比例（50% 表示和亂選差不多）。
+        怎麼看：「買入」的平均、中位數和上漲機率如果明顯高於「全部」，代表這套評等過去有參考價值；「贏過一半」是之後表現贏過同一天全部{word}中位數的比例，50% 等於亂選，高於 50% 才代表真的挑得比較好。平均比中位數高很多，表示有少數大漲股把平均拉高。
         注意：只有約 6 個月的資料，不同行情（多頭、空頭）結果可能差很多；沒有計算手續費與交易稅；最近 20 天內的評等還沒有 20 日結果。過去表現不代表未來，僅供參考。
       </p>
     </Sheet>
@@ -289,6 +290,16 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
     return () => { alive = false; };
   }, [s.code]);
 
+  const [free, setFree] = useState("");
+  const [freeBusy, setFreeBusy] = useState(false);
+  const runFree = async () => {
+    setFreeBusy(true);
+    try {
+      const revenue = s.market !== "US" && !s.refOnly ? await revenueOf(s.code, s.market) : undefined;
+      setFree(freeReport({ s, bars: bars ?? [], revenue, holding, today }));
+    } finally { setFreeBusy(false); }
+  };
+
   const runAi = async () => {
     if (report && !confirmRerun(0.5)) return;
     setBusy(true); setAiErr("");
@@ -336,7 +347,15 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
         </>
       )}
 
-      <div class="section-title"><span>AI 深度解析</span>{report && <span>{new Date(report.at).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })} 更新</span>}</div>
+      <div class="section-title"><span>免費解析（App 內建，不花錢）</span></div>
+      {free ? <div class="card" data-testid="free-report"><Markdown text={free.replace(/^評等：.*\n/, "")} /></div> : (
+        <div class="notice">用 App 已有的資料（走勢、均線、法人籌碼、族群、每月營收）依固定規則寫成解析，馬上產生、完全免費。不含新聞與國際經濟數據。</div>
+      )}
+      {!free && <button class="btn secondary block" style={{ marginTop: "10px" }} disabled={freeBusy || bars === null} onClick={runFree} data-testid="free-btn">
+        {freeBusy ? "產生中…" : bars === null && !barsErr ? "等待走勢資料…" : "免費解析"}
+      </button>}
+
+      <div class="section-title"><span>Claude AI 深度解析（付費）</span>{report && <span>{new Date(report.at).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })} 更新</span>}</div>
       {aiErr && <div class="error">{aiErr}</div>}
       {report ? <AiReportView r={report} /> : (
         <div class="notice">

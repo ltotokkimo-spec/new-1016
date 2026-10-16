@@ -91,6 +91,18 @@ function check(ok, name, detail = "") {
   check(/外資近 5 日/.test(detail.text) && /評等理由/.test(detail.text), "個股顯示外資籌碼與評等理由");
   await sleep(600);
   await shot("03-個股詳細");
+
+  // 免費解析：不花錢，用 App 的資料寫成報告（含證交所每月營收）
+  await page.waitForSelector('[data-testid="free-btn"]:not([disabled])', { timeout: 120000 });
+  await page.click('[data-testid="free-btn"]');
+  await page.waitForSelector('[data-testid="free-report"]', { timeout: 120000 });
+  const free = await page.$eval('[data-testid="free-report"]', (e) => e.innerText);
+  log("免費解析", free.slice(0, 1500));
+  check(/結論/.test(free) && /趨勢與技術面/.test(free) && /法人籌碼/.test(free) && /支撐/.test(free) && /\d+\/100/.test(free), "免費解析產生結論、技術面、籌碼與支撐壓力", free.slice(0, 120));
+  log("免費解析含每月營收", /每月營收/.test(free));
+  await page.evaluate(() => document.querySelector(".sheet .body").scrollTo(0, document.querySelector('[data-testid="free-report"]').offsetTop - 60));
+  await sleep(400);
+  await shot("03b-免費解析");
   await page.click('button[aria-label="返回"]');
 
   // ETF 分頁：證交所資料裡的 ETF 單獨評分

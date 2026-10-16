@@ -15,7 +15,7 @@ export interface GroupStat {
   avg: number; // 平均報酬
   median: number;
   win: number; // 上漲比例
-  beat: number; // 贏過同期全部股票平均的比例
+  beat: number; // 贏過同一天全部股票「中位數」的比例（50% ≈ 亂選）
 }
 export interface BtSeriesRow { date: string; nBuy: number; buy: Partial<Record<H, number>>; all: Partial<Record<H, number>> }
 export interface BtUniverse {
@@ -91,7 +91,8 @@ export function runBacktest(days: BtDay[], companies: Company[], opts: { step?: 
       for (const h of HORIZONS) {
         const rs = scored.map((x) => fwd(x.code, i, h));
         const ok = rs.map(Number.isFinite);
-        const allAvg = mean(rs.filter((_, j) => ok[j]));
+        const valid = rs.filter((_, j) => ok[j]);
+        const allAvg = mean(valid), allMed = median(valid);
         if (!Number.isFinite(allAvg)) continue;
         row.all[h] = allAvg;
         const buys: number[] = [];
@@ -99,7 +100,7 @@ export function runBacktest(days: BtDay[], companies: Company[], opts: { step?: 
           if (!ok[j]) return;
           for (const g of [x.rating, "全部"]) {
             ((a.pairs[g] ??= {})[h] ??= []).push(rs[j]);
-            ((a.excess[g] ??= {})[h] ??= []).push(rs[j] > allAvg);
+            ((a.excess[g] ??= {})[h] ??= []).push(rs[j] > allMed);
           }
           if (x.rating === "買入") buys.push(rs[j]);
         });

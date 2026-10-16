@@ -522,7 +522,11 @@ class App(tk.Tk):
         super().__init__()
         self.title(APP_TITLE)
         self.settings = self._load_settings()
-        self.geometry(self.settings.get("geometry", "1500x700"))
+        self._normal_geom = self.settings.get("geometry", "1500x700")
+        self.geometry(self._normal_geom)
+        if self.settings.get("maximized"):
+            self._set_maximized()
+        self.bind("<Configure>", self._remember_geometry)
         self.minsize(900, 400)
 
         self.csv_path = csv_path or self.settings.get("csv_path") or ""
@@ -944,7 +948,8 @@ class App(tk.Tk):
             "newest_first": self.var_newest_first.get(),
             "follow": self.var_follow.get(),
             "hidden_cols": sorted(self.hidden_cols),
-            "geometry": self.geometry(),
+            "geometry": self._normal_geom,
+            "maximized": self._is_maximized(),
         }
         try:
             with open(CONFIG_PATH, "w", encoding="utf-8") as f:
@@ -952,7 +957,35 @@ class App(tk.Tk):
         except OSError:
             pass
 
+    # ---- 視窗最大化（記住上次狀態）----
+    def _set_maximized(self):
+        try:
+            self.state("zoomed")            # Windows / macOS
+        except tk.TclError:
+            try:
+                self.attributes("-zoomed", True)   # Linux
+            except tk.TclError:
+                pass
+
+    def _is_maximized(self):
+        try:
+            if self.state() == "zoomed":
+                return True
+        except tk.TclError:
+            pass
+        try:
+            return bool(self.attributes("-zoomed"))
+        except tk.TclError:
+            return False
+
+    def _remember_geometry(self, e):
+        if e.widget is self and not self._is_maximized() and self.state() == "normal":
+            self._normal_geom = self.geometry()
+
     def _on_close(self):
+        if self._tick_job:
+            self.after_cancel(self._tick_job)
+            self._tick_job = None
         self._save_settings()
         self.destroy()
 

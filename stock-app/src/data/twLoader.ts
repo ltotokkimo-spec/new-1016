@@ -104,28 +104,29 @@ export class TwLoader {
     // 1. 最近 10 個交易日（用證交所三大法人判斷，休市日會回「沒有符合條件的資料」）
     const dates: string[] = [];
     const flowsTwse = new Map<string, FRow[]>();
+    const flowsTpex = new Map<string, FRow[]>();
+    const tpexJobs: Promise<void>[] = []; // 上櫃與上市是不同網站，同時下載
     const candidates = weekdaysBack(today, 25);
+    const total = 10 + 8 + 1;
     let step = 0;
-    const total = 10 + 10 + 8 + 1;
+    const companiesP = this.companies();
     for (const d of candidates) {
       if (dates.length >= 10) break;
-      progress(dates.length, total, `上市三大法人 ${d.slice(4, 6)}/${d.slice(6)}`);
+      progress(dates.length, total, `三大法人 ${d.slice(4, 6)}/${d.slice(6)}`);
       const f = await this.twseFlows(d);
-      if (f) { dates.push(d); flowsTwse.set(d, f); }
+      if (f) {
+        dates.push(d); flowsTwse.set(d, f);
+        tpexJobs.push(this.tpexFlows(d).then((x) => { if (x) flowsTpex.set(d, x); }));
+      }
     }
     if (dates.length < 6) throw new Error("找不到最近的交易資料，請確認網路連線後再試一次");
+    await Promise.all(tpexJobs);
     step = 10;
-    const flowsTpex = new Map<string, FRow[]>();
-    for (const d of dates) {
-      progress(step++, total, `上櫃三大法人 ${d.slice(4, 6)}/${d.slice(6)}`);
-      const f = await this.tpexFlows(d);
-      if (f) flowsTpex.set(d, f);
-    }
     // 2. 行情：最新日、1 週前、約 1 個月前、約 3 個月前
     const d0 = dates[0];
     const w1 = dates[5];
     progress(step++, total, "公司產業別");
-    const companies = await this.companies();
+    const companies = await companiesP;
     const get = async (d: string) => {
       progress(step++, total, `行情 ${d.slice(4, 6)}/${d.slice(6)}`);
       const [a, b] = await Promise.all([this.twseQuotes(d), this.tpexQuotes(d)]);

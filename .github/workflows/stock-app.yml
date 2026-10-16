@@ -6,13 +6,79 @@ on:
     paths: [ 'stock-app/**', '.github/workflows/stock-app.yml' ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  probe:
+  android:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: stock-app
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: 探測資料來源
-        run: node stock-app/tools/capture.mjs
+          cache: npm
+          cache-dependency-path: stock-app/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: 安裝套件
+        run: npm ci
+
+      - name: 單元測試
+        run: npx vitest run
+
+      - name: 建置網頁
+        run: npm run build
+
+      - name: 同步到 Android 專案
+        run: npx cap sync android
+
+      - name: 打包 APK
+        working-directory: stock-app/android
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: 上傳 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-radar-apk
+          path: stock-app/android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: 啟用 KVM（模擬器加速）
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Android 模擬器實測（真實網路資料）
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -timezone Asia/Taipei
+          working-directory: stock-app
+          script: node tools/e2e-android.cjs android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: 發布 APK（手機直接下載）
+        if: success() && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk stock-radar.apk
+          gh release delete stock-radar-latest --yes --cleanup-tag || true
+          gh release create stock-radar-latest stock-radar.apk \
+            --title "股市雷達（最新版）" --prerelease --target "${{ github.sha }}" \
+            --notes "用 Android 手機開這個頁面，點 stock-radar.apk 下載安裝。版本 1.0.${{ github.run_number }}，已在 Android 模擬器上以真實資料測試通過。"

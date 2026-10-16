@@ -204,7 +204,7 @@ export function reviewHolding(h: Holding, scored: Scored | undefined, lastPrice?
   const pnlPct = h.cost > 0 ? price / h.cost - 1 : NaN;
   const advice: string[] = [];
   let rating: HoldingView["rating"] = scored?.rating ?? "無資料";
-  if (!scored) advice.push(Number.isFinite(price) ? "成交量太低或資料不足，未列入評分" : "找不到這檔股票的行情");
+  if (!scored) advice.push(Number.isFinite(price) ? "成交金額低於門檻，只計算損益、不評分" : "找不到這檔股票的行情，請確認代號");
   if (Number.isFinite(pnlPct) && pnlPct <= STOP_LOSS) {
     advice.push(`虧損 ${(pnlPct * 100).toFixed(1)}%，已達 10% 停損線`);
     if (rating === "觀望") rating = "離場";

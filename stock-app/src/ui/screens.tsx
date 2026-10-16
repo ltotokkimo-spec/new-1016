@@ -293,11 +293,14 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
   const [free, setFree] = useState("");
   const [freeBusy, setFreeBusy] = useState(false);
   const runFree = async () => {
+    // 先用手上的資料馬上產生，營收下載完再補上（最多等 20 秒）
+    setFree(freeReport({ s, bars: bars ?? [], holding, today }));
+    if (s.market === "US" || s.refOnly) return;
     setFreeBusy(true);
     try {
-      const revenue = s.market !== "US" && !s.refOnly ? await revenueOf(s.code, s.market) : undefined;
-      setFree(freeReport({ s, bars: bars ?? [], revenue, holding, today }));
-    } finally { setFreeBusy(false); }
+      const revenue = await Promise.race([revenueOf(s.code, s.market), new Promise<undefined>((r) => setTimeout(() => r(undefined), 20000))]);
+      if (revenue) setFree(freeReport({ s, bars: bars ?? [], revenue, holding, today }));
+    } catch { /* 營收只是補充 */ } finally { setFreeBusy(false); }
   };
 
   const runAi = async () => {
@@ -348,7 +351,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
       )}
 
       <div class="section-title"><span>免費解析（App 內建，不花錢）</span></div>
-      {free ? <div class="card" data-testid="free-report"><Markdown text={free.replace(/^評等：.*\n/, "")} /></div> : (
+      {free ? <div class="card" data-testid="free-report"><Markdown text={free.replace(/^評等：.*\n/, "")} />{freeBusy && <div class="muted" style={{ fontSize: "12px" }}>正在下載每月營收…</div>}</div> : (
         <div class="notice">用 App 已有的資料（走勢、均線、法人籌碼、族群、每月營收）依固定規則寫成解析，馬上產生、完全免費。不含新聞與國際經濟數據。</div>
       )}
       {!free && <button class="btn secondary block" style={{ marginTop: "10px" }} disabled={freeBusy || bars === null} onClick={runFree} data-testid="free-btn">

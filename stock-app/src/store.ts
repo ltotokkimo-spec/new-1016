@@ -371,9 +371,15 @@ export async function revenueOf(code: string, market: "TWSE" | "TPEX"): Promise<
   const key = `rev:${market}:${taipeiToday()}`;
   let list = await kv.get<Revenue[]>(key);
   if (!list) {
-    try { list = parseRevenue(await fetcher(market === "TWSE" ? revenueUrls.twse : revenueUrls.tpex)); }
-    catch { return undefined; }
-    if (!list.length) return undefined;
+    const t0 = Date.now();
+    const dbg = ((globalThis as any).__srRevenue = { market, ms: 0, rows: 0, error: "" });
+    try {
+      const raw = await fetcher(market === "TWSE" ? revenueUrls.twse : revenueUrls.tpex);
+      list = parseRevenue(typeof raw === "string" ? JSON.parse(raw) : raw);
+      dbg.rows = list.length;
+    } catch (e: any) { dbg.error = String(e?.message ?? e); return undefined; }
+    finally { dbg.ms = Date.now() - t0; }
+    if (!list.length) { dbg.error = "沒有解析到資料"; return undefined; }
     for (const k of await kv.keys()) if (k.startsWith(`rev:${market}:`)) await kv.del(k);
     await kv.set(key, list);
   }

@@ -226,7 +226,8 @@ export function claudeAppPrompt(s: Scored, today: string, holding?: Holding): st
   const tools = s.market === "US"
     ? "請用網路搜尋查最近 7 天的新聞、財報與分析師看法。"
     : "如果你有連接台股資料工具（MCP，例如證交所／櫃買資料），請用它查這檔的每月營收、三大法人、融資融券與重大訊息；並用網路搜尋查最近 7 天的新聞與法說會。";
-  return `今天是 ${today}。我用「股市雷達」App 篩選股票，請幫我分析這檔${etf ? " ETF" : "股票"}，用繁體中文、台灣用語回答。
+  const d = /^\d{8}$/.test(today) ? `${today.slice(0, 4)}/${today.slice(4, 6)}/${today.slice(6)}` : today;
+  return `今天是 ${d}。我用「股市雷達」App 篩選股票，請幫我分析這檔${etf ? " ETF" : "股票"}，用繁體中文、台灣用語回答。
 
 【App 的數據】
 ${stockBrief(s, holding)}

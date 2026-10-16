@@ -102,7 +102,10 @@ function check(ok, name, detail = "") {
   const free = await page.$eval('[data-testid="free-report"]', (e) => e.innerText);
   log("免費解析", free.slice(0, 1500));
   check(/結論/.test(free) && /趨勢與技術面/.test(free) && /法人籌碼/.test(free) && /支撐/.test(free) && /\d+\/100/.test(free), "免費解析產生結論、技術面、籌碼與支撐壓力", free.slice(0, 120));
-  log("免費解析含每月營收", /每月營收/.test(free));
+  // 營收是另外下載的，等它補上（最多 30 秒）
+  const hasRev = await page.waitForFunction(() => /每月營收/.test(document.querySelector('[data-testid="free-report"]')?.innerText || ""), null, { timeout: 30000 }).then(() => true).catch(() => false);
+  log("免費解析含每月營收", hasRev, JSON.stringify(await page.evaluate(() => window.__srRevenue)));
+  if (hasRev) log("營收段落", (await page.$eval('[data-testid="free-report"]', (e) => e.innerText)).split("每月營收")[1]?.slice(0, 200));
   await page.evaluate(() => document.querySelector(".sheet .body").scrollTo(0, document.querySelector('[data-testid="free-report"]').offsetTop - 60));
   await sleep(400);
   await shot("03b-免費解析");
@@ -111,7 +114,8 @@ function check(ok, name, detail = "") {
   const href = await page.$eval('[data-testid="claude-app"]', (a) => a.getAttribute("href"));
   const q = decodeURIComponent(href.split("?q=")[1] || "");
   check(href.startsWith("https://claude.ai/new?q=") && q.includes(detail.title.split(" ").pop()) && /MCP|網路搜尋/.test(q), "Claude App 連結帶入這檔股票的數據與提問", q.slice(0, 80));
-  await page.click('[data-testid="claude-app"]');
+  // 連結會離開 App（打開 Claude），用程式點擊，不等頁面跳轉
+  await page.$eval('[data-testid="claude-app"]', (a) => a.click());
   await sleep(3000);
   log("按下 Claude App 後的畫面", String(await device.shell("dumpsys activity activities | grep -m1 -E 'topResumedActivity|mResumedActivity'")));
   await shot("03c-開啟Claude");

@@ -42,6 +42,7 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
         {sector && <button class="chip" aria-pressed="true" onClick={() => setSector("")}>{sector} ✕</button>}
       </div>
       {ms.error && <div class="error" style={{ marginTop: "10px" }}>{ms.error}</div>}
+      {ms.warning && <div class="notice" style={{ marginTop: "10px" }}>{ms.warning}</div>}
       {ms.status === "loading" && <Progress p={ms.progress} />}
       {ms.status === "error" && <div class="empty">資料下載失敗，請檢查網路後按右上角重新整理</div>}
       {ms.status === "ready" && (

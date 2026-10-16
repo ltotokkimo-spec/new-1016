@@ -32,13 +32,14 @@ function check(ok, name, detail = "") {
   const page = await webview.page();
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+  page.on("console", (m) => { if (m.type() === "error") errors.push(`${m.text()} @ ${m.location()?.url || "?"}`); });
+  page.on("response", (r) => { if (r.status() >= 400) log("HTTP", r.status(), r.url()); });
   await sleep(3000);
   await shot("01-啟動下載中");
 
   // ---------- 台股：真實證交所／櫃買資料 ----------
   await page.waitForSelector(".item", { timeout: 8 * 60_000 });
-  log("台股資料載入完成");
+  log("台股資料載入完成", JSON.stringify(await page.evaluate(() => window.__srTimings)));
   await sleep(800);
   const tw = await page.evaluate(() => ({
     asof: document.querySelector(".asof")?.textContent,
@@ -194,7 +195,11 @@ function check(ok, name, detail = "") {
     log("沒有設定 ANTHROPIC_API_KEY，跳過 Claude AI 實測");
   }
 
-  check(errors.filter((e) => !/favicon/.test(e)).length === 0, "沒有 JavaScript 錯誤", errors.join(" | "));
+  log("美股提示", await page2.evaluate(() => document.querySelector("main .notice")?.textContent || "無"));
+  log("console 錯誤", JSON.stringify(errors));
+  // 網路請求失敗（例如某檔美股一時下載不到）App 會顯示提示並允許重試，這裡只檢查程式本身的錯誤
+  const jsErrors = errors.filter((e) => !/Failed to load resource|EOFException|favicon/.test(e));
+  check(jsErrors.length === 0, "沒有 JavaScript 程式錯誤", jsErrors.join(" | "));
 })()
   .catch((e) => { console.error("E2E 失敗：", e.message); process.exitCode = 1; })
   .finally(async () => {

@@ -15,6 +15,7 @@ export interface MarketState {
   status: "idle" | "loading" | "ready" | "error";
   progress?: { done: number; total: number; label: string };
   error?: string;
+  warning?: string;
   asOf?: string;
   scored: Scored[];
   sectors: SectorStat[];
@@ -66,11 +67,16 @@ let fetcher: Fetcher = fetchJson;
 /** 測試用：換掉儲存與網路 */
 export function _inject(k: KV, f: Fetcher) { kv = k; fetcher = f; }
 
+const timings: Record<string, number> = ((globalThis as any).__srTimings = {});
+const mark = (k: string) => { timings[k] = Math.round(performance.now()); };
+
 export async function init() {
+  mark("init");
   const [holdings, settings, reports, twSnap, usSnap] = await Promise.all([
     kv.get<Holding[]>("holdings"), kv.get<Settings>("settings"), kv.get<Record<string, AiReport>>("reports"),
     kv.get<TwSnapshot>("snap:tw"), kv.get<UsSnapshot>("snap:us"),
   ]);
+  mark("kvRead");
   set({ holdings: holdings ?? [], settings: settings ?? { apiKey: "" }, reports: reports ?? {}, loaded: true });
   if (twSnap) applyTw(twSnap);
   if (usSnap) applyUs(usSnap);
@@ -96,7 +102,8 @@ function applyTw(snap: TwSnapshot) {
 function applyUs(snap: UsSnapshot) {
   const { scored, sectors } = scoreStocks(snap.stocks);
   set({ prices: pricesOf(snap.stocks) });
-  set({ us: { status: "ready", scored, sectors, asOf: snap.asOf, fetchedAt: snap.fetchedAt }, usSectorEtfs: snap.sectorEtfs });
+  const warning = snap.failed?.length ? `${snap.failed.join("、")} 這次下載失敗，按右上角重新整理可重試` : undefined;
+  set({ us: { status: "ready", scored, sectors, asOf: snap.asOf, fetchedAt: snap.fetchedAt, warning }, usSectorEtfs: snap.sectorEtfs });
 }
 
 let twBusy = false, usBusy = false;
@@ -107,8 +114,12 @@ export async function refreshTw() {
   const prev = state.tw;
   set({ tw: { ...prev, status: prev.scored.length ? "ready" : "loading", progress: { done: 0, total: 1, label: "準備中" }, error: undefined } });
   try {
-    const snap = await new TwLoader(fetcher, kv).load((done, total, label) =>
-      set({ tw: { ...state.tw, progress: { done, total, label } } }));
+    mark("twStart");
+    const snap = await new TwLoader(fetcher, kv).load((done, total, label) => {
+      if (!timings.twFirstProgress) mark("twFirstProgress");
+      set({ tw: { ...state.tw, progress: { done, total, label } } });
+    });
+    mark("twDone");
     await kv.set("snap:tw", snap);
     applyTw(snap);
   } catch (e: any) {

@@ -43,7 +43,10 @@ export class UsLoader {
     const worker = async () => {
       while (jobs.length) {
         const j = jobs.shift()!;
-        try { bars[j.symbol] = await this.history(j.symbol, j.etf); } catch { failed.push(j.symbol); }
+        try {
+          bars[j.symbol] = await this.history(j.symbol, j.etf);
+          if (!bars[j.symbol].length) failed.push(j.symbol);
+        } catch { failed.push(j.symbol); }
         progress(++done, 1 + etfs.length + US_UNIVERSE.length, `美股 ${j.symbol}`);
       }
     };

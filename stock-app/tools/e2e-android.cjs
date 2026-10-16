@@ -12,6 +12,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const t0 = Date.now();
 const log = (...a) => console.log(`[${Math.round((Date.now() - t0) / 1000)}s]`, ...a);
 
+// 任何一步卡住都不能讓整個測試無限等待
+const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`${what} 超過 ${ms / 1000} 秒沒有回應`)), ms))]);
+let dumpAndExit = null;
+setTimeout(() => { log("整體測試超過 20 分鐘，停止並輸出目前結果"); process.exitCode = 1; dumpAndExit?.(); }, 20 * 60_000).unref();
+
 function check(ok, name, detail = "") {
   results.push({ ok, name, detail });
   log(ok ? "通過" : "失敗", name, detail);
@@ -19,8 +24,9 @@ function check(ok, name, detail = "") {
 }
 
 (async () => {
-  execSync(`adb install -r ${apk}`, { stdio: "inherit" });
-  const [device] = await android.devices();
+  execSync(`adb install -r ${apk}`, { stdio: "inherit", timeout: 180_000 });
+  log("APK 已安裝");
+  const [device] = await withTimeout(android.devices(), 60_000, "連接模擬器");
   check(!!device, "找到模擬器");
   const shot = async (name) => {
     const buf = await device.screenshot();
@@ -28,8 +34,9 @@ function check(ok, name, detail = "") {
     log("截圖", name, buf.length);
   };
   await device.shell(`am start -n ${PKG}/.MainActivity`);
-  const webview = await device.webView({ pkg: PKG });
-  const page = await webview.page();
+  const webview = await withTimeout(device.webView({ pkg: PKG }), 90_000, "等待 App 的 WebView");
+  const page = await withTimeout(webview.page(), 60_000, "連接 WebView 頁面");
+  log("已連上 App 畫面");
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("console", (m) => { if (m.type() === "error") errors.push(`${m.text()} @ ${m.location()?.url || "?"}`); });
@@ -103,11 +110,11 @@ function check(ok, name, detail = "") {
   await device.shell(`am start -n ${PKG}/.MainActivity`);
   let wv2 = null;
   for (let i = 0; i < 30 && !wv2; i++) {
-    const w = await device.webView({ pkg: PKG });
+    const w = await withTimeout(device.webView({ pkg: PKG }), 90_000, "等待重開後的 WebView");
     if (w.pid() !== oldPid) wv2 = w; else await sleep(1000);
   }
   check(!!wv2, "重開 App");
-  const page2 = await wv2.page();
+  const page2 = await withTimeout(wv2.page(), 60_000, "連接重開後的頁面");
   page2.on("pageerror", (e) => errors.push(e.message));
   await page2.waitForSelector("nav.tabs", { timeout: 60000 });
   await page2.click("nav.tabs button:nth-child(3)");
@@ -203,7 +210,9 @@ function check(ok, name, detail = "") {
   check(jsErrors.length === 0, "沒有 JavaScript 程式錯誤", jsErrors.join(" | "));
 })()
   .catch((e) => { console.error("E2E 失敗：", e.message); process.exitCode = 1; })
-  .finally(async () => {
+  .finally(() => dumpAndExit());
+
+dumpAndExit = () => {
     for (const [name, buf] of shots) {
       const b64 = buf.toString("base64");
       console.log(`=====BEGIN ${name}=====`);
@@ -213,4 +222,4 @@ function check(ok, name, detail = "") {
     console.log("RESULTS " + JSON.stringify(results));
     fs.writeFileSync("e2e-results.json", JSON.stringify(results, null, 2));
     process.exit(process.exitCode || 0);
-  });
+};

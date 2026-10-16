@@ -64,6 +64,7 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - name: Android 模擬器實測（真實網路資料）
+        timeout-minutes: 25
         uses: reactivecircus/android-emulator-runner@v2
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -73,6 +74,7 @@ jobs:
           target: google_apis
           profile: pixel_6
           disable-animations: true
+          emulator-boot-timeout: 600
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -timezone Asia/Taipei
           working-directory: stock-app
           script: node tools/e2e-android.cjs android/app/build/outputs/apk/debug/app-debug.apk

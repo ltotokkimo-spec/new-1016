@@ -181,8 +181,12 @@ def cell_style(rec, key):
     return COLORS["cell_bg"], COLORS["cell_fg"], False
 
 
-def build_columns(n_ch):
-    """(key, 標題, 對齊)"""
+def build_columns(n_ch, hidden=()):
+    """(key, 標題, 對齊)；hidden 內的欄位不顯示"""
+    return [c for c in all_columns(n_ch) if c[0] not in hidden]
+
+
+def all_columns(n_ch):
     cols = [
         ("timestamp", "timestamp", "e"),
         ("date", "date", "e"),
@@ -202,13 +206,17 @@ def build_columns(n_ch):
 # 表格元件（Canvas 虛擬繪製，只畫可見列，資料量大也順暢）
 # --------------------------------------------------------------------------
 class GridTable(ttk.Frame):
-    def __init__(self, master, on_double_click=None):
+    def __init__(self, master, on_double_click=None, on_select=None, on_context=None):
         super().__init__(master)
         self.on_double_click = on_double_click
+        self.on_select = on_select
+        self.on_context = on_context
         self.columns = []
         self.widths = []
         self.rows = []
-        self.selected_line = None
+        self.selected = set()      # 選取列的 _line
+        self._anchor = None        # Shift 範圍選取的起點 (列 index)
+        self._drag = None          # 拉框中: dict(x0, y0, x1, y1, base)
         self._redraw_pending = False
 
         base = tkfont.nametofont("TkDefaultFont")
@@ -237,12 +245,17 @@ class GridTable(ttk.Frame):
         self.columnconfigure(0, weight=1)
 
         self.body.bind("<Configure>", lambda e: self.schedule_redraw())
-        self.body.bind("<Button-1>", self._on_click)
+        self.body.bind("<Button-1>", self._on_press)
+        self.body.bind("<B1-Motion>", self._on_motion)
+        self.body.bind("<ButtonRelease-1>", self._on_release)
         self.body.bind("<Double-Button-1>", self._on_dclick)
+        self.body.bind("<Button-3>", self._on_right_click)
         self.body.bind("<Up>", lambda e: self._move_sel(-1))
         self.body.bind("<Down>", lambda e: self._move_sel(1))
         self.body.bind("<Return>", lambda e: self._open_selected())
         self.body.bind("<Control-c>", self._copy_selected)
+        self.body.bind("<Control-a>", self._select_all)
+        self.body.bind("<Escape>", lambda e: self.clear_selection())
         for w in (self.body, self.header):
             w.bind("<MouseWheel>", self._on_wheel)
             w.bind("<Shift-MouseWheel>", self._on_shift_wheel)
@@ -316,7 +329,7 @@ class GridTable(ttk.Frame):
         for idx in range(first, last):
             rec = self.rows[idx]
             y = idx * rh
-            selected = rec["_line"] == self.selected_line
+            selected = rec["_line"] in self.selected
             x = 0
             for (key, _, anchor), w in zip(self.columns, self.widths):
                 bg, fg, bold = cell_style(rec, key)
@@ -331,6 +344,10 @@ class GridTable(ttk.Frame):
                 x += w
             if selected:
                 c.create_rectangle(1, y + 1, x - 1, y + rh - 1, outline="#0066CC", width=2)
+        if self._drag and self._drag.get("moved"):
+            d = self._drag
+            c.create_rectangle(d["x0"], d["y0"], d["x1"], d["y1"], outline="#0066CC",
+                               width=2, dash=(5, 3), fill="#3399FF", stipple="gray12")
 
     # ---- 捲動 ----
     def _on_yscroll(self, a, b):
@@ -373,50 +390,128 @@ class GridTable(ttk.Frame):
         elif y + self.row_h > top + h:
             self.body.yview_moveto(max(0, y + self.row_h - h) / total)
 
-    # ---- 選取 ----
+    # ---- 選取（點選 / Ctrl 加選 / Shift 範圍 / 滑鼠拉框）----
+    def _row_at_y(self, cy):
+        return int(cy // self.row_h)
+
     def _row_at(self, event):
-        idx = int(self.body.canvasy(event.y) // self.row_h)
+        idx = self._row_at_y(self.body.canvasy(event.y))
         return idx if 0 <= idx < len(self.rows) else None
 
-    def _on_click(self, e):
+    def _lines(self, i0, i1):
+        lo, hi = sorted((i0, i1))
+        lo, hi = max(lo, 0), min(hi, len(self.rows) - 1)
+        return {self.rows[i]["_line"] for i in range(lo, hi + 1)}
+
+    def _notify(self):
+        if self.on_select:
+            self.on_select(len(self.selected))
+
+    def _on_press(self, e):
         self.body.focus_set()
+        ctrl = bool(e.state & 0x0004)
+        shift = bool(e.state & 0x0001)
         idx = self._row_at(e)
-        self.selected_line = self.rows[idx]["_line"] if idx is not None else None
+        if idx is None:
+            if not ctrl:
+                self.selected = set()
+        elif shift and self._anchor is not None:
+            rng = self._lines(self._anchor, idx)
+            self.selected = (self.selected | rng) if ctrl else rng
+        elif ctrl:
+            self.selected ^= {self.rows[idx]["_line"]}
+            self._anchor = idx
+        else:
+            self.selected = {self.rows[idx]["_line"]}
+            self._anchor = idx
+        cx, cy = self.body.canvasx(e.x), self.body.canvasy(e.y)
+        self._drag = {"x0": cx, "y0": cy, "x1": cx, "y1": cy, "moved": False,
+                      "base": set(self.selected) if ctrl else set()}
         self.schedule_redraw()
+        self._notify()
+
+    def _on_motion(self, e):
+        d = self._drag
+        if not d or not self.rows:
+            return
+        h = self.body.winfo_height()
+        if e.y < 0:
+            self.body.yview_scroll(-1, "units")
+        elif e.y > h:
+            self.body.yview_scroll(1, "units")
+        cx, cy = self.body.canvasx(e.x), self.body.canvasy(e.y)
+        if not d["moved"] and abs(cy - d["y0"]) < 4 and abs(cx - d["x0"]) < 4:
+            return
+        d["moved"] = True
+        d["x1"], d["y1"] = cx, cy
+        i0 = self._row_at_y(d["y0"])
+        i1 = self._row_at_y(max(0, cy))
+        self.selected = d["base"] | self._lines(i0, i1)
+        self._anchor = i0
+        self.schedule_redraw()
+        self._notify()
+
+    def _on_release(self, e):
+        if self._drag and self._drag["moved"]:
+            self._drag = None
+            self.schedule_redraw()
+        self._drag = None
+        self._notify()
 
     def _on_dclick(self, e):
         idx = self._row_at(e)
         if idx is not None and self.on_double_click:
             self.on_double_click(self.rows[idx])
 
-    def _selected_index(self):
-        for i, r in enumerate(self.rows):
-            if r["_line"] == self.selected_line:
-                return i
-        return None
+    def _on_right_click(self, e):
+        idx = self._row_at(e)
+        if idx is not None and self.rows[idx]["_line"] not in self.selected:
+            self.selected = {self.rows[idx]["_line"]}
+            self._anchor = idx
+            self.schedule_redraw()
+            self._notify()
+        if self.on_context:
+            self.on_context(e)
+
+    def _select_all(self, e=None):
+        self.selected = {r["_line"] for r in self.rows}
+        self.schedule_redraw()
+        self._notify()
+        return "break"
+
+    def clear_selection(self):
+        self.selected = set()
+        self._anchor = None
+        self.schedule_redraw()
+        self._notify()
+
+    def selected_rows(self):
+        return [r for r in self.rows if r["_line"] in self.selected]
 
     def _move_sel(self, d):
         if not self.rows:
             return
-        i = self._selected_index()
+        i = self._anchor
         i = 0 if i is None else min(max(i + d, 0), len(self.rows) - 1)
-        self.selected_line = self.rows[i]["_line"]
+        self.selected = {self.rows[i]["_line"]}
+        self._anchor = i
         self._ensure_visible(i)
         self.schedule_redraw()
+        self._notify()
 
     def _open_selected(self):
-        i = self._selected_index()
-        if i is not None and self.on_double_click:
-            self.on_double_click(self.rows[i])
+        rows = self.selected_rows()
+        if rows and self.on_double_click:
+            self.on_double_click(rows[0])
 
     def _copy_selected(self, e=None):
-        i = self._selected_index()
-        if i is None:
+        rows = self.selected_rows()
+        if not rows:
             return
-        rec = self.rows[i]
-        text = "\t".join(cell_text(rec, k) for k, _, _ in self.columns)
+        lines = ["\t".join(t for _, t, _ in self.columns)]
+        lines += ["\t".join(cell_text(r, k) for k, _, _ in self.columns) for r in rows]
         self.clipboard_clear()
-        self.clipboard_append(text)
+        self.clipboard_append("\n".join(lines))
 
 
 # --------------------------------------------------------------------------
@@ -450,6 +545,8 @@ class App(tk.Tk):
         self.var_station = tk.StringVar(value="全部")
         self.var_verdict = tk.StringVar(value="全部")
         self.var_search = tk.StringVar()
+        self.hidden_cols = set(self.settings.get("hidden_cols", []))
+        self.only_lines = None     # None = 顯示全部；set = 只顯示框選確認的列
         self.var_status = tk.StringVar(value="")
 
         self._build_ui()
@@ -508,6 +605,20 @@ class App(tk.Tk):
             cb.bind("<<ComboboxSelected>>", lambda e: self.refresh_view(scroll="end"))
         self.var_search.trace_add("write", lambda *a: self.refresh_view(scroll="end"))
 
+        # 框選 / 欄位
+        bar3 = ttk.Frame(self)
+        bar3.pack(fill="x", padx=6, pady=(2, 0))
+        ttk.Button(bar3, text="☑ 選擇欄位…", command=self.choose_columns).pack(side="left", **pad)
+        ttk.Separator(bar3, orient="vertical").pack(side="left", fill="y", padx=8)
+        self.btn_only = ttk.Button(bar3, text="✔ 只顯示選取的列", command=self.show_only_selected)
+        self.btn_only.pack(side="left", **pad)
+        self.btn_all = ttk.Button(bar3, text="↺ 顯示全部", command=self.show_all)
+        self.btn_all.pack(side="left", **pad)
+        self.lbl_sel = ttk.Label(bar3, text="")
+        self.lbl_sel.pack(side="left", padx=8)
+        self.lbl_mode = tk.Label(bar3, text="", bg="#FFE699", fg="#7F4F00",
+                                 font=tkfont.Font(weight="bold"))
+
         # 統計
         stat = tk.Frame(self)
         stat.pack(fill="x", padx=10, pady=(4, 2))
@@ -522,12 +633,83 @@ class App(tk.Tk):
         self.lbl_update = tk.Label(stat, fg="#555555")
         self.lbl_update.pack(side="right")
 
-        self.table = GridTable(self, on_double_click=self.show_detail)
+        self.table = GridTable(self, on_double_click=self.show_detail,
+                               on_select=self._on_select, on_context=self._context_menu)
         self.table.pack(fill="both", expand=True, padx=6, pady=2)
 
         sb = ttk.Label(self, textvariable=self.var_status, anchor="w", relief="sunken")
         sb.pack(fill="x", side="bottom")
-        self.var_status.set("雙擊任一列可查看完整資料；↑↓ 選取，Ctrl+C 複製該列")
+        self.var_status.set("按住滑鼠左鍵拖曳可框選多列（Ctrl 加選、Shift 範圍、Ctrl+A 全選）；"
+                            "雙擊看詳細資料；右鍵選單；Ctrl+C 複製")
+        self._on_select(0)
+
+        self.menu = tk.Menu(self, tearoff=0)
+        self.menu.add_command(label="只顯示選取的列", command=self.show_only_selected)
+        self.menu.add_command(label="顯示全部", command=self.show_all)
+        self.menu.add_separator()
+        self.menu.add_command(label="複製選取的列", command=self.table._copy_selected)
+        self.menu.add_command(label="選擇欄位…", command=self.choose_columns)
+
+    # ---- 框選 / 欄位 ----
+    def _on_select(self, n):
+        self.lbl_sel.config(text=f"已選 {n} 列" if n else "（拖曳滑鼠框選要的列）")
+        self.btn_only.state(["!disabled"] if n else ["disabled"])
+
+    def _context_menu(self, e):
+        try:
+            self.menu.tk_popup(e.x_root, e.y_root)
+        finally:
+            self.menu.grab_release()
+
+    def show_only_selected(self):
+        lines = self.table.selected.copy()
+        if not lines:
+            return
+        self.only_lines = lines
+        self.table.clear_selection()
+        self.refresh_view(scroll="top")
+
+    def show_all(self):
+        self.only_lines = None
+        self.refresh_view(scroll="end")
+
+    def choose_columns(self):
+        win = tk.Toplevel(self)
+        win.title("選擇要顯示的欄位")
+        win.transient(self)
+        win.resizable(False, False)
+        cols = all_columns(self.n_ch)
+        vars_ = {}
+        box = ttk.Frame(win, padding=12)
+        box.pack(fill="both")
+        per_col = 8
+        for i, (key, title, _) in enumerate(cols):
+            v = tk.BooleanVar(value=key not in self.hidden_cols)
+            vars_[key] = v
+            ttk.Checkbutton(box, text=title, variable=v).grid(
+                row=i % per_col, column=i // per_col, sticky="w", padx=(0, 24), pady=2)
+
+        def set_all(val):
+            for v in vars_.values():
+                v.set(val)
+
+        def apply():
+            hidden = {k for k, v in vars_.items() if not v.get()}
+            if len(hidden) == len(cols):
+                messagebox.showwarning(APP_TITLE, "至少要勾選一個欄位", parent=win)
+                return
+            self.hidden_cols = hidden
+            win.destroy()
+            self.refresh_view()
+
+        btns = ttk.Frame(win, padding=(12, 0, 12, 12))
+        btns.pack(fill="x")
+        ttk.Button(btns, text="全選", command=lambda: set_all(True)).pack(side="left")
+        ttk.Button(btns, text="全不選", command=lambda: set_all(False)).pack(side="left", padx=4)
+        ttk.Button(btns, text="取消", command=win.destroy).pack(side="right")
+        ttk.Button(btns, text="確定", command=apply).pack(side="right", padx=4)
+        win.grab_set()
+        return win
 
     # ---- 檔案 ----
     def choose_file(self):
@@ -540,6 +722,7 @@ class App(tk.Tk):
             self.var_path.set(self.csv_path)
             self.file_sig = None
             self.records = []
+            self.only_lines = None
             self.var_date.set("全部")
             self.var_station.set("全部")
             self.reload(force=True, scroll="end")
@@ -599,6 +782,8 @@ class App(tk.Tk):
                 continue
             if q and q not in r["sn"].upper() and q not in r["opid"].upper():
                 continue
+            if self.only_lines is not None and r["_line"] not in self.only_lines:
+                continue
             out.append(r)
         if self.var_newest_first.get():
             out.reverse()
@@ -608,8 +793,15 @@ class App(tk.Tk):
         rows = self.filtered()
         if scroll == "end":
             scroll = "top" if self.var_newest_first.get() else "bottom"
-        self.table.set_data(build_columns(self.n_ch), rows, scroll=scroll)
+        self.table.set_data(build_columns(self.n_ch, self.hidden_cols), rows, scroll=scroll)
         self._update_stats(rows)
+        if self.only_lines is not None:
+            self.lbl_mode.config(text=f"  只顯示選取的 {len(self.only_lines)} 筆（按「顯示全部」還原）  ")
+            self.lbl_mode.pack(side="right", padx=4)
+            self.btn_all.state(["!disabled"])
+        else:
+            self.lbl_mode.pack_forget()
+            self.btn_all.state(["disabled"])
         self._save_settings()
 
     def _update_stats(self, rows):
@@ -709,7 +901,7 @@ class App(tk.Tk):
         if not rows:
             messagebox.showinfo(APP_TITLE, "目前沒有可匯出的資料", parent=self)
             return
-        cols = build_columns(self.n_ch)
+        cols = build_columns(self.n_ch, self.hidden_cols)
         try:
             import openpyxl  # noqa
             has_xl = True
@@ -751,6 +943,7 @@ class App(tk.Tk):
             "auto_refresh": self.var_auto.get(),
             "newest_first": self.var_newest_first.get(),
             "follow": self.var_follow.get(),
+            "hidden_cols": sorted(self.hidden_cols),
             "geometry": self.geometry(),
         }
         try:

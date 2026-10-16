@@ -80,7 +80,58 @@ export function stockBrief(s: Scored, holding?: Holding): string {
   return lines.join("\n");
 }
 
-async function run(apiKey: string, prompt: string, maxSearches: number): Promise<AiReport> {
+// ---------- 進度：從串流事件算出「正在做什麼」 ----------
+export interface AiProgress {
+  phase: "start" | "thinking" | "searching" | "reading" | "writing";
+  searches: number; // 已送出的網路搜尋次數
+  lastQuery?: string; // 最近一次搜尋的關鍵字
+  chars: number; // 已寫出的字數
+  section?: string; // 正在寫的段落，例如「3. 近期新聞與公司事件」
+}
+export type OnProgress = (p: AiProgress) => void;
+
+export interface ProgressScratch { json: Record<number, string>; tail: string }
+export const newProgress = (): { p: AiProgress; scratch: ProgressScratch } => ({ p: { phase: "start", searches: 0, chars: 0 }, scratch: { json: {}, tail: "" } });
+
+/** 純函式：吃一個串流事件，回傳新的進度（方便單元測試） */
+export function nextProgress(p: AiProgress, ev: any, scratch: ProgressScratch): AiProgress {
+  if (ev?.type === "content_block_start") {
+    const b = ev.content_block;
+    if (b?.type === "thinking" || b?.type === "redacted_thinking") return { ...p, phase: "thinking" };
+    if (b?.type === "server_tool_use" && b.name === "web_search") {
+      scratch.json[ev.index] = "";
+      const q = typeof b.input?.query === "string" && b.input.query ? b.input.query : undefined;
+      return { ...p, phase: "searching", searches: p.searches + 1, lastQuery: q ?? p.lastQuery };
+    }
+    if (b?.type === "web_search_tool_result") return { ...p, phase: "reading" };
+    if (b?.type === "text") return { ...p, phase: "writing" };
+    return p;
+  }
+  if (ev?.type === "content_block_delta") {
+    const d = ev.delta;
+    if (d?.type === "input_json_delta" && ev.index in scratch.json) { scratch.json[ev.index] += d.partial_json ?? ""; return p; }
+    if (d?.type === "text_delta" && typeof d.text === "string") {
+      scratch.tail = (scratch.tail + d.text).slice(-600);
+      // 找最後一個段落標題：「3. 近期新聞…」「### 3. …」「**3. …**」
+      const heads = [...scratch.tail.matchAll(/(?:^|\n)\s*(?:#{1,4}\s*)?\**\s*(\d{1,2})[.、．]\s*([^\n*]{2,24})/g)];
+      const h = heads[heads.length - 1];
+      const section = h ? `${h[1]}. ${h[2].trim().replace(/[：:]$/, "")}` : p.section;
+      return { ...p, phase: "writing", chars: p.chars + d.text.length, section };
+    }
+    return p;
+  }
+  if (ev?.type === "content_block_stop" && ev.index in scratch.json) {
+    try {
+      const q = JSON.parse(scratch.json[ev.index] || "{}")?.query;
+      delete scratch.json[ev.index];
+      if (typeof q === "string" && q) return { ...p, lastQuery: q };
+    } catch { delete scratch.json[ev.index]; }
+    return p;
+  }
+  return p;
+}
+
+async function run(apiKey: string, prompt: string, maxSearches: number, onProgress?: OnProgress): Promise<AiReport> {
   const c = client(apiKey);
   const stream = c.beta.messages.stream({
     model: MODEL,
@@ -93,11 +144,23 @@ async function run(apiKey: string, prompt: string, maxSearches: number): Promise
     tools: [{ type: "web_search_20260209", name: "web_search", max_uses: maxSearches, user_location: { type: "approximate", country: "TW", timezone: "Asia/Taipei" } }],
     messages: [{ role: "user", content: prompt }],
   });
+  if (onProgress) {
+    let { p, scratch } = newProgress();
+    let last = 0;
+    onProgress(p);
+    for await (const ev of stream) {
+      const n = nextProgress(p, ev, scratch);
+      // 文字每個 token 都會來，畫面最多每 0.4 秒更新一次；階段、搜尋、段落變了就馬上更新
+      const changed = n.phase !== p.phase || n.searches !== p.searches || n.lastQuery !== p.lastQuery || n.section !== p.section;
+      p = n;
+      if (changed || Date.now() - last > 400) { last = Date.now(); onProgress(p); }
+    }
+  }
   return collect(await stream.finalMessage());
 }
 
-export function analyzeStock(apiKey: string, s: Scored, today: string, holding?: Holding) {
-  if (s.refOnly) return analyzeEtf(apiKey, s, today, holding);
+export function analyzeStock(apiKey: string, s: Scored, today: string, holding?: Holding, onProgress?: OnProgress) {
+  if (s.refOnly) return analyzeEtf(apiKey, s, today, holding, onProgress);
   const prompt = `今天是 ${today}。請分析這檔股票，並給我評等。
 
 【籌碼與技術數據】
@@ -109,11 +172,11 @@ ${stockBrief(s, holding)}
 3. 近期新聞與公司事件（搜尋最近消息：法說會、營收、訂單、產品）
 4. 國內外數據發表的影響（搜尋最近一週發表的總經數據與央行動態，說明對這檔股票的影響）
 5. 風險與觀察重點（什麼情況要改變評等，例如跌破哪個價位或外資轉賣）${holding ? "\n6. 針對我的持股：續抱、加碼、減碼或停損的建議" : ""}`;
-  return run(apiKey, prompt, 12);
+  return run(apiKey, prompt, 12, onProgress);
 }
 
 /** ETF：不給買入／觀望／離場，改說明成分、配息、適合的持有方式 */
-function analyzeEtf(apiKey: string, s: Scored, today: string, holding?: Holding) {
+function analyzeEtf(apiKey: string, s: Scored, today: string, holding?: Holding, onProgress?: OnProgress) {
   const prompt = `今天是 ${today}。請分析這檔 ETF。這是 ETF，不要給「買入／觀望／離場」評等，第一行固定寫：評等：參考
 
 【籌碼與技術數據】
@@ -125,10 +188,10 @@ ${stockBrief(s, holding)}
 3. 配息：最近幾次配息金額、殖利率、除息日，以及是否有填息
 4. 近期表現與外資動向解讀（用上面的數據），和同類 ETF 比較
 5. 國內外數據發表的影響與主要風險（例如利率、匯率、成分股集中）${holding ? "\n6. 針對我的持股：是否適合續抱、要注意什麼（不要給買入／離場評等）" : ""}`;
-  return run(apiKey, prompt, 12);
+  return run(apiKey, prompt, 12, onProgress);
 }
 
-export function marketBrief(apiKey: string, today: string, sectorsTw: SectorStat[], sectorsUs: SectorStat[], macro: MacroQuote[], top: Scored[]) {
+export function marketBrief(apiKey: string, today: string, sectorsTw: SectorStat[], sectorsUs: SectorStat[], macro: MacroQuote[], top: Scored[], onProgress?: OnProgress) {
   const sec = (xs: SectorStat[]) =>
     xs.slice(0, 12).map((s) => `${s.sector}：近1週 ${fmtPct(s.ret1w)}、近1月 ${fmtPct(s.ret1m)}、${s.rotation}${Number.isFinite(s.foreignValue5) ? `、外資5日 ${(s.foreignValue5 / 1e8).toFixed(1)} 億` : ""}`).join("\n");
   const prompt = `今天是 ${today}。請幫我整理今天的國內外市場重點。
@@ -151,7 +214,7 @@ ${top.slice(0, 10).map((s) => `${s.name}(${s.code}) ${s.score}分 ${s.rating}`).
 3. 接下來一週要注意的數據與事件（日期）
 4. 族群輪動解讀：資金從哪裡流到哪裡、外資動向
 5. 操作建議：哪些族群偏多、哪些要避開`;
-  return run(apiKey, prompt, 12);
+  return run(apiKey, prompt, 12, onProgress);
 }
 
 // ---------- 照片辨識持股 ----------

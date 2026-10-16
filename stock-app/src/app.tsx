@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import { init, refreshEsb, refreshMacro, refreshTw, refreshUs, useStore, type Market } from "./store";
+import { findScored, init, refreshEsb, refreshMacro, refreshTw, refreshUs, useStore, type AiJob, type Market } from "./store";
 import type { Scored } from "./engine/score";
 import { pretty } from "./lib/dates";
-import { HoldingsScreen, MacroScreen, PicksScreen, SectorsScreen, SettingsScreen, StockDetail, UpdateBanner } from "./ui/screens";
+import { AiJobBanner, HoldingsScreen, MacroScreen, PicksScreen, SectorsScreen, SettingsScreen, StockDetail, UpdateBanner } from "./ui/screens";
 
 type Tab = "picks" | "sectors" | "holdings" | "macro" | "settings";
 
@@ -27,6 +27,12 @@ export function App() {
 
   const ms = market === "TW" ? tw : market === "ETF" ? etf : us;
   const busy = !!ms.progress || ms.status === "loading";
+  // 點上方的解析提醒：個股就打開那一檔，數據解讀就切到「數據」分頁
+  const openJob = (j: AiJob) => {
+    if (j.kind === "brief") { setTab("macro"); return; }
+    const s = j.code ? findScored(j.code, j.market === "US" ? "US" : "TW") : undefined;
+    if (s) setDetail(s);
+  };
   const refresh = () => { if (market === "US") refreshUs(); else { refreshTw(); refreshEsb(); } refreshMacro(); };
 
   return (
@@ -43,6 +49,7 @@ export function App() {
       </div>
       <main ref={mainRef}>
         {tab !== "settings" && <UpdateBanner />}
+        <AiJobBanner open={openJob} />
         {tab === "picks" && <PicksScreen market={market} setMarket={setMarket} sector={sector} setSector={setSector} open={setDetail} />}
         {tab === "sectors" && <SectorsScreen market={market} setMarket={setMarket} pick={(s) => { setSector(s); setTab("picks"); }} />}
         {tab === "holdings" && <HoldingsScreen open={setDetail} />}

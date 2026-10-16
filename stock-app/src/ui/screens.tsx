@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import {
   findScored, getFetcher, getKv, getState, holdingViews, refreshEsb, refreshMacro, refreshTw, refreshUs, saveHoldings, saveReport,
   saveSettings, clearCache, useStore, usBars, recordSpend, estimatedBalance, checkForUpdate, installUpdate,
-  addUsSymbol, removeUsSymbol, revenueOf, type Market,
+  addUsSymbol, removeUsSymbol, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
 } from "../store";
 import type { Holding, Rating, Scored, SectorStat } from "../engine/score";
 import { analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
@@ -270,8 +270,6 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
   const { holdings, apiKey, reports } = useStore((st) => ({ holdings: st.holdings, apiKey: st.settings.apiKey, reports: st.reports }));
   const [bars, setBars] = useState<{ date: string; close: number; volume: number }[] | null>(null);
   const [barsErr, setBarsErr] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [aiErr, setAiErr] = useState("");
   const [adding, setAdding] = useState(false);
   const holding = holdings.find((h) => h.code === s.code);
   const isExtra = useStore((st) => st.usExtra.some((x) => x.symbol === s.code)) && !holding;
@@ -303,12 +301,14 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
     } catch { /* 營收只是補充 */ } finally { setFreeBusy(false); }
   };
 
-  const runAi = async () => {
+  const job = useStore((st) => st.aiJobs[reportKey]);
+  const busy = job?.status === "running";
+  // 在這一頁看到結果了，就不用再在上方提醒
+  useEffect(() => { if (job?.status === "done") dismissAiJob(reportKey); }, [job?.status]);
+  const runAi = () => {
     if (report && !confirmRerun(0.5)) return;
-    setBusy(true); setAiErr("");
-    try { await saveReport(reportKey, await analyzeStock(apiKey, s, today, holding)); }
-    catch (e) { setAiErr(explainError(e)); }
-    finally { setBusy(false); }
+    startAiJob({ key: reportKey, kind: "stock", title: `${s.name} ${s.code}`, code: s.code, market: s.market === "US" ? "US" : s.refOnly ? "ETF" : "TW" },
+      (onProgress) => analyzeStock(apiKey, s, today, holding, onProgress));
   };
 
   return (
@@ -362,8 +362,9 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
       <ClaudeAppButton prompt={claudeAppPrompt(s, today, holding)} />
 
       <div class="section-title"><span>Claude AI 深度解析（付費）</span>{report && <span>{new Date(report.at).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })} 更新</span>}</div>
-      {aiErr && <div class="error">{aiErr}</div>}
-      {report ? <AiReportView r={report} /> : (
+      {job?.status === "error" && <div class="error">{job.error}</div>}
+      {busy && <AiProgressView job={job!} />}
+      {report && !busy ? <AiReportView r={report} /> : busy ? null : (
         <div class="notice">
           {s.refOnly
             ? "Claude 會搜尋這檔 ETF 的成分股、配息、費用率與國內外經濟數據，說明特性、風險與適合的持有方式（不給買賣評等）。"
@@ -372,7 +373,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
       )}
       <div class="stack" style={{ marginTop: "12px" }}>
         <button class="btn block" disabled={busy || !apiKey} onClick={runAi}>
-          {busy ? "Claude 搜尋與分析中（約 2 分鐘）…" : report ? "重新解析" : "AI 深度解析"}
+          {busy ? "Claude 分析中，可以先去看別的…" : report ? "重新解析" : "AI 深度解析"}
         </button>
         {!apiKey && <div class="muted" style={{ fontSize: "13px", textAlign: "center" }}>先到「設定」貼上 Claude API 金鑰才能使用</div>}
         {apiKey && <BalanceHint />}
@@ -594,22 +595,20 @@ function ImportReview({ data, onDone }: { data: { rows: ImportedHolding[]; note:
 // ---------------- 數據（國內外指標＋AI 解讀） ----------------
 export function MacroScreen() {
   const st = useStore((s) => ({ macro: s.macro, tw: s.tw, us: s.us, idx: s.twIndices, etfs: s.usSectorEtfs, apiKey: s.settings.apiKey, reports: s.reports }));
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
   const today = taipeiToday();
   const key = `brief:${today}`;
+  const job = useStore((s) => s.aiJobs[key]);
+  const busy = job?.status === "running";
+  useEffect(() => { if (job?.status === "done") dismissAiJob(key); }, [job?.status]);
   const report = st.reports[key];
   const bySymbol = new Map(st.macro.quotes.map((q) => [q.symbol, q]));
   const groups = ["亞洲", "美股", "利率匯率", "原物料"] as const;
 
-  const runAi = async () => {
+  const runAi = () => {
     if (report && !confirmRerun(1)) return;
-    setBusy(true); setErr("");
-    try {
-      const top = [...st.tw.scored.slice(0, 5), ...st.us.scored.slice(0, 5)];
-      await saveReport(key, await marketBrief(st.apiKey, today, st.tw.sectors, st.us.sectors, st.macro.quotes, top));
-    } catch (e) { setErr(explainError(e)); }
-    finally { setBusy(false); }
+    const top = [...st.tw.scored.slice(0, 5), ...st.us.scored.slice(0, 5)];
+    startAiJob({ key, kind: "brief", title: "今日國內外數據" },
+      (onProgress) => marketBrief(st.apiKey, today, st.tw.sectors, st.us.sectors, st.macro.quotes, top, onProgress));
   };
 
   return (
@@ -656,12 +655,13 @@ export function MacroScreen() {
       )}
 
       <div class="section-title"><span>AI 國內外數據解讀</span>{report && <span>{new Date(report.at).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })} 更新</span>}</div>
-      {err && <div class="error">{err}</div>}
-      {report ? <AiReportView r={report} /> : (
+      {job?.status === "error" && <div class="error">{job.error}</div>}
+      {busy && <AiProgressView job={job!} />}
+      {report && !busy ? <AiReportView r={report} /> : busy ? null : (
         <div class="notice">Claude 會搜尋最近一週國內外發表的經濟數據（美國 CPI、非農、Fed、台灣出口、央行等），寫出實際值與預期值的比較，並解讀族群輪動與外資動向。約 3~4 分鐘，實測花費約台幣 30 元。</div>
       )}
       <button class="btn block" style={{ marginTop: "12px" }} disabled={busy || !st.apiKey} onClick={runAi}>
-        {busy ? "Claude 搜尋與分析中（約 3~4 分鐘）…" : report ? "重新解讀" : "產生今日解讀"}
+        {busy ? "Claude 分析中，可以先去看別的…" : report ? "重新解讀" : "產生今日解讀"}
       </button>
       {!st.apiKey && <div class="muted" style={{ fontSize: "13px", textAlign: "center", marginTop: "8px" }}>先到「設定」貼上 Claude API 金鑰</div>}
       {st.apiKey && <div style={{ marginTop: "8px" }}><BalanceHint /></div>}
@@ -744,6 +744,79 @@ function ClaudeAppButton({ prompt }: { prompt: string }) {
       <a class="btn secondary block" href={claudeAppUrl(prompt)} target="_blank" rel="noreferrer" onClick={copy} data-testid="claude-app">在 Claude App 解析</a>
       {copied === "ok" && <div class="muted" style={{ fontSize: "13px", textAlign: "center" }} data-testid="claude-app-copied">已複製提問。如果 Claude 沒有自動帶入，在輸入框長按「貼上」再送出。</div>}
       {copied === "fail" && <div class="muted" style={{ fontSize: "13px" }}>沒辦法自動複製，請在 Claude 自行描述要分析的股票。</div>}
+    </div>
+  );
+}
+
+// ---------------- Claude 背景解析：進度與提醒 ----------------
+const mmss = (ms: number) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+
+/** 每秒重畫一次（顯示經過時間） */
+function useTick(on: boolean) {
+  const [, setN] = useState(0);
+  useEffect(() => {
+    if (!on) return;
+    const t = setInterval(() => setN((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [on]);
+}
+
+export function progressText(job: AiJob): string {
+  const p = job.progress;
+  switch (p.phase) {
+    case "start": return "連線到 Claude…";
+    case "thinking": return p.searches ? "整理搜尋到的資料…" : "思考要查哪些資料…";
+    case "searching": return `網路搜尋第 ${p.searches} 次${p.lastQuery ? `：「${p.lastQuery}」` : "…"}`;
+    case "reading": return `閱讀搜尋結果（已搜尋 ${p.searches} 次）`;
+    case "writing": return `撰寫中${p.section ? `：${p.section}` : ""}（已寫 ${p.chars.toLocaleString()} 字）`;
+  }
+}
+
+/** 個股頁／數據頁裡的進度卡 */
+function AiProgressView({ job }: { job: AiJob }) {
+  useTick(true);
+  const p = job.progress;
+  const steps = [
+    { k: "搜尋資料", done: p.phase === "writing", on: p.phase === "searching" || p.phase === "reading" || p.phase === "thinking" || p.phase === "start" },
+    { k: "撰寫解析", done: false, on: p.phase === "writing" },
+  ];
+  return (
+    <div class="card stack" data-testid="ai-progress" aria-live="polite">
+      <div class="row" style={{ justifyContent: "space-between" }}>
+        <b><span class="spin" style={{ display: "inline-block" }}>◐</span> Claude 正在分析</b>
+        <span class="muted num" style={{ fontSize: "13px" }}>已經過 {mmss(Date.now() - job.startedAt)}</span>
+      </div>
+      <div style={{ fontSize: "14px" }} data-testid="ai-progress-text">{progressText(job)}</div>
+      <div class="row" style={{ gap: "6px" }}>
+        {steps.map((x) => <span class="tag" style={{ background: x.on ? "var(--hold-bg)" : "var(--surface-2)", color: x.done ? "var(--muted)" : x.on ? "var(--hold)" : "var(--muted)" }}>{x.done ? "✓ " : ""}{x.k}</span>)}
+        <span class="muted" style={{ fontSize: "12px" }}>已搜尋 {p.searches} 次</span>
+      </div>
+      <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>通常 2～4 分鐘。可以離開這頁去看別的，App 最上方會顯示進度，完成後點一下就能看。請不要關掉 App。</div>
+    </div>
+  );
+}
+
+/** 每個分頁最上方：背景解析的進度與完成提醒 */
+export function AiJobBanner({ open }: { open: (job: AiJob) => void }) {
+  const jobs = useStore((s) => Object.values(s.aiJobs));
+  useTick(jobs.some((j) => j.status === "running"));
+  if (!jobs.length) return null;
+  return (
+    <div class="stack" style={{ marginBottom: "12px" }}>
+      {jobs.map((j) => (
+        <div class="card row" style={{ padding: "10px 12px", gap: "10px", flexWrap: "nowrap", borderColor: j.status === "done" ? "var(--up)" : j.status === "error" ? "var(--down)" : "var(--accent)" }} data-testid="ai-banner">
+          <button style={{ flex: 1, minWidth: 0, textAlign: "left", background: "none", border: 0, padding: 0, cursor: "pointer" }} onClick={() => open(j)}>
+            <div style={{ fontWeight: 700, fontSize: "14px" }}>
+              {j.status === "running" ? <>Claude 分析中：{j.title}<span class="muted num" style={{ fontWeight: 400 }}>・{mmss(Date.now() - j.startedAt)}</span></>
+                : j.status === "done" ? <>{j.title} 解析完成，點我看</> : <>{j.title} 解析失敗</>}
+            </div>
+            <div class="muted" style={{ fontSize: "12px", marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {j.status === "running" ? progressText(j) : j.status === "error" ? j.error : "已存到這檔股票的頁面，之後再點進去也看得到"}
+            </div>
+          </button>
+          {j.status !== "running" && <button class="iconbtn" style={{ width: "32px", height: "32px" }} aria-label="關閉提醒" onClick={() => dismissAiJob(j.key)}>✕</button>}
+        </div>
+      ))}
     </div>
   );
 }

@@ -7,7 +7,7 @@ import { isEtf, parseEsbLatest, twUrls, type EsbQuote } from "./data/tw";
 import { UsLoader, type UsSnapshot } from "./data/usLoader";
 import { cnbcUrl, isUsSymbol, MACRO_SYMBOLS, parseCnbcQuotes, US_UNIVERSE, type MacroQuote, type UsExtra } from "./data/us";
 import { scoreStocks, reviewHolding, type Holding, type HoldingView, type Scored, type SectorStat } from "./engine/score";
-import type { AiReport } from "./ai/claude";
+import { explainError, type AiProgress, type AiReport, type OnProgress } from "./ai/claude";
 import { taipeiToday } from "./lib/dates";
 import * as upd from "./lib/update";
 import type { BacktestResult } from "./engine/backtest";
@@ -59,6 +59,7 @@ export interface State {
   spend: { at: number; usd: number; kind: string }[]; // 這支手機呼叫 Claude 的實際花費紀錄
   backtest?: { data: BacktestResult; fetchedAt: number };
   usExtra: UsExtra[]; // 使用者自己加的美股
+  aiJobs: Record<string, AiJob>; // 背景執行中／剛完成的 Claude 解析（key 同 reports）
   usLookup?: { symbol: string; status: "loading" | "notfound" | "error"; error?: string };
   loaded: boolean;
 }
@@ -68,7 +69,7 @@ const starting = (): MarketState => ({ status: "loading", scored: [], sectors: [
 
 let state: State = {
   tw: starting(), etf: starting(), us: starting(), esb: {}, twIndices: [], usSectorEtfs: [],
-  macro: { status: "idle", quotes: [] }, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], update: { status: "idle" }, usExtra: [], loaded: false,
+  macro: { status: "idle", quotes: [] }, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], update: { status: "idle" }, usExtra: [], aiJobs: {}, loaded: false,
 };
 const listeners = new Set<() => void>();
 
@@ -384,4 +385,43 @@ export async function revenueOf(code: string, market: "TWSE" | "TPEX"): Promise<
     await kv.set(key, list);
   }
   return list.find((r) => r.code === code);
+}
+
+// ---------- Claude 解析在背景執行 ----------
+// 存在全域狀態裡，離開個股頁、切到別的分頁都會繼續跑；畫面最上方顯示進度，完成後點一下就能看。
+export interface AiJob {
+  key: string;
+  kind: "stock" | "brief";
+  title: string; // 例如「友達 2409」或「今日國內外數據」
+  code?: string;
+  market?: Market;
+  status: "running" | "done" | "error";
+  progress: AiProgress;
+  startedAt: number;
+  finishedAt?: number;
+  error?: string;
+}
+
+function patchJob(key: string, patch: Partial<AiJob>) {
+  const j = state.aiJobs[key];
+  if (j) set({ aiJobs: { ...state.aiJobs, [key]: { ...j, ...patch } } });
+}
+
+export async function startAiJob(job: Pick<AiJob, "key" | "kind" | "title" | "code" | "market">, work: (onProgress: OnProgress) => Promise<AiReport>) {
+  if (state.aiJobs[job.key]?.status === "running") return;
+  set({ aiJobs: { ...state.aiJobs, [job.key]: { ...job, status: "running", progress: { phase: "start", searches: 0, chars: 0 }, startedAt: Date.now() } } });
+  try {
+    const report = await work((progress) => patchJob(job.key, { progress }));
+    await saveReport(job.key, report);
+    patchJob(job.key, { status: "done", finishedAt: Date.now() });
+  } catch (e) {
+    patchJob(job.key, { status: "error", error: explainError(e), finishedAt: Date.now() });
+  }
+}
+
+/** 看過結果或關掉提示 */
+export function dismissAiJob(key: string) {
+  if (!state.aiJobs[key] || state.aiJobs[key].status === "running") return;
+  const { [key]: _, ...rest } = state.aiJobs;
+  set({ aiJobs: rest });
 }

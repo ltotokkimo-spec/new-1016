@@ -267,6 +267,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
   }, [s.code]);
 
   const runAi = async () => {
+    if (report && !confirmRerun(0.5)) return;
     setBusy(true); setAiErr("");
     try { await saveReport(reportKey, await analyzeStock(apiKey, s, today, holding)); }
     catch (e) { setAiErr(explainError(e)); }
@@ -550,6 +551,7 @@ export function MacroScreen() {
   const groups = ["亞洲", "美股", "利率匯率", "原物料"] as const;
 
   const runAi = async () => {
+    if (report && !confirmRerun(1)) return;
     setBusy(true); setErr("");
     try {
       const top = [...st.tw.scored.slice(0, 5), ...st.us.scored.slice(0, 5)];
@@ -666,6 +668,13 @@ function UpdateCard() {
       <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>每次打開 App 會自動檢查；有新版會在畫面最上方提示，按「立即更新」就會在 App 裡下載並安裝，持股與設定都會保留。</div>
     </div>
   );
+}
+
+/** 已經有今天的報告時，重做前先確認（會再花一次錢） */
+function confirmRerun(usd: number) {
+  const left = estimatedBalance(getState());
+  const bal = left === undefined ? "" : `，估計剩餘 US$${left.toFixed(2)}`;
+  return window.confirm(`今天已經解析過了，畫面上的報告不用錢就能看。\n\n重新解析會再花約 US$${usd.toFixed(1)}（約台幣 ${Math.round(usd * 32)} 元）${bal}。確定要重新解析嗎？`);
 }
 
 /** 付費按鈕下方的小字：估計剩餘額度 */

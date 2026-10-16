@@ -222,12 +222,12 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
       {aiErr && <div class="error">{aiErr}</div>}
       {report ? <AiReportView r={report} /> : (
         <div class="notice">
-          Claude 會搜尋這檔股票最近的新聞、法說會與國內外經濟數據發表，搭配上面的籌碼數據寫成解析，並給出評等。每次約 1~2 分鐘、花費約台幣 3~8 元。
+          Claude 會搜尋這檔股票最近的新聞、法說會與國內外經濟數據發表，搭配上面的籌碼數據寫成解析，並給出評等。每次約 2 分鐘，實測花費約台幣 15~20 元（每份解析下方會顯示實際花費）。
         </div>
       )}
       <div class="stack" style={{ marginTop: "12px" }}>
         <button class="btn block" disabled={busy || !apiKey} onClick={runAi}>
-          {busy ? "Claude 分析中（約 1~2 分鐘）…" : report ? "重新解析" : "AI 深度解析"}
+          {busy ? "Claude 搜尋與分析中（約 2 分鐘）…" : report ? "重新解析" : "AI 深度解析"}
         </button>
         {!apiKey && <div class="muted" style={{ fontSize: "13px", textAlign: "center" }}>先到「設定」貼上 Claude API 金鑰才能使用</div>}
         {!holding && <button class="btn secondary block" onClick={() => setAdding(true)}>加入我的持股</button>}
@@ -507,10 +507,10 @@ export function MacroScreen() {
       <div class="section-title"><span>AI 國內外數據解讀</span>{report && <span>{new Date(report.at).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })} 更新</span>}</div>
       {err && <div class="error">{err}</div>}
       {report ? <AiReportView r={report} /> : (
-        <div class="notice">Claude 會搜尋最近一週國內外發表的經濟數據（美國 CPI、非農、Fed、台灣出口、央行等），寫出實際值與預期值的比較，並解讀族群輪動與外資動向。約 2 分鐘、花費約台幣 5~10 元。</div>
+        <div class="notice">Claude 會搜尋最近一週國內外發表的經濟數據（美國 CPI、非農、Fed、台灣出口、央行等），寫出實際值與預期值的比較，並解讀族群輪動與外資動向。約 3~4 分鐘，實測花費約台幣 30 元。</div>
       )}
       <button class="btn block" style={{ marginTop: "12px" }} disabled={busy || !st.apiKey} onClick={runAi}>
-        {busy ? "Claude 搜尋與分析中（約 2 分鐘）…" : report ? "重新解讀" : "產生今日解讀"}
+        {busy ? "Claude 搜尋與分析中（約 3~4 分鐘）…" : report ? "重新解讀" : "產生今日解讀"}
       </button>
       {!st.apiKey && <div class="muted" style={{ fontSize: "13px", textAlign: "center", marginTop: "8px" }}>先到「設定」貼上 Claude API 金鑰</div>}
     </div>

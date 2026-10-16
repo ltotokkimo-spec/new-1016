@@ -96,9 +96,18 @@ function check(ok, name, detail = "") {
   await shot("06-持股健檢");
 
   // 重開 App：持股仍在（存在手機裡）
+  const oldPid = webview.pid();
   await device.shell(`am force-stop ${PKG}`);
+  await sleep(3000);
   await device.shell(`am start -n ${PKG}/.MainActivity`);
-  const page2 = await (await device.webView({ pkg: PKG })).page();
+  let wv2 = null;
+  for (let i = 0; i < 30 && !wv2; i++) {
+    const w = await device.webView({ pkg: PKG });
+    if (w.pid() !== oldPid) wv2 = w; else await sleep(1000);
+  }
+  check(!!wv2, "重開 App");
+  const page2 = await wv2.page();
+  page2.on("pageerror", (e) => errors.push(e.message));
   await page2.waitForSelector("nav.tabs", { timeout: 60000 });
   await page2.click("nav.tabs button:nth-child(3)");
   await page2.waitForSelector(".list .item", { timeout: 30000 });

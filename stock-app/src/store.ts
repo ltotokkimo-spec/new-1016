@@ -37,9 +37,10 @@ export interface State {
 }
 
 const empty = (): MarketState => ({ status: "idle", scored: [], sectors: [] });
+const starting = (): MarketState => ({ status: "loading", scored: [], sectors: [], progress: { done: 0, total: 1, label: "讀取手機裡的資料" } });
 
 let state: State = {
-  tw: empty(), us: empty(), twIndices: [], usSectorEtfs: [],
+  tw: starting(), us: starting(), twIndices: [], usSectorEtfs: [],
   macro: { status: "idle", quotes: [] }, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, loaded: false,
 };
 const listeners = new Set<() => void>();

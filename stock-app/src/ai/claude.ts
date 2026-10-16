@@ -163,7 +163,7 @@ const HOLDING_SCHEMA = {
 
 export interface ImportedHolding { code: string; name: string; market: "TW" | "US"; shares: number; cost: number }
 
-export async function holdingsFromImage(apiKey: string, base64: string, mediaType: "image/jpeg" | "image/png" | "image/webp"): Promise<{ holdings: ImportedHolding[]; note: string }> {
+export async function holdingsFromImage(apiKey: string, base64: string, mediaType: "image/jpeg" | "image/png" | "image/webp"): Promise<{ holdings: ImportedHolding[]; note: string; costUsd: number }> {
   const c = client(apiKey);
   const msg = await c.beta.messages.create({
     model: MODEL,
@@ -183,7 +183,7 @@ export async function holdingsFromImage(apiKey: string, base64: string, mediaTyp
   const text = msg.content.map((b) => (b.type === "text" ? b.text : "")).join("");
   try {
     const parsed = JSON.parse(text);
-    return { holdings: parsed.holdings ?? [], note: parsed.note ?? "" };
+    return { holdings: parsed.holdings ?? [], note: parsed.note ?? "", costUsd: costOf(msg.usage) };
   } catch {
     throw new AiError("辨識結果格式不正確，請再試一次");
   }

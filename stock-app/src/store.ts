@@ -33,7 +33,8 @@ export interface State {
   holdings: Holding[];
   settings: Settings;
   reports: Record<string, AiReport>; // key: "stock:2330:20261016" / "brief:20261016"
-  prices: Record<string, { name: string; close: number }>; // 全市場收盤價（含未評分的低成交股）
+  prices: Record<string, { name: string; close: number }>;
+  spend: { at: number; usd: number; kind: string }[]; // 這支手機呼叫 Claude 的實際花費紀錄 // 全市場收盤價（含未評分的低成交股）
   loaded: boolean;
 }
 
@@ -42,7 +43,7 @@ const starting = (): MarketState => ({ status: "loading", scored: [], sectors: [
 
 let state: State = {
   tw: starting(), us: starting(), twIndices: [], usSectorEtfs: [],
-  macro: { status: "idle", quotes: [] }, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, loaded: false,
+  macro: { status: "idle", quotes: [] }, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], loaded: false,
 };
 const listeners = new Set<() => void>();
 
@@ -72,12 +73,12 @@ const mark = (k: string) => { timings[k] = Math.round(performance.now()); };
 
 export async function init() {
   mark("init");
-  const [holdings, settings, reports, twSnap, usSnap] = await Promise.all([
+  const [holdings, settings, reports, twSnap, usSnap, spend] = await Promise.all([
     kv.get<Holding[]>("holdings"), kv.get<Settings>("settings"), kv.get<Record<string, AiReport>>("reports"),
-    kv.get<TwSnapshot>("snap:tw"), kv.get<UsSnapshot>("snap:us"),
+    kv.get<TwSnapshot>("snap:tw"), kv.get<UsSnapshot>("snap:us"), kv.get<State["spend"]>("spend"),
   ]);
   mark("kvRead");
-  set({ holdings: holdings ?? [], settings: settings ?? { apiKey: "" }, reports: reports ?? {}, loaded: true });
+  set({ holdings: holdings ?? [], settings: settings ?? { apiKey: "" }, reports: reports ?? {}, spend: spend ?? [], loaded: true });
   if (twSnap) applyTw(twSnap);
   if (usSnap) applyUs(usSnap);
   // 開 App 時自動更新：沒資料或資料不是今天抓的就重抓（快取會讓已下載的日子不重抓）
@@ -180,7 +181,15 @@ export async function saveSettings(settings: Settings) {
   await kv.set("settings", settings);
 }
 
+export async function recordSpend(usd: number | undefined, kind: string) {
+  if (usd === undefined || !Number.isFinite(usd)) return;
+  const spend = [...state.spend, { at: Date.now(), usd, kind }].slice(-2000);
+  set({ spend });
+  await kv.set("spend", spend);
+}
+
 export async function saveReport(key: string, report: AiReport) {
+  await recordSpend(report.costUsd, key.startsWith("brief") ? "數據解讀" : "個股解析");
   const reports = { ...state.reports, [key]: report };
   // 只留最近 40 份
   const keys = Object.keys(reports).sort((a, b) => reports[b].at - reports[a].at);

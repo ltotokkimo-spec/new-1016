@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
   findScored, getFetcher, getKv, getState, holdingViews, refreshMacro, refreshTw, refreshUs, saveHoldings, saveReport,
-  saveSettings, clearCache, useStore, usBars, type Market,
+  saveSettings, clearCache, useStore, usBars, recordSpend, type Market,
 } from "../store";
 import type { Holding, Rating, Scored, SectorStat } from "../engine/score";
 import { analyzeStock, client, explainError, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
@@ -283,6 +283,7 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
       setBusy(true); setErr("");
       try {
         const r = await holdingsFromImage(getState().settings.apiKey, b64, "image/png");
+        await recordSpend(r.costUsd, "照片辨識");
         if (!r.holdings.length) setErr("照片裡沒有辨識到持股，請換一張清楚的庫存截圖");
         else setImporting({ rows: r.holdings, note: r.note });
       } catch (e2) { setErr(explainError(e2)); }
@@ -300,6 +301,7 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
     try {
       const img = await shrinkImage(file);
       const r = await holdingsFromImage(apiKey, img.base64, img.mediaType);
+      await recordSpend(r.costUsd, "照片辨識");
       if (!r.holdings.length) setErr("照片裡沒有辨識到持股，請換一張清楚的庫存截圖");
       else setImporting({ rows: r.holdings, note: r.note });
     } catch (e2) { setErr(explainError(e2)); }
@@ -518,6 +520,37 @@ export function MacroScreen() {
 }
 
 // ---------------- 設定 ----------------
+function SpendCard() {
+  const spend = useStore((s) => s.spend);
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const sum = (xs: typeof spend) => xs.reduce((a, x) => a + x.usd, 0);
+  const month = spend.filter((x) => x.at >= monthStart);
+  const byKind = new Map<string, { n: number; usd: number }>();
+  for (const x of month) {
+    const k = byKind.get(x.kind) ?? { n: 0, usd: 0 };
+    k.n++; k.usd += x.usd; byKind.set(x.kind, k);
+  }
+  const twd = (usd: number) => `約台幣 ${Math.round(usd * 32)} 元`;
+  return (
+    <div class="card stack">
+      <div class="grid2">
+        <div class="metric"><div class="k">本月花費</div><div class="v num">US${sum(month).toFixed(2)}</div><div class="d muted">{twd(sum(month))}</div></div>
+        <div class="metric"><div class="k">累計花費</div><div class="v num">US${sum(spend).toFixed(2)}</div><div class="d muted">{spend.length} 次呼叫</div></div>
+      </div>
+      {byKind.size > 0 && (
+        <div class="muted" style={{ fontSize: "13px", lineHeight: 1.7 }}>
+          本月：{[...byKind.entries()].map(([k, v]) => `${k} ${v.n} 次 US$${v.usd.toFixed(2)}`).join("、")}
+        </div>
+      )}
+      <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
+        這是 App 依 Claude 回傳的用量自己算的，只包含這支手機的使用；Anthropic 沒有開放用一般金鑰查詢剩餘額度，實際餘額請到官網查看。
+      </div>
+      <a class="btn secondary block" href="https://platform.claude.com/settings/billing" target="_blank" rel="noreferrer">查看剩餘額度／儲值</a>
+    </div>
+  );
+}
+
 export function SettingsScreen() {
   const settings = useStore((s) => s.settings);
   const [key, setKey] = useState(settings.apiKey);
@@ -548,9 +581,11 @@ export function SettingsScreen() {
         </div>
         {msg && <div class="notice">{msg}</div>}
         <div class="muted" style={{ fontSize: "13px", lineHeight: 1.6 }}>
-          金鑰只存在這支手機裡，直接用來呼叫 Anthropic。到 console.anthropic.com 建立金鑰並儲值。使用模型：{MODEL}。
+          金鑰只存在這支手機裡，直接用來呼叫 Anthropic。到 platform.claude.com 建立金鑰並儲值。使用模型：{MODEL}。
         </div>
       </div>
+      <div class="section-title"><span>Claude 花費</span></div>
+      <SpendCard />
       <div class="section-title"><span>資料</span></div>
       <div class="card stack">
         <div class="row">

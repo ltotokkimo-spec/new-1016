@@ -59,7 +59,7 @@ const SYSTEM = `你是台灣投資人的私人研究助理，用繁體中文、�
 - 先講結論，再講理由；數字要具體（日期、百分比、張數、金額）。
 - 「籌碼與技術數據」是 App 從證交所、櫃買中心、Nasdaq 實際抓到的資料，以它為準；新聞與經濟數據用網路搜尋查證，並註明日期與來源。
 - 搜尋時優先找最近 7 天的消息與數據發表（例如美國 CPI、非農、Fed 利率決議、台灣出口與外銷訂單、央行、法說會、月營收）。
-- 評等只能是「買入」「觀望」「離場」三選一，寫在第一行，格式：評等：買入
+- 評等只能是「買入」「觀望」「離場」三選一，寫在第一行，格式：評等：買入（ETF 例外：不給買賣評等，第一行寫「評等：參考」）
 - 最後一行加上：以上為研究參考，非投資建議。`;
 
 function fmtPct(x: number) {
@@ -73,7 +73,7 @@ export function stockBrief(s: Scored, holding?: Holding): string {
     `當日成交金額：${s.market === "US" ? `${(s.value / 1e6).toFixed(0)} 百萬美元` : `${(s.value / 1e8).toFixed(2)} 億元`}`,
     ...(s.foreignRatio5 !== undefined && Number.isFinite(s.foreignRatio5) ? [`外資 5 日買賣超金額約佔 5 日成交金額 ${(s.foreignRatio5 * 100).toFixed(1)}%（以當日成交金額估算）`] : []),
     `報酬：近1週 ${fmtPct(s.ret1w)}、近1月 ${fmtPct(s.ret1m)}、近3月 ${fmtPct(s.ret3m)}`,
-    `App 評分：${s.score}/100（動能 ${Math.round(s.momentum * 100)}、${s.market === "US" ? "趨勢" : "籌碼"} ${Math.round(s.flow * 100)}、族群 ${Math.round(s.sectorScore * 100)}），規則評等：${s.rating}`,
+    `App 評分：${s.score}/100（動能 ${Math.round(s.momentum * 100)}、${s.market === "US" ? "趨勢" : "籌碼"} ${Math.round(s.flow * 100)}、族群 ${Math.round(s.sectorScore * 100)}），${s.refOnly ? "ETF 不給規則評等（分數只供參考）" : `規則評等：${s.rating}`}`,
     ...s.reasons.map((r) => `- ${r}`),
   ];
   if (holding) lines.push(`我持有 ${holding.shares} 股，平均成本 ${holding.cost}`);
@@ -97,6 +97,7 @@ async function run(apiKey: string, prompt: string, maxSearches: number): Promise
 }
 
 export function analyzeStock(apiKey: string, s: Scored, today: string, holding?: Holding) {
+  if (s.refOnly) return analyzeEtf(apiKey, s, today, holding);
   const prompt = `今天是 ${today}。請分析這檔股票，並給我評等。
 
 【籌碼與技術數據】
@@ -108,6 +109,22 @@ ${stockBrief(s, holding)}
 3. 近期新聞與公司事件（搜尋最近消息：法說會、營收、訂單、產品）
 4. 國內外數據發表的影響（搜尋最近一週發表的總經數據與央行動態，說明對這檔股票的影響）
 5. 風險與觀察重點（什麼情況要改變評等，例如跌破哪個價位或外資轉賣）${holding ? "\n6. 針對我的持股：續抱、加碼、減碼或停損的建議" : ""}`;
+  return run(apiKey, prompt, 12);
+}
+
+/** ETF：不給買入／觀望／離場，改說明成分、配息、適合的持有方式 */
+function analyzeEtf(apiKey: string, s: Scored, today: string, holding?: Holding) {
+  const prompt = `今天是 ${today}。請分析這檔 ETF。這是 ETF，不要給「買入／觀望／離場」評等，第一行固定寫：評等：參考
+
+【籌碼與技術數據】
+${stockBrief(s, holding)}
+
+請用以下段落回答（每段 2~5 點，條列）：
+1. 一句話說明這檔 ETF 的特性（追蹤什麼、適合長期還是波段）
+2. 成分股與產業集中度、費用率、規模（搜尋最新資料）
+3. 配息：最近幾次配息金額、殖利率、除息日，以及是否有填息
+4. 近期表現與外資動向解讀（用上面的數據），和同類 ETF 比較
+5. 國內外數據發表的影響與主要風險（例如利率、匯率、成分股集中）${holding ? "\n6. 針對我的持股：是否適合續抱、要注意什麼（不要給買入／離場評等）" : ""}`;
   return run(apiKey, prompt, 12);
 }
 

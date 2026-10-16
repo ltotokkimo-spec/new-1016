@@ -26,7 +26,7 @@ export function fmtMoney(x: number, market?: string) {
 export const lots = (shares: number | undefined) =>
   shares === undefined || !Number.isFinite(shares) ? "—" : `${shares > 0 ? "+" : ""}${Math.round(shares / 1000).toLocaleString("zh-TW")} 張`;
 
-export function RatingPill({ rating }: { rating: Rating | "無資料" | "無評等" }) {
+export function RatingPill({ rating }: { rating: Rating | "無資料" | "無評等" | "參考" }) {
   const c = rating === "買入" ? "buy" : rating === "觀望" ? "hold" : rating === "離場" ? "exit" : "none";
   return <span class={`pill ${c}`}>{rating}</span>;
 }

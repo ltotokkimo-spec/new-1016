@@ -104,7 +104,7 @@ function check(ok, name, detail = "") {
   log("ETF", JSON.stringify(etf));
   const nEtf = Number(/全部 (\d+)/.exec(etf.chips)?.[1] || 0);
   check(nEtf >= 30, "ETF 分頁有評分的 ETF", `全部 ${nEtf} 檔`);
-  check(etf.rows.every((r) => /\b00\d{2,4}[A-Z]?\b/.test(r) && /(買入|觀望|離場)/.test(r)), "ETF 每列都是 00 開頭代號並有評等", etf.rows[0]);
+  check(etf.rows.every((r) => /\b00\d{2,4}[A-Z]?\b/.test(r) && /參考/.test(r) && /\d+ 分/.test(r) && !/(買入|觀望|離場)/.test(r)), "ETF 每列都是 00 開頭代號，只給分數參考、不給買賣評等", etf.rows[0]);
   await shot("02b-選股-ETF");
   await page.click(".seg button:nth-child(1)");
 
@@ -154,7 +154,7 @@ function check(ok, name, detail = "") {
   log("持股（含 ETF／興櫃）", JSON.stringify(holds));
   const row = (c) => holds.find((h) => h.includes(c)) || "";
   const hasPrice = (r) => /\d[\d,]*(\.\d+)? [+-]?\d+(\.\d)?%/.test(r) && !/—/.test(r);
-  check(/元大台灣50/.test(row("0050")) && /(買入|觀望|離場)/.test(row("0050")) && hasPrice(row("0050")), "0050 顯示現價、損益與評等", row("0050"));
+  check(/元大台灣50/.test(row("0050")) && /參考/.test(row("0050")) && !/(買入|觀望|離場)/.test(row("0050")) && hasPrice(row("0050")), "0050 顯示現價、損益，只當參考不給買賣評等", row("0050"));
   check(hasPrice(row("00406A")) && !/無資料/.test(row("00406A")), "00406A 顯示現價與損益", row("00406A"));
   check(/貝爾威勒/.test(row("7861")) && /無評等/.test(row("7861")) && /興櫃/.test(row("7861")) && hasPrice(row("7861")), "興櫃 7861 顯示現價與損益、不評等", row("7861"));
   await shot("06-持股健檢");

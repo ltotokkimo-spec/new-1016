@@ -17,7 +17,9 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
   market: Market; setMarket: (m: Market) => void; sector: string; setSector: (s: string) => void; open: (s: Scored) => void;
 }) {
   const ms = useStore((s) => (market === "TW" ? s.tw : market === "ETF" ? s.etf : s.us));
-  const [filter, setFilter] = useState<Rating | "全部">("買入");
+  const [filter0, setFilter] = useState<Rating | "全部">("買入");
+  const refOnly = market === "ETF";
+  const filter = refOnly ? "全部" : filter0; // ETF 不分評等
   const [q, setQ] = useState("");
   const counts = useMemo(() => {
     const c: Record<string, number> = { 全部: ms.scored.length, 買入: 0, 觀望: 0, 離場: 0 };
@@ -38,9 +40,11 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
         <input class="search" type="search" placeholder="代號或名稱" value={q} onInput={(e) => setQ((e.target as HTMLInputElement).value)} aria-label="搜尋股票" />
       </div>
       <div class="chips" style={{ marginTop: "10px" }} role="group" aria-label="評等篩選">
-        {(["買入", "觀望", "離場", "全部"] as const).map((f) => (
-          <button class="chip" aria-pressed={filter === f} onClick={() => setFilter(f)}>{f} {counts[f] ?? 0}</button>
-        ))}
+        {refOnly
+          ? <button class="chip" aria-pressed="true">全部 {counts["全部"]}</button>
+          : (["買入", "觀望", "離場", "全部"] as const).map((f) => (
+            <button class="chip" aria-pressed={filter === f} onClick={() => setFilter(f)}>{f} {counts[f] ?? 0}</button>
+          ))}
         {sector && <button class="chip" aria-pressed="true" onClick={() => setSector("")}>{sector} ✕</button>}
       </div>
       <BacktestCard market={market} />
@@ -66,7 +70,7 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
           )}
           <p class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
             {market === "ETF"
-              ? "ETF 和個股分開排名：分數 = 動能 40%（近1週/1月/3月漲幅）＋ 外資籌碼 40%（5 日買超佔成交比重、連買天數、投信）＋ 同類 ETF 強弱 20%。只列當日成交金額 5 千萬以上的 ETF；槓桿反向型波動大，請特別留意。"
+              ? "ETF 只給分數當參考、不給買入／觀望／離場：回測顯示這套短線規則對 ETF 分辨不出好壞。分數 = 動能 40% ＋ 外資籌碼 40% ＋ 同類 ETF 強弱 20%，只列當日成交金額 5 千萬以上的 ETF；槓桿反向型波動大，請特別留意。"
               : market === "TW"
               ? "分數 = 動能 40%（近1週/1月/3月漲幅排名）＋ 外資籌碼 40%（5 日買超佔成交比重、連買天數、投信）＋ 族群強弱 20%。只列當日成交金額 5 千萬以上的股票。"
               : "分數 = 動能 40% ＋ 趨勢 40%（50 日均線、20/50 日均線排列、相對 S&P 500）＋ 產業強弱 20%。美股沒有外資資料。"}
@@ -102,7 +106,7 @@ function StockRow({ s, onClick }: { s: Scored; onClick: () => void }) {
         <div class={`c num ${cls(s.ret1m)}`}>月 {fmtPct(s.ret1m)}</div>
       </div>
       <div>
-        <RatingPill rating={s.rating} />
+        <RatingPill rating={s.refOnly ? "參考" : s.rating} />
         <div class="score num">{s.score} 分</div>
       </div>
     </button>
@@ -132,11 +136,11 @@ type BtGroup = "買入" | "觀望" | "離場" | "全部";
 function BacktestCard({ market }: { market: Market }) {
   const bt = useStore((s) => s.backtest);
   const [open, setOpen] = useState(false);
-  if (market === "US" || !bt) return null;
-  const u = market === "ETF" ? bt.data.etf : bt.data.stocks;
+  if (market !== "TW" || !bt) return null; // ETF 只當參考，不顯示評等回測
+  const u = bt.data.stocks;
   const b = u.groups["買入"][20], a = u.groups["全部"][20];
   if (!u.signals || !b || !a) return null;
-  const word = market === "ETF" ? "ETF" : "股票";
+  const word = "股票";
   return (
     <>
       <button class="card" style={{ width: "100%", textAlign: "left", marginTop: "10px", cursor: "pointer", display: "block" }} onClick={() => setOpen(true)} data-testid="backtest-card">
@@ -301,7 +305,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
           <div class="muted" style={{ marginTop: "6px", fontSize: "13px" }}>{s.sector}・{s.market === "US" ? "美股" : `${s.market === "TPEX" ? "上櫃" : "上市"}${isEtf(s.code) ? " ETF" : ""}`}</div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <RatingPill rating={s.rating} />
+          <RatingPill rating={s.refOnly ? "參考" : s.rating} />
           <div class="num" style={{ fontSize: "26px", fontWeight: 800, marginTop: "6px" }}>{s.score}<span class="muted" style={{ fontSize: "13px" }}> / 100</span></div>
         </div>
       </div>
@@ -322,7 +326,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
         {bars ? (bars.length > 1 ? <PriceChart bars={bars} /> : <div class="empty">沒有走勢資料</div>) : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>}
       </div>
 
-      <div class="section-title"><span>評等理由</span><span>動能 {Math.round(s.momentum * 100)}・{s.market === "US" ? "趨勢" : "籌碼"} {Math.round(s.flow * 100)}・族群 {Math.round(s.sectorScore * 100)}</span></div>
+      <div class="section-title"><span>{s.refOnly ? "分數說明（ETF 只供參考）" : "評等理由"}</span><span>動能 {Math.round(s.momentum * 100)}・{s.market === "US" ? "趨勢" : "籌碼"} {Math.round(s.flow * 100)}・族群 {Math.round(s.sectorScore * 100)}</span></div>
       <div class="card"><ul class="reasons">{s.reasons.map((r) => <li>{r}</li>)}</ul></div>
 
       {holding && (
@@ -336,7 +340,9 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
       {aiErr && <div class="error">{aiErr}</div>}
       {report ? <AiReportView r={report} /> : (
         <div class="notice">
-          Claude 會搜尋這檔股票最近的新聞、法說會與國內外經濟數據發表，搭配上面的籌碼數據寫成解析，並給出評等。每次約 2 分鐘，實測花費約台幣 15~20 元（每份解析下方會顯示實際花費）。
+          {s.refOnly
+            ? "Claude 會搜尋這檔 ETF 的成分股、配息、費用率與國內外經濟數據，說明特性、風險與適合的持有方式（不給買賣評等）。"
+            : "Claude 會搜尋這檔股票最近的新聞、法說會與國內外經濟數據發表，搭配上面的籌碼數據寫成解析，並給出評等。"}每次約 2 分鐘，實測花費約台幣 15~20 元（每份解析下方會顯示實際花費）。
         </div>
       )}
       <div class="stack" style={{ marginTop: "12px" }}>
@@ -358,11 +364,11 @@ function Metric({ k, v, c = "", d = "" }: { k: string; v: string; c?: string; d?
 }
 
 function AiReportView({ r }: { r: { text: string; sources: { title: string; url: string }[]; model: string; costUsd?: number } }) {
-  const m = /^\s*\**評等\**\s*[:：]\s*\**\s*(買入|觀望|離場)/.exec(r.text);
+  const m = /^\s*\**評等\**\s*[:：]\s*\**\s*(買入|觀望|離場|參考)/.exec(r.text);
   const body = m ? r.text.slice(r.text.indexOf("\n") + 1) : r.text;
   return (
     <div class="card">
-      {m && <div class="ai-rating">Claude 評等 <RatingPill rating={m[1] as Rating} /></div>}
+      {m && m[1] !== "參考" && <div class="ai-rating">Claude 評等 <RatingPill rating={m[1] as Rating} /></div>}
       <Markdown text={body} />
       {r.sources.length > 0 && (
         <>

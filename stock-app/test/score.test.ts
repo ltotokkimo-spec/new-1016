@@ -73,3 +73,15 @@ describe("持股健檢", () => {
     expect(v.advice.join()).toContain("已達 10% 停損線");
   });
 });
+
+describe("ETF 只當參考", () => {
+  it("持股健檢不給買入／觀望／離場，但仍提醒停損", async () => {
+    const { reviewHolding } = await import("../src/engine/score");
+    const s: any = { code: "0050", name: "元大台灣50", market: "TWSE", sector: "市值型", close: 88, value: 1e10, ret1w: 0, ret1m: -0.05, ret3m: 0, score: 30, momentum: 0, flow: 0, sectorScore: 0, rating: "離場", refOnly: true, reasons: [] };
+    const v = reviewHolding({ id: "1", code: "0050", name: "元大台灣50", market: "TWSE", shares: 1000, cost: 100 }, s);
+    expect(v.rating).toBe("參考");
+    expect(v.advice.join()).toMatch(/停損/);
+    expect(v.advice.join()).toMatch(/ETF 只供參考/);
+    expect(v.advice.join()).not.toMatch(/減碼或出場/);
+  });
+});

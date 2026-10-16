@@ -43,6 +43,7 @@ export interface Scored extends StockInput {
   flow: number; // 0~1（美股為趨勢分數）
   sectorScore: number; // 0~1
   rating: Rating;
+  refOnly?: boolean; // ETF：分數只供參考，不顯示買入／觀望／離場
   reasons: string[];
   foreignRatio5?: number; // 外資 5 日買超金額 ÷ 5 日成交金額估計
 }
@@ -192,7 +193,7 @@ export interface HoldingView extends Holding {
   price: number;
   pnl: number;
   pnlPct: number;
-  rating: Rating | "無資料" | "無評等";
+  rating: Rating | "無資料" | "無評等" | "參考";
   advice: string[];
   scored?: Scored;
 }
@@ -204,14 +205,16 @@ export function reviewHolding(h: Holding, scored: Scored | undefined, lastPrice?
   const pnl = (price - h.cost) * h.shares;
   const pnlPct = h.cost > 0 ? price / h.cost - 1 : NaN;
   const advice: string[] = [];
-  let rating: HoldingView["rating"] = scored?.rating ?? (opts.esb && Number.isFinite(price) ? "無評等" : "無資料");
+  let rating: HoldingView["rating"] = scored?.refOnly ? "參考" : scored?.rating ?? (opts.esb && Number.isFinite(price) ? "無評等" : "無資料");
   if (!scored && opts.esb && Number.isFinite(price)) advice.push("興櫃股票沒有三大法人資料，只計算損益、不評分");
   else if (!scored) advice.push(Number.isFinite(price) ? "成交金額低於門檻，只計算損益、不評分" : "找不到這檔股票的行情，請確認代號");
   if (Number.isFinite(pnlPct) && pnlPct <= STOP_LOSS) {
     advice.push(`虧損 ${(pnlPct * 100).toFixed(1)}%，已達 10% 停損線`);
     if (rating === "觀望") rating = "離場";
   }
-  if (scored) {
+  if (scored?.refOnly) {
+    advice.push(`ETF 只供參考：分數 ${scored.score}、近1月 ${pct(scored.ret1m)}`);
+  } else if (scored) {
     if (rating === "買入") advice.push("動能與籌碼仍強，可續抱");
     else if (rating === "觀望") advice.push("訊號分歧，續抱但留意外資動向");
     else advice.push("訊號轉弱，考慮減碼或出場");

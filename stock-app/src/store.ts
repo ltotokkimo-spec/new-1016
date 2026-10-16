@@ -134,7 +134,9 @@ function applyTw(snap: TwSnapshot) {
   const a = scoreStocks(common), b = scoreStocks(etfs);
   const meta = { status: "ready" as const, asOf: snap.asOf, fetchedAt: snap.fetchedAt };
   set({ prices: pricesOf(snap.stocks) });
-  set({ tw: { ...meta, scored: a.scored, sectors: a.sectors }, etf: { ...meta, scored: b.scored, sectors: b.sectors }, twIndices: snap.indices });
+  // ETF 回測顯示規則分辨不出好壞，只給分數當參考，不給買入／觀望／離場
+  const etfScored = b.scored.map((x) => ({ ...x, refOnly: true }));
+  set({ tw: { ...meta, scored: a.scored, sectors: a.sectors }, etf: { ...meta, scored: etfScored, sectors: b.sectors }, twIndices: snap.indices });
 }
 
 interface EsbSnapshot { quotes: EsbQuote[]; fetchedAt: number }

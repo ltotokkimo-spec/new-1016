@@ -206,3 +206,44 @@ export const twUrls = {
   twseCompanies: () => "https://openapi.twse.com.tw/v1/opendata/t187ap03_L",
   tpexCompanies: () => "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O",
 };
+
+// ---------- 個股歷史（月資料） ----------
+export interface DayBar {
+  date: string; // YYYYMMDD
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number; // 股
+}
+
+/** 民國 "115/09/01" → "20260901" */
+export function rocToYmd(s: string): string {
+  const m = /^(\d{2,3})\/(\d{1,2})\/(\d{1,2})$/.exec(String(s).trim());
+  return m ? `${Number(m[1]) + 1911}${m[2].padStart(2, "0")}${m[3].padStart(2, "0")}` : "";
+}
+
+/** 證交所 STOCK_DAY：fields 日期/成交股數/成交金額/開盤價/最高價/最低價/收盤價/漲跌價差/成交筆數 */
+export function parseTwseStockDay(json: any): DayBar[] {
+  if (!json || json.stat !== "OK" || !Array.isArray(json.data)) return [];
+  const f = (n: string) => json.fields.indexOf(n);
+  const iD = f("日期"), iV = f("成交股數"), iO = f("開盤價"), iH = f("最高價"), iL = f("最低價"), iC = f("收盤價");
+  return json.data
+    .map((r: any[]) => ({ date: rocToYmd(r[iD]), open: num(r[iO]), high: num(r[iH]), low: num(r[iL]), close: num(r[iC]), volume: num(r[iV]) }))
+    .filter((b: DayBar) => b.date && Number.isFinite(b.close));
+}
+
+/** 櫃買 tradingStock：日期/成交仟股/成交仟元/開盤/最高/最低/收盤/漲跌/筆數 */
+export function parseTpexStockHist(json: any): DayBar[] {
+  const rows = json?.tables?.[0]?.data;
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((r: any[]) => ({ date: rocToYmd(r[0]), open: num(r[3]), high: num(r[4]), low: num(r[5]), close: num(r[6]), volume: num(r[1]) * 1000 }))
+    .filter((b: DayBar) => b.date && Number.isFinite(b.close));
+}
+
+export const twHistUrls = {
+  twse: (code: string, yyyymm01: string) => `https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY?date=${yyyymm01}&stockNo=${code}&response=json`,
+  tpex: (code: string, yyyymm01: string) =>
+    `https://www.tpex.org.tw/www/zh-tw/afterTrading/tradingStock?code=${code}&date=${encodeURIComponent(`${yyyymm01.slice(0, 4)}/${yyyymm01.slice(4, 6)}/01`)}&id=&response=json`,
+};

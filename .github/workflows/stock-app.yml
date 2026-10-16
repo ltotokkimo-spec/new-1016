@@ -15,4 +15,4 @@ jobs:
         with:
           node-version: '22'
       - name: 探測資料來源
-        run: node stock-app/tools/probe3.mjs
+        run: node stock-app/tools/capture.mjs

@@ -228,7 +228,8 @@ class GridTable(ttk.Frame):
         self.font_head = tkfont.Font(family=family, size=size, weight="bold")
         self.row_h = max(ROW_HEIGHT, self.font_big.metrics("linespace") + 6)
 
-        self.header = tk.Canvas(self, height=HEADER_HEIGHT, bg=COLORS["header_bg"],
+        # 標題列背景用白色：沒有欄位的地方不要出現黑色長條
+        self.header = tk.Canvas(self, height=HEADER_HEIGHT, bg=COLORS["cell_bg"],
                                 highlightthickness=0)
         self.body = tk.Canvas(self, bg=COLORS["cell_bg"], highlightthickness=0,
                               takefocus=1)
@@ -244,7 +245,7 @@ class GridTable(ttk.Frame):
         self.rowconfigure(1, weight=1)
         self.columnconfigure(0, weight=1)
 
-        self.body.bind("<Configure>", lambda e: self.schedule_redraw())
+        self.body.bind("<Configure>", self._on_body_configure)
         self.body.bind("<Button-1>", self._on_press)
         self.body.bind("<B1-Motion>", self._on_motion)
         self.body.bind("<ButtonRelease-1>", self._on_release)
@@ -268,16 +269,34 @@ class GridTable(ttk.Frame):
         self.columns = columns
         self.rows = rows
         self._autosize()
-        total_w = sum(self.widths) + 1
-        total_h = len(rows) * self.row_h + 1
-        self.body.configure(scrollregion=(0, 0, total_w, total_h))
-        self.header.configure(scrollregion=(0, 0, total_w, HEADER_HEIGHT))
+        self._update_scrollregion()
         if scroll == "top":
             self.body.yview_moveto(0)
         elif scroll == "bottom":
             self.body.yview_moveto(1)
         self._draw_header()
         self.schedule_redraw()
+
+    def _update_scrollregion(self):
+        # 捲動範圍至少等於可視區大小：資料少時不能捲，上方/左方不會跑出空白
+        view_w = max(self.body.winfo_width(), 1)
+        view_h = max(self.body.winfo_height(), 1)
+        total_w = max(sum(self.widths) + 1, view_w)
+        total_h = max(len(self.rows) * self.row_h + 1, view_h)
+        self.body.configure(scrollregion=(0, 0, total_w, total_h))
+        self.header.configure(scrollregion=(0, 0, total_w, HEADER_HEIGHT))
+        if len(self.rows) * self.row_h + 1 <= view_h:
+            self.body.yview_moveto(0)
+        if sum(self.widths) + 1 <= view_w:
+            self.body.xview_moveto(0)
+            self.header.xview_moveto(0)
+
+    def _on_body_configure(self, e):
+        self._update_scrollregion()
+        self.schedule_redraw()
+
+    def _content_fits(self):
+        return len(self.rows) * self.row_h + 1 <= self.body.winfo_height()
 
     def _autosize(self):
         sample = self.rows[-3000:]
@@ -366,9 +385,12 @@ class GridTable(ttk.Frame):
         self.header.xview(*args)
 
     def _scroll_units(self, n):
-        self.body.yview_scroll(n, "units")
+        if not self._content_fits():
+            self.body.yview_scroll(n, "units")
 
     def _on_wheel(self, e):
+        if self._content_fits():
+            return
         if sys.platform == "darwin":
             self.body.yview_scroll(-e.delta, "units")
         else:
@@ -435,10 +457,11 @@ class GridTable(ttk.Frame):
         if not d or not self.rows:
             return
         h = self.body.winfo_height()
-        if e.y < 0:
-            self.body.yview_scroll(-1, "units")
-        elif e.y > h:
-            self.body.yview_scroll(1, "units")
+        if not self._content_fits():
+            if e.y < 0:
+                self.body.yview_scroll(-1, "units")
+            elif e.y > h:
+                self.body.yview_scroll(1, "units")
         cx, cy = self.body.canvasx(e.x), self.body.canvasy(e.y)
         if not d["moved"] and abs(cy - d["y0"]) < 4 and abs(cx - d["x0"]) < 4:
             return

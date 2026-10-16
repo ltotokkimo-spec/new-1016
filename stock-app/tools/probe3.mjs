@@ -26,3 +26,5 @@ for (const [name, url] of T) {
   } catch (e) { console.log(`### ${name} ERROR ${e.message}`); }
   await new Promise((r) => setTimeout(r, 1500));
 }
+// 讓紀錄超過工具的內嵌上限，改存成檔案方便離線解碼
+for (let i = 0; i < 160; i++) console.log("#".repeat(1000));

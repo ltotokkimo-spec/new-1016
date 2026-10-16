@@ -5,7 +5,7 @@ import type { KV } from "../lib/kv";
 import { addDays, taipeiHour, taipeiToday, weekdaysBack } from "../lib/dates";
 import {
   parseTpexCompanies, parseTpexFlows, parseTpexQuotes, parseTwseCompanies, parseTwseFlows, parseTwseQuotes,
-  twUrls, type Company, type Flow, type MarketIndex, type Quote,
+  twUrls, type Company, type Flow, type MarketIndex, type Quote, isEtf, etfCategory,
 } from "./tw";
 import type { StockInput } from "../engine/score";
 
@@ -28,7 +28,10 @@ export interface TwSnapshot {
   stocks: StockInput[];
   indices: MarketIndex[];
   fetchedAt: number;
+  version?: number; // 2 = 含 ETF
 }
+
+export const TW_SNAPSHOT_VERSION = 2;
 
 export class TwLoader {
   requests = 0;
@@ -52,28 +55,28 @@ export class TwLoader {
   }
 
   async twseFlows(d: string): Promise<FRow[] | null> {
-    return this.cached(`tw:f:twse:${d}`, this.isFinal(d), async () => {
+    return this.cached(`tw2:f:twse:${d}`, this.isFinal(d), async () => {
       const f = parseTwseFlows(await this.fetch(twUrls.twseFlows(localDate(d))));
       return f && f.length ? f.map((x): FRow => [x.code, x.foreign, x.trust, x.dealer]) : null;
     });
   }
 
   async tpexFlows(d: string): Promise<FRow[] | null> {
-    return this.cached(`tw:f:tpex:${d}`, this.isFinal(d), async () => {
+    return this.cached(`tw2:f:tpex:${d}`, this.isFinal(d), async () => {
       const f = parseTpexFlows(await this.fetch(twUrls.tpexFlows(localDate(d))));
       return f && f.length ? f.map((x): FRow => [x.code, x.foreign, x.trust, x.dealer]) : null;
     });
   }
 
   async twseQuotes(d: string): Promise<DayQuotes | null> {
-    return this.cached(`tw:q:twse:${d}`, this.isFinal(d), async () => {
+    return this.cached(`tw2:q:twse:${d}`, this.isFinal(d), async () => {
       const r = parseTwseQuotes(await this.fetch(twUrls.twseQuotes(localDate(d))));
       return r && r.quotes.length ? { rows: r.quotes.map(toRow), indices: r.indices } : null;
     });
   }
 
   async tpexQuotes(d: string): Promise<DayQuotes | null> {
-    return this.cached(`tw:q:tpex:${d}`, this.isFinal(d), async () => {
+    return this.cached(`tw2:q:tpex:${d}`, this.isFinal(d), async () => {
       const r = parseTpexQuotes(await this.fetch(twUrls.tpexQuotes(localDate(d))));
       return r && r.quotes.length ? { rows: r.quotes.map(toRow) } : null;
     });
@@ -151,7 +154,7 @@ export class TwLoader {
     await this.prune(dates[dates.length - 1], m3?.date);
     return {
       asOf: d0, dates, ref: { w1, m1: m1?.date ?? "", m3: m3?.date ?? "" },
-      stocks, indices: q0.a.indices ?? [], fetchedAt: this.now(),
+      stocks, indices: q0.a.indices ?? [], fetchedAt: this.now(), version: TW_SNAPSHOT_VERSION,
     };
   }
 
@@ -159,7 +162,8 @@ export class TwLoader {
   private async prune(oldestFlow: string, oldestQuote?: string) {
     const keepQ = oldestQuote ? addDays(oldestQuote, -10) : "";
     for (const k of await this.kv.keys()) {
-      const m = /^tw:(f|q):\w+:(\d{8})$/.exec(k);
+      const m = /^tw2?:(f|q):\w+:(\d{8})$/.exec(k);
+      if (m && k.startsWith("tw:")) { await this.kv.del(k); continue; } // 舊版快取（不含 ETF）
       if (!m) continue;
       if ((m[1] === "f" && m[2] < addDays(oldestFlow, -14)) || (m[1] === "q" && keepQ && m[2] < keepQ)) await this.kv.del(k);
     }
@@ -207,7 +211,7 @@ export function buildTwInputs(p: {
     }
     return {
       code, name, market: p.tpexCodes.has(code) ? ("TPEX" as const) : ("TWSE" as const),
-      sector: ind.get(code) ?? "其他", close, value,
+      sector: isEtf(code) ? etfCategory(name) : ind.get(code) ?? "其他", close, value,
       ret1w: ret(close, wk.get(code)), ret1m: ret(close, mo.get(code)), ret3m: ret(close, qt.get(code)),
       foreign5: has ? foreign5 : 0, foreign10: has ? foreign10 : 0, foreignStreak: streak, trust5: has ? trust5 : 0,
     };

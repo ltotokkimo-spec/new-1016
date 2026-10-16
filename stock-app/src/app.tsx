@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import { init, refreshMacro, refreshTw, refreshUs, useStore, type Market } from "./store";
+import { init, refreshEsb, refreshMacro, refreshTw, refreshUs, useStore, type Market } from "./store";
 import type { Scored } from "./engine/score";
 import { pretty } from "./lib/dates";
 import { HoldingsScreen, MacroScreen, PicksScreen, SectorsScreen, SettingsScreen, StockDetail } from "./ui/screens";
@@ -20,21 +20,21 @@ export function App() {
   const [market, setMarket] = useState<Market>("TW");
   const [sector, setSector] = useState("");
   const [detail, setDetail] = useState<Scored | null>(null);
-  const { tw, us, loaded } = useStore((s) => ({ tw: s.tw, us: s.us, loaded: s.loaded }));
+  const { tw, etf, us, loaded } = useStore((s) => ({ tw: s.tw, etf: s.etf, us: s.us, loaded: s.loaded }));
   useEffect(() => { init(); }, []);
   const mainRef = useRef<HTMLElement>(null);
   useEffect(() => { history.replaceState(null, "", `#${tab}`); mainRef.current?.scrollTo(0, 0); }, [tab, market, sector]);
 
-  const ms = market === "TW" ? tw : us;
+  const ms = market === "TW" ? tw : market === "ETF" ? etf : us;
   const busy = !!ms.progress || ms.status === "loading";
-  const refresh = () => { (market === "TW" ? refreshTw : refreshUs)(); refreshMacro(); };
+  const refresh = () => { if (market === "US") refreshUs(); else { refreshTw(); refreshEsb(); } refreshMacro(); };
 
   return (
     <div class="shell">
       <div class="topbar">
         <div class="brand">股市<b>雷達</b></div>
         <div class="asof num">
-          {ms.asOf ? <>{market === "TW" ? "台股" : "美股"}資料 {pretty(ms.asOf)}</> : loaded ? "尚無資料" : ""}
+          {ms.asOf ? <>{market === "US" ? "美股" : "台股"}資料 {pretty(ms.asOf)}</> : loaded ? "尚無資料" : ""}
           {ms.progress && ms.status === "ready" && <div>更新中 {Math.round((ms.progress.done / Math.max(ms.progress.total, 1)) * 100)}%</div>}
         </div>
         <button class="iconbtn" aria-label="重新整理" onClick={refresh} disabled={busy}>

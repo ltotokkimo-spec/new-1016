@@ -2,14 +2,15 @@
 import { useEffect, useState } from "preact/hooks";
 import { indexedKV, type KV } from "./lib/kv";
 import { fetchJson, type Fetcher } from "./lib/net";
-import { TwLoader, type TwSnapshot } from "./data/twLoader";
+import { TwLoader, TW_SNAPSHOT_VERSION, type TwSnapshot } from "./data/twLoader";
+import { isEtf, parseEsbLatest, twUrls, type EsbQuote } from "./data/tw";
 import { UsLoader, type UsSnapshot } from "./data/usLoader";
 import { cnbcUrl, MACRO_SYMBOLS, parseCnbcQuotes, type MacroQuote } from "./data/us";
 import { scoreStocks, reviewHolding, type Holding, type HoldingView, type Scored, type SectorStat } from "./engine/score";
 import type { AiReport } from "./ai/claude";
 import { taipeiToday } from "./lib/dates";
 
-export type Market = "TW" | "US";
+export type Market = "TW" | "ETF" | "US";
 
 export interface MarketState {
   status: "idle" | "loading" | "ready" | "error";
@@ -26,7 +27,9 @@ export interface Settings { apiKey: string }
 
 export interface State {
   tw: MarketState;
+  etf: MarketState; // 台股 ETF（和個股分開評分，跟台股一起下載）
   us: MarketState;
+  esb: Record<string, true>; // 興櫃股票代號
   twIndices: TwSnapshot["indices"];
   usSectorEtfs: UsSnapshot["sectorEtfs"];
   macro: { status: "idle" | "loading" | "ready" | "error"; quotes: MacroQuote[]; error?: string; at?: number };
@@ -42,7 +45,7 @@ const empty = (): MarketState => ({ status: "idle", scored: [], sectors: [] });
 const starting = (): MarketState => ({ status: "loading", scored: [], sectors: [], progress: { done: 0, total: 1, label: "讀取手機裡的資料" } });
 
 let state: State = {
-  tw: starting(), us: starting(), twIndices: [], usSectorEtfs: [],
+  tw: starting(), etf: starting(), us: starting(), esb: {}, twIndices: [], usSectorEtfs: [],
   macro: { status: "idle", quotes: [] }, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], loaded: false,
 };
 const listeners = new Set<() => void>();
@@ -73,18 +76,23 @@ const mark = (k: string) => { timings[k] = Math.round(performance.now()); };
 
 export async function init() {
   mark("init");
-  const [holdings, settings, reports, twSnap, usSnap, spend] = await Promise.all([
+  const [holdings, settings, reports, twSnap0, usSnap, spend, esbSnap] = await Promise.all([
     kv.get<Holding[]>("holdings"), kv.get<Settings>("settings"), kv.get<Record<string, AiReport>>("reports"),
     kv.get<TwSnapshot>("snap:tw"), kv.get<UsSnapshot>("snap:us"), kv.get<State["spend"]>("spend"),
+    kv.get<EsbSnapshot>("snap:esb"),
   ]);
+  // 舊版快照沒有 ETF，直接當作沒有資料重抓
+  const twSnap = twSnap0?.version === TW_SNAPSHOT_VERSION ? twSnap0 : undefined;
   mark("kvRead");
   set({ holdings: holdings ?? [], settings: settings ?? { apiKey: "" }, reports: reports ?? {}, spend: spend ?? [], loaded: true });
   if (twSnap) applyTw(twSnap);
   if (usSnap) applyUs(usSnap);
+  if (esbSnap) applyEsb(esbSnap);
   // 開 App 時自動更新：沒資料或資料不是今天抓的就重抓（快取會讓已下載的日子不重抓）
   const today = taipeiToday();
   if (!twSnap || taipeiToday(twSnap.fetchedAt) !== today || Date.now() - twSnap.fetchedAt > 3 * 3600_000) refreshTw();
   if (!usSnap || taipeiToday(usSnap.fetchedAt) !== today) refreshUs();
+  if (!esbSnap || taipeiToday(esbSnap.fetchedAt) !== today || Date.now() - esbSnap.fetchedAt > 3 * 3600_000) refreshEsb();
   refreshMacro();
 }
 
@@ -95,9 +103,33 @@ function pricesOf(stocks: { code: string; name: string; close: number }[]) {
 }
 
 function applyTw(snap: TwSnapshot) {
-  const { scored, sectors } = scoreStocks(snap.stocks);
+  const common = snap.stocks.filter((x) => !isEtf(x.code));
+  const etfs = snap.stocks.filter((x) => isEtf(x.code));
+  const a = scoreStocks(common), b = scoreStocks(etfs);
+  const meta = { status: "ready" as const, asOf: snap.asOf, fetchedAt: snap.fetchedAt };
   set({ prices: pricesOf(snap.stocks) });
-  set({ tw: { status: "ready", scored, sectors, asOf: snap.asOf, fetchedAt: snap.fetchedAt }, twIndices: snap.indices });
+  set({ tw: { ...meta, scored: a.scored, sectors: a.sectors }, etf: { ...meta, scored: b.scored, sectors: b.sectors }, twIndices: snap.indices });
+}
+
+interface EsbSnapshot { quotes: EsbQuote[]; fetchedAt: number }
+
+function applyEsb(snap: EsbSnapshot) {
+  const esb: State["esb"] = {};
+  for (const q of snap.quotes) esb[q.code] = true;
+  // 上市櫃的價格優先，興櫃只補沒有的代號
+  const prices = { ...state.prices };
+  for (const q of snap.quotes) if (!prices[q.code]) prices[q.code] = { name: q.name, close: q.close };
+  set({ esb, prices });
+}
+
+export async function refreshEsb() {
+  try {
+    const quotes = parseEsbLatest(await fetcher(twUrls.esbLatest()));
+    if (!quotes.length) return;
+    const snap = { quotes, fetchedAt: Date.now() };
+    await kv.set("snap:esb", snap);
+    applyEsb(snap);
+  } catch { /* 興櫃只是補充報價，失敗時沿用上次的資料 */ }
 }
 
 function applyUs(snap: UsSnapshot) {
@@ -112,19 +144,20 @@ let twBusy = false, usBusy = false;
 export async function refreshTw() {
   if (twBusy) return;
   twBusy = true;
-  const prev = state.tw;
-  set({ tw: { ...prev, status: prev.scored.length ? "ready" : "loading", progress: { done: 0, total: 1, label: "準備中" }, error: undefined } });
+  const start = (m: MarketState): MarketState => ({ ...m, status: m.scored.length ? "ready" : "loading", progress: { done: 0, total: 1, label: "準備中" }, error: undefined });
+  set({ tw: start(state.tw), etf: start(state.etf) });
   try {
     mark("twStart");
     const snap = await new TwLoader(fetcher, kv).load((done, total, label) => {
       if (!timings.twFirstProgress) mark("twFirstProgress");
-      set({ tw: { ...state.tw, progress: { done, total, label } } });
+      set({ tw: { ...state.tw, progress: { done, total, label } }, etf: { ...state.etf, progress: { done, total, label } } });
     });
     mark("twDone");
     await kv.set("snap:tw", snap);
     applyTw(snap);
   } catch (e: any) {
-    set({ tw: { ...state.tw, status: state.tw.scored.length ? "ready" : "error", error: `台股資料更新失敗：${e?.message ?? e}`, progress: undefined } });
+    const fail = (m: MarketState): MarketState => ({ ...m, status: m.scored.length ? "ready" : "error", error: `台股資料更新失敗：${e?.message ?? e}`, progress: undefined });
+    set({ tw: fail(state.tw), etf: fail(state.etf) });
   } finally { twBusy = false; }
 }
 
@@ -157,16 +190,18 @@ export async function refreshMacro() {
 }
 
 export function findScored(code: string, market?: Market): Scored | undefined {
-  const lists = market === "US" ? [state.us.scored] : market === "TW" ? [state.tw.scored] : [state.tw.scored, state.us.scored];
+  // "TW" 代表台灣上市櫃，個股與 ETF 都找
+  const lists = market === "US" ? [state.us.scored] : market === "TW" || market === "ETF" ? [state.tw.scored, state.etf.scored] : [state.tw.scored, state.etf.scored, state.us.scored];
   for (const l of lists) { const s = l.find((x) => x.code === code); if (s) return s; }
   return undefined;
 }
 
 export function holdingViews(): HoldingView[] {
   return state.holdings.map((h) => {
-    const m = h.market === "US" ? state.us : state.tw;
-    const v = reviewHolding(h, findScored(h.code, h.market === "US" ? "US" : "TW"), state.prices[h.code]?.close);
-    if (!v.scored && m.status !== "ready") v.advice = [m.status === "error" ? "行情下載失敗" : "行情載入中…"];
+    const m = h.market === "US" ? state.us : isEtf(h.code) ? state.etf : state.tw;
+    const esb = h.market !== "US" && !!state.esb[h.code];
+    const v = reviewHolding(h, findScored(h.code, h.market === "US" ? "US" : "TW"), state.prices[h.code]?.close, { esb });
+    if (!v.scored && !Number.isFinite(v.price) && m.status !== "ready") v.advice = [m.status === "error" ? "行情下載失敗" : "行情載入中…"];
     return v;
   });
 }
@@ -208,6 +243,6 @@ export function getFetcher() { return fetcher; }
 
 export async function clearCache() {
   for (const k of await kv.keys()) if (/^(tw|us|snap):/.test(k)) await kv.del(k);
-  set({ tw: empty(), us: empty() });
-  refreshTw(); refreshUs();
+  set({ tw: empty(), etf: empty(), us: empty() });
+  refreshTw(); refreshUs(); refreshEsb();
 }

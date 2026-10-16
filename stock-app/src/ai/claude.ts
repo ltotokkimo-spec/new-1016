@@ -3,6 +3,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Holding, Scored, SectorStat } from "../engine/score";
 import type { MacroQuote } from "../data/us";
+import { isEtf } from "../data/tw";
 
 export const MODEL = "claude-opus-5-5";
 const BETAS = ["server-side-fallback-2026-07-01"];
@@ -67,7 +68,7 @@ function fmtPct(x: number) {
 
 export function stockBrief(s: Scored, holding?: Holding): string {
   const lines = [
-    `股票：${s.name}（${s.code}，${s.market === "US" ? "美股" : s.market === "TPEX" ? "上櫃" : "上市"}，${s.sector}）`,
+    `${isEtf(s.code) ? "ETF" : "股票"}：${s.name}（${s.code}，${s.market === "US" ? "美股" : s.market === "TPEX" ? "上櫃" : "上市"}，${s.sector}）`,
     `收盤價：${s.close}`,
     `當日成交金額：${s.market === "US" ? `${(s.value / 1e6).toFixed(0)} 百萬美元` : `${(s.value / 1e8).toFixed(2)} 億元`}`,
     ...(s.foreignRatio5 !== undefined && Number.isFinite(s.foreignRatio5) ? [`外資 5 日買賣超金額約佔 5 日成交金額 ${(s.foreignRatio5 * 100).toFixed(1)}%（以當日成交金額估算）`] : []),

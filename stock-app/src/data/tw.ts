@@ -46,6 +46,29 @@ export function isCommonStock(code: string): boolean {
   return /^[1-9]\d{3}$/.test(code.trim());
 }
 
+/** ETF：00 開頭 4~6 碼，可帶一個英文字母（0050、00632R、00406A、006208）。 */
+export function isEtf(code: string): boolean {
+  return /^00\d{2,4}[A-Z]?$/.test(code.trim());
+}
+
+/** 行情與法人資料要保留的代號：一般股票＋ETF（排除權證、ETN 等） */
+export function isTradable(code: string): boolean {
+  return isCommonStock(code) || isEtf(code);
+}
+
+/** 依 ETF 名稱分類，當作 ETF 的「族群」 */
+export function etfCategory(name: string): string {
+  const n = name.replace(/\s/g, "");
+  if (/正2|反1|反向|槓桿|2X|-1/i.test(n)) return "槓桿反向";
+  if (/債|公司債|美債|投等|Bond/i.test(n)) return "債券";
+  if (/^主動/.test(n)) return "主動式";
+  if (/高息|高股息|股息|收益|息收|優息|月配|季配/.test(n)) return "高股息";
+  if (/美國|美股|日本|日經|中國|上証|滬深|印度|越南|全球|NASDAQ|那斯達克|S&P|標普|費城|歐洲|韓國|新興|亞洲/i.test(n)) return "海外";
+  if (/半導體|科技|電子|AI|5G|網通|IC|晶片|雲端|電動車|機器人|資安/i.test(n)) return "科技主題";
+  if (/台灣50|臺灣50|台50|中型100|市值|MSCI|富時|加權|台灣領袖|寶島/i.test(n)) return "市值型";
+  return "其他ETF";
+}
+
 const TWSE_SIGN = /color:\s*(green|red)/i;
 
 function twseSignedChange(signCell: string, diff: string): number {
@@ -69,7 +92,7 @@ export function parseTwseQuotes(json: any): { date: string; quotes: Quote[]; ind
   const quotes: Quote[] = [];
   for (const r of table.data || []) {
     const code = String(r[iCode]).trim();
-    if (!isCommonStock(code)) continue;
+    if (!isTradable(code)) continue;
     const close = num(r[iClose]);
     if (!Number.isFinite(close)) continue; // 當日無成交
     quotes.push({
@@ -106,7 +129,7 @@ export function parseTwseFlows(json: any): Flow[] | null {
   const out: Flow[] = [];
   for (const r of json.data || []) {
     const code = String(r[iCode]).trim();
-    if (!isCommonStock(code)) continue;
+    if (!isTradable(code)) continue;
     out.push({ code, foreign: num(r[iForeign]), trust: num(r[iTrust]), dealer: num(r[iDealer]), total: num(r[iTotal]) });
   }
   return out;
@@ -123,7 +146,7 @@ export function parseTpexQuotes(json: any): { date: string; quotes: Quote[] } | 
   const quotes: Quote[] = [];
   for (const r of table.data) {
     const code = String(r[iCode]).trim();
-    if (!isCommonStock(code)) continue;
+    if (!isTradable(code)) continue;
     const close = num(r[iClose]);
     if (!Number.isFinite(close)) continue;
     quotes.push({
@@ -147,7 +170,7 @@ export function parseTpexFlows(json: any): Flow[] | null {
   const out: Flow[] = [];
   for (const r of table.data) {
     const code = String(r[0]).trim();
-    if (!isCommonStock(code)) continue;
+    if (!isTradable(code)) continue;
     out.push({ code, foreign: num(r[4]), trust: num(r[13]), dealer: num(r[22]), total: num(r[23]) });
   }
   return out;
@@ -205,7 +228,28 @@ export const twUrls = {
   tpexFlows: (d: Date) => `https://www.tpex.org.tw/www/zh-tw/insti/dailyTrade?type=Daily&sect=EW&date=${encodeURIComponent(slash(d))}&response=json`,
   twseCompanies: () => "https://openapi.twse.com.tw/v1/opendata/t187ap03_L",
   tpexCompanies: () => "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O",
+  esbLatest: () => "https://www.tpex.org.tw/openapi/v1/tpex_esb_latest_statistics",
 };
+
+/** "1151016"（民國年月日）→ "20261016" */
+const esbDate = (s: string) => (/^\d{7}$/.test(s) ? `${Number(s.slice(0, 3)) + 1911}${s.slice(3)}` : "");
+
+// ---------- 興櫃（沒有三大法人資料，只取報價算損益） ----------
+export interface EsbQuote { code: string; name: string; close: number; date: string }
+
+/** 櫃買中心 openapi 興櫃最新統計：最後成交價，沒有成交時用當日均價、再沒有用前日均價 */
+export function parseEsbLatest(rows: any): EsbQuote[] {
+  if (!Array.isArray(rows)) return [];
+  const out: EsbQuote[] = [];
+  for (const r of rows) {
+    const code = String(r?.SecuritiesCompanyCode ?? "").trim();
+    if (!code) continue;
+    const close = [r.LatestPrice, r.Average, r.PreviousAveragePrice].map(num).find((x) => Number.isFinite(x) && x > 0);
+    if (close === undefined) continue;
+    out.push({ code, name: String(r.CompanyName ?? code).trim(), close, date: esbDate(String(r.Date ?? "")) });
+  }
+  return out;
+}
 
 // ---------- 個股歷史（月資料） ----------
 export interface DayBar {

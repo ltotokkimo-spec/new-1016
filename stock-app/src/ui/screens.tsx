@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
-  findScored, getFetcher, getKv, getState, holdingViews, refreshMacro, refreshTw, refreshUs, saveHoldings, saveReport,
+  findScored, getFetcher, getKv, getState, holdingViews, refreshEsb, refreshMacro, refreshTw, refreshUs, saveHoldings, saveReport,
   saveSettings, clearCache, useStore, usBars, recordSpend, type Market,
 } from "../store";
 import type { Holding, Rating, Scored, SectorStat } from "../engine/score";
 import { analyzeStock, client, explainError, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
 import { twHistory } from "../data/history";
+import { isEtf } from "../data/tw";
 import { MACRO_SYMBOLS } from "../data/us";
 import { pretty, taipeiToday } from "../lib/dates";
 import { cls, fmtMoney, fmtPct, fmtPrice, lots, Markdown, PriceChart, Progress, RatingPill, Sheet } from "./common";
@@ -14,7 +15,7 @@ import { cls, fmtMoney, fmtPct, fmtPrice, lots, Markdown, PriceChart, Progress, 
 export function PicksScreen({ market, setMarket, sector, setSector, open }: {
   market: Market; setMarket: (m: Market) => void; sector: string; setSector: (s: string) => void; open: (s: Scored) => void;
 }) {
-  const ms = useStore((s) => (market === "TW" ? s.tw : s.us));
+  const ms = useStore((s) => (market === "TW" ? s.tw : market === "ETF" ? s.etf : s.us));
   const [filter, setFilter] = useState<Rating | "全部">("買入");
   const [q, setQ] = useState("");
   const counts = useMemo(() => {
@@ -48,7 +49,7 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
       {ms.status === "ready" && (
         <>
           <div class="section-title">
-            <span>{filter === "全部" ? "全部股票" : `評等「${filter}」`}・依分數排序</span>
+            <span>{filter === "全部" ? (market === "ETF" ? "全部 ETF" : "全部股票") : `評等「${filter}」`}・依分數排序</span>
             <span>{list.length} 檔</span>
           </div>
           {list.length === 0 ? (
@@ -61,7 +62,9 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
             </div>
           )}
           <p class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
-            {market === "TW"
+            {market === "ETF"
+              ? "ETF 和個股分開排名：分數 = 動能 40%（近1週/1月/3月漲幅）＋ 外資籌碼 40%（5 日買超佔成交比重、連買天數、投信）＋ 同類 ETF 強弱 20%。只列當日成交金額 5 千萬以上的 ETF；槓桿反向型波動大，請特別留意。"
+              : market === "TW"
               ? "分數 = 動能 40%（近1週/1月/3月漲幅排名）＋ 外資籌碼 40%（5 日買超佔成交比重、連買天數、投信）＋ 族群強弱 20%。只列當日成交金額 5 千萬以上的股票。"
               : "分數 = 動能 40% ＋ 趨勢 40%（50 日均線、20/50 日均線排列、相對 S&P 500）＋ 產業強弱 20%。美股沒有外資資料。"}
           </p>
@@ -75,6 +78,7 @@ function MarketSeg({ market, setMarket }: { market: Market; setMarket: (m: Marke
   return (
     <div class="seg" role="group" aria-label="市場">
       <button aria-pressed={market === "TW"} onClick={() => setMarket("TW")}>台股</button>
+      <button aria-pressed={market === "ETF"} onClick={() => setMarket("ETF")}>ETF</button>
       <button aria-pressed={market === "US"} onClick={() => setMarket("US")}>美股</button>
     </div>
   );
@@ -104,7 +108,7 @@ function StockRow({ s, onClick }: { s: Scored; onClick: () => void }) {
 
 // ---------------- 族群 ----------------
 export function SectorsScreen({ market, setMarket, pick }: { market: Market; setMarket: (m: Market) => void; pick: (s: string) => void }) {
-  const ms = useStore((s) => (market === "TW" ? s.tw : s.us));
+  const ms = useStore((s) => (market === "TW" ? s.tw : market === "ETF" ? s.etf : s.us));
   const rising = ms.sectors.filter((s) => s.rotation === "轉強");
   return (
     <div>
@@ -121,10 +125,10 @@ export function SectorsScreen({ market, setMarket, pick }: { market: Market; set
               最強：{ms.sectors.slice(0, 3).map((s) => s.sector).join("、")}；最弱：{ms.sectors.slice(-3).reverse().map((s) => s.sector).join("、")}
             </div>
           </div>
-          <div class="section-title"><span>{market === "TW" ? "產業強弱（中位數報酬）" : "產業強弱"}</span><span>點一下看個股</span></div>
+          <div class="section-title"><span>{market === "TW" ? "產業強弱（中位數報酬）" : market === "ETF" ? "ETF 類型強弱（中位數報酬）" : "產業強弱"}</span><span>點一下看個股</span></div>
           <div class="card scroll-x" style={{ padding: "4px 8px" }}>
             <table class="sectors">
-              <thead><tr><th>族群</th><th>訊號</th><th>近1週</th><th>近1月</th>{market === "TW" && <th>外資5日</th>}<th>上漲比</th></tr></thead>
+              <thead><tr><th>族群</th><th>訊號</th><th>近1週</th><th>近1月</th>{market !== "US" && <th>外資5日</th>}<th>上漲比</th></tr></thead>
               <tbody>
                 {ms.sectors.map((s: SectorStat) => (
                   <tr onClick={() => pick(s.sector)}>
@@ -132,7 +136,7 @@ export function SectorsScreen({ market, setMarket, pick }: { market: Market; set
                     <td><span class={`tag ${s.rotation}`}>{s.rotation}</span></td>
                     <td class={`num ${cls(s.ret1w)}`}>{fmtPct(s.ret1w)}</td>
                     <td class={`num ${cls(s.ret1m)}`}>{fmtPct(s.ret1m)}</td>
-                    {market === "TW" && <td class={`num ${cls(s.foreignValue5)}`}>{fmtMoney(s.foreignValue5)}</td>}
+                    {market !== "US" && <td class={`num ${cls(s.foreignValue5)}`}>{fmtMoney(s.foreignValue5)}</td>}
                     <td class="num">{Math.round(s.breadth * 100)}%</td>
                   </tr>
                 ))}
@@ -184,7 +188,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
       <div class="hero">
         <div>
           <div class="price num">{fmtPrice(s.close, s.market)}</div>
-          <div class="muted" style={{ marginTop: "6px", fontSize: "13px" }}>{s.sector}・{s.market === "US" ? "美股" : s.market === "TPEX" ? "上櫃" : "上市"}</div>
+          <div class="muted" style={{ marginTop: "6px", fontSize: "13px" }}>{s.sector}・{s.market === "US" ? "美股" : `${s.market === "TPEX" ? "上櫃" : "上市"}${isEtf(s.code) ? " ETF" : ""}`}</div>
         </div>
         <div style={{ textAlign: "right" }}>
           <RatingPill rating={s.rating} />
@@ -263,7 +267,7 @@ function AiReportView({ r }: { r: { text: string; sources: { title: string; url:
 
 // ---------------- 持股 ----------------
 export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
-  useStore((s) => [s.holdings, s.tw.scored, s.us.scored]);
+  useStore((s) => [s.holdings, s.tw.scored, s.etf.scored, s.us.scored, s.esb, s.prices]);
   const apiKey = useStore((s) => s.settings.apiKey);
   const views = holdingViews();
   const [adding, setAdding] = useState(false);
@@ -589,7 +593,7 @@ export function SettingsScreen() {
       <div class="section-title"><span>資料</span></div>
       <div class="card stack">
         <div class="row">
-          <button class="btn secondary" onClick={() => { refreshTw(); refreshUs(); refreshMacro(); }}>立即更新全部資料</button>
+          <button class="btn secondary" onClick={() => { refreshTw(); refreshEsb(); refreshUs(); refreshMacro(); }}>立即更新全部資料</button>
           <button class="btn danger" onClick={clearCache}>清除快取重新下載</button>
         </div>
         <div class="muted" style={{ fontSize: "13px", lineHeight: 1.7 }}>

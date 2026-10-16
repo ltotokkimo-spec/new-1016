@@ -191,20 +191,21 @@ export interface HoldingView extends Holding {
   price: number;
   pnl: number;
   pnlPct: number;
-  rating: Rating | "無資料";
+  rating: Rating | "無資料" | "無評等";
   advice: string[];
   scored?: Scored;
 }
 
 export const STOP_LOSS = -0.1;
 
-export function reviewHolding(h: Holding, scored: Scored | undefined, lastPrice?: number): HoldingView {
+export function reviewHolding(h: Holding, scored: Scored | undefined, lastPrice?: number, opts: { esb?: boolean } = {}): HoldingView {
   const price = scored?.close ?? lastPrice ?? NaN;
   const pnl = (price - h.cost) * h.shares;
   const pnlPct = h.cost > 0 ? price / h.cost - 1 : NaN;
   const advice: string[] = [];
-  let rating: HoldingView["rating"] = scored?.rating ?? "無資料";
-  if (!scored) advice.push(Number.isFinite(price) ? "成交金額低於門檻，只計算損益、不評分" : "找不到這檔股票的行情，請確認代號");
+  let rating: HoldingView["rating"] = scored?.rating ?? (opts.esb && Number.isFinite(price) ? "無評等" : "無資料");
+  if (!scored && opts.esb && Number.isFinite(price)) advice.push("興櫃股票沒有三大法人資料，只計算損益、不評分");
+  else if (!scored) advice.push(Number.isFinite(price) ? "成交金額低於門檻，只計算損益、不評分" : "找不到這檔股票的行情，請確認代號");
   if (Number.isFinite(pnlPct) && pnlPct <= STOP_LOSS) {
     advice.push(`虧損 ${(pnlPct * 100).toFixed(1)}%，已達 10% 停損線`);
     if (rating === "觀望") rating = "離場";

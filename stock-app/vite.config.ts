@@ -48,6 +48,7 @@ function fixtureFor(dir: string, url: string): string | null {
   if (u.host === "quote.cnbc.com") return pick("cnbc_macro.json");
   if (u.pathname.includes("STOCK_DAY")) return pick("twse_stock_day.json");
   if (u.pathname.includes("tradingStock")) return pick("tpex_stock_hist.json");
+  if (u.pathname.includes("tpex_esb_latest_statistics")) return pick("esb_latest.json");
   return null;
 }
 

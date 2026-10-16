@@ -72,6 +72,21 @@ function check(ok, name, detail = "") {
   await shot("03-個股詳細");
   await page.click('button[aria-label="返回"]');
 
+  // ETF 分頁：證交所資料裡的 ETF 單獨評分
+  await page.click(".seg button:nth-child(2)");
+  await page.click(".chips button:nth-child(4)");
+  await page.waitForSelector(".item", { timeout: 10000 });
+  const etf = await page.evaluate(() => ({
+    chips: [...document.querySelectorAll(".chips .chip")].map((c) => c.textContent).join(" "),
+    rows: [...document.querySelectorAll(".item")].slice(0, 8).map((r) => r.innerText.replace(/\s+/g, " ")),
+  }));
+  log("ETF", JSON.stringify(etf));
+  const nEtf = Number(/全部 (\d+)/.exec(etf.chips)?.[1] || 0);
+  check(nEtf >= 30, "ETF 分頁有評分的 ETF", `全部 ${nEtf} 檔`);
+  check(etf.rows.every((r) => /\b00\d{2,4}[A-Z]?\b/.test(r) && /(買入|觀望|離場)/.test(r)), "ETF 每列都是 00 開頭代號並有評等", etf.rows[0]);
+  await shot("02b-選股-ETF");
+  await page.click(".seg button:nth-child(1)");
+
   // 族群
   await page.click("nav.tabs button:nth-child(2)");
   await page.waitForSelector("table.sectors tbody tr", { timeout: 10000 });
@@ -101,6 +116,26 @@ function check(ok, name, detail = "") {
   const hold = await page.$eval(".list .item", (e) => e.innerText.replace(/\s+/g, " "));
   log("持股", hold);
   check(/台積電/.test(hold) && /(買入|觀望|離場)/.test(hold) && /%/.test(hold), "持股顯示現價、損益與評等", hold);
+
+  // ETF 與興櫃持股（使用者回報 0050、00406A、7861 顯示無資料）
+  for (const [code, cost] of [["0050", "100"], ["00406A", "10"], ["7861", "900"]]) {
+    await page.click("text=手動新增");
+    await page.fill("#h-code", code);
+    await page.fill("#h-shares", "1000");
+    await page.fill("#h-cost", cost);
+    await page.click("text=儲存");
+    await sleep(500);
+  }
+  await page.waitForFunction(() => document.querySelectorAll(".list .item").length >= 4, null, { timeout: 10000 });
+  // 興櫃報價是另外下載的，等它出現
+  await page.waitForFunction(() => /貝爾威勒/.test(document.querySelector(".list")?.innerText || ""), null, { timeout: 120000 }).catch(() => {});
+  const holds = await page.$$eval(".list .item", (xs) => xs.map((e) => e.innerText.replace(/\s+/g, " ")));
+  log("持股（含 ETF／興櫃）", JSON.stringify(holds));
+  const row = (c) => holds.find((h) => h.includes(c)) || "";
+  const hasPrice = (r) => /\d[\d,]*(\.\d+)? [+-]?\d+(\.\d)?%/.test(r) && !/—/.test(r);
+  check(/元大台灣50/.test(row("0050")) && /(買入|觀望|離場)/.test(row("0050")) && hasPrice(row("0050")), "0050 顯示現價、損益與評等", row("0050"));
+  check(hasPrice(row("00406A")) && !/無資料/.test(row("00406A")), "00406A 顯示現價與損益", row("00406A"));
+  check(/貝爾威勒/.test(row("7861")) && /無評等/.test(row("7861")) && /興櫃/.test(row("7861")) && hasPrice(row("7861")), "興櫃 7861 顯示現價與損益、不評等", row("7861"));
   await shot("06-持股健檢");
 
   // 重開 App：持股仍在（存在手機裡）
@@ -123,7 +158,7 @@ function check(ok, name, detail = "") {
 
   // 美股：真實 Nasdaq 資料
   await page2.click("nav.tabs button:nth-child(1)");
-  await page2.click(".seg button:nth-child(2)");
+  await page2.click(".seg button:nth-child(3)");
   await page2.waitForFunction(() => /全部 [1-9]\d/.test(document.body.innerText), null, { timeout: 6 * 60_000 });
   await page2.click(".chips button:nth-child(4)");
   await page2.waitForSelector(".item", { timeout: 10000 });
@@ -170,7 +205,7 @@ function check(ok, name, detail = "") {
     await page2.click("text=/加入 \\d 檔持股/");
     await page2.waitForTimeout(1000);
     const nHold = await page2.$$eval(".list .item", (x) => x.length);
-    check(nHold === 4, "匯入後共有 4 檔持股", `${nHold} 檔`);
+    check(nHold === 7, "匯入後共有 7 檔持股", `${nHold} 檔`);
     await shot("09-匯入後持股");
 
     // 個股 AI 深度解析（含網路搜尋）

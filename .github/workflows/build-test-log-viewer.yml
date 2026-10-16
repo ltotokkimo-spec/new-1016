@@ -1,0 +1,49 @@
+name: Build TestLogViewer.exe
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "test-log-viewer/log_viewer.py"
+      - ".github/workflows/build-test-log-viewer.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build deps
+        run: python -m pip install --upgrade pip pyinstaller openpyxl
+
+      - name: Build exe
+        working-directory: test-log-viewer
+        run: pyinstaller --noconfirm --onefile --windowed --name TestLogViewer log_viewer.py
+
+      - name: Smoke test (import + parse sample CSV)
+        working-directory: test-log-viewer
+        run: python -c "import log_viewer as lv; r,n=lv.load_records('sample_operator_log.csv'); print(len(r), n); assert len(r)==35"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TestLogViewer
+          path: test-log-viewer/dist/TestLogViewer.exe
+
+      - name: Commit exe to branch
+        shell: bash
+        run: |
+          mkdir -p test-log-viewer/release
+          cp test-log-viewer/dist/TestLogViewer.exe test-log-viewer/release/TestLogViewer.exe
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add test-log-viewer/release/TestLogViewer.exe
+          git commit -m "Build TestLogViewer.exe (${GITHUB_SHA::7})" || exit 0
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

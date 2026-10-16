@@ -21,7 +21,7 @@
 - 用 Ctrl+C 複製選取的列（以 Tab 分隔，可直接貼進 Excel）。
 
 ## 直接使用 exe（免安裝 Python）
-下載 [`release/TestLogViewer.exe`](release/TestLogViewer.exe)，雙擊即可執行。每次修改 `log_viewer.py` 後，GitHub Actions 會在 Windows 上自動重新打包。
+下載 [`release/TestLogViewer.exe`](release/TestLogViewer.exe)，雙擊即可執行。要重新打包時，到 GitHub Actions 的「Build TestLogViewer.exe」按 Run workflow，它會在 Windows 上打包並把 exe 存回分支。
 
 ## 用 Python 執行
 只需要 Python 3.8 以上（內建 tkinter），不必另外安裝套件。

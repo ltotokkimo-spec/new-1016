@@ -1,11 +1,8 @@
 name: Build TestLogViewer.exe
 
+# 只在手動觸發時打包（Actions 頁面按 Run workflow），確認畫面後再打包
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - "test-log-viewer/log_viewer.py"
-      - ".github/workflows/build-test-log-viewer.yml"
 
 permissions:
   contents: write

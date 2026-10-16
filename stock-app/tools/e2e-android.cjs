@@ -41,7 +41,10 @@ function check(ok, name, detail = "") {
     page = await withTimeout(webview.page(), 60_000, "連接 WebView 頁面");
     await sleep(10000);
     if (!page.isClosed()) break;
-    log(`App 畫面連線中斷（第 ${attempt} 次），重新連接`, String(await device.shell("logcat -d -b crash -t 30")).slice(-1500));
+    log(`App 畫面連線中斷（第 ${attempt} 次），重新連接`,
+      "\n程序：", String(await device.shell(`pidof ${PKG}`)).trim() || "（App 已結束）",
+      "\n當機紀錄：", String(await device.shell("logcat -d -b crash -t 30")).slice(-1500),
+      "\nWebView 紀錄：", String(await device.shell("logcat -d -t 400 | grep -iE 'chromium|webview|renderer|fatal|died|crash|lowmemory|kill' | tail -40")).slice(-3000));
     if (attempt >= 3) throw new Error("App 畫面一直中斷");
     await device.shell(`am start -n ${PKG}/.MainActivity`);
     await sleep(2000);

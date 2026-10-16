@@ -42,9 +42,9 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
       </div>
       <div class="chips" style={{ marginTop: "10px" }} role="group" aria-label="評等篩選">
         {refOnly
-          ? <button class="chip" aria-pressed="true">全部 {counts["全部"]}</button>
+          ? <button class="chip" aria-pressed="true">全部 {counts["全部"]} 檔</button>
           : (["買入", "觀望", "離場", "全部"] as const).map((f) => (
-            <button class="chip" aria-pressed={filter === f} onClick={() => setFilter(f)}>{f} {counts[f] ?? 0}</button>
+            <button class="chip" aria-pressed={filter === f} onClick={() => setFilter(f)}>{f} {counts[f] ?? 0} 檔</button>
           ))}
         {sector && <button class="chip" aria-pressed="true" onClick={() => setSector("")}>{sector} ✕</button>}
       </div>
@@ -103,12 +103,12 @@ function StockRow({ s, onClick }: { s: Scored; onClick: () => void }) {
         </div>
       </div>
       <div class="px">
-        <div class="p num">{fmtPrice(s.close, s.market)}</div>
-        <div class={`c num ${cls(s.ret1m)}`}>月 {fmtPct(s.ret1m)}</div>
+        <div class="p num"><span class="lbl">收盤</span>{fmtPrice(s.close, s.market)}</div>
+        <div class={`c num ${cls(s.ret1m)}`}><span class="lbl">近1月</span>{fmtPct(s.ret1m)}</div>
       </div>
       <div>
         <RatingPill rating={s.refOnly ? "參考" : s.rating} />
-        <div class="score num">{s.score} 分</div>
+        <div class="score num">分數 {s.score}</div>
       </div>
     </button>
   );
@@ -483,8 +483,8 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
                 <div class="sub">{v.advice.join("；")}</div>
               </div>
               <div class="px">
-                <div class="p num">{fmtPrice(v.price, v.market)}</div>
-                <div class={`c num ${cls(v.pnl)}`}>{fmtPct(v.pnlPct)}</div>
+                <div class="p num"><span class="lbl">現價</span>{fmtPrice(v.price, v.market)}</div>
+                <div class={`c num ${cls(v.pnl)}`}><span class="lbl">損益</span>{fmtPct(v.pnlPct)}</div>
               </div>
               <RatingPill rating={v.rating} />
             </button>

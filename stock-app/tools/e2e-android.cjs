@@ -81,7 +81,7 @@ function check(ok, name, detail = "") {
   check(/台股資料 \d+\/\d+/.test(tw.asof || ""), "顯示台股資料日期", tw.asof);
   const total = Number(/全部 (\d+)/.exec(tw.chips.join(" "))?.[1] || 0);
   check(total > 300, "全市場評分股票數量合理", `全部 ${total} 檔`);
-  check(tw.rows.length > 0 && tw.rows.every((r) => /(買入|觀望|離場)/.test(r) && /\d+ 分/.test(r)), "每列都有評等與分數", tw.rows[0]);
+  check(tw.rows.length > 0 && tw.rows.every((r) => /(買入|觀望|離場)/.test(r) && /分數 \d+/.test(r)), "每列都有評等與分數", tw.rows[0]);
   await shot("02-選股-台股");
 
   // 個股詳細：真實日K走勢
@@ -136,7 +136,7 @@ function check(ok, name, detail = "") {
   log("ETF", JSON.stringify(etf));
   const nEtf = Number(/全部 (\d+)/.exec(etf.chips)?.[1] || 0);
   check(nEtf >= 30, "ETF 分頁有評分的 ETF", `全部 ${nEtf} 檔`);
-  check(etf.rows.every((r) => /\b00\d{2,4}[A-Z]?\b/.test(r) && /參考/.test(r) && /\d+ 分/.test(r) && !/(買入|觀望|離場)/.test(r)), "ETF 每列都是 00 開頭代號，只給分數參考、不給買賣評等", etf.rows[0]);
+  check(etf.rows.every((r) => /\b00\d{2,4}[A-Z]?\b/.test(r) && /參考/.test(r) && /分數 \d+/.test(r) && !/(買入|觀望|離場)/.test(r)), "ETF 每列都是 00 開頭代號，只給分數參考、不給買賣評等", etf.rows[0]);
   await shot("02b-選股-ETF");
   await page.click(".seg button:nth-child(1)");
 
@@ -185,7 +185,7 @@ function check(ok, name, detail = "") {
   const holds = await page.$$eval(".list .item", (xs) => xs.map((e) => e.innerText.replace(/\s+/g, " ")));
   log("持股（含 ETF／興櫃）", JSON.stringify(holds));
   const row = (c) => holds.find((h) => h.includes(c)) || "";
-  const hasPrice = (r) => /\d[\d,]*(\.\d+)? [+-]?\d+(\.\d)?%/.test(r) && !/—/.test(r);
+  const hasPrice = (r) => /現價\s*\d[\d,]*(\.\d+)?\s+損益\s*[+-]?\d+(\.\d)?%/.test(r) && !/—/.test(r);
   check(/元大台灣50/.test(row("0050")) && /參考/.test(row("0050")) && !/(買入|觀望|離場)/.test(row("0050")) && hasPrice(row("0050")), "0050 顯示現價、損益，只當參考不給買賣評等", row("0050"));
   check(hasPrice(row("00406A")) && !/無資料/.test(row("00406A")), "00406A 顯示現價與損益", row("00406A"));
   check(/貝爾威勒/.test(row("7861")) && /無評等/.test(row("7861")) && /興櫃/.test(row("7861")) && hasPrice(row("7861")), "興櫃 7861 顯示現價與損益、不評等", row("7861"));
@@ -229,7 +229,7 @@ function check(ok, name, detail = "") {
   await page2.waitForFunction(() => [...document.querySelectorAll(".item")].some((e) => /AAOI/.test(e.innerText)) || /查不到|下載失敗/.test(document.body.innerText), null, { timeout: 180000 });
   const aaoi = await page2.evaluate(() => ([...document.querySelectorAll(".item")].find((e) => /AAOI/.test(e.innerText))?.innerText || document.querySelector(".error")?.innerText || "").replace(/\s+/g, " "));
   log("AAOI", aaoi);
-  check(/AAOI/.test(aaoi) && /(買入|觀望|離場)/.test(aaoi) && /\d+ 分/.test(aaoi), "搜尋清單外的美股 AAOI，下載後顯示評等", aaoi);
+  check(/AAOI/.test(aaoi) && /(買入|觀望|離場)/.test(aaoi) && /分數 \d+/.test(aaoi), "搜尋清單外的美股 AAOI，下載後顯示評等", aaoi);
   await shot("07b-美股-搜尋AAOI");
   await page2.fill(".search", "");
 

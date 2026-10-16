@@ -56,3 +56,17 @@ describe("免費解析：日K對不上", () => {
     expect(t).not.toMatch(/均線：/);
   });
 });
+
+describe("交給 Claude App 的提問", () => {
+  it("帶著 App 數據、要求用 MCP 與搜尋，網址可帶入", async () => {
+    const { claudeAppPrompt, claudeAppUrl } = await import("../src/ai/claude");
+    const p = claudeAppPrompt(base, "2026-10-17", { id: "1", code: "2330", name: "台積電", market: "TWSE", shares: 1000, cost: 150 });
+    expect(p).toMatch(/台積電（2330/);
+    expect(p).toMatch(/MCP/);
+    expect(p).toMatch(/我持有 1000 股，平均成本 150/);
+    expect(p).toMatch(/評等（買入／觀望／離場/);
+    const etf = claudeAppPrompt({ ...base, code: "0050", refOnly: true }, "2026-10-17");
+    expect(etf).toMatch(/不要給買入／離場評等/);
+    expect(decodeURIComponent(claudeAppUrl(p).split("?q=")[1])).toBe(p);
+  });
+});

@@ -218,3 +218,29 @@ export async function shrinkImage(file: File, maxSide = 1600): Promise<{ base64:
   const url = canvas.toDataURL("image/jpeg", 0.88);
   return { base64: url.slice(url.indexOf(",") + 1), mediaType: "image/jpeg" };
 }
+
+// ---------- 交給 Claude App（用使用者的訂閱，不扣 API 額度） ----------
+/** 產生一段完整提問，帶著 App 的數據，請 Claude App 用網路搜尋與已連接的台股工具（MCP）查證 */
+export function claudeAppPrompt(s: Scored, today: string, holding?: Holding): string {
+  const etf = !!s.refOnly;
+  const tools = s.market === "US"
+    ? "請用網路搜尋查最近 7 天的新聞、財報與分析師看法。"
+    : "如果你有連接台股資料工具（MCP，例如證交所／櫃買資料），請用它查這檔的每月營收、三大法人、融資融券與重大訊息；並用網路搜尋查最近 7 天的新聞與法說會。";
+  return `今天是 ${today}。我用「股市雷達」App 篩選股票，請幫我分析這檔${etf ? " ETF" : "股票"}，用繁體中文、台灣用語回答。
+
+【App 的數據】
+${stockBrief(s, holding)}
+
+${tools}
+
+請用以下段落回答（條列、具體、寫出日期與來源）：
+1. ${etf ? "一句話說明這檔 ETF 的特性（不要給買入／離場評等）" : "評等（買入／觀望／離場三選一）與一句話結論"}
+2. ${etf ? "成分股、費用率、配息與填息" : "動能與籌碼解讀（外資、投信、融資）"}
+3. 近期新聞與公司／產業事件
+4. 國內外經濟數據與央行動態的影響
+5. 風險與觀察重點（什麼價位或情況要改變看法）${holding ? "\n6. 針對我的持股的建議" : ""}
+
+最後加上：以上為研究參考，非投資建議。`;
+}
+
+export const claudeAppUrl = (prompt: string) => `https://claude.ai/new?q=${encodeURIComponent(prompt)}`;

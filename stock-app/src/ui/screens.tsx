@@ -5,7 +5,7 @@ import {
   addUsSymbol, removeUsSymbol, revenueOf, type Market,
 } from "../store";
 import type { Holding, Rating, Scored, SectorStat } from "../engine/score";
-import { analyzeStock, client, explainError, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
+import { analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
 import { twHistory } from "../data/history";
 import { isEtf } from "../data/tw";
 import { freeReport } from "../engine/freeReport";
@@ -354,6 +354,9 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
       {!free && <button class="btn secondary block" style={{ marginTop: "10px" }} disabled={freeBusy || bars === null} onClick={runFree} data-testid="free-btn">
         {freeBusy ? "產生中…" : bars === null && !barsErr ? "等待走勢資料…" : "免費解析"}
       </button>}
+
+      <div class="section-title"><span>用 Claude App 解析（用你的訂閱，不扣 API 額度）</span></div>
+      <ClaudeAppButton prompt={claudeAppPrompt(s, today, holding)} />
 
       <div class="section-title"><span>Claude AI 深度解析（付費）</span>{report && <span>{new Date(report.at).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })} 更新</span>}</div>
       {aiErr && <div class="error">{aiErr}</div>}
@@ -712,6 +715,29 @@ function UpdateCard() {
       {u.status === "ready" && !u.info?.available && <div class="muted" data-testid="up-to-date">已是最新版本{u.info?.latest ? `（最新 ${u.info.latest.versionName}）` : ""}</div>}
       <UpdateBody />
       <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>每次打開 App 會自動檢查；有新版會在畫面最上方提示，按「立即更新」就會在 App 裡下載並安裝，持股與設定都會保留。</div>
+    </div>
+  );
+}
+
+/** 把提問複製到剪貼簿，再打開 Claude App（或網頁）並帶入提問 */
+function ClaudeAppButton({ prompt }: { prompt: string }) {
+  const [copied, setCopied] = useState<"" | "ok" | "fail">("");
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(prompt); setCopied("ok"); return; } catch { /* 改用舊方法 */ }
+    const ta = document.createElement("textarea");
+    ta.value = prompt; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    try { setCopied(document.execCommand("copy") ? "ok" : "fail"); } catch { setCopied("fail"); }
+    ta.remove();
+  };
+  return (
+    <div class="stack">
+      <div class="notice">
+        會打開手機上的 Claude App，帶入這檔股票的 App 數據與提問。Claude App 用你的 Claude 訂閱（不扣這裡的 API 額度），可以上網搜尋新聞，也能用你在 Claude 連接的台股工具（MCP）查營收與法人資料，還能繼續追問。
+      </div>
+      <a class="btn secondary block" href={claudeAppUrl(prompt)} target="_blank" rel="noreferrer" onClick={copy} data-testid="claude-app">在 Claude App 解析</a>
+      {copied === "ok" && <div class="muted" style={{ fontSize: "13px", textAlign: "center" }} data-testid="claude-app-copied">已複製提問。如果 Claude 沒有自動帶入，在輸入框長按「貼上」再送出。</div>}
+      {copied === "fail" && <div class="muted" style={{ fontSize: "13px" }}>沒辦法自動複製，請在 Claude 自行描述要分析的股票。</div>}
     </div>
   );
 }

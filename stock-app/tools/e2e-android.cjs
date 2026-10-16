@@ -103,6 +103,18 @@ function check(ok, name, detail = "") {
   await page.evaluate(() => document.querySelector(".sheet .body").scrollTo(0, document.querySelector('[data-testid="free-report"]').offsetTop - 60));
   await sleep(400);
   await shot("03b-免費解析");
+
+  // 用 Claude App 解析：連結帶入提問、按下去會離開 App（打開 Claude App 或瀏覽器）並複製提問
+  const href = await page.$eval('[data-testid="claude-app"]', (a) => a.getAttribute("href"));
+  const q = decodeURIComponent(href.split("?q=")[1] || "");
+  check(href.startsWith("https://claude.ai/new?q=") && q.includes(detail.title.split(" ").pop()) && /MCP|網路搜尋/.test(q), "Claude App 連結帶入這檔股票的數據與提問", q.slice(0, 80));
+  await page.click('[data-testid="claude-app"]');
+  await sleep(3000);
+  log("按下 Claude App 後的畫面", String(await device.shell("dumpsys activity activities | grep -m1 -E 'topResumedActivity|mResumedActivity'")));
+  await shot("03c-開啟Claude");
+  await device.shell(`am start -n ${PKG}/.MainActivity`);
+  await sleep(2000);
+  log("已複製提問", await page.$('[data-testid="claude-app-copied"]').then((x) => !!x).catch(() => "?"));
   await page.click('button[aria-label="返回"]');
 
   // ETF 分頁：證交所資料裡的 ETF 單獨評分

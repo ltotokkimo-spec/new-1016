@@ -63,6 +63,17 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      # 模擬器映像檔偶爾下載到壞檔（ZipFile unknown archive），先下載並重試，之後的步驟就直接用
+      - name: 預先下載模擬器映像（失敗重試）
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null || true
+          for i in 1 2 3; do
+            "$SDKM" --install 'system-images;android-34;google_apis;x86_64' 'emulator' 'platform-tools' > /dev/null && break
+            echo "第 $i 次下載失敗，10 秒後重試"; sleep 10
+          done
+          test -d "$ANDROID_HOME/system-images/android-34/google_apis/x86_64"
+
       - name: Android 模擬器實測（真實網路資料）
         timeout-minutes: 25
         uses: reactivecircus/android-emulator-runner@v2

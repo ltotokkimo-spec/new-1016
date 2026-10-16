@@ -654,7 +654,7 @@ function UpdateBody({ compact }: { compact?: boolean }) {
   if (u.status === "needPermission") return (
     <div class="stack">
       <div>第一次更新需要允許：請在剛打開的設定頁開啟「允許安裝這個來源的應用程式」，回到 App 再按一次「立即更新」。</div>
-      <button class="btn block" onClick={installUpdate}>立即更新</button>
+      <button class="btn block" onClick={installUpdate} data-testid="install-update">立即更新</button>
     </div>
   );
   if (u.info?.available && latest) return (

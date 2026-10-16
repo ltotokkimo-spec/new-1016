@@ -3,7 +3,7 @@ name: Stock App
 on:
   push:
     branches: [ main, 'claude/**' ]
-    paths: [ 'stock-app/**', '.github/workflows/stock-app.yml' ]
+    paths: [ 'stock-app/**', '!stock-app/tools/probe/**', '.github/workflows/stock-app.yml' ]
   workflow_dispatch:
 
 permissions:

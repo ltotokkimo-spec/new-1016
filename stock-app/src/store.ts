@@ -5,7 +5,7 @@ import { fetchJson, type Fetcher } from "./lib/net";
 import { TwLoader, TW_SNAPSHOT_VERSION, type TwSnapshot } from "./data/twLoader";
 import { isEtf, parseEsbLatest, twUrls, type EsbQuote } from "./data/tw";
 import { UsLoader, type UsSnapshot } from "./data/usLoader";
-import { cnbcUrl, MACRO_SYMBOLS, parseCnbcQuotes, type MacroQuote } from "./data/us";
+import { cnbcUrl, isUsSymbol, MACRO_SYMBOLS, parseCnbcQuotes, US_UNIVERSE, type MacroQuote, type UsExtra } from "./data/us";
 import { scoreStocks, reviewHolding, type Holding, type HoldingView, type Scored, type SectorStat } from "./engine/score";
 import type { AiReport } from "./ai/claude";
 import { taipeiToday } from "./lib/dates";
@@ -57,6 +57,8 @@ export interface State {
   };
   spend: { at: number; usd: number; kind: string }[]; // 這支手機呼叫 Claude 的實際花費紀錄
   backtest?: { data: BacktestResult; fetchedAt: number };
+  usExtra: UsExtra[]; // 使用者自己加的美股
+  usLookup?: { symbol: string; status: "loading" | "notfound" | "error"; error?: string };
   loaded: boolean;
 }
 
@@ -65,7 +67,7 @@ const starting = (): MarketState => ({ status: "loading", scored: [], sectors: [
 
 let state: State = {
   tw: starting(), etf: starting(), us: starting(), esb: {}, twIndices: [], usSectorEtfs: [],
-  macro: { status: "idle", quotes: [] }, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], update: { status: "idle" }, loaded: false,
+  macro: { status: "idle", quotes: [] }, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], update: { status: "idle" }, usExtra: [], loaded: false,
 };
 const listeners = new Set<() => void>();
 
@@ -100,6 +102,7 @@ export async function init() {
     kv.get<TwSnapshot>("snap:tw"), kv.get<UsSnapshot>("snap:us"), kv.get<State["spend"]>("spend"),
     kv.get<EsbSnapshot>("snap:esb"),
   ]);
+  set({ usExtra: (await kv.get<UsExtra[]>("usExtra")) ?? [] });
   const bt = await kv.get<State["backtest"]>("backtest");
   if (bt) set({ backtest: bt });
   if (!bt || Date.now() - bt.fetchedAt > 6 * 3600_000) refreshBacktest();
@@ -155,14 +158,17 @@ export async function refreshEsb() {
   } catch { /* 興櫃只是補充報價，失敗時沿用上次的資料 */ }
 }
 
+/** 一定要評分的美股：自己加的＋持股裡的 */
+const usKeep = () => new Set([...state.usExtra.map((x) => x.symbol), ...state.holdings.filter((h) => h.market === "US").map((h) => h.code)]);
+
 function applyUs(snap: UsSnapshot) {
-  const { scored, sectors } = scoreStocks(snap.stocks);
+  const { scored, sectors } = scoreStocks(snap.stocks, usKeep());
   set({ prices: pricesOf(snap.stocks) });
   const warning = snap.failed?.length ? `${snap.failed.join("、")} 這次下載失敗，按右上角重新整理可重試` : undefined;
   set({ us: { status: "ready", scored, sectors, asOf: snap.asOf, fetchedAt: snap.fetchedAt, warning }, usSectorEtfs: snap.sectorEtfs });
 }
 
-let twBusy = false, usBusy = false;
+let twBusy = false;
 
 export async function refreshTw() {
   if (twBusy) return;
@@ -184,21 +190,35 @@ export async function refreshTw() {
   } finally { twBusy = false; }
 }
 
-export async function refreshUs() {
-  if (usBusy) return;
-  usBusy = true;
+let usRun: Promise<void> | null = null, usQueued: Promise<void> | null = null;
+/** 正在更新時再呼叫，會排一次在後面（例如剛加了一檔美股），回傳的 Promise 等到包含它的那次更新完成 */
+export function refreshUs(): Promise<void> {
+  if (usRun) return (usQueued ??= usRun.then(() => { usQueued = null; return refreshUs(); }));
+  usRun = doRefreshUs().finally(() => { usRun = null; });
+  return usRun;
+}
+
+async function doRefreshUs() {
   const prev = state.us;
   set({ us: { ...prev, status: prev.scored.length ? "ready" : "loading", progress: { done: 0, total: 1, label: "準備中" }, error: undefined } });
   try {
-    const snap = await new UsLoader(fetcher, kv).load((done, total, label) =>
-      set({ us: { ...state.us, progress: { done, total, label } } }));
+    const loader = new UsLoader(fetcher, kv);
+    // 持股裡有、但清單沒有的美股，先查出名稱與產業再一起下載
+    const known = new Set([...US_UNIVERSE.map((u) => u.symbol), ...state.usExtra.map((x) => x.symbol)]);
+    for (const h of state.holdings) {
+      if (h.market !== "US" || known.has(h.code) || !isUsSymbol(h.code)) continue;
+      const x = await loader.lookup(h.code).catch(() => null);
+      if (x) await saveUsExtra([...state.usExtra, x]);
+    }
+    const snap = await loader.load((done, total, label) =>
+      set({ us: { ...state.us, progress: { done, total, label } } }), state.usExtra);
     const { bars, ...rest } = snap; // 日K 很大，快照只存計算結果
     await kv.set("snap:us", { ...rest, bars: {} });
     await kv.set("us:bars", bars);
     applyUs(snap);
   } catch (e: any) {
     set({ us: { ...state.us, status: state.us.scored.length ? "ready" : "error", error: `美股資料更新失敗：${e?.message ?? e}`, progress: undefined } });
-  } finally { usBusy = false; }
+  }
 }
 
 export async function refreshMacro() {
@@ -224,6 +244,7 @@ export function holdingViews(): HoldingView[] {
     const m = h.market === "US" ? state.us : isEtf(h.code) ? state.etf : state.tw;
     const esb = h.market !== "US" && !!state.esb[h.code];
     const v = reviewHolding(h, findScored(h.code, h.market === "US" ? "US" : "TW"), state.prices[h.code]?.close, { esb });
+    if (v.scored && v.name === v.code) v.name = v.scored.name; // 自己加的美股，下載後換成公司名稱
     if (!v.scored && !Number.isFinite(v.price) && m.status !== "ready") v.advice = [m.status === "error" ? "行情下載失敗" : "行情載入中…"];
     return v;
   });
@@ -310,4 +331,34 @@ export async function refreshBacktest() {
     await kv.set("backtest", bt);
     set({ backtest: bt });
   } catch { /* 回測只是參考，下載失敗就沿用上次的結果 */ }
+}
+
+// ---------- 自己加美股 ----------
+async function saveUsExtra(list: UsExtra[]) {
+  set({ usExtra: list });
+  await kv.set("usExtra", list);
+}
+
+/** 下載一檔不在清單裡的美股並加入評分（之後每天一起更新） */
+export async function addUsSymbol(raw: string) {
+  const symbol = raw.trim().toUpperCase();
+  if (!isUsSymbol(symbol)) return;
+  set({ usLookup: { symbol, status: "loading" } });
+  try {
+    if (!state.usExtra.some((x) => x.symbol === symbol)) {
+      const x = await new UsLoader(fetcher, kv).lookup(symbol);
+      if (!x) { set({ usLookup: { symbol, status: "notfound" } }); return; }
+      await saveUsExtra([...state.usExtra, x]);
+    }
+    await refreshUs(); // 其他股票今天已經下載過（有快取），只會多抓這一檔
+    set({ usLookup: undefined });
+  } catch (e: any) {
+    set({ usLookup: { symbol, status: "error", error: e?.message ?? String(e) } });
+  }
+}
+
+export async function removeUsSymbol(symbol: string) {
+  await saveUsExtra(state.usExtra.filter((x) => x.symbol !== symbol));
+  const snap = await kv.get<UsSnapshot>("snap:us");
+  if (snap) applyUs({ ...snap, stocks: snap.stocks.filter((x) => x.code !== symbol) });
 }

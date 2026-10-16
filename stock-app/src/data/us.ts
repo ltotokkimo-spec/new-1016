@@ -36,6 +36,34 @@ export function nasdaqUrl(symbol: string, assetclass: "stocks" | "etf", from: st
   return `https://api.nasdaq.com/api/quote/${encodeURIComponent(symbol)}/historical?assetclass=${assetclass}&fromdate=${from}&limit=400&todate=${to}`;
 }
 
+// ---------- 使用者自己加的美股（不在預設清單裡的代號） ----------
+export interface UsExtra { symbol: string; name: string; sector: string; etf: boolean }
+
+export const nasdaqInfoUrl = (symbol: string, assetclass: "stocks" | "etf") =>
+  `https://api.nasdaq.com/api/quote/${encodeURIComponent(symbol)}/info?assetclass=${assetclass}`;
+export const nasdaqSummaryUrl = (symbol: string, assetclass: "stocks" | "etf") =>
+  `https://api.nasdaq.com/api/quote/${encodeURIComponent(symbol)}/summary?assetclass=${assetclass}`;
+
+/** Nasdaq info → 公司名稱（去掉 "Common Stock" 之類的字） */
+export function parseNasdaqName(json: any): string {
+  const n = String(json?.data?.companyName ?? "").trim();
+  return n.replace(/\s+(Common Stock|Common Shares|Ordinary Shares|American Depositary Shares).*$/i, "").replace(/,?\s+(Inc\.?|Corp\.?|Corporation|Ltd\.?|plc)$/i, "").trim();
+}
+
+const NASDAQ_SECTOR: Record<string, string> = {
+  technology: "科技", telecommunications: "通訊服務", "consumer discretionary": "非必需消費", "consumer staples": "必需消費",
+  energy: "能源", finance: "金融", "health care": "醫療保健", industrials: "工業", "basic materials": "原物料",
+  utilities: "公用事業", "real estate": "房地產",
+};
+
+/** Nasdaq summary → 對應到 App 的產業名稱；查不到就歸「自選」 */
+export function parseNasdaqSector(json: any): string {
+  const v = json?.data?.summaryData?.Sector?.value ?? json?.data?.summaryData?.sector?.value;
+  return NASDAQ_SECTOR[String(v ?? "").trim().toLowerCase()] ?? "自選";
+}
+
+export const isUsSymbol = (s: string) => /^[A-Z][A-Z.\-]{0,6}$/.test(s);
+
 export interface MacroQuote {
   symbol: string;
   name: string;

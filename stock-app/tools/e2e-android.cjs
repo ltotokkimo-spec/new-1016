@@ -190,6 +190,17 @@ function check(ok, name, detail = "") {
   check(prices.size >= 4, "美股各檔價格不同（是真實資料）", [...prices].join(" "));
   await shot("07-選股-美股");
 
+  // 搜尋不在預設清單裡的美股（使用者回報 AAOI 搜不到）
+  await page2.fill(".search", "AAOI");
+  await page2.waitForSelector('[data-testid="us-add"]', { timeout: 10000 });
+  await page2.click('[data-testid="us-add"]');
+  await page2.waitForFunction(() => [...document.querySelectorAll(".item")].some((e) => /AAOI/.test(e.innerText)) || /查不到|下載失敗/.test(document.body.innerText), null, { timeout: 180000 });
+  const aaoi = await page2.evaluate(() => ([...document.querySelectorAll(".item")].find((e) => /AAOI/.test(e.innerText))?.innerText || document.querySelector(".error")?.innerText || "").replace(/\s+/g, " "));
+  log("AAOI", aaoi);
+  check(/AAOI/.test(aaoi) && /(買入|觀望|離場)/.test(aaoi) && /\d+ 分/.test(aaoi), "搜尋清單外的美股 AAOI，下載後顯示評等", aaoi);
+  await shot("07b-美股-搜尋AAOI");
+  await page2.fill(".search", "");
+
   // ---------- Claude AI（有提供金鑰才測） ----------
   const key = process.env.ANTHROPIC_API_KEY;
   if (key) {

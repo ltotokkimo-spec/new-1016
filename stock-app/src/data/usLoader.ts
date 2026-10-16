@@ -2,7 +2,10 @@
 import type { Fetcher } from "../lib/net";
 import type { KV } from "../lib/kv";
 import { addDays, dash, taipeiToday } from "../lib/dates";
-import { nasdaqUrl, parseNasdaqHistory, retN, sma, US_SECTOR_ETF, US_UNIVERSE, type Bar } from "./us";
+import {
+  nasdaqInfoUrl, nasdaqSummaryUrl, nasdaqUrl, parseNasdaqHistory, parseNasdaqName, parseNasdaqSector, retN, sma,
+  US_SECTOR_ETF, US_UNIVERSE, type Bar, type UsExtra,
+} from "./us";
 import type { StockInput } from "../engine/score";
 import type { Progress } from "./twLoader";
 
@@ -30,12 +33,32 @@ export class UsLoader {
     return bars;
   }
 
-  async load(progress: Progress = () => {}): Promise<UsSnapshot> {
+  /** 查一檔不在清單裡的美股：先當股票查，沒有再當 ETF 查；查不到回 null */
+  async lookup(symbol: string): Promise<UsExtra | null> {
+    for (const etf of [false, true]) {
+      let bars: Bar[] = [];
+      try { bars = await this.history(symbol, etf); } catch { /* 試下一種 */ }
+      if (bars.length < 70) continue;
+      const cls = etf ? "etf" : "stocks";
+      const [info, summary] = await Promise.all([
+        this.fetch(nasdaqInfoUrl(symbol, cls)).catch(() => null),
+        this.fetch(nasdaqSummaryUrl(symbol, cls)).catch(() => null),
+      ]);
+      return { symbol, name: parseNasdaqName(info) || symbol, sector: etf ? "ETF" : parseNasdaqSector(summary), etf };
+    }
+    return null;
+  }
+
+  async load(progress: Progress = () => {}, extra: UsExtra[] = []): Promise<UsSnapshot> {
     const etfs = Object.entries(US_SECTOR_ETF);
+    const known = new Set(US_UNIVERSE.map((u) => u.symbol));
+    const extras = extra.filter((x) => !known.has(x.symbol));
+    const universe = [...US_UNIVERSE, ...extras];
     const jobs: { symbol: string; etf: boolean }[] = [
       { symbol: "SPY", etf: true },
       ...etfs.map(([, s]) => ({ symbol: s, etf: true })),
       ...US_UNIVERSE.map((u) => ({ symbol: u.symbol, etf: false })),
+      ...extras.map((u) => ({ symbol: u.symbol, etf: u.etf })),
     ];
     const bars: Record<string, Bar[]> = {};
     const failed: string[] = [];
@@ -47,7 +70,7 @@ export class UsLoader {
           bars[j.symbol] = await this.history(j.symbol, j.etf);
           if (!bars[j.symbol].length) failed.push(j.symbol);
         } catch { failed.push(j.symbol); }
-        progress(++done, 1 + etfs.length + US_UNIVERSE.length, `美股 ${j.symbol}`);
+        progress(++done, 1 + etfs.length + universe.length, `美股 ${j.symbol}`);
       }
     };
     await Promise.all([worker(), worker(), worker()]);
@@ -55,7 +78,7 @@ export class UsLoader {
     if (!spy.length) throw new Error("美股資料下載失敗，請稍後再試");
     const spy1m = retN(spy, 21);
     const stocks: StockInput[] = [];
-    for (const u of US_UNIVERSE) {
+    for (const u of universe) {
       const b = bars[u.symbol];
       if (!b || b.length < 70) continue;
       const last = b[b.length - 1];

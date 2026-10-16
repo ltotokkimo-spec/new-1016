@@ -54,3 +54,43 @@ describe("台股個股月資料（實際資料）", () => {
     expect(b[0]).toEqual({ date: "20260901", open: 908, high: 998, low: 908, close: 994, volume: 12770000 });
   });
 });
+
+describe("自己加的美股", () => {
+  it("公司名稱與產業", async () => {
+    const { parseNasdaqName, parseNasdaqSector, isUsSymbol } = await import("../src/data/us");
+    expect(parseNasdaqName({ data: { companyName: "Applied Optoelectronics, Inc. Common Stock" } })).toBe("Applied Optoelectronics");
+    expect(parseNasdaqName({ data: { companyName: "NVIDIA Corporation Common Stock" } })).toBe("NVIDIA");
+    expect(parseNasdaqName(null)).toBe("");
+    expect(parseNasdaqSector({ data: { summaryData: { Sector: { label: "Sector", value: "Technology" } } } })).toBe("科技");
+    expect(parseNasdaqSector({ data: { summaryData: { Sector: { value: "Health Care" } } } })).toBe("醫療保健");
+    expect(parseNasdaqSector({})).toBe("自選");
+    expect(["AAOI", "BRK.B", "A"].every(isUsSymbol)).toBe(true);
+    expect(["2330", "aaoi", "TOOLONGSYM", ""].some(isUsSymbol)).toBe(false);
+  });
+
+  it("查詢：股票查不到時改用 ETF 查；都查不到回 null", async () => {
+    const { UsLoader } = await import("../src/data/usLoader");
+    const { memoryKV } = await import("../src/lib/kv");
+    const hist = fx("nasdaq_AAPL.json");
+    const fetcher = async (url: string) => {
+      if (url.includes("/AAOI/historical") && url.includes("assetclass=stocks")) return hist;
+      if (url.includes("/SOXL/historical") && url.includes("assetclass=etf")) return hist;
+      if (url.includes("/AAOI/info")) return { data: { companyName: "Applied Optoelectronics, Inc. Common Stock" } };
+      if (url.includes("/AAOI/summary")) return { data: { summaryData: { Sector: { value: "Technology" } } } };
+      if (url.includes("/historical")) return { data: null, status: { rCode: 400 } };
+      throw new Error("404");
+    };
+    const l = new UsLoader(fetcher, memoryKV());
+    expect(await l.lookup("AAOI")).toEqual({ symbol: "AAOI", name: "Applied Optoelectronics", sector: "科技", etf: false });
+    expect(await l.lookup("SOXL")).toEqual({ symbol: "SOXL", name: "SOXL", sector: "ETF", etf: true });
+    expect(await l.lookup("ZZZZ")).toBeNull();
+  });
+
+  it("成交金額低於門檻的自選股仍會評分", async () => {
+    const { scoreStocks } = await import("../src/engine/score");
+    const mk = (code: string, value: number) => ({ code, name: code, market: "US" as const, sector: "科技", close: 10, value, ret1w: 0.01, ret1m: 0.02, ret3m: 0.03, aboveMa50: true, ma20AboveMa50: true, rsVsIndex1m: 0 });
+    const xs = [mk("BIG1", 1e9), mk("BIG2", 1e9), mk("BIG3", 1e9), mk("TINY", 1e5)];
+    expect(scoreStocks(xs).scored.map((x) => x.code)).not.toContain("TINY");
+    expect(scoreStocks(xs, new Set(["TINY"])).scored.map((x) => x.code)).toContain("TINY");
+  });
+});

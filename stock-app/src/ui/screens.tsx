@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
   findScored, getFetcher, getKv, getState, holdingViews, refreshEsb, refreshMacro, refreshTw, refreshUs, saveHoldings, saveReport,
-  saveSettings, clearCache, useStore, usBars, recordSpend, estimatedBalance, checkForUpdate, installUpdate, type Market,
+  saveSettings, clearCache, useStore, usBars, recordSpend, estimatedBalance, checkForUpdate, installUpdate,
+  addUsSymbol, removeUsSymbol, type Market,
 } from "../store";
 import type { Holding, Rating, Scored, SectorStat } from "../engine/score";
 import { analyzeStock, client, explainError, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
 import { twHistory } from "../data/history";
 import { isEtf } from "../data/tw";
-import { MACRO_SYMBOLS } from "../data/us";
+import { isUsSymbol, MACRO_SYMBOLS } from "../data/us";
 import { pretty, taipeiToday } from "../lib/dates";
 import { cls, fmtMoney, fmtPct, fmtPrice, lots, Markdown, PriceChart, Progress, RatingPill, Sheet } from "./common";
 
@@ -53,6 +54,7 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
             <span>{filter === "全部" ? (market === "ETF" ? "全部 ETF" : "全部股票") : `評等「${filter}」`}・依分數排序</span>
             <span>{list.length} 檔</span>
           </div>
+          {market === "US" && <UsLookup q={q} found={list.length > 0} />}
           {list.length === 0 ? (
             <div class="empty">
               {filter === "買入" && !q && !sector ? <>今天沒有股票同時符合「分數 70 以上、外資買超、一週漲幅未過熱」。<br /><button class="chip" style={{ marginTop: "10px" }} onClick={() => setFilter("觀望")}>看「觀望」名單</button></> : "沒有符合的股票"}
@@ -104,6 +106,22 @@ function StockRow({ s, onClick }: { s: Scored; onClick: () => void }) {
         <div class="score num">{s.score} 分</div>
       </div>
     </button>
+  );
+}
+
+// ---------------- 搜尋不在清單裡的美股 ----------------
+function UsLookup({ q, found }: { q: string; found: boolean }) {
+  const lk = useStore((s) => s.usLookup);
+  const sym = q.trim().toUpperCase();
+  if (lk?.status === "loading") return <div class="notice" style={{ marginBottom: "10px" }}>正在從 Nasdaq 下載 {lk.symbol} 的資料並評分…</div>;
+  if (found || !isUsSymbol(sym)) return null;
+  return (
+    <div class="card stack" style={{ marginBottom: "10px" }} data-testid="us-lookup">
+      {lk?.symbol === sym && lk.status === "notfound" && <div class="error">Nasdaq 查不到 {sym}，請確認代號（例如 AAOI、BRK.B）</div>}
+      {lk?.symbol === sym && lk.status === "error" && <div class="error">下載失敗：{lk.error}，請稍後再試</div>}
+      <div style={{ fontSize: "14px", lineHeight: 1.6 }}>{sym} 不在預設的 55 檔大型股清單裡。要下載它的資料並評分嗎？加入後每天會一起更新。</div>
+      <button class="btn block" onClick={() => addUsSymbol(sym)} data-testid="us-add">下載 {sym} 並評分</button>
+    </div>
   );
 }
 
@@ -251,6 +269,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
   const [aiErr, setAiErr] = useState("");
   const [adding, setAdding] = useState(false);
   const holding = holdings.find((h) => h.code === s.code);
+  const isExtra = useStore((st) => st.usExtra.some((x) => x.symbol === s.code)) && !holding;
   const today = taipeiToday();
   const reportKey = `stock:${s.code}:${today}`;
   const report = reports[reportKey];
@@ -327,6 +346,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
         {!apiKey && <div class="muted" style={{ fontSize: "13px", textAlign: "center" }}>先到「設定」貼上 Claude API 金鑰才能使用</div>}
         {apiKey && <BalanceHint />}
         {!holding && <button class="btn secondary block" onClick={() => setAdding(true)}>加入我的持股</button>}
+        {isExtra && <button class="btn danger block" onClick={async () => { await removeUsSymbol(s.code); onClose(); }}>從美股清單移除 {s.code}</button>}
       </div>
       {adding && <HoldingForm initial={{ code: s.code, name: s.name, market: s.market, shares: 1000, cost: s.close }} onDone={() => setAdding(false)} />}
     </Sheet>
@@ -484,6 +504,7 @@ function HoldingForm({ initial, onDone }: { initial?: Partial<Holding>; onDone: 
     const name = findScored(c, market === "US" ? "US" : "TW")?.name ?? getState().prices[c]?.name ?? initial?.name ?? c;
     const h: Holding = { id: initial?.id ?? `${Date.now()}-${c}`, code: c, name, market, shares: sh, cost: co };
     await saveHoldings(isEdit ? holdings.map((x) => (x.id === h.id ? h : x)) : [...holdings.filter((x) => x.code !== c), h]);
+    if (market === "US" && !findScored(c, "US")) addUsSymbol(c); // 不在清單裡的美股持股，自動下載
     onDone();
   };
   const remove = async () => { await saveHoldings(holdings.filter((x) => x.id !== initial?.id)); onDone(); };

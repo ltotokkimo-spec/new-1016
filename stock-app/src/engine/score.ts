@@ -119,10 +119,11 @@ export function sectorStats(stocks: StockInput[]): SectorStat[] {
     .sort((a, b) => b.strength - a.strength);
 }
 
-export function scoreStocks(stocks: StockInput[]): { scored: Scored[]; sectors: SectorStat[] } {
+/** keep：一定要評分的代號（使用者自己加的股票），不受成交金額門檻限制 */
+export function scoreStocks(stocks: StockInput[], keep?: Set<string>): { scored: Scored[]; sectors: SectorStat[] } {
   const isUS = stocks[0]?.market === "US";
   const liquid = stocks.filter(
-    (s) => Number.isFinite(s.close) && Number.isFinite(s.ret1m) && s.value >= (isUS ? MIN_VALUE.US : MIN_VALUE.TW),
+    (s) => Number.isFinite(s.close) && Number.isFinite(s.ret1m) && (s.value >= (isUS ? MIN_VALUE.US : MIN_VALUE.TW) || !!keep?.has(s.code)),
   );
   const sectors = sectorStats(liquid);
   const secMap = new Map(sectors.map((s) => [s.sector, s]));

@@ -14,6 +14,7 @@
   - 計算機 `calculator.py` → `tests/smoke_test_exe.ps1`
   - 小畫家 `paint.py` → `tests/smoke_test_paint.ps1`
   改動程式後要確認這個流程通過，並自己查看截圖（截圖以 base64 印在 Actions 紀錄中）。
+- 選股 App `stock-app/`（Capacitor + Preact，Android）由 `.github/workflows/stock-app.yml` 打包 APK，並用 `stock-app/tools/e2e-android.cjs` 在 Android 模擬器上以真實網路資料實測、截圖；通過後發布到 Releases `stock-radar-latest`。這個雲端環境連不到證交所等網站，資料相關的驗證要在 GitHub Actions 上做。
 
 ## 等待時要讓使用者知道進度
 - 開始等待前，說明在等什麼、預計多久，並明確寫「背景執行中，不需要你操作」。

@@ -9,6 +9,11 @@ on:
 permissions:
   contents: write
 
+# 新的推送會取消同分支還在跑的舊測試
+concurrency:
+  group: stock-app-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   android:
     runs-on: ubuntu-latest

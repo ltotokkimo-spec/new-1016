@@ -198,7 +198,8 @@ function check(ok, name, detail = "") {
   log("美股提示", await page2.evaluate(() => document.querySelector("main .notice")?.textContent || "無"));
   log("console 錯誤", JSON.stringify(errors));
   // 網路請求失敗（例如某檔美股一時下載不到）App 會顯示提示並允許重試，這裡只檢查程式本身的錯誤
-  const jsErrors = errors.filter((e) => !/Failed to load resource|EOFException|favicon/.test(e));
+  // 原生 HTTP 層（CapacitorHttp）在連線中斷時會記一筆 {code: ...Exception}，App 會自動重試，不算程式錯誤
+  const jsErrors = errors.filter((e) => !/Failed to load resource|favicon|code: \w*Exception/.test(e));
   check(jsErrors.length === 0, "沒有 JavaScript 程式錯誤", jsErrors.join(" | "));
 })()
   .catch((e) => { console.error("E2E 失敗：", e.message); process.exitCode = 1; })

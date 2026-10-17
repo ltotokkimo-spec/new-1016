@@ -740,19 +740,22 @@ function UpdateCard() {
 }
 
 /** 把提問複製到剪貼簿，再打開 Claude App（或網頁）並帶入提問 */
+/** 複製文字到剪貼簿。要在離開 App 之前同步複製完，所以先用同步的 execCommand，失敗才用非同步的 clipboard API */
+export function copyText(text: string, done: (ok: boolean) => void) {
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select();
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch { /* 改用 clipboard API */ }
+  ta.remove();
+  if (ok) { done(true); return; }
+  if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => done(true), () => done(false));
+  else done(false);
+}
+
 function ClaudeAppButton({ prompt }: { prompt: string }) {
   const [copied, setCopied] = useState<"" | "ok" | "fail">("");
-  // 要在離開 App 之前同步複製完，所以先用同步的 execCommand，失敗才用非同步的 clipboard API
-  const copy = () => {
-    const ta = document.createElement("textarea");
-    ta.value = prompt; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
-    document.body.appendChild(ta); ta.select();
-    let ok = false;
-    try { ok = document.execCommand("copy"); } catch { /* 改用 clipboard API */ }
-    ta.remove();
-    if (ok) { setCopied("ok"); return; }
-    navigator.clipboard?.writeText(prompt).then(() => setCopied("ok"), () => setCopied("fail"));
-  };
+  const copy = () => copyText(prompt, (ok) => setCopied(ok ? "ok" : "fail"));
   return (
     <div class="stack">
       <div class="notice">

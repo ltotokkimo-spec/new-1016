@@ -160,3 +160,8 @@ a.btn { text-decoration: none; }
 .btn.mini { padding: 4px 10px; font-size: 13px; }
 .tabs button { position: relative; }
 .tabs .dot { position: absolute; top: 6px; right: calc(50% - 16px); width: 8px; height: 8px; border-radius: 50%; background: var(--up); }
+table.cmp { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.cmp th { font-weight: 500; color: var(--muted); text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }
+table.cmp td { padding: 8px 4px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.cmp tr.diff td { background: var(--hold-bg); }
+a.btn[aria-disabled="true"] { opacity: 0.5; pointer-events: none; }

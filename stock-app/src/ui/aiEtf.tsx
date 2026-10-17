@@ -1,13 +1,13 @@
 // 「自組ETF」分頁：請 Claude 建議要買什麼、買幾股，照著實際下單後填入成交，追蹤淨值並和 0050 比較。
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
-  addEtfTrades, deleteEtfTrade, recordSpend, etfAlertsNow, etfPrice, findScored, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
+  addEtfTrades, deleteEtfTrade, etfAdviceInput, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, findScored, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
-import { explainError, holdingsFromImage, shrinkImage } from "../ai/claude";
-import { DEFAULT_STOP, fitBudget, parsePlan, positions, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
+import { aiEtfPrompt, claudeAppUrl, explainError, holdingsFromImage, shrinkImage } from "../ai/claude";
+import { comparePlans, DEFAULT_STOP, fitBudget, parsePlan, positions, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { taipeiToday, pretty } from "../lib/dates";
 import { cls, fmtMoney, fmtPct, fmtPrice } from "./common";
-import { AiProgressView, AiReportView, BalanceHint } from "./screens";
+import { AiProgressView, AiReportView, BalanceHint, copyText } from "./screens";
 
 /** 兩條線：我的組合 vs 0050（報酬率 %） */
 function NavChart({ points }: { points: { date: string; nav: number; bench: number }[]; }) {
@@ -72,8 +72,75 @@ function StopEdit({ p, stops }: { p: Position; stops?: Record<string, number> })
   );
 }
 
+const fmtAt = (t: number) => new Date(t).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+
+/** 用 Claude App（Pro 訂閱）檢視：帶同一份數據與提問過去，回覆貼回來比較，不扣 API 額度 */
+function ProReview({ disabled, review }: { disabled: boolean; review: boolean }) {
+  const [copied, setCopied] = useState<"" | "ok" | "fail">("");
+  const [text, setText] = useState("");
+  const [err, setErr] = useState("");
+  const prompt = disabled ? "" : aiEtfPrompt(etfAdviceInput(), true);
+  const save = async () => {
+    if (text.trim().length < 20) return setErr("請把 Claude App 的整段回覆貼上來");
+    if (!parsePlan(text).items.length && !/維持不變/.test(text)) setErr("回覆最後沒有找到 JSON 買賣清單，仍會存下文字；可以請 Claude 補上 JSON 區塊再貼一次");
+    else setErr("");
+    await saveProReply(text);
+    setText("");
+  };
+  return (
+    <div class="card stack" data-testid="pro-review">
+      <b>用 Claude Pro 檢視（免費，用你的訂閱）</b>
+      <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
+        會打開 Claude App，帶入和付費版完全相同的數據與提問。Claude 回答完，長按複製整段回覆，回來貼在下面，App 會和付費版逐檔比較。
+      </div>
+      <a class="btn secondary block" aria-disabled={disabled} href={prompt ? claudeAppUrl(prompt) : undefined} target="_blank" rel="noreferrer"
+        onClick={() => prompt && copyText(prompt, (ok) => setCopied(ok ? "ok" : "fail"))} data-testid="pro-open">
+        在 Claude App {review ? "檢視調整" : "建議建倉"}
+      </a>
+      {copied === "ok" && <div class="muted" style={{ fontSize: "12px" }} data-testid="pro-copied">已複製提問。Claude 沒有自動帶入的話，在輸入框長按「貼上」再送出。</div>}
+      {copied === "fail" && <div class="muted" style={{ fontSize: "12px" }}>沒辦法自動複製提問，請再按一次。</div>}
+      <label class="field">貼上 Claude App 的回覆
+        <textarea rows={4} value={text} onInput={(e) => setText((e.target as HTMLTextAreaElement).value)} placeholder="在 Claude App 長按回覆 →「複製」，再貼到這裡" data-testid="pro-text" />
+      </label>
+      {err && <div class="error">{err}</div>}
+      <button class="btn secondary block" disabled={!text.trim()} onClick={save} data-testid="pro-save">儲存並和付費版比較</button>
+    </div>
+  );
+}
+
+/** 兩份建議逐檔並排 */
+function CompareCard({ api, pro, fillFrom, apiAt, proAt }: { api: PlanItem[]; pro: PlanItem[]; fillFrom: "api" | "pro"; apiAt: number; proAt: number }) {
+  const rows = comparePlans(api, pro);
+  const same = rows.filter((r) => r.same).length;
+  const cell = (x?: PlanItem) => x ? <span class={x.side === "buy" ? "up" : "down"}>{x.side === "buy" ? "買" : "賣"} {x.shares.toLocaleString()} 股</span> : <span class="muted">—</span>;
+  const name = (c: string) => getState().prices[c]?.name ?? c;
+  return (
+    <div class="card stack" data-testid="plan-compare">
+      <b>付費 API vs Claude Pro：{rows.length} 檔中 {same} 檔一致、{rows.length - same} 檔不同</b>
+      <div class="muted" style={{ fontSize: "12px" }}>付費版 {fmtAt(apiAt)}・Pro 版 {fmtAt(proAt)}{Math.abs(apiAt - proAt) > 6 * 3600_000 ? "（兩份時間差很多，持股可能已經變了，比較時要注意）" : ""}</div>
+      <table class="cmp">
+        <thead><tr><th>股票</th><th>付費 API</th><th>Claude Pro</th></tr></thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr class={r.same ? "" : "diff"}>
+              <td>{name(r.code)} <span class="muted num">{r.code}</span></td>
+              <td class="num">{cell(r.api)}</td>
+              <td class="num">{cell(r.pro)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div class="muted" style={{ fontSize: "12px" }}>底色標示的是兩邊不同的。「—」表示那一份沒有建議這檔。下面可以切換看兩份報告的理由。</div>
+      <div class="seg" role="group">
+        <button aria-pressed={fillFrom === "api"} onClick={() => setEtfFillFrom("api")}>照付費版下單</button>
+        <button aria-pressed={fillFrom === "pro"} onClick={() => setEtfFillFrom("pro")} data-testid="fill-pro">照 Pro 版下單</button>
+      </div>
+    </div>
+  );
+}
+
 /** 照 Claude 的清單填入實際成交 */
-function PlanFill({ items, planKey, cash, stops }: { items: PlanItem[]; planKey: string; cash: number; stops: Record<string, number> }) {
+function PlanFill({ items, planKey, cash, stops, source }: { items: PlanItem[]; planKey: string; cash: number; stops: Record<string, number>; source: string }) {
   const fitted = useMemo(() => fitBudget(items, etfPrice, cash), [items]);
   const [rows, setRows] = useState(() => fitted.map((it) => ({ ...it, keep: !!etfPrice(it.code), price: String(etfPrice(it.code) ?? ""), shares: String(it.shares), stopText: it.stop ? String(it.stop) : "" })));
   const [err, setErr] = useState("");
@@ -91,7 +158,7 @@ function PlanFill({ items, planKey, cash, stops }: { items: PlanItem[]; planKey:
   };
   return (
     <div class="card stack" data-testid="plan-fill">
-      <b>照 Claude 的建議下單後，在這裡填入實際成交</b>
+      <b>照 {source} 的建議下單後，在這裡填入實際成交</b>
       <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>已帶入建議股數與最新收盤價，請改成你實際的成交價與股數；沒買的取消勾選。{fitted.some((x, i) => x.shares !== items[i]?.shares) ? "（建議超過可用現金，股數已等比例調低）" : ""}</div>
       {rows.map((r, i) => (
         <div class="import-row" style={{ padding: "8px 0" }}>
@@ -220,7 +287,16 @@ export function AiEtfScreen() {
   const busy = job?.status === "running";
   const plan = etf.planKey ? st.reports[etf.planKey] : undefined;
   const parsed = plan ? parsePlan(plan.text) : undefined;
+  const pro = etf.proKey ? st.reports[etf.proKey] : undefined;
+  const proParsed = pro ? parsePlan(pro.text) : undefined;
+  // 要照哪一份填成交：選了 Pro 而且有 Pro 回覆就用 Pro，否則用付費 API 版
+  const fillSrc: "api" | "pro" = (etf.fillFrom === "pro" && pro) || (!plan && pro) ? "pro" : "api";
+  const fillKey = fillSrc === "pro" ? etf.proKey : etf.planKey;
+  const fillParsed = fillSrc === "pro" ? proParsed : parsed;
+  const showFill = !busy && !!fillParsed && fillParsed.items.length > 0 && etf.appliedKey !== fillKey;
+  const [view, setView] = useState<"api" | "pro">("pro");
   const [budgetText, setBudgetText] = useState(String(etf.budget));
+  const [editBudget, setEditBudget] = useState(false);
   useEffect(() => { if (st.twReady) snapshotEtfNav(); }, [st.twReady]);
 
   const ask = () => {
@@ -249,10 +325,19 @@ export function AiEtfScreen() {
           </div>
         )}
         {v.missing.length > 0 && <div class="muted" style={{ fontSize: "12px" }}>{v.missing.join("、")} 沒有最新價格，先用成本計算</div>}
-        {!etf.trades.length && (
+        {v.cash < -1 && (
+          <div class="error" data-testid="over-budget">
+            實際買進的金額比起始資金多 {fmtMoney(-v.cash)}，現金變成負的，報酬率和佔比都會算錯。請把起始資金改成你實際投入的錢。
+            <button class="btn block" style={{ marginTop: "8px" }} onClick={() => { const n = Math.ceil((etf.budget - v.cash) / 1000) * 1000; setBudgetText(String(n)); setEtfBudget(n); }} data-testid="fix-budget">
+              起始資金改成 {fmtMoney(Math.ceil((etf.budget - v.cash) / 1000) * 1000)}
+            </button>
+          </div>
+        )}
+        {etf.trades.length > 0 && !editBudget && <button class="linkbtn" style={{ alignSelf: "flex-start" }} onClick={() => { setBudgetText(String(etf.budget)); setEditBudget(true); }}>修改起始資金 ✎</button>}
+        {(!etf.trades.length || editBudget) && (
           <div class="row">
             <label class="field" style={{ flex: 1 }}>起始資金（元）<input inputMode="numeric" value={budgetText} onInput={(e) => setBudgetText((e.target as HTMLInputElement).value)} /></label>
-            <button class="btn secondary" style={{ alignSelf: "flex-end" }} onClick={() => { const n = Number(budgetText.replace(/,/g, "")); if (n >= 1000) setEtfBudget(n); }}>設定</button>
+            <button class="btn secondary" style={{ alignSelf: "flex-end" }} onClick={() => { const n = Number(budgetText.replace(/,/g, "")); if (n >= 1000) { setEtfBudget(n); setEditBudget(false); } }}>設定</button>
           </div>
         )}
         <div class="muted" style={{ fontSize: "11px", lineHeight: 1.6 }}>已估算手續費 0.1425% 與賣出證交稅 0.3%（未計券商折扣）。對照組：每次買賣時，用同樣金額買賣 0050。</div>
@@ -287,24 +372,36 @@ export function AiEtfScreen() {
         </>
       )}
 
-      <div class="section-title"><span>Claude 建議（付費）</span>{plan && <span>{new Date(plan.at).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span>}</div>
+      <div class="section-title"><span>Claude 建議</span>{(plan || pro) && <span>{fmtAt(Math.max(plan?.at ?? 0, pro?.at ?? 0))}</span>}</div>
       {job?.status === "error" && <div class="error">{job.error}</div>}
       {busy && <AiProgressView job={job!} />}
-      {!busy && plan && parsed && <AiReportView r={{ ...plan, text: parsed.body }} />}
-      {!busy && plan && parsed && parsed.items.length > 0 && etf.appliedKey !== etf.planKey && (
-        <div style={{ marginTop: "10px" }}><PlanFill key={etf.planKey} items={parsed.items} planKey={etf.planKey!} cash={v.cash} stops={parsed.stops} /></div>
+      {!busy && parsed && proParsed && <CompareCard api={parsed.items} pro={proParsed.items} fillFrom={fillSrc} apiAt={plan!.at} proAt={pro!.at} />}
+      {!busy && (plan || pro) && (
+        <>
+          {plan && pro && (
+            <div class="seg" role="group" style={{ margin: "10px 0" }}>
+              <button aria-pressed={view === "api"} onClick={() => setView("api")}>付費 API 版報告</button>
+              <button aria-pressed={view === "pro"} onClick={() => setView("pro")} data-testid="view-pro">Claude Pro 版報告</button>
+            </div>
+          )}
+          {(view === "pro" || !plan) && pro && proParsed ? <AiReportView r={{ ...pro, text: proParsed.body }} /> : plan && parsed && <AiReportView r={{ ...plan, text: parsed.body }} />}
+        </>
       )}
-      {!busy && plan && parsed && !parsed.items.length && <div class="notice" style={{ marginTop: "10px" }}>這次 Claude 沒有建議買賣（維持不變），或回覆裡沒有清單。</div>}
-      {!busy && !plan && (
+      {showFill && (
+        <div style={{ marginTop: "10px" }}><PlanFill key={fillKey} items={fillParsed!.items} planKey={fillKey!} cash={v.cash} stops={fillParsed!.stops} source={fillSrc === "pro" ? "Claude Pro" : "Claude API"} /></div>
+      )}
+      {!busy && fillParsed && !fillParsed.items.length && <div class="notice" style={{ marginTop: "10px" }}>這份建議沒有要買賣（維持不變），或回覆最後沒有附上 JSON 清單。</div>}
+      {!busy && !plan && !pro && (
         <div class="notice">Claude 會從今天的「買入」名單出發，上網查最近新聞、營收與外資報告，挑 4～8 檔、決定每檔買幾股（可買零股），控制在你的資金內並說明理由。之後可以隨時請 Claude 檢視調整。</div>
       )}
       <div class="stack" style={{ marginTop: "12px" }}>
         <button class="btn block" disabled={busy || !st.apiKey || !st.twReady} onClick={ask} data-testid="etf-ask">
-          {busy ? "Claude 分析中，可以先去看別的…" : pos.length ? "請 Claude 檢視調整" : "請 Claude 建議建倉"}
+          {busy ? "Claude 分析中，可以先去看別的…" : pos.length ? "請 Claude 檢視調整（API 付費）" : "請 Claude 建議建倉（API 付費）"}
         </button>
         {!st.apiKey && <div class="muted" style={{ fontSize: "13px", textAlign: "center" }}>先到「設定」貼上 Claude API 金鑰才能使用</div>}
         {st.apiKey && <BalanceHint />}
-        <PhotoImport suggested={new Set(parsed?.items.map((x) => x.code) ?? [])} planKey={etf.planKey} />
+        <ProReview disabled={!st.twReady} review={pos.length > 0} />
+        <PhotoImport suggested={new Set([...(parsed?.items ?? []), ...(proParsed?.items ?? [])].map((x) => x.code))} planKey={fillKey} />
         <ManualTrade />
       </div>
 

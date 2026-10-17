@@ -19,6 +19,8 @@ export interface AiEtf {
   planKey?: string; // 最近一次 Claude 建議的報告 key
   appliedKey?: string; // 已經填入成交的建議（不再顯示填單表）
   stops?: Record<string, number>; // 每檔的停損價（Claude 建議或自己設定）
+  proKey?: string; // 最近一次貼回的 Claude App（Pro）回覆
+  fillFrom?: "api" | "pro"; // 要照哪一份建議填成交
 }
 
 export const FEE = 0.001425; // 券商手續費（未打折）
@@ -203,4 +205,17 @@ export function reconcilePhoto(
     rows.push({ code, name: h.name || p?.name || code, side: diff > 0 ? "buy" : "sell", shares: Math.abs(diff), price: fill, suggested: suggested.has(code) || have > 0 });
   }
   return rows;
+}
+
+// ---------- 付費 API 與 Claude App（Pro）兩份建議的比較 ----------
+export interface PlanCompare { code: string; api?: PlanItem; pro?: PlanItem; same: boolean }
+
+/** 依代號並排兩份建議；方向與股數都一樣（股數差 10% 以內）才算相同 */
+export function comparePlans(api: PlanItem[], pro: PlanItem[]): PlanCompare[] {
+  const codes = [...new Set([...api.map((x) => x.code), ...pro.map((x) => x.code)])];
+  return codes.map((code) => {
+    const a = api.find((x) => x.code === code), b = pro.find((x) => x.code === code);
+    const same = !!a && !!b && a.side === b.side && Math.abs(a.shares - b.shares) <= Math.max(a.shares, b.shares) * 0.1;
+    return { code, api: a, pro: b, same };
+  });
 }

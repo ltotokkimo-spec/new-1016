@@ -326,15 +326,26 @@ ${tools}
 最後加上：以上為研究參考，非投資建議。`;
 }
 
-export const claudeAppUrl = (prompt: string) => `https://claude.ai/new?q=${encodeURIComponent(prompt)}`;
+// 網址太長時手機瀏覽器可能打不開，改成只開新對話、靠剪貼簿貼上
+export const claudeAppUrl = (prompt: string) => {
+  const q = encodeURIComponent(prompt);
+  return q.length > 7000 ? "https://claude.ai/new" : `https://claude.ai/new?q=${q}`;
+};
 
 // ---------- 自組 ETF：請 Claude 建議要買哪些、買幾股 ----------
 export interface EtfHoldingBrief { code: string; name: string; shares: number; avgCost: number; price?: number; stop?: number; rating?: string }
 
-export function aiEtfAdvice(apiKey: string, p: {
+export interface EtfAdviceInput {
   today: string; budget: number; cash: number; nav: number;
   holdings: EtfHoldingBrief[]; candidates: Scored[];
-}, onProgress?: OnProgress) {
+}
+
+export function aiEtfAdvice(apiKey: string, p: EtfAdviceInput, onProgress?: OnProgress) {
+  return run(apiKey, aiEtfPrompt(p), 12, onProgress);
+}
+
+/** 自組 ETF 的提問；forApp＝交給 Claude App（Pro 訂閱）用，多一段說明工具與回貼方式。兩邊數據與規則完全相同，方便比較 */
+export function aiEtfPrompt(p: EtfAdviceInput, forApp = false): string {
   const review = p.holdings.some((h) => h.shares > 0);
   const cand = p.candidates.map((s) =>
     `${s.code} ${s.name}｜${s.sector}｜收盤 ${s.close}｜分數 ${s.score}｜${s.rating}｜近1週 ${fmtPct(s.ret1w)}・近1月 ${fmtPct(s.ret1m)}｜外資5日 ${s.foreign5 !== undefined ? Math.round(s.foreign5 / 1000) + " 張" : "無"}`).join("\n");
@@ -366,5 +377,8 @@ ${cand}
 \`\`\`json
 {"trades":[{"code":"2330","side":"buy","shares":10,"stop":900,"reason":"一句話理由"}]${review ? ',"stops":{"2454":1100}' : ""}}
 \`\`\``;
-  return run(apiKey, prompt, 12, onProgress);
+  if (!forApp) return prompt;
+  return `${prompt}
+
+（請用繁體中文、台灣用語回答。如果你有連接台股資料工具（MCP，例如證交所／櫃買資料），請用它查營收、三大法人與重大訊息；並用網路搜尋查最近新聞。回答完我會把整段回覆貼回「股市雷達」App 和另一份建議比較，所以最後的 JSON 區塊一定要有。）`;
 }

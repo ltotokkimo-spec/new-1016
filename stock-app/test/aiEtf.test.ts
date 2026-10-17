@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cashFlow, reconcilePhoto, emptyEtf, etfAlerts, fitBudget, parsePlan, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
+import { cashFlow, comparePlans, reconcilePhoto, emptyEtf, etfAlerts, fitBudget, parsePlan, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
 
 const t = (code: string, side: "buy" | "sell", shares: number, price: number, benchPrice = 100, date = "20261017") =>
   ({ id: code + side + date, date, code, name: code, side, shares, price, benchPrice });
@@ -128,5 +128,15 @@ describe("reconcilePhoto 拍照對帳", () => {
     expect(reconcilePhoto(etf, [{ code: "2330", name: "台積電", shares: 4, cost: 1000 }], px, new Set()))
       .toEqual([{ code: "2330", name: "台積電", side: "sell", shares: 6, price: 1050, suggested: true }]);
     expect(reconcilePhoto(etf, [{ code: "2330", name: "台積電", shares: 10, cost: 1000 }], px, new Set())).toEqual([]);
+  });
+});
+
+describe("comparePlans 付費版 vs Pro 版", () => {
+  it("同方向、股數差 10% 內算一致；只有一邊有的算不同", () => {
+    const b = (code: string, shares: number, side: "buy" | "sell" = "buy") => ({ code, side, shares, reason: "" });
+    const r = comparePlans([b("2330", 20), b("2317", 100), b("6515", 10)], [b("2330", 21), b("2317", 100, "sell"), b("2882", 300)]);
+    expect(r.map((x) => `${x.code}:${x.same}`)).toEqual(["2330:true", "2317:false", "6515:false", "2882:false"]);
+    expect(r[2].pro).toBeUndefined();
+    expect(r[3].api).toBeUndefined();
   });
 });

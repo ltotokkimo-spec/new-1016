@@ -7,7 +7,7 @@ import { isEtf, parseEsbLatest, twUrls, type EsbQuote } from "./data/tw";
 import { UsLoader, type UsSnapshot } from "./data/usLoader";
 import { cnbcUrl, isUsSymbol, MACRO_SYMBOLS, parseCnbcQuotes, US_UNIVERSE, type MacroQuote, type UsExtra } from "./data/us";
 import { scoreStocks, reviewHolding, type Holding, type HoldingView, type Scored, type SectorStat } from "./engine/score";
-import { aiEtfAdvice, explainError, type AiProgress, type AiReport, type OnProgress } from "./ai/claude";
+import { aiEtfAdvice, explainError, type AiProgress, type EtfAdviceInput, type AiReport, type OnProgress } from "./ai/claude";
 import { taipeiToday } from "./lib/dates";
 import * as upd from "./lib/update";
 import type { BacktestResult } from "./engine/backtest";
@@ -295,7 +295,7 @@ export async function recordSpend(usd: number | undefined, kind: string) {
 }
 
 export async function saveReport(key: string, report: AiReport) {
-  await recordSpend(report.costUsd, key.startsWith("brief") ? "數據解讀" : key.startsWith("aietf") ? "自組ETF建議" : "個股解析");
+  await recordSpend(report.costUsd, key.startsWith("brief") ? "數據解讀" : key.startsWith("aietfpro") ? "Claude App" : key.startsWith("aietf") ? "自組ETF建議" : "個股解析");
   const reports = { ...state.reports, [key]: report };
   // 只留最近 40 份
   const keys = Object.keys(reports).sort((a, b) => reports[b].at - reports[a].at);
@@ -490,8 +490,11 @@ export async function setEtfStop(code: string, stop: number | undefined) {
 export const etfAlertsNow = () =>
   etfAlerts(state.aiEtf, etfPrice, (c) => findScored(c, "TW")?.rating);
 
+/** 改起始資金：已記錄的淨值走勢一起平移，報酬率才會連貫 */
 export async function setEtfBudget(budget: number) {
-  await saveAiEtf({ ...state.aiEtf, budget });
+  const etf = state.aiEtf;
+  const d = budget - etf.budget;
+  await saveAiEtf({ ...etf, budget, nav: etf.nav.map((x) => ({ ...x, nav: x.nav + d, bench: x.bench + d })) });
 }
 
 export async function resetAiEtf() {
@@ -499,7 +502,8 @@ export async function resetAiEtf() {
 }
 
 /** 請 Claude 建議建倉或調整（背景執行，完成後在「自組」分頁看） */
-export async function startEtfAdvice() {
+/** Claude 建議用的資料（付費 API 和 Claude App 版用同一份，方便比較） */
+export function etfAdviceInput(): EtfAdviceInput {
   const etf = state.aiEtf;
   const v = valuate(etf, etfPrice);
   const holdings = etfPositions(etf.trades).filter((p) => p.shares > 0)
@@ -507,14 +511,28 @@ export async function startEtfAdvice() {
   const held = new Set(holdings.map((h) => h.code));
   // 候選：今天的買入股＋分數高的觀望股，再加上目前持股（讓 Claude 看得到最新數據）
   const scored = state.tw.scored;
-  const candidates = [
-    ...scored.filter((s) => s.rating === "買入").slice(0, 25),
-    ...scored.filter((s) => s.rating === "觀望").slice(0, 10),
-    ...scored.filter((s) => held.has(s.code) && s.rating === "離場"),
-  ];
-  const key = `aietf:${Date.now()}`;
-  await saveAiEtf({ ...etf, planKey: key });
+  const top = [...scored.filter((s) => s.rating === "買入").slice(0, 25), ...scored.filter((s) => s.rating === "觀望").slice(0, 10)];
+  const inTop = new Set(top.map((s) => s.code));
+  const candidates = [...top, ...scored.filter((s) => held.has(s.code) && !inTop.has(s.code))];
   const today = taipeiToday();
-  await startAiJob({ key, kind: "aietf", title: holdings.length ? "自組 ETF 檢視調整" : "自組 ETF 建倉建議" },
-    (onProgress) => aiEtfAdvice(state.settings.apiKey, { today: `${today.slice(0, 4)}/${today.slice(4, 6)}/${today.slice(6)}`, budget: etf.budget, cash: v.cash, nav: v.nav, holdings, candidates }, onProgress));
+  return { today: `${today.slice(0, 4)}/${today.slice(4, 6)}/${today.slice(6)}`, budget: etf.budget, cash: v.cash, nav: v.nav, holdings, candidates };
+}
+
+export async function startEtfAdvice() {
+  const input = etfAdviceInput();
+  const key = `aietf:${Date.now()}`;
+  await saveAiEtf({ ...state.aiEtf, planKey: key, fillFrom: "api" });
+  await startAiJob({ key, kind: "aietf", title: input.holdings.length ? "自組 ETF 檢視調整" : "自組 ETF 建倉建議" },
+    (onProgress) => aiEtfAdvice(state.settings.apiKey, input, onProgress));
+}
+
+/** 貼回 Claude App（Pro 訂閱）的回覆，存起來和付費 API 版比較 */
+export async function saveProReply(text: string) {
+  const key = `aietfpro:${Date.now()}`;
+  await saveReport(key, { text: text.trim(), sources: [], model: "Claude App（Pro 訂閱）", at: Date.now() });
+  await saveAiEtf({ ...state.aiEtf, proKey: key });
+}
+
+export async function setEtfFillFrom(fillFrom: "api" | "pro") {
+  await saveAiEtf({ ...state.aiEtf, fillFrom });
 }

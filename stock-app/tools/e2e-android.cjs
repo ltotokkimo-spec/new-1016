@@ -172,7 +172,7 @@ function check(ok, name, detail = "") {
   // 自組 ETF：手動記一筆台積電成交，檢查淨值與 0050 對照
   await page.click("nav.tabs button:nth-child(4)");
   await page.waitForSelector('[data-testid="etf-summary"]', { timeout: 10000 });
-  check(/100,000/.test(await page.$eval('[data-testid="etf-summary"]', (e) => e.innerText)), "自組ETF 起始資金 10 萬");
+  check(/起始資金 10\.0 萬/.test(await page.$eval('[data-testid="etf-summary"]', (e) => e.innerText)), "自組ETF 起始資金 10 萬");
   await page.click("text=手動新增一筆成交");
   await page.fill("#etf-code", "2330");
   await page.fill("#etf-shares", "10");

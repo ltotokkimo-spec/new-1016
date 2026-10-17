@@ -398,7 +398,7 @@ function Metric({ k, v, c = "", d = "" }: { k: string; v: string; c?: string; d?
   return <div class="metric"><div class="k">{k}</div><div class={`v num ${c}`}>{v}</div>{d && <div class="d muted">{d}</div>}</div>;
 }
 
-function AiReportView({ r }: { r: AiReport }) {
+export function AiReportView({ r }: { r: AiReport }) {
   const m = /^\s*\**評等\**\s*[:：]\s*\**\s*(買入|觀望|離場|參考)/.exec(r.text);
   const body = m ? r.text.slice(r.text.indexOf("\n") + 1) : r.text;
   return (
@@ -791,7 +791,7 @@ export function progressText(job: AiJob): string {
 }
 
 /** 個股頁／數據頁裡的進度卡 */
-function AiProgressView({ job }: { job: AiJob }) {
+export function AiProgressView({ job }: { job: AiJob }) {
   useTick(true);
   const p = job.progress;
   const steps = [
@@ -829,7 +829,7 @@ export function AiJobBanner({ open }: { open: (job: AiJob) => void }) {
                 : j.status === "done" ? <>{j.title} 解析完成，點我看</> : <>{j.title} 解析失敗</>}
             </div>
             <div class="muted" style={{ fontSize: "12px", marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {j.status === "running" ? progressText(j) : j.status === "error" ? j.error : "已存到這檔股票的頁面，之後再點進去也看得到"}
+              {j.status === "running" ? progressText(j) : j.status === "error" ? j.error : j.kind === "aietf" ? "在「自組ETF」分頁，照建議下單後填入成交" : j.kind === "brief" ? "在「數據」分頁，之後再看也看得到" : "已存到這檔股票的頁面，之後再點進去也看得到"}
             </div>
           </button>
           {j.status !== "running" && <button class="iconbtn" style={{ width: "32px", height: "32px" }} aria-label="關閉提醒" onClick={() => dismissAiJob(j.key)}>✕</button>}
@@ -847,7 +847,7 @@ function confirmRerun(usd: number) {
 }
 
 /** 付費按鈕下方的小字：估計剩餘額度 */
-function BalanceHint() {
+export function BalanceHint() {
   const left = useStore((s) => estimatedBalance(s));
   if (left === undefined) return null;
   return <div class={`num ${left < 1 ? "down" : "muted"}`} style={{ fontSize: "13px", textAlign: "center" }}>估計剩餘額度 US${left.toFixed(2)}{left < 1 ? "，快用完了" : ""}</div>;

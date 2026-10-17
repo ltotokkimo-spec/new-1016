@@ -7,11 +7,12 @@ import { isEtf, parseEsbLatest, twUrls, type EsbQuote } from "./data/tw";
 import { UsLoader, type UsSnapshot } from "./data/usLoader";
 import { cnbcUrl, isUsSymbol, MACRO_SYMBOLS, parseCnbcQuotes, US_UNIVERSE, type MacroQuote, type UsExtra } from "./data/us";
 import { scoreStocks, reviewHolding, type Holding, type HoldingView, type Scored, type SectorStat } from "./engine/score";
-import { explainError, type AiProgress, type AiReport, type OnProgress } from "./ai/claude";
+import { aiEtfAdvice, explainError, type AiProgress, type AiReport, type OnProgress } from "./ai/claude";
 import { taipeiToday } from "./lib/dates";
 import * as upd from "./lib/update";
 import type { BacktestResult } from "./engine/backtest";
 import { parseRevenue, revenueUrls, type Revenue } from "./data/revenue";
+import { emptyEtf, positions as etfPositions, recordNav, valuate, type AiEtf, type EtfTrade } from "./engine/aiEtf";
 
 export const BACKTEST_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/backtest.json";
 
@@ -62,6 +63,7 @@ export interface State {
   usPending: string[]; // 正在下載的美股持股代號
   usNotFound: string[]; // Nasdaq 查不到的代號
   aiJobs: Record<string, AiJob>; // 背景執行中／剛完成的 Claude 解析（key 同 reports）
+  aiEtf: AiEtf; // 自組 ETF（照 Claude 建議實際買進）
   usLookup?: { symbol: string; status: "loading" | "notfound" | "error"; error?: string };
   loaded: boolean;
 }
@@ -71,7 +73,7 @@ const starting = (): MarketState => ({ status: "loading", scored: [], sectors: [
 
 let state: State = {
   tw: starting(), etf: starting(), us: starting(), esb: {}, twIndices: [], usSectorEtfs: [],
-  macro: { status: "idle", quotes: [] }, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], update: { status: "idle" }, usExtra: [], usPending: [], usNotFound: [], aiJobs: {}, loaded: false,
+  macro: { status: "idle", quotes: [] }, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], update: { status: "idle" }, usExtra: [], usPending: [], usNotFound: [], aiJobs: {}, aiEtf: emptyEtf(), loaded: false,
 };
 const listeners = new Set<() => void>();
 
@@ -106,7 +108,7 @@ export async function init() {
     kv.get<TwSnapshot>("snap:tw"), kv.get<UsSnapshot>("snap:us"), kv.get<State["spend"]>("spend"),
     kv.get<EsbSnapshot>("snap:esb"),
   ]);
-  set({ usExtra: (await kv.get<UsExtra[]>("usExtra")) ?? [] });
+  set({ usExtra: (await kv.get<UsExtra[]>("usExtra")) ?? [], aiEtf: (await kv.get<AiEtf>("aiEtf")) ?? emptyEtf() });
   const bt = await kv.get<State["backtest"]>("backtest");
   if (bt) set({ backtest: bt });
   if (!bt || Date.now() - bt.fetchedAt > 6 * 3600_000) refreshBacktest();
@@ -142,6 +144,7 @@ function applyTw(snap: TwSnapshot) {
   // ETF 回測顯示規則分辨不出好壞，只給分數當參考，不給買入／觀望／離場
   const etfScored = b.scored.map((x) => ({ ...x, refOnly: true }));
   set({ tw: { ...meta, scored: a.scored, sectors: a.sectors }, etf: { ...meta, scored: etfScored, sectors: b.sectors }, twIndices: snap.indices });
+  void snapshotEtfNav(snap.asOf);
 }
 
 interface EsbSnapshot { quotes: EsbQuote[]; fetchedAt: number }
@@ -292,7 +295,7 @@ export async function recordSpend(usd: number | undefined, kind: string) {
 }
 
 export async function saveReport(key: string, report: AiReport) {
-  await recordSpend(report.costUsd, key.startsWith("brief") ? "數據解讀" : "個股解析");
+  await recordSpend(report.costUsd, key.startsWith("brief") ? "數據解讀" : key.startsWith("aietf") ? "自組ETF建議" : "個股解析");
   const reports = { ...state.reports, [key]: report };
   // 只留最近 40 份
   const keys = Object.keys(reports).sort((a, b) => reports[b].at - reports[a].at);
@@ -411,7 +414,7 @@ export async function revenueOf(code: string, market: "TWSE" | "TPEX"): Promise<
 // 存在全域狀態裡，離開個股頁、切到別的分頁都會繼續跑；畫面最上方顯示進度，完成後點一下就能看。
 export interface AiJob {
   key: string;
-  kind: "stock" | "brief";
+  kind: "stock" | "brief" | "aietf";
   title: string; // 例如「友達 2409」或「今日國內外數據」
   code?: string;
   market?: Market;
@@ -444,4 +447,61 @@ export function dismissAiJob(key: string) {
   if (!state.aiJobs[key] || state.aiJobs[key].status === "running") return;
   const { [key]: _, ...rest } = state.aiJobs;
   set({ aiJobs: rest });
+}
+
+// ---------- 自組 ETF ----------
+export const etfPrice = (code: string) => state.prices[code]?.close;
+
+async function saveAiEtf(etf: AiEtf) {
+  set({ aiEtf: etf });
+  await kv.set("aiEtf", etf);
+}
+
+/** 用最新收盤價記下今天的淨值（每天一筆，畫走勢用） */
+export async function snapshotEtfNav(date = state.tw.asOf ?? taipeiToday()) {
+  const etf = state.aiEtf;
+  if (!etf.trades.length) return;
+  const v = valuate(etf, etfPrice);
+  if (v.missing.length) return; // 價格還沒到齊就不記，免得走勢圖出現假的跳動
+  await saveAiEtf(recordNav(etf, date, v));
+}
+
+export async function addEtfTrades(trades: Omit<EtfTrade, "id" | "benchPrice">[], fromPlan?: string) {
+  const bench = etfPrice("0050") ?? NaN;
+  const add = trades.map((t, i) => ({ ...t, id: `${Date.now()}-${i}-${t.code}`, benchPrice: bench }));
+  await saveAiEtf({ ...state.aiEtf, trades: [...state.aiEtf.trades, ...add], appliedKey: fromPlan ?? state.aiEtf.appliedKey });
+  await snapshotEtfNav();
+}
+
+export async function deleteEtfTrade(id: string) {
+  await saveAiEtf({ ...state.aiEtf, trades: state.aiEtf.trades.filter((t) => t.id !== id) });
+  await snapshotEtfNav();
+}
+
+export async function setEtfBudget(budget: number) {
+  await saveAiEtf({ ...state.aiEtf, budget });
+}
+
+export async function resetAiEtf() {
+  await saveAiEtf(emptyEtf(state.aiEtf.budget));
+}
+
+/** 請 Claude 建議建倉或調整（背景執行，完成後在「自組」分頁看） */
+export async function startEtfAdvice() {
+  const etf = state.aiEtf;
+  const v = valuate(etf, etfPrice);
+  const holdings = etfPositions(etf.trades).filter((p) => p.shares > 0).map((p) => ({ ...p, price: etfPrice(p.code) }));
+  const held = new Set(holdings.map((h) => h.code));
+  // 候選：今天的買入股＋分數高的觀望股，再加上目前持股（讓 Claude 看得到最新數據）
+  const scored = state.tw.scored;
+  const candidates = [
+    ...scored.filter((s) => s.rating === "買入").slice(0, 25),
+    ...scored.filter((s) => s.rating === "觀望").slice(0, 10),
+    ...scored.filter((s) => held.has(s.code) && s.rating === "離場"),
+  ];
+  const key = `aietf:${Date.now()}`;
+  await saveAiEtf({ ...etf, planKey: key });
+  const today = taipeiToday();
+  await startAiJob({ key, kind: "aietf", title: holdings.length ? "自組 ETF 檢視調整" : "自組 ETF 建倉建議" },
+    (onProgress) => aiEtfAdvice(state.settings.apiKey, { today: `${today.slice(0, 4)}/${today.slice(4, 6)}/${today.slice(6)}`, budget: etf.budget, cash: v.cash, nav: v.nav, holdings, candidates }, onProgress));
 }

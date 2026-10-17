@@ -161,13 +161,30 @@ function check(ok, name, detail = "") {
   await shot("04-族群輪動");
 
   // 數據：CNBC 國際指標＋證交所指數
-  await page.click("nav.tabs button:nth-child(4)");
+  await page.click("nav.tabs button:nth-child(5)");
   await page.waitForFunction(() => document.querySelectorAll(".metric").length >= 8, null, { timeout: 60000 });
   const macro = await page.$$eval(".metric", (ms) => ms.map((m) => m.innerText.replace(/\s+/g, " ")));
   log("數據", JSON.stringify(macro.slice(0, 12)));
   check(macro.some((m) => m.includes("加權指數")), "顯示台股加權指數");
   check(macro.some((m) => m.includes("S&P 500")) && macro.some((m) => m.includes("美債 10 年")), "顯示美股與美債殖利率");
   await shot("05-國內外數據");
+
+  // 自組 ETF：手動記一筆台積電成交，檢查淨值與 0050 對照
+  await page.click("nav.tabs button:nth-child(4)");
+  await page.waitForSelector('[data-testid="etf-summary"]', { timeout: 10000 });
+  check(/100,000/.test(await page.$eval('[data-testid="etf-summary"]', (e) => e.innerText)), "自組ETF 起始資金 10 萬");
+  await page.click("text=手動新增一筆成交");
+  await page.fill("#etf-code", "2330");
+  await page.fill("#etf-shares", "10");
+  await page.waitForFunction(() => Number(document.querySelector("#etf-price").value) > 0, null, { timeout: 5000 }).catch(() => page.fill("#etf-price", "1000"));
+  await page.click('[data-testid="etf-trade-save"]');
+  await page.waitForFunction(() => /贏過 0050|落後 0050/.test(document.querySelector('[data-testid="etf-summary"]').innerText), null, { timeout: 10000 });
+  const etfSum = await page.$eval('[data-testid="etf-summary"]', (e) => e.innerText.replace(/\s+/g, " "));
+  log("自組ETF", etfSum);
+  check(/現金/.test(etfSum) && /股票市值/.test(etfSum), "自組ETF 成交後顯示現金與市值");
+  check(!!(await page.$("text=台積電")), "自組ETF 持股列出台積電");
+  check(!!(await page.$('[data-testid="etf-ask"]')), "自組ETF 有請 Claude 建議按鈕");
+  await shot("05b-自組ETF");
 
   // 持股：手動新增台積電，檢查損益
   await page.click("nav.tabs button:nth-child(3)");
@@ -261,7 +278,7 @@ function check(ok, name, detail = "") {
   // ---------- Claude AI（有提供金鑰才測） ----------
   const key = process.env.ANTHROPIC_API_KEY;
   if (key) {
-    await page2.click("nav.tabs button:nth-child(5)");
+    await page2.click("nav.tabs button:nth-child(6)");
     await page2.fill("#api-key", key);
     await page2.click("text=測試金鑰");
     await page2.waitForFunction(() => /金鑰可以使用|金鑰無效|權限|額度|連不到/.test(document.body.innerText), null, { timeout: 60000 });
@@ -314,7 +331,7 @@ function check(ok, name, detail = "") {
     await page2.click('button[aria-label="返回"]');
 
     // 國內外數據 AI 解讀
-    await page2.click("nav.tabs button:nth-child(4)");
+    await page2.click("nav.tabs button:nth-child(5)");
     await page2.click('button:has-text("產生今日解讀")');
     await page2.waitForFunction(() => document.querySelector(".report") || document.querySelector("main .error"), null, { timeout: 5 * 60_000 });
     const brief = await page2.evaluate(() => ({ err: document.querySelector("main .error")?.textContent, text: document.querySelector(".report")?.innerText, sources: document.querySelectorAll(".sources li").length }));
@@ -328,7 +345,7 @@ function check(ok, name, detail = "") {
 
   // ---------- App 內更新：檢查版本、權限、從 GitHub 下載並打開系統安裝畫面 ----------
   const fg = async () => String(await device.shell("dumpsys activity activities | grep -m1 -E 'topResumedActivity|mResumedActivity'"));
-  await page2.click("nav.tabs button:nth-child(5)");
+  await page2.click("nav.tabs button:nth-child(6)");
   await page2.waitForSelector('[data-testid="update-card"]', { timeout: 10000 });
   await page2.waitForFunction(() => /已是最新版本|有新版本|檢查更新失敗/.test(document.querySelector('[data-testid="update-card"]').innerText), null, { timeout: 60000 });
   const card = await page2.$eval('[data-testid="update-card"]', (e) => e.innerText.replace(/\s+/g, " "));

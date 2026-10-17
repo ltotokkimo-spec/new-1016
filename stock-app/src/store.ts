@@ -12,7 +12,7 @@ import { taipeiToday } from "./lib/dates";
 import * as upd from "./lib/update";
 import type { BacktestResult } from "./engine/backtest";
 import { parseRevenue, revenueUrls, type Revenue } from "./data/revenue";
-import { emptyEtf, positions as etfPositions, recordNav, valuate, type AiEtf, type EtfTrade } from "./engine/aiEtf";
+import { emptyEtf, etfAlerts, positions as etfPositions, recordNav, stopOf, valuate, type AiEtf, type EtfTrade } from "./engine/aiEtf";
 
 export const BACKTEST_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/backtest.json";
 
@@ -466,10 +466,11 @@ export async function snapshotEtfNav(date = state.tw.asOf ?? taipeiToday()) {
   await saveAiEtf(recordNav(etf, date, v));
 }
 
-export async function addEtfTrades(trades: Omit<EtfTrade, "id" | "benchPrice">[], fromPlan?: string) {
+export async function addEtfTrades(trades: Omit<EtfTrade, "id" | "benchPrice">[], fromPlan?: string, stops: Record<string, number> = {}) {
   const bench = etfPrice("0050") ?? NaN;
   const add = trades.map((t, i) => ({ ...t, id: `${Date.now()}-${i}-${t.code}`, benchPrice: bench }));
-  await saveAiEtf({ ...state.aiEtf, trades: [...state.aiEtf.trades, ...add], appliedKey: fromPlan ?? state.aiEtf.appliedKey });
+  const etf = state.aiEtf;
+  await saveAiEtf({ ...etf, trades: [...etf.trades, ...add], appliedKey: fromPlan ?? etf.appliedKey, stops: { ...etf.stops, ...stops } });
   await snapshotEtfNav();
 }
 
@@ -477,6 +478,17 @@ export async function deleteEtfTrade(id: string) {
   await saveAiEtf({ ...state.aiEtf, trades: state.aiEtf.trades.filter((t) => t.id !== id) });
   await snapshotEtfNav();
 }
+
+/** 設定或清除（undefined）某檔的停損價 */
+export async function setEtfStop(code: string, stop: number | undefined) {
+  const stops = { ...state.aiEtf.stops };
+  if (stop && stop > 0) stops[code] = stop; else delete stops[code];
+  await saveAiEtf({ ...state.aiEtf, stops });
+}
+
+/** 自組 ETF 的免費提醒：跌破停損、被評為離場（不呼叫 Claude） */
+export const etfAlertsNow = () =>
+  etfAlerts(state.aiEtf, etfPrice, (c) => findScored(c, "TW")?.rating);
 
 export async function setEtfBudget(budget: number) {
   await saveAiEtf({ ...state.aiEtf, budget });
@@ -490,7 +502,8 @@ export async function resetAiEtf() {
 export async function startEtfAdvice() {
   const etf = state.aiEtf;
   const v = valuate(etf, etfPrice);
-  const holdings = etfPositions(etf.trades).filter((p) => p.shares > 0).map((p) => ({ ...p, price: etfPrice(p.code) }));
+  const holdings = etfPositions(etf.trades).filter((p) => p.shares > 0)
+    .map((p) => ({ ...p, price: etfPrice(p.code), stop: stopOf(p, etf.stops).stop, rating: findScored(p.code, "TW")?.rating }));
   const held = new Set(holdings.map((h) => h.code));
   // 候選：今天的買入股＋分數高的觀望股，再加上目前持股（讓 Claude 看得到最新數據）
   const scored = state.tw.scored;

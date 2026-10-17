@@ -1,9 +1,9 @@
 // 「自組ETF」分頁：請 Claude 建議要買什麼、買幾股，照著實際下單後填入成交，追蹤淨值並和 0050 比較。
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
-  addEtfTrades, deleteEtfTrade, etfPrice, getState, resetAiEtf, setEtfBudget, snapshotEtfNav, startEtfAdvice, useStore,
+  addEtfTrades, deleteEtfTrade, etfAlertsNow, etfPrice, findScored, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
-import { fitBudget, parsePlan, positions, valuate, type PlanItem } from "../engine/aiEtf";
+import { DEFAULT_STOP, fitBudget, parsePlan, positions, stopOf, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { taipeiToday, pretty } from "../lib/dates";
 import { cls, fmtMoney, fmtPct, fmtPrice } from "./common";
 import { AiProgressView, AiReportView, BalanceHint } from "./screens";
@@ -36,10 +36,45 @@ function NavChart({ points }: { points: { date: string; nav: number; bench: numb
   );
 }
 
+/** 免費提醒：跌破停損、被 App 評為離場（每次更新行情就重新比對，不花錢） */
+function AlertCard({ alerts, onAsk, canAsk }: { alerts: EtfAlert[]; onAsk: () => void; canAsk: boolean }) {
+  if (!alerts.length) return null;
+  return (
+    <div class="card stack alert-card" data-testid="etf-alerts">
+      <b>⚠ 有 {new Set(alerts.map((a) => a.code)).size} 檔需要注意</b>
+      {alerts.map((a) => (
+        <div style={{ fontSize: "14px", lineHeight: 1.6 }}>
+          <b>{a.name}</b> <span class="muted num" style={{ marginRight: "8px" }}>{a.code}</span>
+          {a.kind === "stop"
+            ? <>現價 <span class="num down">{fmtPrice(a.price!)}</span> 跌破停損價 <span class="num">{fmtPrice(a.stop!)}</span>{a.isDefault ? `（預設成本 −${DEFAULT_STOP * 100}%）` : ""}</>
+            : <>App 今天評為<span class="down">「離場」</span>（動能或籌碼轉弱）</>}
+        </div>
+      ))}
+      <div class="muted" style={{ fontSize: "12px" }}>這是 App 自動比對的免費提醒，不代表一定要賣。可以請 Claude 檢視後再決定。</div>
+      {canAsk && <button class="btn block" onClick={onAsk}>請 Claude 檢視調整</button>}
+    </div>
+  );
+}
+
+/** 持股列上的停損價：點一下可以修改 */
+function StopEdit({ p, stops }: { p: Position; stops?: Record<string, number> }) {
+  const { stop, isDefault } = stopOf(p, stops);
+  const [edit, setEdit] = useState(false);
+  const [text, setText] = useState("");
+  if (!edit) return <button class="linkbtn num" onClick={() => { setText(isDefault ? "" : String(stop)); setEdit(true); }} data-testid="stop-edit">停損 {fmtPrice(stop)}{isDefault ? "（預設）" : ""} ✎</button>;
+  const save = async () => { await setEtfStop(p.code, Number(text) > 0 ? Number(text) : undefined); setEdit(false); };
+  return (
+    <span class="row" style={{ gap: "6px", flexWrap: "nowrap" }}>
+      <input class="mini-input" inputMode="decimal" placeholder={`空白＝成本 −${DEFAULT_STOP * 100}%`} value={text} onInput={(e) => setText((e.target as HTMLInputElement).value)} data-testid="stop-input" />
+      <button class="btn secondary mini" onClick={save} data-testid="stop-save">儲存</button>
+    </span>
+  );
+}
+
 /** 照 Claude 的清單填入實際成交 */
-function PlanFill({ items, planKey, cash }: { items: PlanItem[]; planKey: string; cash: number }) {
+function PlanFill({ items, planKey, cash, stops }: { items: PlanItem[]; planKey: string; cash: number; stops: Record<string, number> }) {
   const fitted = useMemo(() => fitBudget(items, etfPrice, cash), [items]);
-  const [rows, setRows] = useState(() => fitted.map((it) => ({ ...it, keep: !!etfPrice(it.code), price: String(etfPrice(it.code) ?? ""), shares: String(it.shares) })));
+  const [rows, setRows] = useState(() => fitted.map((it) => ({ ...it, keep: !!etfPrice(it.code), price: String(etfPrice(it.code) ?? ""), shares: String(it.shares), stopText: it.stop ? String(it.stop) : "" })));
   const [err, setErr] = useState("");
   const upd = (i: number, p: Partial<(typeof rows)[number]>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...p } : r)));
   const total = rows.filter((r) => r.keep).reduce((a, r) => a + (r.side === "buy" ? 1 : -1) * Number(r.shares) * Number(r.price), 0);
@@ -48,7 +83,10 @@ function PlanFill({ items, planKey, cash }: { items: PlanItem[]; planKey: string
     if (!ok.length) return setErr("請至少勾選一筆");
     if (ok.some((r) => !(Number(r.shares) > 0) || !(Number(r.price) > 0))) return setErr("股數和成交價都要大於 0");
     const today = taipeiToday();
-    await addEtfTrades(ok.map((r) => ({ date: today, code: r.code, name: getState().prices[r.code]?.name ?? r.code, side: r.side, shares: Number(r.shares), price: Number(r.price) })), planKey);
+    // 停損價：Claude 對「不動」持股給的，加上這次每筆買進填的
+    const st = { ...stops };
+    for (const r of ok) if (r.side === "buy" && Number(r.stopText) > 0) st[r.code] = Number(r.stopText);
+    await addEtfTrades(ok.map((r) => ({ date: today, code: r.code, name: getState().prices[r.code]?.name ?? r.code, side: r.side, shares: Number(r.shares), price: Number(r.price) })), planKey, st);
   };
   return (
     <div class="card stack" data-testid="plan-fill">
@@ -60,6 +98,7 @@ function PlanFill({ items, planKey, cash }: { items: PlanItem[]; planKey: string
             <span class={r.side === "buy" ? "up" : "down"}>{r.side === "buy" ? "買進" : "賣出"}</span> {getState().prices[r.code]?.name ?? r.code} <span class="muted num">{r.code}</span></label>
           <label class="field">股數<input inputMode="numeric" value={r.shares} onInput={(e) => upd(i, { shares: (e.target as HTMLInputElement).value })} /></label>
           <label class="field">成交價<input inputMode="decimal" value={r.price} onInput={(e) => upd(i, { price: (e.target as HTMLInputElement).value })} /></label>
+          {r.side === "buy" && <label class="field" style={{ gridColumn: "1 / -1" }}>停損價（跌破會提醒，空白＝成本 −10%）<input inputMode="decimal" value={r.stopText} onInput={(e) => upd(i, { stopText: (e.target as HTMLInputElement).value })} data-testid="plan-stop" /></label>}
           {r.reason && <div class="muted" style={{ gridColumn: "1 / -1", fontSize: "12px" }}>{r.reason}</div>}
         </div>
       ))}
@@ -96,7 +135,7 @@ function ManualTrade() {
 }
 
 export function AiEtfScreen() {
-  const st = useStore((s) => ({ etf: s.aiEtf, prices: s.prices, reports: s.reports, jobs: s.aiJobs, apiKey: s.settings.apiKey, twReady: s.tw.status === "ready" }));
+  const st = useStore((s) => ({ etf: s.aiEtf, prices: s.prices, scored: s.tw.scored, reports: s.reports, jobs: s.aiJobs, apiKey: s.settings.apiKey, twReady: s.tw.status === "ready" }));
   const { etf } = st;
   const v = valuate(etf, etfPrice);
   const pos = positions(etf.trades).filter((p) => p.shares > 0);
@@ -112,8 +151,11 @@ export function AiEtfScreen() {
     startEtfAdvice();
   };
 
+  const alerts = etfAlertsNow();
+
   return (
     <div>
+      <AlertCard alerts={alerts} onAsk={ask} canAsk={!busy && !!st.apiKey && st.twReady} />
       <div class="card stack" data-testid="etf-summary">
         <div class="row" style={{ justifyContent: "space-between" }}>
           <b>我的自組 ETF</b>
@@ -148,11 +190,13 @@ export function AiEtfScreen() {
             {pos.map((p) => {
               const px = etfPrice(p.code);
               const mv = px ? p.shares * px : NaN;
+              const rating = findScored(p.code, "TW")?.rating;
               return (
                 <div class="item" style={{ cursor: "default" }}>
                   <div style={{ minWidth: 0 }}>
                     <div class="name">{p.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{p.code}</span></div>
                     <div class="sub num">{p.shares.toLocaleString()} 股・均價 {fmtPrice(p.avgCost)}・佔 {Number.isFinite(mv) ? `${((mv / v.nav) * 100).toFixed(1)}%` : "—"}</div>
+                    <div class="sub row" style={{ gap: "8px" }}><StopEdit p={p} stops={etf.stops} />{rating && <span class={`pill ${rating === "買入" ? "buy" : rating === "離場" ? "exit" : "hold"}`} style={{ fontSize: "11px" }}>App {rating}</span>}</div>
                   </div>
                   <div class="px">
                     <div class="p num"><span class="lbl">現價</span>{fmtPrice(px ?? NaN)}</div>
@@ -171,7 +215,7 @@ export function AiEtfScreen() {
       {busy && <AiProgressView job={job!} />}
       {!busy && plan && parsed && <AiReportView r={{ ...plan, text: parsed.body }} />}
       {!busy && plan && parsed && parsed.items.length > 0 && etf.appliedKey !== etf.planKey && (
-        <div style={{ marginTop: "10px" }}><PlanFill key={etf.planKey} items={parsed.items} planKey={etf.planKey!} cash={v.cash} /></div>
+        <div style={{ marginTop: "10px" }}><PlanFill key={etf.planKey} items={parsed.items} planKey={etf.planKey!} cash={v.cash} stops={parsed.stops} /></div>
       )}
       {!busy && plan && parsed && !parsed.items.length && <div class="notice" style={{ marginTop: "10px" }}>這次 Claude 沒有建議買賣（維持不變），或回覆裡沒有清單。</div>}
       {!busy && !plan && (

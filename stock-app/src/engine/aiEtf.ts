@@ -18,6 +18,7 @@ export interface AiEtf {
   nav: NavPoint[]; // 每天記一筆
   planKey?: string; // 最近一次 Claude 建議的報告 key
   appliedKey?: string; // 已經填入成交的建議（不再顯示填單表）
+  stops?: Record<string, number>; // 每檔的停損價（Claude 建議或自己設定）
 }
 
 export const FEE = 0.001425; // 券商手續費（未打折）
@@ -104,15 +105,16 @@ export function recordNav(etf: AiEtf, date: string, v: Valuation): AiEtf {
 }
 
 // ---------- Claude 建議的格式 ----------
-export interface PlanItem { code: string; side: "buy" | "sell"; shares: number; reason: string }
+export interface PlanItem { code: string; side: "buy" | "sell"; shares: number; reason: string; stop?: number }
 
 /** 從 Claude 回覆最後的 ```json 區塊取出買賣清單；回傳清單與去掉 JSON 後的說明文字 */
-export function parsePlan(text: string): { items: PlanItem[]; body: string } {
+export function parsePlan(text: string): { items: PlanItem[]; body: string; stops: Record<string, number> } {
   const re = /```json\s*([\s\S]*?)```/g;
   let m: RegExpExecArray | null, last: RegExpExecArray | null = null;
   while ((m = re.exec(text))) last = m;
-  if (!last) return { items: [], body: text };
+  if (!last) return { items: [], body: text, stops: {} };
   let items: PlanItem[] = [];
+  const stops: Record<string, number> = {};
   try {
     const j = JSON.parse(last[1]);
     const arr = Array.isArray(j) ? j : j.trades ?? j.picks ?? [];
@@ -122,10 +124,15 @@ export function parsePlan(text: string): { items: PlanItem[]; body: string } {
         side: x.side === "sell" ? "sell" : "buy",
         shares: Math.max(0, Math.round(Number(x.shares))),
         reason: String(x.reason ?? ""),
+        stop: Number(x.stop) > 0 ? Number(x.stop) : undefined,
       }))
       .filter((x: PlanItem) => x.code && x.shares > 0);
+    // 停損價：每筆買進的 stop，加上檢視時對「不動」持股另外給的 stops
+    if (j && typeof j.stops === "object" && !Array.isArray(j.stops))
+      for (const [k, v] of Object.entries(j.stops)) if (Number(v) > 0) stops[k.trim().toUpperCase()] = Number(v);
+    for (const it of items) if (it.stop) stops[it.code] = it.stop;
   } catch { /* JSON 壞掉就只顯示文字 */ }
-  return { items, body: (text.slice(0, last.index) + text.slice(last.index + last[0].length)).trim() };
+  return { items, body: (text.slice(0, last.index) + text.slice(last.index + last[0].length)).trim(), stops };
 }
 
 /** 依預算檢查：買進總額（含手續費）超過可用現金時，等比例縮小股數 */
@@ -137,4 +144,28 @@ export function fitBudget(items: PlanItem[], price: (code: string) => number | u
   if (need <= avail || need <= 0) return items;
   const k = avail / need;
   return items.map((x) => (x.side === "buy" ? { ...x, shares: Math.floor(x.shares * k) } : x)).filter((x) => x.shares > 0);
+}
+
+// ---------- 免費提醒：離場評等、跌破停損 ----------
+export const DEFAULT_STOP = 0.1; // 沒設定停損價時，用平均成本 −10%
+
+/** 這檔的停損價；沒設定就用預設（成本 −10%） */
+export function stopOf(p: Pick<Position, "code" | "avgCost">, stops: Record<string, number> = {}): { stop: number; isDefault: boolean } {
+  const s = stops[p.code];
+  return s > 0 ? { stop: s, isDefault: false } : { stop: Math.round(p.avgCost * (1 - DEFAULT_STOP) * 100) / 100, isDefault: true };
+}
+
+export interface EtfAlert { code: string; name: string; kind: "stop" | "exit"; price?: number; stop?: number; isDefault?: boolean }
+
+/** 目前持股中：跌破停損價、或被 App 評為「離場」的 */
+export function etfAlerts(etf: AiEtf, price: (code: string) => number | undefined, rating: (code: string) => string | undefined): EtfAlert[] {
+  const out: EtfAlert[] = [];
+  for (const p of positions(etf.trades)) {
+    if (p.shares <= 0) continue;
+    const px = price(p.code);
+    const { stop, isDefault } = stopOf(p, etf.stops);
+    if (px !== undefined && Number.isFinite(px) && px <= stop) out.push({ code: p.code, name: p.name, kind: "stop", price: px, stop, isDefault });
+    if (rating(p.code) === "離場") out.push({ code: p.code, name: p.name, kind: "exit", price: px });
+  }
+  return out;
 }

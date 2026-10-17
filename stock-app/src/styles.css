@@ -152,3 +152,11 @@ canvas.chart { width: 100%; height: 220px; display: block; }
 .report th { background: var(--surface-2); white-space: nowrap; }
 a.btn { text-decoration: none; }
 .item .px .lbl { font-family: var(--font); font-size: 11px; font-weight: 400; color: var(--muted); margin-right: 4px; letter-spacing: 0; }
+
+/* 自組 ETF 免費提醒 */
+.alert-card { border: 1.5px solid var(--hold); background: var(--hold-bg); }
+.linkbtn { border: 0; background: none; padding: 2px 0; color: var(--accent); font-size: 12px; cursor: pointer; }
+.mini-input { width: 9.5em; padding: 4px 8px; font-size: 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: inherit; }
+.btn.mini { padding: 4px 10px; font-size: 13px; }
+.tabs button { position: relative; }
+.tabs .dot { position: absolute; top: 6px; right: calc(50% - 16px); width: 8px; height: 8px; border-radius: 50%; background: var(--up); }

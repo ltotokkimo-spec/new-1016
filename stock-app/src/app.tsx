@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import { findScored, init, refreshEsb, refreshMacro, refreshTw, refreshUs, useStore, type AiJob, type Market } from "./store";
+import { etfAlertsNow, findScored, init, refreshEsb, refreshMacro, refreshTw, refreshUs, useStore, type AiJob, type Market } from "./store";
 import type { Scored } from "./engine/score";
 import { pretty } from "./lib/dates";
 import { AiEtfScreen } from "./ui/aiEtf";
@@ -22,7 +22,8 @@ export function App() {
   const [market, setMarket] = useState<Market>("TW");
   const [sector, setSector] = useState("");
   const [detail, setDetail] = useState<Scored | null>(null);
-  const { tw, etf, us, loaded } = useStore((s) => ({ tw: s.tw, etf: s.etf, us: s.us, loaded: s.loaded }));
+  const { tw, etf, us, loaded } = useStore((s) => ({ tw: s.tw, etf: s.etf, us: s.us, loaded: s.loaded, aiEtf: s.aiEtf, prices: s.prices }));
+  const etfAlert = etfAlertsNow().length > 0;
   useEffect(() => { init(); }, []);
   const mainRef = useRef<HTMLElement>(null);
   useEffect(() => { history.replaceState(null, "", `#${tab}`); mainRef.current?.scrollTo(0, 0); }, [tab, market, sector]);
@@ -65,6 +66,7 @@ export function App() {
           <button aria-current={tab === t ? "page" : undefined} onClick={() => setTab(t)}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d={ICONS[t]} /></svg>
             {LABELS[t]}
+            {t === "aietf" && etfAlert && <span class="dot" aria-label="有提醒" data-testid="etf-dot" />}
           </button>
         ))}
       </nav>

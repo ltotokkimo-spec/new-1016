@@ -185,6 +185,19 @@ function check(ok, name, detail = "") {
   check(!!(await page.$("text=台積電")), "自組ETF 持股列出台積電");
   check(!!(await page.$('[data-testid="etf-ask"]')), "自組ETF 有請 Claude 建議按鈕");
   await shot("05b-自組ETF");
+  // 免費停損提醒：把停損價設在現價之上，應該馬上出現提醒與分頁紅點
+  check(!(await page.$('[data-testid="etf-alerts"]')), "自組ETF 剛買進時沒有停損提醒");
+  const px2330 = await page.$eval('[data-testid="stop-edit"]', (e) => e.closest(".item").querySelector(".p").innerText.replace(/[^0-9.]/g, ""));
+  await page.click('[data-testid="stop-edit"]');
+  await page.fill('[data-testid="stop-input"]', String(Math.ceil(Number(px2330) * 1.05)));
+  await page.click('[data-testid="stop-save"]');
+  await page.waitForSelector('[data-testid="etf-alerts"]', { timeout: 10000 });
+  const alertText = await page.$eval('[data-testid="etf-alerts"]', (e) => e.innerText.replace(/\s+/g, " "));
+  log("停損提醒", alertText);
+  check(/台積電/.test(alertText) && /跌破停損價/.test(alertText), "自組ETF 跌破停損價會提醒");
+  check(!!(await page.$('[data-testid="etf-dot"]')), "自組ETF 分頁出現紅點");
+  await page.evaluate(() => document.querySelector("main").scrollTo(0, 0));
+  await shot("05c-停損提醒");
 
   // 持股：手動新增台積電，檢查損益
   await page.click("nav.tabs button:nth-child(3)");

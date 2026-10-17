@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cashFlow, emptyEtf, fitBudget, parsePlan, positions, recordNav, valuate, FEE, TAX } from "../src/engine/aiEtf";
+import { cashFlow, emptyEtf, etfAlerts, fitBudget, parsePlan, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
 
 const t = (code: string, side: "buy" | "sell", shares: number, price: number, benchPrice = 100, date = "20261017") =>
   ({ id: code + side + date, date, code, name: code, side, shares, price, benchPrice });
@@ -79,5 +79,32 @@ describe("valuate 缺 0050 價格", () => {
     const v = valuate(etf, () => undefined);
     expect(v.benchRet).toBeCloseTo(-(50 * 1000 * 0.001425) / 100000, 6); // 只差買進手續費
     expect(v.missing).toEqual(["2330", "0050"]);
+  });
+});
+
+describe("停損與離場提醒", () => {
+  const etf = { ...emptyEtf(100000), trades: [t("2330", "buy", 10, 1000), t("2317", "buy", 100, 200), t("2454", "buy", 10, 1200)], stops: { "2330": 950 } };
+  it("沒設定停損價就用成本 −10%", () => {
+    const p = positions(etf.trades).find((x) => x.code === "2317")!;
+    const s = stopOf(p, etf.stops);
+    expect(s.isDefault).toBe(true);
+    expect(s.stop).toBeCloseTo(200 * (1 + FEE) * 0.9, 2);
+    expect(stopOf(positions(etf.trades)[0], etf.stops)).toEqual({ stop: 950, isDefault: false });
+  });
+  it("跌破停損與離場評等都會提醒，沒事的不提醒", () => {
+    const px: Record<string, number> = { "2330": 940, "2317": 195, "2454": 1300 };
+    const a = etfAlerts(etf, (c) => px[c], (c) => (c === "2454" ? "離場" : "買入"));
+    expect(a.map((x) => `${x.code}:${x.kind}`)).toEqual(["2330:stop", "2454:exit"]);
+    expect(a[0]).toMatchObject({ price: 940, stop: 950, isDefault: false });
+  });
+  it("剛好等於停損價也提醒；賣光的不提醒", () => {
+    const sold = { ...etf, trades: [...etf.trades, t("2330", "sell", 10, 900, 100, "20261018")] };
+    expect(etfAlerts(etf, (c) => (c === "2330" ? 950 : 9999), () => undefined).map((x) => x.code)).toEqual(["2330"]);
+    expect(etfAlerts(sold, () => 1, () => undefined).map((x) => x.code)).toEqual(["2317", "2454"]);
+  });
+  it("parsePlan 讀出每筆買進的 stop 與 stops", () => {
+    const r = parsePlan('說明\n```json\n{"trades":[{"code":"2330","side":"buy","shares":10,"stop":900,"reason":"x"}],"stops":{"2454":1100,"x":0}}\n```');
+    expect(r.items[0].stop).toBe(900);
+    expect(r.stops).toEqual({ "2454": 1100, "2330": 900 });
   });
 });

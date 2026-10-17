@@ -329,7 +329,7 @@ ${tools}
 export const claudeAppUrl = (prompt: string) => `https://claude.ai/new?q=${encodeURIComponent(prompt)}`;
 
 // ---------- 自組 ETF：請 Claude 建議要買哪些、買幾股 ----------
-export interface EtfHoldingBrief { code: string; name: string; shares: number; avgCost: number; price?: number }
+export interface EtfHoldingBrief { code: string; name: string; shares: number; avgCost: number; price?: number; stop?: number; rating?: string }
 
 export function aiEtfAdvice(apiKey: string, p: {
   today: string; budget: number; cash: number; nav: number;
@@ -339,7 +339,7 @@ export function aiEtfAdvice(apiKey: string, p: {
   const cand = p.candidates.map((s) =>
     `${s.code} ${s.name}｜${s.sector}｜收盤 ${s.close}｜分數 ${s.score}｜${s.rating}｜近1週 ${fmtPct(s.ret1w)}・近1月 ${fmtPct(s.ret1m)}｜外資5日 ${s.foreign5 !== undefined ? Math.round(s.foreign5 / 1000) + " 張" : "無"}`).join("\n");
   const hold = p.holdings.filter((h) => h.shares > 0).map((h) =>
-    `${h.code} ${h.name}：${h.shares} 股，平均成本 ${h.avgCost.toFixed(2)}，現價 ${h.price ?? "無資料"}${h.price ? `（${fmtPct(h.price / h.avgCost - 1)}）` : ""}`).join("\n");
+    `${h.code} ${h.name}：${h.shares} 股，平均成本 ${h.avgCost.toFixed(2)}，現價 ${h.price ?? "無資料"}${h.price ? `（${fmtPct(h.price / h.avgCost - 1)}）` : ""}${h.stop ? `，停損價 ${h.stop}` : ""}${h.rating ? `，App 評等 ${h.rating}` : ""}`).join("\n");
   const prompt = `今天是 ${p.today}。我要用新台幣 ${p.budget.toLocaleString()} 元做一個「自組 ETF」，會照你的建議真的下單，之後看效益。
 ${review ? `目前組合淨值 ${Math.round(p.nav).toLocaleString()} 元，可用現金 ${Math.round(p.cash).toLocaleString()} 元。
 
@@ -360,11 +360,11 @@ ${cand}
 請用以下段落回答：
 1. 組合總結（一句話＋這次${review ? "調整" : "建倉"}的主軸）
 2. 每一檔的理由（代號、名稱、${review ? "買進／賣出／不動、" : ""}股數、約略金額、佔比、理由）
-3. 風險與停損規則（什麼情況要賣出）
+3. 風險與停損規則（什麼情況要賣出；每檔寫出停損價）
 
-最後一定要附上一個 JSON 區塊（只放要執行的買賣，不動的不要列），格式：
+最後一定要附上一個 JSON 區塊（trades 只放要執行的買賣，不動的不要列；每筆買進都要給停損價 stop${review ? "；stops 放「不動」持股要更新的停損價，不用更新就省略" : ""}），格式：
 \`\`\`json
-{"trades":[{"code":"2330","side":"buy","shares":10,"reason":"一句話理由"}]}
+{"trades":[{"code":"2330","side":"buy","shares":10,"stop":900,"reason":"一句話理由"}]${review ? ',"stops":{"2454":1100}' : ""}}
 \`\`\``;
   return run(apiKey, prompt, 12, onProgress);
 }

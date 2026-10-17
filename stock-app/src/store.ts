@@ -487,8 +487,13 @@ export async function setEtfStop(code: string, stop: number | undefined) {
 }
 
 /** 自組 ETF 的免費提醒：跌破停損、被評為離場（不呼叫 Claude） */
-export const etfAlertsNow = () =>
-  etfAlerts(state.aiEtf, etfPrice, (c) => findScored(c, "TW")?.rating);
+/** 自組 ETF 裡每檔的 App 評等；ETF（0050 等）只當參考、不給評等 */
+export function etfRating(code: string) {
+  const s = findScored(code, "TW");
+  return s && !s.refOnly ? s.rating : undefined;
+}
+
+export const etfAlertsNow = () => etfAlerts(state.aiEtf, etfPrice, etfRating);
 
 /** 改起始資金：已記錄的淨值走勢一起平移，報酬率才會連貫 */
 export async function setEtfBudget(budget: number) {
@@ -507,7 +512,7 @@ export function etfAdviceInput(): EtfAdviceInput {
   const etf = state.aiEtf;
   const v = valuate(etf, etfPrice);
   const holdings = etfPositions(etf.trades).filter((p) => p.shares > 0)
-    .map((p) => ({ ...p, price: etfPrice(p.code), stop: stopOf(p, etf.stops).stop, rating: findScored(p.code, "TW")?.rating }));
+    .map((p) => ({ ...p, price: etfPrice(p.code), stop: stopOf(p, etf.stops).stop, rating: etfRating(p.code) }));
   const held = new Set(holdings.map((h) => h.code));
   // 候選：今天的買入股＋分數高的觀望股，再加上目前持股（讓 Claude 看得到最新數據）
   const scored = state.tw.scored;

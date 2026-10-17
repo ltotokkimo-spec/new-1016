@@ -1,7 +1,7 @@
 // 「自組ETF」分頁：請 Claude 建議要買什麼、買幾股，照著實際下單後填入成交，追蹤淨值並和 0050 比較。
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
-  addEtfTrades, deleteEtfTrade, etfAdviceInput, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, findScored, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
+  addEtfTrades, deleteEtfTrade, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError, holdingsFromImage, shrinkImage } from "../ai/claude";
 import { comparePlans, DEFAULT_STOP, fitBudget, parsePlan, positions, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
@@ -40,19 +40,27 @@ function NavChart({ points }: { points: { date: string; nav: number; bench: numb
 /** 免費提醒：跌破停損、被 App 評為離場（每次更新行情就重新比對，不花錢） */
 function AlertCard({ alerts, onAsk, canAsk }: { alerts: EtfAlert[]; onAsk: () => void; canAsk: boolean }) {
   if (!alerts.length) return null;
+  // 同一檔的多個提醒合併成一行
+  const codes = [...new Set(alerts.map((a) => a.code))];
+  const toPro = () => document.querySelector('[data-testid="pro-review"]')?.scrollIntoView({ behavior: "smooth", block: "start" });
   return (
     <div class="card stack alert-card" data-testid="etf-alerts">
-      <b>⚠ 有 {new Set(alerts.map((a) => a.code)).size} 檔需要注意</b>
-      {alerts.map((a) => (
-        <div style={{ fontSize: "14px", lineHeight: 1.6 }}>
-          <b>{a.name}</b> <span class="muted num" style={{ marginRight: "8px" }}>{a.code}</span>
-          {a.kind === "stop"
-            ? <>現價 <span class="num down">{fmtPrice(a.price!)}</span> 跌破停損價 <span class="num">{fmtPrice(a.stop!)}</span>{a.isDefault ? `（預設成本 −${DEFAULT_STOP * 100}%）` : ""}</>
-            : <>App 今天評為<span class="down">「離場」</span>（動能或籌碼轉弱）</>}
-        </div>
-      ))}
-      <div class="muted" style={{ fontSize: "12px" }}>這是 App 自動比對的免費提醒，不代表一定要賣。可以請 Claude 檢視後再決定。</div>
-      {canAsk && <button class="btn block" onClick={onAsk}>請 Claude 檢視調整</button>}
+      <b>⚠ 有 {codes.length} 檔需要注意</b>
+      {codes.map((code) => {
+        const as = alerts.filter((a) => a.code === code);
+        const stop = as.find((a) => a.kind === "stop"), exit = as.some((a) => a.kind === "exit");
+        return (
+          <div style={{ fontSize: "14px", lineHeight: 1.6 }}>
+            <b>{as[0].name}</b> <span class="muted num" style={{ marginRight: "8px" }}>{code}</span>
+            {stop && <>現價 <span class="num down">{fmtPrice(stop.price!)}</span> 跌破停損價 <span class="num">{fmtPrice(stop.stop!)}</span>{stop.isDefault ? `（預設成本 −${DEFAULT_STOP * 100}%）` : ""}</>}
+            {stop && exit && "；"}
+            {exit && <>App 今天評為<span class="down">「離場」</span>（動能或籌碼轉弱）</>}
+          </div>
+        );
+      })}
+      <div class="muted" style={{ fontSize: "12px" }}>這是 App 自動比對的免費提醒，不代表一定要賣。可以請 Claude 檢視後再決定：</div>
+      {canAsk && <button class="btn block" onClick={onAsk}>請 Claude 檢視調整（API 付費，約台幣 20～30 元）</button>}
+      <button class="btn secondary block" onClick={toPro} data-testid="alert-pro">用 Claude Pro 檢視（免費，用你的訂閱）</button>
     </div>
   );
 }
@@ -352,7 +360,7 @@ export function AiEtfScreen() {
             {pos.map((p) => {
               const px = etfPrice(p.code);
               const mv = px ? p.shares * px : NaN;
-              const rating = findScored(p.code, "TW")?.rating;
+              const rating = etfRating(p.code);
               return (
                 <div class="item" style={{ cursor: "default" }}>
                   <div style={{ minWidth: 0 }}>

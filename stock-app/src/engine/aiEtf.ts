@@ -169,3 +169,38 @@ export function etfAlerts(etf: AiEtf, price: (code: string) => number | undefine
   }
   return out;
 }
+
+// ---------- 拍照匯入：庫存截圖和目前自組 ETF 對帳 ----------
+export interface PhotoRow { code: string; name: string; side: "buy" | "sell"; shares: number; price: number; suggested: boolean }
+
+/**
+ * 把庫存截圖辨識到的「股數、平均成本」和目前的自組 ETF 持股比對，算出要補記的買賣。
+ * 多出來的股數記成買進（價格由截圖的平均成本反推，推不出來用現價）；變少的記成賣出（用現價）。
+ * 截圖沒出現的持股不自動賣出（截圖可能只拍到一部分）。
+ */
+export function reconcilePhoto(
+  etf: AiEtf,
+  photo: { code: string; name: string; shares: number; cost: number }[],
+  price: (code: string) => number | undefined,
+  suggested: Set<string>,
+): PhotoRow[] {
+  const cur = new Map(positions(etf.trades).map((p) => [p.code, p]));
+  const rows: PhotoRow[] = [];
+  for (const h of photo) {
+    const code = h.code.trim().toUpperCase();
+    const p = cur.get(code);
+    const have = p?.shares ?? 0;
+    const diff = Math.round(h.shares) - have;
+    if (!code || diff === 0) continue;
+    const px = price(code);
+    let fill = px ?? 0;
+    if (diff > 0 && h.cost > 0) {
+      // 截圖的平均成本 × 股數 − 已記錄的成本 = 這次買進花的錢
+      const spent = h.cost * h.shares - (p ? p.avgCost * have : 0);
+      const each = spent / diff;
+      if (each > 0 && (!px || Math.abs(each / px - 1) < 0.3)) fill = Math.round(each * 100) / 100;
+    }
+    rows.push({ code, name: h.name || p?.name || code, side: diff > 0 ? "buy" : "sell", shares: Math.abs(diff), price: fill, suggested: suggested.has(code) || have > 0 });
+  }
+  return rows;
+}

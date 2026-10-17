@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cashFlow, emptyEtf, etfAlerts, fitBudget, parsePlan, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
+import { cashFlow, reconcilePhoto, emptyEtf, etfAlerts, fitBudget, parsePlan, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
 
 const t = (code: string, side: "buy" | "sell", shares: number, price: number, benchPrice = 100, date = "20261017") =>
   ({ id: code + side + date, date, code, name: code, side, shares, price, benchPrice });
@@ -106,5 +106,27 @@ describe("停損與離場提醒", () => {
     const r = parsePlan('說明\n```json\n{"trades":[{"code":"2330","side":"buy","shares":10,"stop":900,"reason":"x"}],"stops":{"2454":1100,"x":0}}\n```');
     expect(r.items[0].stop).toBe(900);
     expect(r.stops).toEqual({ "2454": 1100, "2330": 900 });
+  });
+});
+
+describe("reconcilePhoto 拍照對帳", () => {
+  const etf = { ...emptyEtf(100000), trades: [t("2330", "buy", 10, 1000)] };
+  const px = (c: string) => ({ "2330": 1050, "2317": 200, "2882": 60 } as Record<string, number>)[c];
+  it("新買的用截圖成本、加碼的反推這次成交價、減少的記賣出", () => {
+    const rows = reconcilePhoto(etf, [
+      { code: "2330", name: "台積電", shares: 20, cost: (1000 * (1 + FEE) * 10 + 1040 * 10) / 20 },
+      { code: "2317", name: "鴻海", shares: 100, cost: 198.5 },
+      { code: "2882", name: "國泰金", shares: 1000, cost: 0 },
+    ], px, new Set(["2317"]));
+    expect(rows).toEqual([
+      { code: "2330", name: "台積電", side: "buy", shares: 10, price: 1040, suggested: true },
+      { code: "2317", name: "鴻海", side: "buy", shares: 100, price: 198.5, suggested: true },
+      { code: "2882", name: "國泰金", side: "buy", shares: 1000, price: 60, suggested: false },
+    ]);
+  });
+  it("股數變少記賣出，股數相同不列", () => {
+    expect(reconcilePhoto(etf, [{ code: "2330", name: "台積電", shares: 4, cost: 1000 }], px, new Set()))
+      .toEqual([{ code: "2330", name: "台積電", side: "sell", shares: 6, price: 1050, suggested: true }]);
+    expect(reconcilePhoto(etf, [{ code: "2330", name: "台積電", shares: 10, cost: 1000 }], px, new Set())).toEqual([]);
   });
 });

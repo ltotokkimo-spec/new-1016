@@ -1,9 +1,10 @@
 // 「自組ETF」分頁：請 Claude 建議要買什麼、買幾股，照著實際下單後填入成交，追蹤淨值並和 0050 比較。
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
-  addEtfTrades, deleteEtfTrade, etfAlertsNow, etfPrice, findScored, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
+  addEtfTrades, deleteEtfTrade, recordSpend, etfAlertsNow, etfPrice, findScored, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
-import { DEFAULT_STOP, fitBudget, parsePlan, positions, stopOf, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
+import { explainError, holdingsFromImage, shrinkImage } from "../ai/claude";
+import { DEFAULT_STOP, fitBudget, parsePlan, positions, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { taipeiToday, pretty } from "../lib/dates";
 import { cls, fmtMoney, fmtPct, fmtPrice } from "./common";
 import { AiProgressView, AiReportView, BalanceHint } from "./screens";
@@ -106,6 +107,82 @@ function PlanFill({ items, planKey, cash, stops }: { items: PlanItem[]; planKey:
       {err && <div class="error">{err}</div>}
       <button class="btn block" onClick={save} data-testid="plan-save">我已照這樣成交，儲存</button>
     </div>
+  );
+}
+
+/** 拍證券 App 的庫存畫面：Claude 辨識後和自組 ETF 對帳，補記買賣 */
+function PhotoImport({ suggested, planKey }: { suggested: Set<string>; planKey?: string }) {
+  const apiKey = useStore((s) => s.settings.apiKey);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [rows, setRows] = useState<(PhotoRow & { keep: boolean; sharesText: string; priceText: string })[] | null>(null);
+  const [note, setNote] = useState("");
+
+  const recognize = async (b64: string, type: "image/jpeg" | "image/png") => {
+    setBusy(true); setErr(""); setRows(null);
+    try {
+      const r = await holdingsFromImage(apiKey, b64, type);
+      await recordSpend(r.costUsd, "照片辨識");
+      const tw = r.holdings.filter((h) => h.market !== "US");
+      if (!tw.length) return setErr("照片裡沒有辨識到台股持股，請換一張清楚的庫存截圖");
+      const diff = reconcilePhoto(getState().aiEtf, tw, etfPrice, suggested);
+      if (!diff.length) return setErr("截圖和自組 ETF 的持股一樣，不用補記");
+      setRows(diff.map((d) => ({ ...d, keep: d.suggested, sharesText: String(d.shares), priceText: d.price ? String(d.price) : "" })));
+      setNote(r.note);
+    } catch (e) { setErr(explainError(e)); }
+    finally { setBusy(false); }
+  };
+  // 自動測試用：把產生的截圖直接送進同一套流程
+  useEffect(() => {
+    (window as any).__srEtfImportBase64 = (b64: string) => recognize(b64, "image/png");
+    return () => { delete (window as any).__srEtfImportBase64; };
+  });
+  const onPhoto = async (e: Event) => {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    const img = await shrinkImage(file).catch(() => null);
+    if (!img) return setErr("讀不到這張照片，請再試一次");
+    await recognize(img.base64, img.mediaType);
+  };
+  const upd = (i: number, p: Partial<NonNullable<typeof rows>[number]>) => setRows(rows!.map((r, j) => (j === i ? { ...r, ...p } : r)));
+  const save = async () => {
+    const ok = rows!.filter((r) => r.keep);
+    if (!ok.length) return setErr("請至少勾選一筆");
+    if (ok.some((r) => !(Number(r.sharesText) > 0) || !(Number(r.priceText) > 0))) return setErr("股數和成交價都要大於 0");
+    const today = taipeiToday();
+    const pending = planKey && getState().aiEtf.appliedKey !== planKey ? planKey : undefined;
+    await addEtfTrades(ok.map((r) => ({ date: today, code: r.code, name: getState().prices[r.code]?.name ?? r.name, side: r.side, shares: Number(r.sharesText), price: Number(r.priceText) })), pending);
+    setRows(null); setErr("");
+  };
+
+  return (
+    <>
+      <label class="btn secondary block" aria-disabled={busy || !apiKey}>
+        {busy ? "Claude 辨識中…" : "拍照匯入成交（證券 App 庫存截圖）"}
+        <input type="file" accept="image/*" hidden disabled={busy || !apiKey} onChange={onPhoto} data-testid="etf-photo" />
+      </label>
+      {err && <div class="error">{err}</div>}
+      {rows && (
+        <div class="card stack" data-testid="etf-photo-review">
+          <b>和截圖對帳後，要補記這些成交</b>
+          <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
+            多出來的股數記成買進、變少的記成賣出；成交價由截圖的平均成本推算，請對照證券 App 的成交紀錄修正。不在 Claude 建議裡的股票（可能是你其他的持股）預設不勾。截圖沒出現的股票不會自動賣出。
+          </div>
+          {note && <div class="muted" style={{ fontSize: "12px" }}>Claude 備註：{note}</div>}
+          {rows.map((r, i) => (
+            <div class="import-row" style={{ padding: "8px 0" }}>
+              <label class="check"><input type="checkbox" checked={r.keep} onChange={(e) => upd(i, { keep: (e.target as HTMLInputElement).checked })} />
+                <span class={r.side === "buy" ? "up" : "down"}>{r.side === "buy" ? "買進" : "賣出"}</span> {r.name} <span class="muted num">{r.code}</span>{!r.suggested && <span class="muted" style={{ fontSize: "12px" }}>（不在建議裡）</span>}</label>
+              <label class="field">股數<input inputMode="numeric" value={r.sharesText} onInput={(e) => upd(i, { sharesText: (e.target as HTMLInputElement).value })} /></label>
+              <label class="field">成交價<input inputMode="decimal" value={r.priceText} onInput={(e) => upd(i, { priceText: (e.target as HTMLInputElement).value })} /></label>
+            </div>
+          ))}
+          <div class="row"><button class="btn" style={{ flex: 1 }} onClick={save} data-testid="etf-photo-save">儲存勾選的成交</button><button class="btn secondary" onClick={() => setRows(null)}>取消</button></div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -227,6 +304,7 @@ export function AiEtfScreen() {
         </button>
         {!st.apiKey && <div class="muted" style={{ fontSize: "13px", textAlign: "center" }}>先到「設定」貼上 Claude API 金鑰才能使用</div>}
         {st.apiKey && <BalanceHint />}
+        <PhotoImport suggested={new Set(parsed?.items.map((x) => x.code) ?? [])} planKey={etf.planKey} />
         <ManualTrade />
       </div>
 

@@ -235,7 +235,7 @@ function PhotoImport({ suggested, planKey }: { suggested: Set<string>; planKey?:
   return (
     <>
       <label class="btn secondary block" aria-disabled={busy || !apiKey}>
-        {busy ? "Claude 辨識中…" : "拍照匯入成交（證券 App 庫存截圖）"}
+        {busy ? "Claude 辨識中…" : "拍照匯入成交（庫存截圖・API 付費）"}
         <input type="file" accept="image/*" hidden disabled={busy || !apiKey} onChange={onPhoto} data-testid="etf-photo" />
       </label>
       {err && <div class="error">{err}</div>}

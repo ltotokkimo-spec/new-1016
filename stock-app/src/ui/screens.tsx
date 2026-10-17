@@ -382,7 +382,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
           </label>
         )}
         <button class="btn block" disabled={busy || !apiKey} onClick={runAi}>
-          {busy ? "Claude 分析中，可以先去看別的…" : report ? "重新解析" : "AI 深度解析"}
+          {busy ? "Claude 分析中，可以先去看別的…" : report ? "重新解析（API 付費）" : "AI 深度解析（API 付費）"}
         </button>
         {!apiKey && <div class="muted" style={{ fontSize: "13px", textAlign: "center" }}>先到「設定」貼上 Claude API 金鑰才能使用</div>}
         {apiKey && <BalanceHint />}
@@ -481,7 +481,7 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
       </div>
       <div class="row" style={{ marginTop: "12px" }}>
         <label class="btn" style={{ flex: 1 }} aria-disabled={busy || !apiKey}>
-          {busy ? "Claude 辨識中…" : <><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></svg>拍照／截圖匯入</>}
+          {busy ? "Claude 辨識中…" : <><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></svg>拍照／截圖匯入（API 付費）</>}
           <input type="file" accept="image/*" hidden disabled={busy || !apiKey} onChange={onPhoto} data-testid="photo-input" />
         </label>
         <button class="btn secondary" onClick={() => setAdding(true)}>手動新增</button>
@@ -678,7 +678,7 @@ export function MacroScreen() {
         <div class="notice">Claude 會搜尋最近一週國內外發表的經濟數據（美國 CPI、非農、Fed、台灣出口、央行等），寫出實際值與預期值的比較，並解讀族群輪動與外資動向。約 3~4 分鐘，實測花費約台幣 30 元。</div>
       )}
       <button class="btn block" style={{ marginTop: "12px" }} disabled={busy || !st.apiKey} onClick={runAi}>
-        {busy ? "Claude 分析中，可以先去看別的…" : report ? "重新解讀" : "產生今日解讀"}
+        {busy ? "Claude 分析中，可以先去看別的…" : report ? "重新解讀（API 付費）" : "產生今日解讀（API 付費）"}
       </button>
       {!st.apiKey && <div class="muted" style={{ fontSize: "13px", textAlign: "center", marginTop: "8px" }}>先到「設定」貼上 Claude API 金鑰</div>}
       {st.apiKey && <div style={{ marginTop: "8px" }}><BalanceHint /></div>}

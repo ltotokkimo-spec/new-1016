@@ -59,6 +59,8 @@ export interface State {
   spend: { at: number; usd: number; kind: string }[]; // 這支手機呼叫 Claude 的實際花費紀錄
   backtest?: { data: BacktestResult; fetchedAt: number };
   usExtra: UsExtra[]; // 使用者自己加的美股
+  usPending: string[]; // 正在下載的美股持股代號
+  usNotFound: string[]; // Nasdaq 查不到的代號
   aiJobs: Record<string, AiJob>; // 背景執行中／剛完成的 Claude 解析（key 同 reports）
   usLookup?: { symbol: string; status: "loading" | "notfound" | "error"; error?: string };
   loaded: boolean;
@@ -69,7 +71,7 @@ const starting = (): MarketState => ({ status: "loading", scored: [], sectors: [
 
 let state: State = {
   tw: starting(), etf: starting(), us: starting(), esb: {}, twIndices: [], usSectorEtfs: [],
-  macro: { status: "idle", quotes: [] }, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], update: { status: "idle" }, usExtra: [], aiJobs: {}, loaded: false,
+  macro: { status: "idle", quotes: [] }, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], update: { status: "idle" }, usExtra: [], usPending: [], usNotFound: [], aiJobs: {}, loaded: false,
 };
 const listeners = new Set<() => void>();
 
@@ -119,6 +121,7 @@ export async function init() {
   const today = taipeiToday();
   if (!twSnap || taipeiToday(twSnap.fetchedAt) !== today || Date.now() - twSnap.fetchedAt > 3 * 3600_000) refreshTw();
   if (!usSnap || taipeiToday(usSnap.fetchedAt) !== today) refreshUs();
+  else ensureUsHoldings(); // 今天的美股已下載過，但持股裡可能有還沒下載的代號
   if (!esbSnap || taipeiToday(esbSnap.fetchedAt) !== today || Date.now() - esbSnap.fetchedAt > 3 * 3600_000) refreshEsb();
   refreshMacro();
   if (upd.isNative()) checkForUpdate();
@@ -209,10 +212,13 @@ async function doRefreshUs() {
     const loader = new UsLoader(fetcher, kv);
     // 持股裡有、但清單沒有的美股，先查出名稱與產業再一起下載
     const known = new Set([...US_UNIVERSE.map((u) => u.symbol), ...state.usExtra.map((x) => x.symbol)]);
-    for (const h of state.holdings) {
-      if (h.market !== "US" || known.has(h.code) || !isUsSymbol(h.code)) continue;
-      const x = await loader.lookup(h.code).catch(() => null);
+    const todo = [...new Set(state.holdings.filter((h) => h.market === "US" && !known.has(h.code) && isUsSymbol(h.code)).map((h) => h.code))];
+    set({ usPending: todo });
+    for (const code of todo) {
+      const x = await loader.lookup(code).catch(() => undefined);
       if (x) await saveUsExtra([...state.usExtra, x]);
+      else if (x === null) set({ usNotFound: [...new Set([...state.usNotFound, code])] }); // null＝確定查不到；undefined＝網路錯誤，下次再試
+      set({ usPending: state.usPending.filter((c) => c !== code) });
     }
     const snap = await loader.load((done, total, label) =>
       set({ us: { ...state.us, progress: { done, total, label } } }), state.usExtra);
@@ -221,7 +227,7 @@ async function doRefreshUs() {
     await kv.set("us:bars", bars);
     applyUs(snap);
   } catch (e: any) {
-    set({ us: { ...state.us, status: state.us.scored.length ? "ready" : "error", error: `美股資料更新失敗：${e?.message ?? e}`, progress: undefined } });
+    set({ usPending: [], us: { ...state.us, status: state.us.scored.length ? "ready" : "error", error: `美股資料更新失敗：${e?.message ?? e}`, progress: undefined } });
   }
 }
 
@@ -249,7 +255,10 @@ export function holdingViews(): HoldingView[] {
     const esb = h.market !== "US" && !!state.esb[h.code];
     const v = reviewHolding(h, findScored(h.code, h.market === "US" ? "US" : "TW"), state.prices[h.code]?.close, { esb });
     if (v.scored && v.name === v.code) v.name = v.scored.name; // 自己加的美股，下載後換成公司名稱
-    if (!v.scored && !Number.isFinite(v.price) && m.status !== "ready") v.advice = [m.status === "error" ? "行情下載失敗" : "行情載入中…"];
+    if (h.market === "US" && !v.scored && state.usPending.includes(h.code)) v.advice = ["正在從 Nasdaq 下載這檔美股…"];
+    else if (h.market === "US" && !v.scored && state.usNotFound.includes(h.code)) v.advice = ["Nasdaq 查不到這個代號，請確認是否正確"];
+    else if (h.market === "US" && !v.scored && Number.isFinite(v.price)) v.advice = ["上市時間短、資料還不夠評分，先只計算損益"];
+    else if (!v.scored && !Number.isFinite(v.price) && m.status !== "ready") v.advice = [m.status === "error" ? "行情下載失敗" : "行情載入中…"];
     return v;
   });
 }
@@ -257,6 +266,17 @@ export function holdingViews(): HoldingView[] {
 export async function saveHoldings(holdings: Holding[]) {
   set({ holdings });
   await kv.set("holdings", holdings);
+  ensureUsHoldings(); // 照片匯入、手動新增都一樣：清單外的美股自動下載
+}
+
+/** 持股裡有、但還沒下載的美股代號 */
+function missingUsHoldings(): string[] {
+  const known = new Set([...US_UNIVERSE.map((u) => u.symbol), ...state.usExtra.map((x) => x.symbol), ...state.us.scored.map((x) => x.code)]);
+  return [...new Set(state.holdings.filter((h) => h.market === "US" && isUsSymbol(h.code) && !known.has(h.code) && !state.usNotFound.includes(h.code)).map((h) => h.code))];
+}
+
+export function ensureUsHoldings(): Promise<void> {
+  return missingUsHoldings().length ? refreshUs() : Promise.resolve();
 }
 
 export async function saveSettings(settings: Settings) {

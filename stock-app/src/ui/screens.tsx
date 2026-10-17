@@ -5,7 +5,7 @@ import {
   addUsSymbol, removeUsSymbol, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
 } from "../store";
 import type { Holding, Rating, Scored, SectorStat } from "../engine/score";
-import { analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
+import { type AiReport, analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, parseUrls, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
 import { twHistory } from "../data/history";
 import { isEtf } from "../data/tw";
 import { freeReport } from "../engine/freeReport";
@@ -303,12 +303,14 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
 
   const job = useStore((st) => st.aiJobs[reportKey]);
   const busy = job?.status === "running";
+  const [newsText, setNewsText] = useState("");
+  const newsUrls = parseUrls(newsText);
   // 在這一頁看到結果了，就不用再在上方提醒
   useEffect(() => { if (job?.status === "done") dismissAiJob(reportKey); }, [job?.status]);
   const runAi = () => {
     if (report && !confirmRerun(0.5)) return;
     startAiJob({ key: reportKey, kind: "stock", title: `${s.name} ${s.code}`, code: s.code, market: s.market === "US" ? "US" : s.refOnly ? "ETF" : "TW" },
-      (onProgress) => analyzeStock(apiKey, s, today, holding, onProgress));
+      (onProgress) => analyzeStock(apiKey, s, today, holding, onProgress, newsUrls));
   };
 
   return (
@@ -372,6 +374,13 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
         </div>
       )}
       <div class="stack" style={{ marginTop: "12px" }}>
+        {!busy && apiKey && (
+          <label class="field">想讓 Claude 一起讀的新聞網址（選填，最多 3 個）
+            <textarea rows={2} value={newsText} onInput={(e) => setNewsText((e.target as HTMLTextAreaElement).value)} placeholder="在新聞頁按「分享 → 複製連結」，貼在這裡" data-testid="news-urls"
+              style={{ border: "1px solid var(--line)", background: "var(--surface)", color: "var(--fg)", borderRadius: "10px", padding: "10px 12px", fontSize: "14px", resize: "vertical" }} />
+            {newsText.trim() && <span style={{ fontSize: "12px" }}>{newsUrls.length ? `Claude 會先讀這 ${newsUrls.length} 篇文章再分析` : "沒有找到網址，請貼 http 開頭的連結"}</span>}
+          </label>
+        )}
         <button class="btn block" disabled={busy || !apiKey} onClick={runAi}>
           {busy ? "Claude 分析中，可以先去看別的…" : report ? "重新解析" : "AI 深度解析"}
         </button>
@@ -389,7 +398,7 @@ function Metric({ k, v, c = "", d = "" }: { k: string; v: string; c?: string; d?
   return <div class="metric"><div class="k">{k}</div><div class={`v num ${c}`}>{v}</div>{d && <div class="d muted">{d}</div>}</div>;
 }
 
-function AiReportView({ r }: { r: { text: string; sources: { title: string; url: string }[]; model: string; costUsd?: number } }) {
+function AiReportView({ r }: { r: AiReport }) {
   const m = /^\s*\**評等\**\s*[:：]\s*\**\s*(買入|觀望|離場|參考)/.exec(r.text);
   const body = m ? r.text.slice(r.text.indexOf("\n") + 1) : r.text;
   return (
@@ -402,8 +411,16 @@ function AiReportView({ r }: { r: { text: string; sources: { title: string; url:
           <ol class="sources">{r.sources.map((x) => <li><a href={x.url} target="_blank" rel="noreferrer">{x.title}</a></li>)}</ol>
         </>
       )}
+      {!!r.fetched?.length && (
+        <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, marginTop: "8px" }}>Claude 讀過你貼的文章：{r.fetched.length} 篇</div>
+      )}
+      {!!r.queries?.length && (
+        <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, marginTop: "8px" }} data-testid="ai-queries">
+          Claude 搜尋過的關鍵字（{r.queries.length} 次）：{r.queries.map((q) => `「${q}」`).join("、")}
+        </div>
+      )}
       <div class="muted" style={{ fontSize: "11px", marginTop: "8px" }}>
-        由 {r.model} 產生{r.costUsd !== undefined && Number.isFinite(r.costUsd) ? `・本次約 US$${r.costUsd.toFixed(2)}（約台幣 ${Math.round(r.costUsd * 32)} 元）` : ""}，僅供研究參考，非投資建議
+        {new Date(r.at).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} 由 {r.model} 產生{r.costUsd !== undefined && Number.isFinite(r.costUsd) ? `・本次約 US$${r.costUsd.toFixed(2)}（約台幣 ${Math.round(r.costUsd * 32)} 元）` : ""}，僅供研究參考，非投資建議
       </div>
     </div>
   );
@@ -767,6 +784,7 @@ export function progressText(job: AiJob): string {
     case "start": return "連線到 Claude…";
     case "thinking": return p.searches ? "整理搜尋到的資料…" : "思考要查哪些資料…";
     case "searching": return `網路搜尋第 ${p.searches} 次${p.lastQuery ? `：「${p.lastQuery}」` : "…"}`;
+    case "fetching": return "讀你貼的新聞文章…";
     case "reading": return `閱讀搜尋結果（已搜尋 ${p.searches} 次）`;
     case "writing": return `撰寫中${p.section ? `：${p.section}` : ""}（已寫 ${p.chars.toLocaleString()} 字）`;
   }

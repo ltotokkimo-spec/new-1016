@@ -28,7 +28,7 @@ export function explainError(e: unknown): string {
 }
 
 export interface Source { title: string; url: string }
-export interface AiReport { text: string; sources: Source[]; model: string; at: number; costUsd?: number }
+export interface AiReport { text: string; sources: Source[]; model: string; at: number; costUsd?: number; queries?: string[]; fetched?: string[] }
 
 // Claude Opus 5.5 價格：輸入 $4、輸出 $20（每百萬 tokens），快取讀取 $0.20、寫入 $5；網路搜尋每次 $0.01
 export function costOf(u: any): number {
@@ -37,11 +37,15 @@ export function costOf(u: any): number {
     + (u.server_tool_use?.web_search_requests ?? 0) * 0.01;
 }
 
-function collect(msg: Anthropic.Beta.BetaMessage): AiReport {
+export function collect(msg: Anthropic.Beta.BetaMessage): AiReport {
   if (msg.stop_reason === "refusal") throw new AiError("Claude 這次沒有回答，請換個方式再試一次");
   let text = "";
   const sources = new Map<string, Source>();
-  for (const b of msg.content) {
+  const queries: string[] = [], fetched: string[] = [];
+  for (const b of msg.content as any[]) {
+    // 記下 Claude 搜尋過的關鍵字與讀過的網頁，報告最後列出來
+    if (b.type === "server_tool_use" && b.name === "web_search" && typeof b.input?.query === "string") queries.push(b.input.query);
+    if (b.type === "server_tool_use" && b.name === "web_fetch" && typeof b.input?.url === "string") fetched.push(b.input.url);
     if (b.type === "text") {
       text += b.text;
       for (const c of b.citations ?? []) {
@@ -52,7 +56,7 @@ function collect(msg: Anthropic.Beta.BetaMessage): AiReport {
     }
   }
   if (!text.trim()) throw new AiError("Claude 沒有產生內容，請再試一次");
-  return { text: text.trim(), sources: [...sources.values()].slice(0, 12), model: msg.model, at: Date.now(), costUsd: costOf(msg.usage) };
+  return { text: text.trim(), sources: [...sources.values()].slice(0, 12), model: msg.model, at: Date.now(), costUsd: costOf(msg.usage), queries, fetched };
 }
 
 const SYSTEM = `你是台灣投資人的私人研究助理，用繁體中文、台灣慣用語回答。
@@ -82,7 +86,7 @@ export function stockBrief(s: Scored, holding?: Holding): string {
 
 // ---------- 進度：從串流事件算出「正在做什麼」 ----------
 export interface AiProgress {
-  phase: "start" | "thinking" | "searching" | "reading" | "writing";
+  phase: "start" | "thinking" | "searching" | "fetching" | "reading" | "writing";
   searches: number; // 已送出的網路搜尋次數
   lastQuery?: string; // 最近一次搜尋的關鍵字
   chars: number; // 已寫出的字數
@@ -103,7 +107,8 @@ export function nextProgress(p: AiProgress, ev: any, scratch: ProgressScratch): 
       const q = typeof b.input?.query === "string" && b.input.query ? b.input.query : undefined;
       return { ...p, phase: "searching", searches: p.searches + 1, lastQuery: q ?? p.lastQuery };
     }
-    if (b?.type === "web_search_tool_result") return { ...p, phase: "reading" };
+    if (b?.type === "server_tool_use" && b.name === "web_fetch") return { ...p, phase: "fetching" };
+    if (b?.type === "web_search_tool_result" || b?.type === "web_fetch_tool_result") return { ...p, phase: "reading" };
     if (b?.type === "text") return { ...p, phase: "writing" };
     return p;
   }
@@ -131,7 +136,7 @@ export function nextProgress(p: AiProgress, ev: any, scratch: ProgressScratch): 
   return p;
 }
 
-async function run(apiKey: string, prompt: string, maxSearches: number, onProgress?: OnProgress): Promise<AiReport> {
+async function run(apiKey: string, prompt: string, maxSearches: number, onProgress?: OnProgress, fetchUrls: string[] = []): Promise<AiReport> {
   const c = client(apiKey);
   const stream = c.beta.messages.stream({
     model: MODEL,
@@ -141,7 +146,11 @@ async function run(apiKey: string, prompt: string, maxSearches: number, onProgre
     thinking: { type: "adaptive" },
     output_config: { effort: "medium" },
     system: SYSTEM,
-    tools: [{ type: "web_search_20260209", name: "web_search", max_uses: maxSearches, user_location: { type: "approximate", country: "TW", timezone: "Asia/Taipei" } }],
+    tools: [
+      { type: "web_search_20260209", name: "web_search", max_uses: maxSearches, user_location: { type: "approximate", country: "TW", timezone: "Asia/Taipei" } },
+      // 使用者貼的新聞網址：讓 Claude 直接讀那篇文章（只能讀對話裡出現過的網址）
+      ...(fetchUrls.length ? [{ type: "web_fetch_20260209" as const, name: "web_fetch" as const, max_uses: fetchUrls.length + 1 }] : []),
+    ],
     messages: [{ role: "user", content: prompt }],
   });
   if (onProgress) {
@@ -159,8 +168,18 @@ async function run(apiKey: string, prompt: string, maxSearches: number, onProgre
   return collect(await stream.finalMessage());
 }
 
-export function analyzeStock(apiKey: string, s: Scored, today: string, holding?: Holding, onProgress?: OnProgress) {
-  if (s.refOnly) return analyzeEtf(apiKey, s, today, holding, onProgress);
+/** 使用者貼的網址：只留 http(s)，最多 3 個 */
+export function parseUrls(text: string): string[] {
+  // 分享出來的網址都是英數字（中文會被編碼成 %XX），遇到中文或全形標點就是網址結束
+  return [...new Set((text.match(/https?:\/\/[A-Za-z0-9\-._~:/?#@!$&'*+,;=%]+/g) ?? []).map((u) => u.replace(/[.,;:!?]+$/, "")))].slice(0, 3);
+}
+
+const urlBlock = (urls: string[]) => urls.length
+  ? `\n\n【我想請你一起讀的新聞】\n${urls.map((u) => `- ${u}`).join("\n")}\n請先用 web_fetch 讀完這些文章，把重點（日期、來源、和這檔股票有關的內容）寫進第 3 段，並說明是否影響評等。`
+  : "";
+
+export function analyzeStock(apiKey: string, s: Scored, today: string, holding?: Holding, onProgress?: OnProgress, urls: string[] = []) {
+  if (s.refOnly) return analyzeEtf(apiKey, s, today, holding, onProgress, urls);
   const prompt = `今天是 ${today}。請分析這檔股票，並給我評等。
 
 【籌碼與技術數據】
@@ -169,14 +188,14 @@ ${stockBrief(s, holding)}
 請用以下段落回答（每段 2~5 點，條列）：
 1. 評等與一句話結論
 2. 動能與籌碼解讀（用上面的數據，說明外資／族群是否支持）
-3. 近期新聞與公司事件（搜尋最近消息：法說會、營收、訂單、產品）
+3. 近期新聞與公司事件（搜尋最近消息：法說會、營收、訂單、產品；也要搜尋提到這檔股票的產業文章、外資或投信報告與目標價。以最近 3 天的台灣財經媒體為優先，例如工商時報、經濟日報、鉅亨網、MoneyDJ，並寫出每則新聞的日期與來源）
 4. 國內外數據發表的影響（搜尋最近一週發表的總經數據與央行動態，說明對這檔股票的影響）
-5. 風險與觀察重點（什麼情況要改變評等，例如跌破哪個價位或外資轉賣）${holding ? "\n6. 針對我的持股：續抱、加碼、減碼或停損的建議" : ""}`;
-  return run(apiKey, prompt, 12, onProgress);
+5. 風險與觀察重點（什麼情況要改變評等，例如跌破哪個價位或外資轉賣）${holding ? "\n6. 針對我的持股：續抱、加碼、減碼或停損的建議" : ""}${urlBlock(urls)}`;
+  return run(apiKey, prompt, 12, onProgress, urls);
 }
 
 /** ETF：不給買入／觀望／離場，改說明成分、配息、適合的持有方式 */
-function analyzeEtf(apiKey: string, s: Scored, today: string, holding?: Holding, onProgress?: OnProgress) {
+function analyzeEtf(apiKey: string, s: Scored, today: string, holding?: Holding, onProgress?: OnProgress, urls: string[] = []) {
   const prompt = `今天是 ${today}。請分析這檔 ETF。這是 ETF，不要給「買入／觀望／離場」評等，第一行固定寫：評等：參考
 
 【籌碼與技術數據】
@@ -187,8 +206,8 @@ ${stockBrief(s, holding)}
 2. 成分股與產業集中度、費用率、規模（搜尋最新資料）
 3. 配息：最近幾次配息金額、殖利率、除息日，以及是否有填息
 4. 近期表現與外資動向解讀（用上面的數據），和同類 ETF 比較
-5. 國內外數據發表的影響與主要風險（例如利率、匯率、成分股集中）${holding ? "\n6. 針對我的持股：是否適合續抱、要注意什麼（不要給買入／離場評等）" : ""}`;
-  return run(apiKey, prompt, 12, onProgress);
+5. 國內外數據發表的影響與主要風險（例如利率、匯率、成分股集中）${holding ? "\n6. 針對我的持股：是否適合續抱、要注意什麼（不要給買入／離場評等）" : ""}${urlBlock(urls)}`;
+  return run(apiKey, prompt, 12, onProgress, urls);
 }
 
 export function marketBrief(apiKey: string, today: string, sectorsTw: SectorStat[], sectorsUs: SectorStat[], macro: MacroQuote[], top: Scored[], onProgress?: OnProgress) {

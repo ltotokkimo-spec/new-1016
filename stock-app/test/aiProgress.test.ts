@@ -43,3 +43,35 @@ describe("Claude 解析進度", () => {
     expect(p.lastQuery).toBeUndefined();
   });
 });
+
+describe("使用者貼的新聞與搜尋紀錄", () => {
+  it("從貼上的文字取出網址（最多 3 個、去重、去掉結尾標點）", async () => {
+    const { parseUrls } = await import("../src/ai/claude");
+    const t = "看這篇 https://www.ctee.com.tw/news/20261017700123-430201。還有 https://a.com/x) 和 https://a.com/x 以及 https://b.com https://c.com";
+    expect(parseUrls(t)).toEqual(["https://www.ctee.com.tw/news/20261017700123-430201", "https://a.com/x", "https://b.com"]);
+    expect(parseUrls("沒有網址")).toEqual([]);
+  });
+
+  it("報告記下搜尋關鍵字與讀過的文章", async () => {
+    const { collect } = await import("../src/ai/claude");
+    const r = collect({
+      model: "claude-opus-5-5", stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 },
+      content: [
+        { type: "server_tool_use", id: "f", name: "web_fetch", input: { url: "https://www.ctee.com.tw/news/1" } },
+        { type: "web_fetch_tool_result", tool_use_id: "f", content: { type: "web_fetch_result", url: "https://www.ctee.com.tw/news/1" } },
+        { type: "server_tool_use", id: "s", name: "web_search", input: { query: "穎崴 高盛 目標價" } },
+        { type: "text", text: "評等：觀望\n內容", citations: null },
+      ],
+    } as any);
+    expect(r.queries).toEqual(["穎崴 高盛 目標價"]);
+    expect(r.fetched).toEqual(["https://www.ctee.com.tw/news/1"]);
+  });
+
+  it("讀文章時顯示讀取中", () => {
+    let { p, scratch } = newProgress();
+    p = nextProgress(p, { type: "content_block_start", index: 0, content_block: { type: "server_tool_use", name: "web_fetch", input: {} } }, scratch);
+    expect(p.phase).toBe("fetching");
+    p = nextProgress(p, { type: "content_block_start", index: 1, content_block: { type: "web_fetch_tool_result" } }, scratch);
+    expect(p.phase).toBe("reading");
+  });
+});

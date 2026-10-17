@@ -37,15 +37,26 @@ function check(ok, name, detail = "") {
   // 模擬器剛開機時，App 第一次啟動偶爾會被系統重建一次畫面，舊的連線就會斷掉；斷掉就重新連
   let webview, page;
   for (let attempt = 1; ; attempt++) {
-    webview = await withTimeout(device.webView({ pkg: PKG }), 90_000, "等待 App 的 WebView");
-    page = await withTimeout(webview.page(), 60_000, "連接 WebView 頁面");
+    try {
+      webview = await withTimeout(device.webView({ pkg: PKG }), 90_000, "等待 App 的 WebView");
+      page = await withTimeout(webview.page(), 60_000, "連接 WebView 頁面");
+    } catch (e) {
+      // 模擬器的除錯連線偶爾卡住：重開 App 再連一次（App 本身已經在跑）
+      log(`連接 App 畫面失敗（第 ${attempt} 次）：${e.message}，重開 App 再試`);
+      if (attempt >= 4) throw e;
+      await device.shell(`am force-stop ${PKG}`);
+      await sleep(3000);
+      await device.shell(`am start -n ${PKG}/.MainActivity`);
+      await sleep(5000);
+      continue;
+    }
     await sleep(10000);
     if (!page.isClosed()) break;
     log(`App 畫面連線中斷（第 ${attempt} 次），重新連接`,
       "\n程序：", String(await device.shell(`pidof ${PKG}`)).trim() || "（App 已結束）",
       "\n當機紀錄：", String(await device.shell("logcat -d -b crash -t 30")).slice(-1500),
       "\nWebView 紀錄：", String(await device.shell("logcat -d -t 400 | grep -iE 'chromium|webview|renderer|fatal|died|crash|lowmemory|kill' | tail -40")).slice(-3000));
-    if (attempt >= 3) throw new Error("App 畫面一直中斷");
+    if (attempt >= 4) throw new Error("App 畫面一直中斷");
     await device.shell(`am start -n ${PKG}/.MainActivity`);
     await sleep(2000);
   }

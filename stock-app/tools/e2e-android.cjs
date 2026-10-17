@@ -186,7 +186,9 @@ function check(ok, name, detail = "") {
   check(!!(await page.$('[data-testid="etf-ask"]')), "自組ETF 有請 Claude 建議按鈕");
   await shot("05b-自組ETF");
   // 免費停損提醒：把停損價設在現價之上，應該馬上出現提醒與分頁紅點
-  check(!(await page.$('[data-testid="etf-alerts"]')), "自組ETF 剛買進時沒有停損提醒");
+  // 剛買進不會跌破預設停損（成本 −10%）；但台積電當天若被評為離場，會有離場提醒，這是正確的
+  const before = await page.$eval('[data-testid="etf-alerts"]', (e) => e.innerText).catch(() => "");
+  check(!/跌破停損價/.test(before), "自組ETF 剛買進時沒有停損提醒", before.replace(/\s+/g, " ").slice(0, 120));
   const px2330 = await page.$eval('[data-testid="stop-edit"]', (e) => e.closest(".item").querySelector(".p").innerText.replace(/[^0-9.]/g, ""));
   await page.click('[data-testid="stop-edit"]');
   await page.fill('[data-testid="stop-input"]', String(Math.ceil(Number(px2330) * 1.05)));

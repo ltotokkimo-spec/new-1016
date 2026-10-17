@@ -202,12 +202,26 @@ function check(ok, name, detail = "") {
     if (w.pid() !== oldPid) wv2 = w; else await sleep(1000);
   }
   check(!!wv2, "重開 App");
-  const page2 = await withTimeout(wv2.page(), 60_000, "連接重開後的頁面");
+  let page2 = await withTimeout(wv2.page(), 60_000, "連接重開後的頁面");
   page2.on("pageerror", (e) => errors.push(e.message));
-  await page2.waitForSelector("nav.tabs", { timeout: 60000 });
+  // 重開後模擬器偶爾也會重建一次畫面，舊連線會斷；斷了就重新接上（App 本身不受影響）
+  const ensurePage2 = async () => {
+    for (let i = 1; page2.isClosed(); i++) {
+      log(`重開後畫面連線中斷（第 ${i} 次），重新連接`);
+      if (i > 3) throw new Error("重開後 App 畫面一直中斷");
+      const w = await withTimeout(device.webView({ pkg: PKG }), 90_000, "重新等待 WebView");
+      page2 = await withTimeout(w.page(), 60_000, "重新連接頁面");
+      page2.on("pageerror", (e) => errors.push(e.message));
+      await sleep(3000);
+    }
+    await page2.waitForSelector("nav.tabs", { timeout: 60000 });
+  };
+  await sleep(8000);
+  await ensurePage2();
   await page2.click("nav.tabs button:nth-child(3)");
   await page2.waitForSelector(".list .item", { timeout: 30000 });
   check(/台積電/.test(await page2.$eval(".list .item", (e) => e.innerText)), "重開 App 後持股還在");
+  await ensurePage2();
 
   // 美股：真實 Nasdaq 資料
   await page2.click("nav.tabs button:nth-child(1)");

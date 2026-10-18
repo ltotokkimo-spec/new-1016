@@ -41,3 +41,22 @@ export function weekdaysBack(ymd: string, n: number): string[] {
 
 export const dash = (ymd: string) => `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`;
 export const pretty = (ymd: string) => `${+ymd.slice(4, 6)}/${+ymd.slice(6, 8)}`;
+
+const WEEK = "日一二三四五六";
+/** 10/16（五） */
+export function prettyW(ymd: string): string {
+  return `${+ymd.slice(4, 6)}/${+ymd.slice(6, 8)}（${WEEK[toUtcDate(ymd).getUTCDay()]}）`;
+}
+
+/**
+ * 依收盤資料日期，建議的下單日：資料日之後的第一個平日；
+ * 如果那天已經過了（或今天已收盤 13:30 後），就往後找。國定假日沒有列入，遇到要順延。
+ */
+export function orderDay(asOf: string, now = Date.now()): string {
+  const today = taipeiToday(now);
+  const d8 = new Date(now + 8 * 3600_000);
+  const closed = d8.getUTCHours() * 60 + d8.getUTCMinutes() >= 13 * 60 + 30;
+  let d = addDays(asOf, 1);
+  while (!isWeekday(d) || d < today || (d === today && closed)) d = addDays(d, 1);
+  return d;
+}

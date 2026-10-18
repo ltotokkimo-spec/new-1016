@@ -5,7 +5,7 @@ import {
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError, holdingsFromImage, shrinkImage } from "../ai/claude";
 import { comparePlans, DEFAULT_STOP, fitBudget, parsePlan, positions, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
-import { taipeiToday, pretty } from "../lib/dates";
+import { orderDay, pretty, prettyW, taipeiToday } from "../lib/dates";
 import { cls, fmtMoney, fmtPct, fmtPrice } from "./common";
 import { AiProgressView, AiReportView, BalanceHint, copyText } from "./screens";
 
@@ -38,7 +38,7 @@ function NavChart({ points }: { points: { date: string; nav: number; bench: numb
 }
 
 /** 免費提醒：跌破停損、被 App 評為離場（每次更新行情就重新比對，不花錢） */
-function AlertCard({ alerts, onAsk, canAsk }: { alerts: EtfAlert[]; onAsk: () => void; canAsk: boolean }) {
+function AlertCard({ alerts, onAsk, canAsk, asOf }: { alerts: EtfAlert[]; onAsk: () => void; canAsk: boolean; asOf?: string }) {
   if (!alerts.length) return null;
   // 同一檔的多個提醒合併成一行
   const codes = [...new Set(alerts.map((a) => a.code))];
@@ -58,7 +58,8 @@ function AlertCard({ alerts, onAsk, canAsk }: { alerts: EtfAlert[]; onAsk: () =>
           </div>
         );
       })}
-      <div class="muted" style={{ fontSize: "12px" }}>這是 App 自動比對的免費提醒，不代表一定要賣。可以請 Claude 檢視後再決定：</div>
+      <DateHint asOf={asOf} what="提醒" />
+      <div class="muted" style={{ fontSize: "12px" }}>這是 App 用收盤價自動比對的免費提醒，不代表一定要賣。可以請 Claude 檢視後再決定：</div>
       {canAsk && <button class="btn block" onClick={onAsk}>請 Claude 檢視調整（API 付費，約台幣 20～30 元）</button>}
       <button class="btn secondary block" onClick={toPro} data-testid="alert-pro">用 Claude Pro 檢視（免費，用你的訂閱）</button>
     </div>
@@ -77,6 +78,17 @@ function StopEdit({ p, stops }: { p: Position; stops?: Record<string, number> })
       <input class="mini-input" inputMode="decimal" placeholder={`空白＝成本 −${DEFAULT_STOP * 100}%`} value={text} onInput={(e) => setText((e.target as HTMLInputElement).value)} data-testid="stop-input" />
       <button class="btn secondary mini" onClick={save} data-testid="stop-save">儲存</button>
     </span>
+  );
+}
+
+/** 這份判斷用的是哪天的收盤資料、建議哪天下單 */
+function DateHint({ asOf, latest, what = "這份建議" }: { asOf?: string; latest?: string; what?: string }) {
+  if (!asOf) return null;
+  return (
+    <div class="date-hint" data-testid="date-hint">
+      📅 {what}根據 <b>{prettyW(asOf)}</b> 收盤資料，建議 <b>{prettyW(orderDay(asOf))}</b> 盤中下單（9:00～13:30，用限價單；遇國定假日順延）
+      {latest && latest > asOf && <div class="down" style={{ marginTop: "4px" }}>之後已經有 {prettyW(latest)} 的新資料，價格可能變了，下單前可以再檢視一次。</div>}
+    </div>
   );
 }
 
@@ -148,7 +160,7 @@ function CompareCard({ api, pro, fillFrom, apiAt, proAt }: { api: PlanItem[]; pr
 }
 
 /** 照 Claude 的清單填入實際成交 */
-function PlanFill({ items, planKey, cash, stops, source }: { items: PlanItem[]; planKey: string; cash: number; stops: Record<string, number>; source: string }) {
+function PlanFill({ items, planKey, cash, stops, source, asOf }: { items: PlanItem[]; planKey: string; cash: number; stops: Record<string, number>; source: string; asOf?: string }) {
   const fitted = useMemo(() => fitBudget(items, etfPrice, cash), [items]);
   const [rows, setRows] = useState(() => fitted.map((it) => ({ ...it, keep: !!etfPrice(it.code), price: String(etfPrice(it.code) ?? ""), shares: String(it.shares), stopText: it.stop ? String(it.stop) : "" })));
   const [err, setErr] = useState("");
@@ -167,6 +179,7 @@ function PlanFill({ items, planKey, cash, stops, source }: { items: PlanItem[]; 
   return (
     <div class="card stack" data-testid="plan-fill">
       <b>照 {source} 的建議下單後，在這裡填入實際成交</b>
+      {asOf && <div class="muted" style={{ fontSize: "12px" }}>預填的成交價是 {prettyW(asOf)} 收盤價，請改成你 {prettyW(orderDay(asOf))} 實際成交的價格。</div>}
       <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>已帶入建議股數與最新收盤價，請改成你實際的成交價與股數；沒買的取消勾選。{fitted.some((x, i) => x.shares !== items[i]?.shares) ? "（建議超過可用現金，股數已等比例調低）" : ""}</div>
       {rows.map((r, i) => (
         <div class="import-row" style={{ padding: "8px 0" }}>
@@ -287,7 +300,7 @@ function ManualTrade() {
 }
 
 export function AiEtfScreen() {
-  const st = useStore((s) => ({ etf: s.aiEtf, prices: s.prices, scored: s.tw.scored, reports: s.reports, jobs: s.aiJobs, apiKey: s.settings.apiKey, twReady: s.tw.status === "ready" }));
+  const st = useStore((s) => ({ asOf: s.tw.asOf, etf: s.aiEtf, prices: s.prices, scored: s.tw.scored, reports: s.reports, jobs: s.aiJobs, apiKey: s.settings.apiKey, twReady: s.tw.status === "ready" }));
   const { etf } = st;
   const v = valuate(etf, etfPrice);
   const pos = positions(etf.trades).filter((p) => p.shares > 0);
@@ -316,7 +329,7 @@ export function AiEtfScreen() {
 
   return (
     <div>
-      <AlertCard alerts={alerts} onAsk={ask} canAsk={!busy && !!st.apiKey && st.twReady} />
+      <AlertCard alerts={alerts} onAsk={ask} canAsk={!busy && !!st.apiKey && st.twReady} asOf={st.asOf} />
       <div class="card stack" data-testid="etf-summary">
         <div class="row" style={{ justifyContent: "space-between" }}>
           <b>我的自組 ETF</b>
@@ -392,11 +405,13 @@ export function AiEtfScreen() {
               <button aria-pressed={view === "pro"} onClick={() => setView("pro")} data-testid="view-pro">Claude Pro 版報告</button>
             </div>
           )}
-          {(view === "pro" || !plan) && pro && proParsed ? <AiReportView r={{ ...pro, text: proParsed.body }} /> : plan && parsed && <AiReportView r={{ ...plan, text: parsed.body }} />}
+          {(view === "pro" || !plan) && pro && proParsed
+            ? <><DateHint asOf={etf.proAsOf} latest={st.asOf} what="Claude Pro 版" /><AiReportView r={{ ...pro, text: proParsed.body }} /></>
+            : plan && parsed && <><DateHint asOf={etf.planAsOf} latest={st.asOf} what="付費版" /><AiReportView r={{ ...plan, text: parsed.body }} /></>}
         </>
       )}
       {showFill && (
-        <div style={{ marginTop: "10px" }}><PlanFill key={fillKey} items={fillParsed!.items} planKey={fillKey!} cash={v.cash} stops={fillParsed!.stops} source={fillSrc === "pro" ? "Claude Pro" : "Claude API"} /></div>
+        <div style={{ marginTop: "10px" }}><PlanFill key={fillKey} items={fillParsed!.items} planKey={fillKey!} cash={v.cash} stops={fillParsed!.stops} source={fillSrc === "pro" ? "Claude Pro" : "Claude API"} asOf={fillSrc === "pro" ? etf.proAsOf : etf.planAsOf} /></div>
       )}
       {!busy && fillParsed && !fillParsed.items.length && <div class="notice" style={{ marginTop: "10px" }}>這份建議沒有要買賣（維持不變），或回覆最後沒有附上 JSON 清單。</div>}
       {!busy && !plan && !pro && (

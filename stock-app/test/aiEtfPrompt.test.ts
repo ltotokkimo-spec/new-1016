@@ -11,3 +11,10 @@ describe("aiEtfPrompt", () => {
     expect(api).toMatch(/請檢視這個組合/);
   });
 });
+
+describe("aiEtfPrompt 下單日", () => {
+  it("有資料日時告訴 Claude 收盤日與下單日", () => {
+    const p = aiEtfPrompt({ today: "2026/10/18", budget: 100000, cash: 100000, nav: 100000, holdings: [], candidates: [], dataDate: "10/16（五）", orderDate: "10/19（一）" });
+    expect(p).toMatch(/10\/16（五） 收盤後的資料；我會在 10\/19（一） 盤中用限價單下單/);
+  });
+});

@@ -21,6 +21,8 @@ export interface AiEtf {
   stops?: Record<string, number>; // 每檔的停損價（Claude 建議或自己設定）
   proKey?: string; // 最近一次貼回的 Claude App（Pro）回覆
   fillFrom?: "api" | "pro"; // 要照哪一份建議填成交
+  planAsOf?: string; // 付費版建議用的收盤資料日（YYYYMMDD）
+  proAsOf?: string; // Pro 版建議用的收盤資料日
 }
 
 export const FEE = 0.001425; // 券商手續費（未打折）

@@ -337,6 +337,7 @@ export interface EtfHoldingBrief { code: string; name: string; shares: number; a
 
 export interface EtfAdviceInput {
   today: string; budget: number; cash: number; nav: number;
+  dataDate?: string; orderDate?: string; // 例如「10/16（五）」：收盤資料日、建議下單日
   holdings: EtfHoldingBrief[]; candidates: Scored[];
 }
 
@@ -351,7 +352,7 @@ export function aiEtfPrompt(p: EtfAdviceInput, forApp = false): string {
     `${s.code} ${s.name}｜${s.sector}｜收盤 ${s.close}｜分數 ${s.score}｜${s.rating}｜近1週 ${fmtPct(s.ret1w)}・近1月 ${fmtPct(s.ret1m)}｜外資5日 ${s.foreign5 !== undefined ? Math.round(s.foreign5 / 1000) + " 張" : "無"}`).join("\n");
   const hold = p.holdings.filter((h) => h.shares > 0).map((h) =>
     `${h.code} ${h.name}：${h.shares} 股，平均成本 ${h.avgCost.toFixed(2)}，現價 ${h.price ?? "無資料"}${h.price ? `（${fmtPct(h.price / h.avgCost - 1)}）` : ""}${h.stop ? `，停損價 ${h.stop}` : ""}${h.rating ? `，App 評等 ${h.rating}` : ""}`).join("\n");
-  const prompt = `今天是 ${p.today}。我要用新台幣 ${p.budget.toLocaleString()} 元做一個「自組 ETF」，會照你的建議真的下單，之後看效益。
+  const prompt = `今天是 ${p.today}。我要用新台幣 ${p.budget.toLocaleString()} 元做一個「自組 ETF」，會照你的建議真的下單，之後看效益。${p.dataDate ? `\n下面的價格與籌碼是 ${p.dataDate} 收盤後的資料；我會在 ${p.orderDate} 盤中用限價單下單，請以這天下單為前提給建議（例如參考價、不要追高的價位）。` : ""}
 ${review ? `目前組合淨值 ${Math.round(p.nav).toLocaleString()} 元，可用現金 ${Math.round(p.cash).toLocaleString()} 元。
 
 【目前持股】

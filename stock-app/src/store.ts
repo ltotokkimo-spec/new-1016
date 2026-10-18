@@ -8,7 +8,7 @@ import { UsLoader, type UsSnapshot } from "./data/usLoader";
 import { cnbcUrl, isUsSymbol, MACRO_SYMBOLS, parseCnbcQuotes, US_UNIVERSE, type MacroQuote, type UsExtra } from "./data/us";
 import { scoreStocks, reviewHolding, type Holding, type HoldingView, type Scored, type SectorStat } from "./engine/score";
 import { aiEtfAdvice, explainError, type AiProgress, type EtfAdviceInput, type AiReport, type OnProgress } from "./ai/claude";
-import { taipeiToday } from "./lib/dates";
+import { orderDay, prettyW, taipeiToday } from "./lib/dates";
 import * as upd from "./lib/update";
 import type { BacktestResult } from "./engine/backtest";
 import { parseRevenue, revenueUrls, type Revenue } from "./data/revenue";
@@ -520,13 +520,17 @@ export function etfAdviceInput(): EtfAdviceInput {
   const inTop = new Set(top.map((s) => s.code));
   const candidates = [...top, ...scored.filter((s) => held.has(s.code) && !inTop.has(s.code))];
   const today = taipeiToday();
-  return { today: `${today.slice(0, 4)}/${today.slice(4, 6)}/${today.slice(6)}`, budget: etf.budget, cash: v.cash, nav: v.nav, holdings, candidates };
+  const asOf = state.tw.asOf;
+  return {
+    today: `${today.slice(0, 4)}/${today.slice(4, 6)}/${today.slice(6)}`, budget: etf.budget, cash: v.cash, nav: v.nav, holdings, candidates,
+    dataDate: asOf ? prettyW(asOf) : undefined, orderDate: asOf ? prettyW(orderDay(asOf)) : undefined,
+  };
 }
 
 export async function startEtfAdvice() {
   const input = etfAdviceInput();
   const key = `aietf:${Date.now()}`;
-  await saveAiEtf({ ...state.aiEtf, planKey: key, fillFrom: "api" });
+  await saveAiEtf({ ...state.aiEtf, planKey: key, fillFrom: "api", planAsOf: state.tw.asOf });
   await startAiJob({ key, kind: "aietf", title: input.holdings.length ? "自組 ETF 檢視調整" : "自組 ETF 建倉建議" },
     (onProgress) => aiEtfAdvice(state.settings.apiKey, input, onProgress));
 }
@@ -535,7 +539,7 @@ export async function startEtfAdvice() {
 export async function saveProReply(text: string) {
   const key = `aietfpro:${Date.now()}`;
   await saveReport(key, { text: text.trim(), sources: [], model: "Claude App（Pro 訂閱）", at: Date.now() });
-  await saveAiEtf({ ...state.aiEtf, proKey: key });
+  await saveAiEtf({ ...state.aiEtf, proKey: key, proAsOf: state.tw.asOf });
 }
 
 export async function setEtfFillFrom(fillFrom: "api" | "pro") {

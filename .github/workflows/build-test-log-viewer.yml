@@ -39,6 +39,21 @@ jobs:
           name: TestLogViewer_v${{ steps.ver.outputs.version }}
           path: test-log-viewer/dist/TestLogViewer_v${{ steps.ver.outputs.version }}.exe
 
+      - name: Publish GitHub Release (download page)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          EXE="test-log-viewer/dist/TestLogViewer_v${VER}.exe"
+          if gh release view "v${VER}" >/dev/null 2>&1; then
+            gh release upload "v${VER}" "$EXE" --clobber
+          else
+            gh release create "v${VER}" "$EXE" --target "$GITHUB_SHA" --latest \
+              --title "TestLogViewer v${VER}" \
+              --notes "測試結果檢視器 v${VER}：下載下方的 TestLogViewer_v${VER}.exe，雙擊即可執行（Windows 64 位元，免安裝 Python）。"
+          fi
+
       - name: Commit exe to branch
         shell: bash
         run: |

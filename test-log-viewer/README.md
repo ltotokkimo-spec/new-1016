@@ -21,7 +21,7 @@
 - 用 Ctrl+C 複製選取的列（以 Tab 分隔，可直接貼進 Excel）。
 
 ## 直接使用 exe（免安裝 Python）
-下載 [`release/TestLogViewer.exe`](release/TestLogViewer.exe)，雙擊即可執行。要重新打包時，到 GitHub Actions 的「Build TestLogViewer.exe」按 Run workflow，它會在 Windows 上打包並把 exe 存回分支。
+到 [`release/`](release/) 下載 `TestLogViewer_v版本.exe`，雙擊即可執行。版本號寫在 `log_viewer.py` 的 `APP_VERSION`，也會顯示在視窗標題。要重新打包時，到 GitHub Actions 的「Build TestLogViewer.exe」按 Run workflow，它會在 Windows 上打包並把 exe 存回分支。
 
 ## 用 Python 執行
 只需要 Python 3.8 以上（內建 tkinter），不必另外安裝套件。
@@ -35,4 +35,4 @@ python log_viewer.py "C:\path\to\operator_log.csv"
 pip install pyinstaller openpyxl
 build_exe.bat
 ```
-打包好的檔案在 `dist\TestLogViewer.exe`。設定會存在 exe 旁邊的 `log_viewer_settings.json`。
+打包好的檔案在 `dist\TestLogViewer_v版本.exe`。設定會存在 exe 旁邊的 `log_viewer_settings.json`。

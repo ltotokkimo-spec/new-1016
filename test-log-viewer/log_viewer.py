@@ -28,7 +28,8 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
-APP_TITLE = "測試結果檢視器"
+APP_VERSION = "1.3.0"
+APP_TITLE = f"測試結果檢視器 v{APP_VERSION}"
 DEFAULT_CSV_NAME = "operator_log.csv"
 DEFAULT_CHANNELS = 6
 ROW_HEIGHT = 24
@@ -206,9 +207,13 @@ def all_columns(n_ch):
 # 表格元件（Canvas 虛擬繪製，只畫可見列，資料量大也順暢）
 # --------------------------------------------------------------------------
 class GridTable(ttk.Frame):
-    def __init__(self, master, on_double_click=None, on_select=None, on_context=None):
+    def __init__(self, master, on_double_click=None, on_select=None, on_context=None,
+                 on_copy=None):
         super().__init__(master)
-        self.on_double_click = on_double_click
+        self.on_double_click = on_double_click   # 開啟詳細資料（Enter / 右鍵選單）
+        self.on_copy = on_copy
+        self.editor = None         # 雙擊儲存格時出現的可選取文字框
+        self.ctx_cell = None       # 右鍵點到的 (rec, key)
         self.on_select = on_select
         self.on_context = on_context
         self.columns = []
@@ -266,6 +271,7 @@ class GridTable(ttk.Frame):
     # ---- 資料 ----
     def set_data(self, columns, rows, scroll=None):
         """scroll: None=保持位置, 'top', 'bottom'"""
+        self.close_editor()
         self.columns = columns
         self.rows = rows
         self._autosize()
@@ -335,10 +341,10 @@ class GridTable(ttk.Frame):
     def _redraw(self):
         self._redraw_pending = False
         c = self.body
-        c.delete("all")
+        c.delete("grid")
         if not self.rows:
             c.create_text(20, 20, anchor="nw", text="（沒有資料）", font=self.font,
-                          fill="#888888")
+                          fill="#888888", tags="grid")
             return
         h = c.winfo_height()
         y0 = c.canvasy(0)
@@ -354,19 +360,23 @@ class GridTable(ttk.Frame):
                 bg, fg, bold = cell_style(rec, key)
                 if selected and bg == COLORS["cell_bg"]:
                     bg = COLORS["select_bg"]
-                c.create_rectangle(x, y, x + w, y + rh, fill=bg, outline=COLORS["grid"])
+                c.create_rectangle(x, y, x + w, y + rh, fill=bg, outline=COLORS["grid"],
+                                   tags="grid")
                 font = self.font_big if key == "CH0" else (
                     self.font_bold if bold else self.font)
                 tx = x + w - 6 if anchor == "e" else x + 6
                 c.create_text(tx, y + rh / 2, text=cell_text(rec, key), anchor=anchor,
-                              fill=fg, font=font)
+                              fill=fg, font=font, tags="grid")
                 x += w
             if selected:
-                c.create_rectangle(1, y + 1, x - 1, y + rh - 1, outline="#0066CC", width=2)
+                c.create_rectangle(1, y + 1, x - 1, y + rh - 1, outline="#0066CC", width=2,
+                                   tags="grid")
         if self._drag and self._drag.get("moved"):
             d = self._drag
             c.create_rectangle(d["x0"], d["y0"], d["x1"], d["y1"], outline="#0066CC",
-                               width=2, dash=(5, 3), fill="#3399FF", stipple="gray12")
+                               width=2, dash=(5, 3), fill="#3399FF", stipple="gray12",
+                               tags="grid")
+        c.tag_raise("editor")
 
     # ---- 捲動 ----
     def _on_yscroll(self, a, b):
@@ -481,13 +491,66 @@ class GridTable(ttk.Frame):
         self._drag = None
         self._notify()
 
+    def _col_at(self, event):
+        cx = self.body.canvasx(event.x)
+        x = 0
+        for i, w in enumerate(self.widths):
+            if x <= cx < x + w:
+                return i, x, w
+            x += w
+        return None
+
     def _on_dclick(self, e):
+        """雙擊儲存格：變成可選取的文字框，內容全選並複製到剪貼簿"""
         idx = self._row_at(e)
-        if idx is not None and self.on_double_click:
-            self.on_double_click(self.rows[idx])
+        col = self._col_at(e)
+        if idx is None or col is None:
+            return
+        ci, x, w = col
+        key = self.columns[ci][0]
+        rec = self.rows[idx]
+        text = cell_text(rec, key)
+        self.close_editor()
+        bg, fg, bold = cell_style(rec, key)
+        font = self.font_big if key == "CH0" else (self.font_bold if bold else self.font)
+        ent = tk.Entry(self.body, font=font, relief="solid", bd=1,
+                       readonlybackground="#FFFFFF", fg="#000000",
+                       selectbackground="#0078D7", selectforeground="#FFFFFF",
+                       highlightthickness=2, highlightcolor="#0066CC")
+        ent.insert(0, text)
+        ent.configure(state="readonly")
+        y = idx * self.row_h
+        self.body.create_window(x, y, window=ent, anchor="nw", width=max(w, 80),
+                                height=self.row_h, tags="editor")
+        self.editor = ent
+        ent.focus_set()
+        ent.select_range(0, "end")
+        ent.icursor("end")
+        ent.bind("<Escape>", lambda ev: self.close_editor())
+        ent.bind("<Return>", lambda ev: self.close_editor())
+        ent.bind("<FocusOut>", lambda ev: self.close_editor())
+        for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            ent.bind(seq, lambda ev: (self.close_editor(), self._on_wheel(ev)))
+        if text:
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            if self.on_copy:
+                self.on_copy(text)
+        return "break"
+
+    def close_editor(self):
+        if self.editor is not None:
+            ed, self.editor = self.editor, None
+            self.body.delete("editor")
+            ed.destroy()
+            self.body.focus_set()
 
     def _on_right_click(self, e):
+        self.close_editor()
         idx = self._row_at(e)
+        col = self._col_at(e)
+        self.ctx_cell = (self.rows[idx], self.columns[col[0]][0]) if (
+            idx is not None and col is not None) else None
         if idx is not None and self.rows[idx]["_line"] not in self.selected:
             self.selected = {self.rows[idx]["_line"]}
             self._anchor = idx
@@ -661,28 +724,51 @@ class App(tk.Tk):
         self.lbl_update.pack(side="right")
 
         self.table = GridTable(self, on_double_click=self.show_detail,
-                               on_select=self._on_select, on_context=self._context_menu)
+                               on_select=self._on_select, on_context=self._context_menu,
+                               on_copy=lambda t: self.var_status.set(
+                                   f"已複製：{t}　（可直接 Ctrl+V 貼到 SN/OPID 篩選）"))
         self.table.pack(fill="both", expand=True, padx=6, pady=2)
 
         sb = ttk.Label(self, textvariable=self.var_status, anchor="w", relief="sunken")
         sb.pack(fill="x", side="bottom")
         self.var_status.set("按住滑鼠左鍵拖曳可框選多列（Ctrl 加選、Shift 範圍、Ctrl+A 全選）；"
-                            "雙擊看詳細資料；右鍵選單；Ctrl+C 複製")
+                            "雙擊儲存格可選取並複製內容；Enter 或右鍵看詳細資料")
         self._on_select(0)
 
-        self.menu = tk.Menu(self, tearoff=0)
-        self.menu.add_command(label="只顯示選取的列", command=self.show_only_selected)
-        self.menu.add_command(label="顯示全部", command=self.show_all)
-        self.menu.add_separator()
-        self.menu.add_command(label="複製選取的列", command=self.table._copy_selected)
-        self.menu.add_command(label="選擇欄位…", command=self.choose_columns)
 
     # ---- 框選 / 欄位 ----
     def _on_select(self, n):
         self.lbl_sel.config(text=f"已選 {n} 列" if n else "（拖曳滑鼠框選要的列）")
         self.btn_only.state(["!disabled"] if n else ["disabled"])
 
+    def _copy_text(self, text):
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self.var_status.set(f"已複製：{text}")
+
+    def _filter_sn(self, sn):
+        self.var_search.set(sn)
+        self.var_status.set(f"已用 SN 篩選：{sn}　（清空 SN/OPID 欄位即還原）")
+
     def _context_menu(self, e):
+        self.menu = tk.Menu(self, tearoff=0)
+        cell = self.table.ctx_cell
+        if cell:
+            rec, key = cell
+            text = cell_text(rec, key)
+            self.menu.add_command(label="查看詳細資料", command=lambda: self.show_detail(rec))
+            self.menu.add_command(label=f"複製此格：{text[:30]}", state="normal" if text else "disabled",
+                                  command=lambda: self._copy_text(text))
+            self.menu.add_command(label=f"複製 SN：{rec['sn']}",
+                                  command=lambda: self._copy_text(rec["sn"]))
+            self.menu.add_command(label=f"用此 SN 篩選：{rec['sn']}",
+                                  command=lambda: self._filter_sn(rec["sn"]))
+            self.menu.add_separator()
+        self.menu.add_command(label="只顯示選取的列", command=self.show_only_selected)
+        self.menu.add_command(label="顯示全部", command=self.show_all)
+        self.menu.add_separator()
+        self.menu.add_command(label="複製選取的列", command=self.table._copy_selected)
+        self.menu.add_command(label="選擇欄位…", command=self.choose_columns)
         try:
             self.menu.tk_popup(e.x_root, e.y_root)
         finally:

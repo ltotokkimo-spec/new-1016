@@ -20,9 +20,15 @@ jobs:
       - name: Install build deps
         run: python -m pip install --upgrade pip pyinstaller openpyxl
 
+      - name: Read version
+        id: ver
+        shell: bash
+        working-directory: test-log-viewer
+        run: echo "version=$(python -c 'import re;print(re.search(r"APP_VERSION = \"(.+?)\"", open("log_viewer.py", encoding="utf-8").read()).group(1))')" >> "$GITHUB_OUTPUT"
+
       - name: Build exe
         working-directory: test-log-viewer
-        run: pyinstaller --noconfirm --onefile --windowed --name TestLogViewer log_viewer.py
+        run: pyinstaller --noconfirm --onefile --windowed --name TestLogViewer_v${{ steps.ver.outputs.version }} log_viewer.py
 
       - name: Smoke test (import + parse sample CSV)
         working-directory: test-log-viewer
@@ -30,17 +36,19 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: TestLogViewer
-          path: test-log-viewer/dist/TestLogViewer.exe
+          name: TestLogViewer_v${{ steps.ver.outputs.version }}
+          path: test-log-viewer/dist/TestLogViewer_v${{ steps.ver.outputs.version }}.exe
 
       - name: Commit exe to branch
         shell: bash
         run: |
+          EXE="TestLogViewer_v${{ steps.ver.outputs.version }}.exe"
           mkdir -p test-log-viewer/release
-          cp test-log-viewer/dist/TestLogViewer.exe test-log-viewer/release/TestLogViewer.exe
+          git rm -q --ignore-unmatch "test-log-viewer/release/*.exe"
+          cp "test-log-viewer/dist/$EXE" "test-log-viewer/release/$EXE"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add test-log-viewer/release/TestLogViewer.exe
+          git add -A test-log-viewer/release
           git commit -m "Build TestLogViewer.exe (${GITHUB_SHA::7})" || exit 0
           git pull --rebase origin "${GITHUB_REF_NAME}"
           git push origin "HEAD:${GITHUB_REF_NAME}"

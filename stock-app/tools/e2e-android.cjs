@@ -37,7 +37,11 @@ function check(ok, name, detail = "") {
   await device.shell(`am start --splashscreen-show-icon -n ${PKG}/.MainActivity`);
   // Android 12 以上的啟動畫面：雷達掃描動畫（開 App 後馬上截圖）
   await new Promise((r) => setTimeout(r, 350));
+  const t0 = Date.now();
   await shot("00-啟動動畫");
+  // 雷達要轉滿一圈（1 秒）才切到 App：第二張截圖時應該還在啟動畫面
+  log("啟動動畫截圖耗時", Date.now() - t0, "ms");
+  await shot("00b-啟動動畫第二張");
   // 模擬器剛開機時，App 第一次啟動偶爾會被系統重建一次畫面，舊的連線就會斷掉；斷掉就重新連
   let webview, page;
   for (let attempt = 1; ; attempt++) {

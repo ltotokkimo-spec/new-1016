@@ -28,7 +28,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.5.0"
 APP_TITLE = f"測試結果檢視器 v{APP_VERSION}"
 DEFAULT_CSV_NAME = "operator_log.csv"
 DEFAULT_CHANNELS = 6
@@ -766,11 +766,12 @@ class App(tk.Tk):
                                on_copy=lambda t: self.var_status.set(
                                    f"已複製：{t}　（可直接 Ctrl+V 貼到 SN/OPID 篩選）"))
         self.table.pack(fill="both", expand=True, padx=6, pady=2)
+        self.table.header.bind("<Button-3>", self._header_menu)
 
         sb = ttk.Label(self, textvariable=self.var_status, anchor="w", relief="sunken")
         sb.pack(fill="x", side="bottom")
         self.var_status.set("按住滑鼠左鍵拖曳可框選多列（Ctrl 加選、Shift 範圍、Ctrl+A 全選）；"
-                            "雙擊儲存格可選取並複製內容；Enter 或右鍵看詳細資料")
+                            "雙擊儲存格可選取並複製；右鍵可複製任一格、整列、整欄或全部資料；Enter 看詳細資料")
         self._on_select(0)
 
 
@@ -808,33 +809,110 @@ class App(tk.Tk):
         self._suspend = False
         self.refresh_view(scroll="end")
 
+    # ---- 右鍵複製 ----
+    def _rows_to_text(self, rows, cols, header=True):
+        lines = ["\t".join(t for _, t, _ in cols)] if header else []
+        lines += ["\t".join(cell_text(r, k) for k, _, _ in cols) for r in rows]
+        return "\n".join(lines)
+
+    def _copy_block(self, text, what):
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self.var_status.set(f"已複製{what}（以 Tab 分隔，可直接貼到 Excel）")
+
+    def _copy_column(self, key, title):
+        vals = [cell_text(r, key) for r in self.table.rows]
+        self._copy_block("\n".join(vals), f"整欄「{title}」共 {len(vals)} 筆")
+
+    def _filter_time_from(self, rec):
+        self.var_date_from.set(rec["date"])
+        self.var_time_from.set(rec["time"])
+
+    def _filter_time_to(self, rec):
+        self.var_date_to.set(rec["date"])
+        self.var_time_to.set(rec["time"])
+
     def _context_menu(self, e):
-        self.menu = tk.Menu(self, tearoff=0)
+        m = self.menu = tk.Menu(self, tearoff=0)
+        cols = self.table.columns
         cell = self.table.ctx_cell
         if cell:
             rec, key = cell
+            title = next((t for k, t, _ in cols if k == key), key)
             text = cell_text(rec, key)
-            self.menu.add_command(label="查看詳細資料", command=lambda: self.show_detail(rec))
-            self.menu.add_command(label=f"複製此格：{text[:30]}", state="normal" if text else "disabled",
-                                  command=lambda: self._copy_text(text))
-            self.menu.add_command(label=f"複製 SN：{rec['sn']}",
-                                  command=lambda: self._copy_text(rec["sn"]))
-            self.menu.add_command(label=f"用此 SN 篩選：{rec['sn']}",
-                                  command=lambda: self._filter_sn(rec["sn"]))
-            self.menu.add_command(label=f"用此 OPID 篩選：{rec['opid']}",
-                                  command=lambda: self._filter_opid(rec["opid"]))
-            self.menu.add_command(label=f"只看這一天：{rec['date']}",
-                                  command=lambda: self._filter_date(rec["date"]))
-            self.menu.add_separator()
-        self.menu.add_command(label="只顯示選取的列", command=self.show_only_selected)
-        self.menu.add_command(label="顯示全部", command=self.show_all)
-        self.menu.add_separator()
-        self.menu.add_command(label="複製選取的列", command=self.table._copy_selected)
-        self.menu.add_command(label="選擇欄位…", command=self.choose_columns)
+            show = text if len(text) <= 40 else text[:40] + "…"
+            m.add_command(label=f"複製「{title}」：{show or '（空白）'}",
+                          state="normal" if text else "disabled",
+                          command=lambda: self._copy_text(text))
+            # 這一列每個欄位都能單獨複製
+            sub = tk.Menu(m, tearoff=0)
+            for k, t, _ in all_columns(self.n_ch):
+                v = cell_text(rec, k)
+                sub.add_command(label=f"{t}：{v[:40] or '（空白）'}",
+                                state="normal" if v else "disabled",
+                                command=lambda v=v: self._copy_text(v))
+            sub.add_separator()
+            for k in ("notes", "out_dir", "duration_s", "measure_s", "engine_version"):
+                v = rec["_raw"].get(k, "")
+                if v:
+                    sub.add_command(label=f"{k}：{v[:40]}", command=lambda v=v: self._copy_text(v))
+            m.add_cascade(label="複製這一列的其他欄位", menu=sub)
+            m.add_command(label="複製這一整列（含標題）",
+                          command=lambda: self._copy_block(self._rows_to_text([rec], cols), "這一列"))
+            m.add_command(label=f"複製整欄「{title}」",
+                          command=lambda: self._copy_column(key, title))
+            m.add_separator()
+            m.add_command(label="查看詳細資料", command=lambda: self.show_detail(rec))
+            m.add_command(label=f"用此 SN 篩選：{rec['sn']}",
+                          command=lambda: self._filter_sn(rec["sn"]))
+            m.add_command(label=f"用此 OPID 篩選：{rec['opid']}",
+                          command=lambda: self._filter_opid(rec["opid"]))
+            m.add_command(label=f"只看這一天：{rec['date']}",
+                          command=lambda: self._filter_date(rec["date"]))
+            m.add_command(label=f"從此時間開始：{rec['date']} {rec['time']}",
+                          command=lambda: self._filter_time_from(rec))
+            m.add_command(label=f"到此時間結束：{rec['date']} {rec['time']}",
+                          command=lambda: self._filter_time_to(rec))
+            m.add_separator()
+        n_sel = len(self.table.selected)
+        m.add_command(label=f"複製選取的列（{n_sel} 列，含標題）",
+                      state="normal" if n_sel else "disabled",
+                      command=lambda: self._copy_block(
+                          self._rows_to_text(self.table.selected_rows(), cols), f"選取的 {n_sel} 列"))
+        m.add_command(label=f"複製全部資料（畫面上 {len(self.table.rows)} 列，含標題）",
+                      state="normal" if self.table.rows else "disabled",
+                      command=lambda: self._copy_block(
+                          self._rows_to_text(self.table.rows, cols), f"全部 {len(self.table.rows)} 列"))
+        m.add_separator()
+        m.add_command(label="只顯示選取的列", command=self.show_only_selected)
+        m.add_command(label="顯示全部", command=self.show_all)
+        m.add_command(label="選擇欄位…", command=self.choose_columns)
         try:
-            self.menu.tk_popup(e.x_root, e.y_root)
+            m.tk_popup(e.x_root, e.y_root)
         finally:
-            self.menu.grab_release()
+            m.grab_release()
+
+    def _header_menu(self, e):
+        """在標題列按右鍵：複製整欄"""
+        cx = self.table.header.canvasx(e.x)
+        x = 0
+        for (key, title, _), w in zip(self.table.columns, self.table.widths):
+            if x <= cx < x + w:
+                m = tk.Menu(self, tearoff=0)
+                m.add_command(label=f"複製整欄「{title}」（{len(self.table.rows)} 筆）",
+                              command=lambda: self._copy_column(key, title))
+                m.add_command(label=f"複製整欄「{title}」（含標題）",
+                              command=lambda: self._copy_block(
+                                  title + "\n" + "\n".join(cell_text(r, key) for r in self.table.rows),
+                                  f"整欄「{title}」"))
+                m.add_separator()
+                m.add_command(label="選擇欄位…", command=self.choose_columns)
+                try:
+                    m.tk_popup(e.x_root, e.y_root)
+                finally:
+                    m.grab_release()
+                return
+            x += w
 
     def show_only_selected(self):
         lines = self.table.selected.copy()

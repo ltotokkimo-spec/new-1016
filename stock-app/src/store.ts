@@ -12,6 +12,7 @@ import { orderDay, prettyW, taipeiToday } from "./lib/dates";
 import * as upd from "./lib/update";
 import type { BacktestResult } from "./engine/backtest";
 import type { VirtualEtf } from "./engine/virtualEtf";
+import { liveUrl, parseLive, type LiveQuote } from "./data/twLive";
 import { parseRevenue, revenueUrls, type Revenue } from "./data/revenue";
 import { emptyEtf, etfAlerts, positions as etfPositions, recordNav, stopOf, valuate, type AiEtf, type EtfTrade } from "./engine/aiEtf";
 
@@ -63,6 +64,8 @@ export interface State {
   spend: { at: number; usd: number; kind: string }[]; // 這支手機呼叫 Claude 的實際花費紀錄
   backtest?: { data: BacktestResult; fetchedAt: number };
   virtual?: { data: VirtualEtf; fetchedAt: number; error?: string };
+  live: Record<string, LiveQuote>; // 證交所即時報價（盤中每 30 秒更新）
+  liveAt?: number;
   usExtra: UsExtra[]; // 使用者自己加的美股
   usPending: string[]; // 正在下載的美股持股代號
   usNotFound: string[]; // Nasdaq 查不到的代號
@@ -77,7 +80,7 @@ const starting = (): MarketState => ({ status: "loading", scored: [], sectors: [
 
 let state: State = {
   tw: starting(), etf: starting(), us: starting(), esb: {}, twIndices: [], usSectorEtfs: [],
-  macro: { status: "idle", quotes: [] }, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], update: { status: "idle" }, usExtra: [], usPending: [], usNotFound: [], aiJobs: {}, aiEtf: emptyEtf(), loaded: false,
+  macro: { status: "idle", quotes: [] }, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], update: { status: "idle" }, usExtra: [], usPending: [], usNotFound: [], aiJobs: {}, aiEtf: emptyEtf(), live: {}, loaded: false,
 };
 const listeners = new Set<() => void>();
 
@@ -357,6 +360,17 @@ export async function installUpdate() {
   set({ update: { status: "ready", info: { current: state.update.info?.current, latest: { versionCode: 999999, versionName: "測試版", notes: "測試下載流程" }, available: true } } });
 
 // ---------- 回測結果（GitHub Actions 算好，App 只下載） ----------
+/** 抓幾檔的即時報價（失敗就保留上次的） */
+export async function refreshLive(codes: string[]) {
+  const list = [...new Set(codes.filter((c) => /^[0-9A-Z]{4,6}$/.test(c)))];
+  if (!list.length) return;
+  try {
+    const got: Record<string, LiveQuote> = {};
+    for (let i = 0; i < list.length; i += 20) Object.assign(got, parseLive(await fetcher(liveUrl(list.slice(i, i + 20)))));
+    set({ live: { ...state.live, ...got }, liveAt: Date.now() });
+  } catch { /* 即時報價只是輔助，抓不到就顯示收盤價 */ }
+}
+
 /** 下載 Claude 的虛擬自組 ETF；失敗就沿用上次下載的 */
 export async function refreshVirtual() {
   try {

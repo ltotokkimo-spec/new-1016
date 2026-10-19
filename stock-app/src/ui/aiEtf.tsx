@@ -1,11 +1,12 @@
 // 「自組ETF」分頁：請 Claude 建議要買什麼、買幾股，照著實際下單後填入成交，追蹤淨值並和 0050 比較。
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
-  addEtfTrades, deleteEtfTrade, refreshVirtual, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
+  addEtfTrades, deleteEtfTrade, refreshLive, refreshVirtual, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError, holdingsFromImage, shrinkImage } from "../ai/claude";
 import { comparePlans, DEFAULT_STOP, fitBudget, parsePlan, positions, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { orderDay, pretty, prettyW, taipeiToday } from "../lib/dates";
+import { marketOpen, type LiveQuote } from "../data/twLive";
 import { cls, fmtMoney, fmtPct, fmtPrice } from "./common";
 import { AiProgressView, AiReportView, BalanceHint, copyText } from "./screens";
 
@@ -316,12 +317,25 @@ export function AiEtfScreen() {
 /** Claude 每個交易日自動操作的虛擬 10 萬（唯讀） */
 function VirtualView() {
   const vt = useStore((s) => s.virtual);
+  const live = useStore((s) => s.live);
   const [busy, setBusy] = useState(false);
   const reload = async () => { setBusy(true); await refreshVirtual(); setBusy(false); };
   useEffect(() => { if (!vt || Date.now() - vt.fetchedAt > 10 * 60_000) reload(); }, []);
+  // 即時價：打開時抓一次，交易時段每 30 秒更新
+  const codes = vt ? [...positions(vt.data.trades).filter((p) => p.shares > 0).map((p) => p.code), ...vt.data.pending.map((o) => o.code), "0050"] : [];
+  const codeKey = codes.join(",");
+  useEffect(() => {
+    if (!codes.length) return;
+    refreshLive(codes);
+    const t = setInterval(() => { if (marketOpen()) refreshLive(codes); }, 30_000);
+    return () => clearInterval(t);
+  }, [codeKey]);
   if (!vt) return <div class="empty">{busy ? "下載 Claude 的虛擬操作紀錄中…" : "還沒有下載到 Claude 的虛擬操作紀錄，請確認網路後按右上角重新整理。"}</div>;
   const v = vt.data;
-  const px = (c: string) => v.last[c]?.close;
+  // 即時報價比 Claude 最後一次收盤更新還新，就用即時價（盤中＝現價，收盤後＝當天收盤）
+  const fresh = (c: string): LiveQuote | undefined => { const q = live[c]; return q && q.date && q.date >= (v.asOf || v.start) ? q : undefined; };
+  const px = (c: string) => fresh(c)?.price ?? v.last[c]?.close;
+  const intraday = Object.values(live).find((q) => q.date === taipeiToday() && !q.final && codes.includes(q.code));
   const val = valuate(v, px);
   const pos = positions(v.trades).filter((p) => p.shares > 0);
   const nextDay = v.asOf ? orderDay(v.asOf) : undefined;
@@ -341,6 +355,7 @@ function VirtualView() {
           {val.missing.length ? <span class="muted">收盤價更新後再比較輸贏</span> : val.ret >= val.benchRet ? <span class="up">贏過 0050 {fmtPct(val.ret - val.benchRet, 2)}</span> : <span class="down">落後 0050 {fmtPct(val.ret - val.benchRet, 2)}</span>}
           <span class="muted">・現金 {fmtMoney(val.cash)}・股票市值 {fmtMoney(val.marketValue)}</span>
         </div>
+        {intraday && <div class="date-hint" data-testid="virtual-live">⏱ 盤中即時估算（{intraday.time.slice(0, 5)}），每 30 秒更新；收盤後改用收盤價</div>}
         <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
           {v.asOf ? <>資料日 {prettyW(v.asOf)} 收盤・</> : <>今天收盤後第一次更新・</>}Claude 每個交易日收盤後自動更新（約 18:00）。虛擬成交規則：前一天收盤後下單，隔天買進以開盤價成交（開盤高於限價就等盤中碰到限價，沒碰到就不買），賣出以開盤價成交；已計手續費與證交稅。
         </div>
@@ -368,6 +383,8 @@ function VirtualView() {
           <div class="list">
             {pos.map((p) => {
               const c = px(p.code);
+              const q = fresh(p.code);
+              const label = q && !q.final && q.date === taipeiToday() ? `現價 ${q.time.slice(0, 5)}` : "收盤";
               return (
                 <div class="item" style={{ cursor: "default" }}>
                   <div style={{ minWidth: 0 }}>
@@ -376,7 +393,8 @@ function VirtualView() {
                     {v.stops?.[p.code] && <div class="sub num">停損 {fmtPrice(v.stops[p.code])}</div>}
                   </div>
                   <div class="px">
-                    <div class="p num"><span class="lbl">收盤</span>{c ? fmtPrice(c) : "—"}</div>
+                    <div class="p num" data-testid="virtual-price"><span class="lbl">{label}</span>{c ? fmtPrice(c) : "—"}</div>
+                    {q && Number.isFinite(q.prevClose) && <div class={`num ${cls(q.price - q.prevClose)}`} style={{ fontSize: "12px" }}>今日 {fmtPct(q.price / q.prevClose - 1)}</div>}
                     <div class={`c num ${cls(c ? c - p.avgCost : 0)}`}><span class="lbl">損益</span>{c ? fmtPct(c / p.avgCost - 1) : "—"}</div>
                   </div>
                   <div />

@@ -177,6 +177,13 @@ function check(ok, name, detail = "") {
   log("Claude 虛擬操作", virt.slice(0, 160));
   check(/虛擬資金 10\.0 萬/.test(virt) && /0050/.test(virt), "自組ETF 顯示 Claude 虛擬操作（虛擬 10 萬、0050 對照）");
   check((await page.$$('[data-testid="virtual-view"] .list .item')).length >= 4, "Claude 虛擬操作列出持股");
+  // 即時報價（證交所 mis）：每檔持股要顯示「現價 HH:MM」或「收盤」＋今日漲跌
+  const livePx = await page.waitForFunction(() => {
+    const els = [...document.querySelectorAll('[data-testid="virtual-price"]')];
+    return els.length && document.querySelector('[data-testid="virtual-view"]').innerText.includes("今日") ? els.map((e) => e.innerText.replace(/\s+/g, " ")) : null;
+  }, null, { timeout: 30000 }).then((h) => h.jsonValue()).catch(() => null);
+  log("即時價", JSON.stringify(livePx));
+  check(!!livePx && livePx.every((t) => /(現價|收盤).*\d/.test(t)), "Claude 虛擬操作持股顯示即時價（證交所 mis）");
   await shot("05a-Claude虛擬操作");
   await page.click('[data-testid="mode-real"]');
   await page.waitForSelector('[data-testid="etf-summary"]', { timeout: 10000 });

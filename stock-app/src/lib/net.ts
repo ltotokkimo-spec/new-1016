@@ -11,6 +11,7 @@ export class HttpError extends Error {
 const GAP_MS: Record<string, number> = {
   "www.twse.com.tw": 2000,
   "openapi.twse.com.tw": 800,
+  "mis.twse.com.tw": 1000,
   "www.tpex.org.tw": 1000,
   "api.nasdaq.com": 250,
   "quote.cnbc.com": 0,

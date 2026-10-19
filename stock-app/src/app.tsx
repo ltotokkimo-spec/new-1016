@@ -42,7 +42,19 @@ export function App() {
   return (
     <div class="shell">
       <div class="topbar">
-        <div class="brand">股市<b>雷達</b></div>
+        <div class="brand">
+          <svg class="radar-logo" viewBox="-36 -36 72 72" aria-hidden="true">
+            <g class="radar-sweep">
+              <path d="M0 0 L0 -32 A32 32 0 0 1 22.6 -22.6 Z" opacity="0.85" />
+              <path d="M0 0 L-12.2 -29.6 A32 32 0 0 1 0 -32 Z" opacity="0.45" />
+              <path d="M0 0 L-22.6 -22.6 A32 32 0 0 1 -12.2 -29.6 Z" opacity="0.22" />
+              <path d="M0 0 L-29.6 -12.2 A32 32 0 0 1 -22.6 -22.6 Z" opacity="0.1" />
+            </g>
+            <circle r="32" /><circle r="21" /><circle r="10" />
+            <polyline points="-28,14 -14,2 -4,9 18,-16" class="radar-line" />
+          </svg>
+          <span>股市<b>雷達</b></span>
+        </div>
         <div class="asof num">
           {ms.asOf ? <>{market === "US" ? "美股" : "台股"}資料 {pretty(ms.asOf)}</> : loaded ? "尚無資料" : ""}
           {ms.progress && ms.status === "ready" && <div>更新中 {Math.round((ms.progress.done / Math.max(ms.progress.total, 1)) * 100)}%</div>}

@@ -22,13 +22,13 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, time as dtime
 
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.4.0"
 APP_TITLE = f"測試結果檢視器 v{APP_VERSION}"
 DEFAULT_CSV_NAME = "operator_log.csv"
 DEFAULT_CHANNELS = 6
@@ -180,6 +180,22 @@ def cell_style(rec, key):
             return COLORS["ch_hold"] + (True,)
         return COLORS["cell_bg"], COLORS["cell_fg"], True
     return COLORS["cell_bg"], COLORS["cell_fg"], False
+
+
+ANY = "不限"
+
+
+def parse_tod(s, upper=False):
+    """'8' / '08:30' / '08:30:15' → time；空白回傳 None；格式錯誤丟 ValueError。
+    upper=True 用於結束時間：省略的分/秒補 59（16:30 → 16:30:59，含整分鐘）"""
+    s = (s or "").strip().replace("：", ":")
+    if not s:
+        return None
+    parts = [int(p) for p in s.split(":")]
+    if not 1 <= len(parts) <= 3:
+        raise ValueError(s)
+    parts += [59 if upper else 0] * (3 - len(parts))
+    return dtime(*parts)
 
 
 def build_columns(n_ch, hidden=()):
@@ -631,7 +647,11 @@ class App(tk.Tk):
         self.var_auto = tk.BooleanVar(value=self.settings.get("auto_refresh", True))
         self.var_newest_first = tk.BooleanVar(value=self.settings.get("newest_first", False))
         self.var_follow = tk.BooleanVar(value=self.settings.get("follow", True))
-        self.var_date = tk.StringVar(value="全部")
+        self.var_date_from = tk.StringVar(value=ANY)
+        self.var_date_to = tk.StringVar(value=ANY)
+        self.var_time_from = tk.StringVar()
+        self.var_time_to = tk.StringVar()
+        self.var_opid = tk.StringVar()
         self.var_station = tk.StringVar(value="全部")
         self.var_verdict = tk.StringVar(value="全部")
         self.var_search = tk.StringVar()
@@ -676,24 +696,42 @@ class App(tk.Tk):
         ttk.Checkbutton(bar2, text="有新資料時自動捲到最新", variable=self.var_follow).pack(
             side="left", **pad)
 
-        ttk.Separator(bar2, orient="vertical").pack(side="left", fill="y", padx=8)
-        ttk.Label(bar2, text="日期").pack(side="left")
-        self.cb_date = ttk.Combobox(bar2, textvariable=self.var_date, width=11,
-                                    state="readonly", values=["全部"])
-        self.cb_date.pack(side="left", **pad)
-        ttk.Label(bar2, text="站別").pack(side="left")
-        self.cb_station = ttk.Combobox(bar2, textvariable=self.var_station, width=8,
+        # 篩選列：所有條件同時成立（AND）
+        barf = ttk.Frame(self)
+        barf.pack(fill="x", padx=6, pady=(2, 0))
+        ttk.Label(barf, text="篩選", font=tkfont.Font(weight="bold")).pack(side="left", padx=(4, 6))
+        ttk.Label(barf, text="日期").pack(side="left")
+        self.cb_date_from = ttk.Combobox(barf, textvariable=self.var_date_from, width=11,
+                                         state="readonly", values=[ANY])
+        self.cb_date_from.pack(side="left", padx=(4, 0))
+        ttk.Label(barf, text="～").pack(side="left")
+        self.cb_date_to = ttk.Combobox(barf, textvariable=self.var_date_to, width=11,
+                                       state="readonly", values=[ANY])
+        self.cb_date_to.pack(side="left", padx=(0, 4))
+        ttk.Label(barf, text="時間").pack(side="left", padx=(8, 0))
+        self.ent_time_from = tk.Entry(barf, textvariable=self.var_time_from, width=8)
+        self.ent_time_from.pack(side="left", padx=(4, 0))
+        ttk.Label(barf, text="～").pack(side="left")
+        self.ent_time_to = tk.Entry(barf, textvariable=self.var_time_to, width=8)
+        self.ent_time_to.pack(side="left", padx=(0, 4))
+        ttk.Label(barf, text="(HH:MM)", foreground="#888888").pack(side="left")
+        ttk.Label(barf, text="站別").pack(side="left", padx=(10, 0))
+        self.cb_station = ttk.Combobox(barf, textvariable=self.var_station, width=8,
                                        state="readonly", values=["全部"])
         self.cb_station.pack(side="left", **pad)
-        ttk.Label(bar2, text="結果").pack(side="left")
-        self.cb_verdict = ttk.Combobox(bar2, textvariable=self.var_verdict, width=6,
+        ttk.Label(barf, text="結果").pack(side="left")
+        self.cb_verdict = ttk.Combobox(barf, textvariable=self.var_verdict, width=6,
                                        state="readonly", values=["全部", "PASS", "FAIL", "HOLD"])
         self.cb_verdict.pack(side="left", **pad)
-        ttk.Label(bar2, text="SN/OPID").pack(side="left")
-        ttk.Entry(bar2, textvariable=self.var_search, width=22).pack(side="left", **pad)
-        for cb in (self.cb_date, self.cb_station, self.cb_verdict):
+        ttk.Label(barf, text="SN").pack(side="left", padx=(6, 0))
+        ttk.Entry(barf, textvariable=self.var_search, width=22).pack(side="left", **pad)
+        ttk.Label(barf, text="OPID").pack(side="left")
+        ttk.Entry(barf, textvariable=self.var_opid, width=10).pack(side="left", **pad)
+        ttk.Button(barf, text="✖ 清除篩選", command=self.clear_filters).pack(side="left", **pad)
+        for cb in (self.cb_date_from, self.cb_date_to, self.cb_station, self.cb_verdict):
             cb.bind("<<ComboboxSelected>>", lambda e: self.refresh_view(scroll="end"))
-        self.var_search.trace_add("write", lambda *a: self.refresh_view(scroll="end"))
+        for v in (self.var_search, self.var_opid, self.var_time_from, self.var_time_to):
+            v.trace_add("write", lambda *a: self.refresh_view(scroll="end"))
 
         # 框選 / 欄位
         bar3 = ttk.Frame(self)
@@ -748,7 +786,27 @@ class App(tk.Tk):
 
     def _filter_sn(self, sn):
         self.var_search.set(sn)
-        self.var_status.set(f"已用 SN 篩選：{sn}　（清空 SN/OPID 欄位即還原）")
+        self.var_status.set(f"已用 SN 篩選：{sn}　（按「清除篩選」還原）")
+
+    def _filter_opid(self, opid):
+        self.var_opid.set(opid)
+        self.var_status.set(f"已用 OPID 篩選：{opid}　（按「清除篩選」還原）")
+
+    def _filter_date(self, date):
+        self.var_date_from.set(date)
+        self.var_date_to.set(date)
+        self.refresh_view(scroll="end")
+
+    def clear_filters(self):
+        self._suspend = True
+        for v in (self.var_date_from, self.var_date_to):
+            v.set(ANY)
+        for v in (self.var_station, self.var_verdict):
+            v.set("全部")
+        for v in (self.var_time_from, self.var_time_to, self.var_search, self.var_opid):
+            v.set("")
+        self._suspend = False
+        self.refresh_view(scroll="end")
 
     def _context_menu(self, e):
         self.menu = tk.Menu(self, tearoff=0)
@@ -763,6 +821,10 @@ class App(tk.Tk):
                                   command=lambda: self._copy_text(rec["sn"]))
             self.menu.add_command(label=f"用此 SN 篩選：{rec['sn']}",
                                   command=lambda: self._filter_sn(rec["sn"]))
+            self.menu.add_command(label=f"用此 OPID 篩選：{rec['opid']}",
+                                  command=lambda: self._filter_opid(rec["opid"]))
+            self.menu.add_command(label=f"只看這一天：{rec['date']}",
+                                  command=lambda: self._filter_date(rec["date"]))
             self.menu.add_separator()
         self.menu.add_command(label="只顯示選取的列", command=self.show_only_selected)
         self.menu.add_command(label="顯示全部", command=self.show_all)
@@ -836,7 +898,8 @@ class App(tk.Tk):
             self.file_sig = None
             self.records = []
             self.only_lines = None
-            self.var_date.set("全部")
+            self.var_date_from.set(ANY)
+            self.var_date_to.set(ANY)
             self.var_station.set("全部")
             self.reload(force=True, scroll="end")
             self._save_settings()
@@ -878,23 +941,78 @@ class App(tk.Tk):
     def _update_filter_choices(self):
         dates = sorted({r["date"] for r in self.records if r["date"]}, reverse=True)
         stations = sorted({r["station"] for r in self.records if r["station"]})
-        self.cb_date["values"] = ["全部"] + dates
+        self.cb_date_from["values"] = [ANY] + dates
+        self.cb_date_to["values"] = [ANY] + dates
         self.cb_station["values"] = ["全部"] + stations
 
     # ---- 篩選/顯示 ----
+    def _time_bounds(self):
+        """解析時間欄位；格式錯誤的欄位標紅並忽略"""
+        out = []
+        for ent, var, upper in ((self.ent_time_from, self.var_time_from, False),
+                                (self.ent_time_to, self.var_time_to, True)):
+            try:
+                t = parse_tod(var.get(), upper)
+                ent.configure(bg="#FFFFFF")
+            except (ValueError, TypeError):
+                t = None
+                ent.configure(bg="#FFC7CE")
+            out.append(t)
+        return out
+
     def filtered(self):
-        d, s, v = self.var_date.get(), self.var_station.get(), self.var_verdict.get()
+        """日期區間 + 時間 + 站別 + 結果 + SN + OPID，所有條件同時成立。
+        有選日期：時間是「起始日的開始時間」到「結束日的結束時間」（可跨天）。
+        沒選日期：時間是每天的時段（例如 20:00～08:00 夜班可跨午夜）。"""
+        s, v = self.var_station.get(), self.var_verdict.get()
         q = self.var_search.get().strip().upper()
+        qo = self.var_opid.get().strip().upper()
+        d_from, d_to = self.var_date_from.get(), self.var_date_to.get()
+        d_from = None if d_from in ("", ANY) else d_from
+        d_to = None if d_to in ("", ANY) else d_to
+        if d_from and d_to and d_from > d_to:   # 起訖日期選反了就自動對調
+            d_from, d_to = d_to, d_from
+        t_from, t_to = self._time_bounds()
+
+        start = end = None
+        tod_from = tod_to = None
+        if d_from:
+            start = datetime.combine(datetime.strptime(d_from, "%Y/%m/%d").date(),
+                                     t_from or dtime(0, 0, 0))
+        else:
+            tod_from = t_from
+        if d_to:
+            end = datetime.combine(datetime.strptime(d_to, "%Y/%m/%d").date(),
+                                   t_to or dtime(23, 59, 59))
+        else:
+            tod_to = t_to
+        need_dt = bool(start or end or tod_from or tod_to)
+
         out = []
         for r in self.records:
-            if d != "全部" and r["date"] != d:
-                continue
             if s != "全部" and r["station"] != s:
                 continue
             if v != "全部" and r["verdict"] != v:
                 continue
-            if q and q not in r["sn"].upper() and q not in r["opid"].upper():
+            if q and q not in r["sn"].upper():
                 continue
+            if qo and qo not in r["opid"].upper():
+                continue
+            if need_dt:
+                dt = r["_dt"]
+                if dt is None:
+                    continue
+                if start and dt < start:
+                    continue
+                if end and dt > end:
+                    continue
+                if tod_from or tod_to:
+                    t = dt.time()
+                    if tod_from and tod_to and tod_from > tod_to:    # 跨午夜
+                        if not (t >= tod_from or t <= tod_to):
+                            continue
+                    elif (tod_from and t < tod_from) or (tod_to and t > tod_to):
+                        continue
             if self.only_lines is not None and r["_line"] not in self.only_lines:
                 continue
             out.append(r)
@@ -903,6 +1021,8 @@ class App(tk.Tk):
         return out
 
     def refresh_view(self, scroll=None):
+        if getattr(self, "_suspend", False):
+            return
         rows = self.filtered()
         if scroll == "end":
             scroll = "top" if self.var_newest_first.get() else "bottom"

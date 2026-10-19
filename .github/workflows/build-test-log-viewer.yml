@@ -43,8 +43,8 @@ jobs:
         shell: bash
         run: |
           EXE="TestLogViewer_v${{ steps.ver.outputs.version }}.exe"
-          mkdir -p test-log-viewer/release
           git rm -q --ignore-unmatch "test-log-viewer/release/*.exe"
+          mkdir -p test-log-viewer/release
           cp "test-log-viewer/dist/$EXE" "test-log-viewer/release/$EXE"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

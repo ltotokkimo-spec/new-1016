@@ -171,6 +171,14 @@ function check(ok, name, detail = "") {
 
   // 自組 ETF：手動記一筆台積電成交，檢查淨值與 0050 對照
   await page.click("nav.tabs button:nth-child(4)");
+  // 預設是 Claude 虛擬操作：從 GitHub 下載 Claude 每天更新的虛擬組合
+  await page.waitForSelector('[data-testid="virtual-summary"]', { timeout: 30000 });
+  const virt = await page.$eval('[data-testid="virtual-summary"]', (e) => e.innerText.replace(/\s+/g, " "));
+  log("Claude 虛擬操作", virt.slice(0, 160));
+  check(/虛擬資金 10\.0 萬/.test(virt) && /0050/.test(virt), "自組ETF 顯示 Claude 虛擬操作（虛擬 10 萬、0050 對照）");
+  check((await page.$$('[data-testid="virtual-view"] .list .item')).length >= 4, "Claude 虛擬操作列出持股");
+  await shot("05a-Claude虛擬操作");
+  await page.click('[data-testid="mode-real"]');
   await page.waitForSelector('[data-testid="etf-summary"]', { timeout: 10000 });
   check(/起始資金 10\.0 萬/.test(await page.$eval('[data-testid="etf-summary"]', (e) => e.innerText)), "自組ETF 起始資金 10 萬");
   await page.click("text=手動新增一筆成交");

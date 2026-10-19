@@ -19,6 +19,7 @@ import csv
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -28,7 +29,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
-APP_VERSION = "1.5.0"
+APP_VERSION = "1.6.0"
 APP_TITLE = f"測試結果檢視器 v{APP_VERSION}"
 DEFAULT_CSV_NAME = "operator_log.csv"
 DEFAULT_CHANNELS = 6
@@ -724,9 +725,16 @@ class App(tk.Tk):
                                        state="readonly", values=["全部", "PASS", "FAIL", "HOLD"])
         self.cb_verdict.pack(side="left", **pad)
         ttk.Label(barf, text="SN").pack(side="left", padx=(6, 0))
-        ttk.Entry(barf, textvariable=self.var_search, width=22).pack(side="left", **pad)
+        self.ent_sn = ttk.Entry(barf, textvariable=self.var_search, width=22)
+        self.ent_sn.pack(side="left", **pad)
         ttk.Label(barf, text="OPID").pack(side="left")
-        ttk.Entry(barf, textvariable=self.var_opid, width=10).pack(side="left", **pad)
+        self.ent_opid = ttk.Entry(barf, textvariable=self.var_opid, width=10)
+        self.ent_opid.pack(side="left", **pad)
+        # 輸入框右鍵選單（剪下/複製/貼上/全選/清除）；時間欄貼上會自動拆出日期
+        self._entry_menu(self.ent_time_from, self.var_time_from, self.var_date_from)
+        self._entry_menu(self.ent_time_to, self.var_time_to, self.var_date_to)
+        self._entry_menu(self.ent_sn, self.var_search)
+        self._entry_menu(self.ent_opid, self.var_opid)
         ttk.Button(barf, text="✖ 清除篩選", command=self.clear_filters).pack(side="left", **pad)
         for cb in (self.cb_date_from, self.cb_date_to, self.cb_station, self.cb_verdict):
             cb.bind("<<ComboboxSelected>>", lambda e: self.refresh_view(scroll="end"))
@@ -808,6 +816,52 @@ class App(tk.Tk):
             v.set("")
         self._suspend = False
         self.refresh_view(scroll="end")
+
+    # ---- 輸入框：右鍵選單與貼上 ----
+    def _entry_menu(self, ent, var, date_var=None):
+        def paste(e=None):
+            try:
+                text = self.clipboard_get()
+            except tk.TclError:
+                return "break"
+            text = " ".join(text.split())          # 去掉換行/Tab（從 Excel 複製常帶換行）
+            if date_var is not None:
+                m = re.search(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})", text)
+                t = re.search(r"\d{1,2}:\d{2}(:\d{2})?", text)
+                if m:
+                    date_var.set(f"{int(m[1]):04d}/{int(m[2]):02d}/{int(m[3]):02d}")
+                if t:
+                    var.set(t[0])
+                elif not m:
+                    var.set(text)
+                self.refresh_view(scroll="end")
+                return "break"
+            try:
+                ent.delete("sel.first", "sel.last")
+            except tk.TclError:
+                pass
+            ent.insert("insert", text)
+            return "break"
+
+        def popup(e):
+            ent.focus_set()
+            m = tk.Menu(self, tearoff=0)
+            has_sel = bool(ent.selection_present())
+            m.add_command(label="剪下", state="normal" if has_sel else "disabled",
+                          command=lambda: ent.event_generate("<<Cut>>"))
+            m.add_command(label="複製", state="normal" if has_sel else "disabled",
+                          command=lambda: ent.event_generate("<<Copy>>"))
+            m.add_command(label="貼上", command=paste)
+            m.add_separator()
+            m.add_command(label="全選", command=lambda: ent.select_range(0, "end"))
+            m.add_command(label="清除", command=lambda: var.set(""))
+            try:
+                m.tk_popup(e.x_root, e.y_root)
+            finally:
+                m.grab_release()
+
+        ent.bind("<Button-3>", popup)
+        ent.bind("<<Paste>>", paste)
 
     # ---- 右鍵複製 ----
     def _rows_to_text(self, rows, cols, header=True):

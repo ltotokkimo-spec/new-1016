@@ -126,7 +126,10 @@ function check(ok, name, detail = "") {
     log("剛轉強", JSON.stringify(tv));
     const n = Number(/(\d+) 檔/.exec(tv.chip)?.[1] ?? -1);
     check(/條件：收盤在 20 日線上方 5% 以內/.test(tv.card) && /根據 \d+\/\d+/.test(tv.card), "剛轉強說明條件與資料日期", tv.card.slice(0, 80));
-    check(n === 0 ? /沒有股票同時符合/.test(tv.empty) : tv.rows.length === Math.min(n, 8) && tv.rows.every((r) => /離20日線 \+\d/.test(r) && /停損 \d/.test(r)), "剛轉強每檔顯示離 20 日線與停損價", `${n} 檔 ${tv.rows[0] ?? tv.empty}`);
+    check(n === 0 ? /沒有股票同時符合/.test(tv.empty) : tv.rows.length === Math.min(n, 8) && tv.rows.every((r) => /離20日線 \+\d/.test(r) && /停損參考 \d/.test(r)), "剛轉強每檔顯示離 20 日線與停損價", `${n} 檔 ${tv.rows[0] ?? tv.empty}`);
+    // 文字不能被截斷（…）：停損價要完整看得到
+    const clipped = await page.$$eval('[data-testid="turn-info"], [data-testid="turn-stop"]', (els) => els.filter((e) => e.scrollWidth > e.clientWidth + 1).map((e) => e.innerText));
+    check(clipped.length === 0, "剛轉強資訊沒有被截斷", JSON.stringify(clipped.slice(0, 3)));
     await shot("02c-剛轉強");
     await page.evaluate(() => [...document.querySelectorAll(".chips .chip")].find((c) => c.textContent.startsWith("買入"))?.click());
     await sleep(500);

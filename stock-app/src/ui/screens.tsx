@@ -131,7 +131,10 @@ function StockRow({ s, q, turn, onClick }: { s: Scored; q?: LiveQuote; turn?: Tu
           {s.sector}
           {s.market !== "US" ? <>・外資5日 <span class={cls(s.foreign5)}>{lots(s.foreign5)}</span></> : <>・相對大盤 <span class={cls(s.rsVsIndex1m)}>{fmtPct(s.rsVsIndex1m)}</span></>}
         </div>
-        {turn && <div class="sub" data-testid="turn-info">離20日線 {fmtPct(turn.gap20)}・MACD {turn.turnedAgo ? `${turn.turnedAgo} 天前` : "今天"}翻正・停損 {fmtPrice(turn.stop, s.market)}</div>}
+        {turn && <>
+          <div class="sub" data-testid="turn-info">離20日線 {fmtPct(turn.gap20)}・MACD {turn.turnedAgo ? `${turn.turnedAgo} 天前` : "今天"}翻正</div>
+          <div class="sub" data-testid="turn-stop">停損參考 <b class="num">{fmtPrice(turn.stop, s.market)}</b></div>
+        </>}
       </div>
       <div class="px">
         <div class="p num"><span class="lbl">{intraday ? `現價 ${q!.time.slice(0, 5)}` : "收盤"}</span>{fmtPrice(price, s.market)}</div>

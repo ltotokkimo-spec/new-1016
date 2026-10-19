@@ -33,7 +33,8 @@ function check(ok, name, detail = "") {
     shots.push([name, buf]);
     log("截圖", name, buf.length);
   };
-  await device.shell(`am start -n ${PKG}/.MainActivity`);
+  // --splashscreen-show-icon：用指令開 App 時也顯示啟動圖示（從桌面點開的效果）
+  await device.shell(`am start --splashscreen-show-icon -n ${PKG}/.MainActivity`);
   // Android 12 以上的啟動畫面：雷達掃描動畫（開 App 後馬上截圖）
   await new Promise((r) => setTimeout(r, 350));
   await shot("00-啟動動畫");

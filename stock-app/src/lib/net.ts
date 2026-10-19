@@ -34,6 +34,14 @@ function devUrl(url: string) {
   return `/proxy/${u.host}${u.pathname}${u.search}`;
 }
 
+/** 每次請求最多等這麼久；網站沒回應時不要一直卡住，交給下面的重試或顯示錯誤 */
+const ATTEMPT_MS = 40_000;
+function withTimeout<T>(p: Promise<T>, url: string): Promise<T> {
+  let t: ReturnType<typeof setTimeout>;
+  return Promise.race([p, new Promise<T>((_, rej) => { t = setTimeout(() => rej(new Error(`連線逾時（${new URL(url).host} 沒有回應）`)), ATTEMPT_MS); })])
+    .finally(() => clearTimeout(t));
+}
+
 export const fetchJson: Fetcher = async (url) => {
   const host = new URL(url).host;
   await throttle(host);
@@ -41,11 +49,11 @@ export const fetchJson: Fetcher = async (url) => {
   for (let attempt = 0; ; attempt++) {
     try {
       if (Capacitor.isNativePlatform()) {
-        const r = await CapacitorHttp.get({ url, headers, responseType: "json", connectTimeout: 20000, readTimeout: 60000 });
+        const r = await withTimeout(CapacitorHttp.get({ url, headers, responseType: "json", connectTimeout: 15000, readTimeout: 30000 }), url);
         if (r.status >= 400) throw new HttpError(r.status, url, `HTTP ${r.status}`);
         return typeof r.data === "string" ? JSON.parse(r.data) : r.data;
       }
-      const r = await fetch(devUrl(url), { headers: { Accept: headers.Accept } });
+      const r = await withTimeout(fetch(devUrl(url), { headers: { Accept: headers.Accept } }), url);
       if (!r.ok) throw new HttpError(r.status, url, `HTTP ${r.status}`);
       return await r.json();
     } catch (e) {

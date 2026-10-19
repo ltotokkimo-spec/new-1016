@@ -250,7 +250,7 @@ function check(ok, name, detail = "") {
   const holds = await page.$$eval(".list .item", (xs) => xs.map((e) => e.innerText.replace(/\s+/g, " ")));
   log("持股（含 ETF／興櫃）", JSON.stringify(holds));
   const row = (c) => holds.find((h) => h.includes(c)) || "";
-  const hasPrice = (r) => /現價\s*\d[\d,]*(\.\d+)?\s+損益\s*[+-]?\d+(\.\d)?%/.test(r) && !/—/.test(r);
+  const hasPrice = (r) => /現價(\s*\d\d:\d\d)?\s*\d[\d,]*(\.\d+)?\s+(今日\s*[+-]?\d+(\.\d)?%\s+)?損益\s*[+-]?\d+(\.\d)?%/.test(r) && !/—/.test(r);
   check(/元大台灣50/.test(row("0050")) && /參考/.test(row("0050")) && !/(買入|觀望|離場)/.test(row("0050")) && hasPrice(row("0050")), "0050 顯示現價、損益，只當參考不給買賣評等", row("0050"));
   check(hasPrice(row("00406A")) && !/無資料/.test(row("00406A")), "00406A 顯示現價與損益", row("00406A"));
   check(/貝爾威勒/.test(row("7861")) && /無評等/.test(row("7861")) && /興櫃/.test(row("7861")) && hasPrice(row("7861")), "興櫃 7861 顯示現價與損益、不評等", row("7861"));

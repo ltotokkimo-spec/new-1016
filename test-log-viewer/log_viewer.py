@@ -29,7 +29,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
-APP_VERSION = "1.7.0"
+APP_VERSION = "1.8.0"
 APP_TITLE = f"測試結果檢視器 v{APP_VERSION}"
 DEFAULT_CSV_NAME = "operator_log.csv"
 DEFAULT_CHANNELS = 6
@@ -546,21 +546,21 @@ class GridTable(ttk.Frame):
         ent.bind("<Escape>", lambda ev: self.close_editor())
         ent.bind("<Return>", lambda ev: self.close_editor())
         ent.bind("<FocusOut>", self._editor_focus_out)
-        ent.bind("<Button-3>", lambda ev: self._editor_menu(ev, ent, text))
+        ent.bind("<Button-3>", lambda ev: self._editor_menu(ev, ent, text, rec))
         for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
             ent.bind(seq, lambda ev: (self.close_editor(), self._on_wheel(ev)))
         if text:
             self.clipboard_clear()
             self.clipboard_append(text)
             if self.on_copy:
-                self.on_copy(text)
+                self.on_copy(text, rec)
         return "break"
 
     def _editor_focus_out(self, ev):
         if not getattr(self, "_editor_menu_open", False):
             self.close_editor()
 
-    def _editor_menu(self, ev, ent, text):
+    def _editor_menu(self, ev, ent, text, rec):
         """雙擊後的文字框右鍵：只有「複製」（有反白就複製反白部分）"""
         try:
             part = ent.selection_get() if ent.selection_present() else text
@@ -571,7 +571,7 @@ class GridTable(ttk.Frame):
             self.clipboard_clear()
             self.clipboard_append(part)
             if self.on_copy:
-                self.on_copy(part)
+                self.on_copy(part, rec)
             self.close_editor()
 
         m = tk.Menu(self, tearoff=0)
@@ -800,8 +800,8 @@ class App(tk.Tk):
 
         self.table = GridTable(self, on_double_click=self.show_detail,
                                on_select=self._on_select, on_context=self._context_menu,
-                               on_copy=lambda t: self.var_status.set(
-                                   f"已複製：{t}　（可直接 Ctrl+V 貼到 SN/OPID 篩選）"))
+                               on_copy=lambda t, rec: self._remember_copy(
+                                   t, rec, f"已複製：{t}　（可直接 Ctrl+V 貼到 SN/OPID/時間篩選）"))
         self.table.pack(fill="both", expand=True, padx=6, pady=2)
         self.table.header.bind("<Button-3>", self._header_menu)
 
@@ -817,10 +817,46 @@ class App(tk.Tk):
         self.lbl_sel.config(text=f"已選 {n} 列" if n else "（拖曳滑鼠框選要的列）")
         self.btn_only.state(["!disabled"] if n else ["disabled"])
 
-    def _copy_text(self, text):
+    def _copy_text(self, text, rec=None):
         self.clipboard_clear()
         self.clipboard_append(text)
-        self.var_status.set(f"已複製：{text}")
+        self._remember_copy(text, rec, f"已複製：{text}")
+
+    def _remember_copy(self, text, rec, msg):
+        # 記住複製的是哪一列：之後只貼「時間」到時間欄時，可自動補上那一列的日期
+        self._copied = (text, rec["date"] if rec else None)
+        self.var_status.set(msg)
+
+    def _guess_date(self, time_text, fallback=None):
+        """時間欄只有時間沒有日期時，要用哪一天：
+        1. 這個時間是從表格某一列複製來的 → 用那一列的日期
+        2. 結束時間 → 跟起始日期同一天
+        3. 否則 → 資料裡最新的一天"""
+        copied = getattr(self, "_copied", None)
+        t = (time_text or "").strip()
+        if copied and copied[1] and t and t in copied[0]:
+            return copied[1]
+        if fallback:
+            return fallback
+        dates = [r["date"] for r in self.records if r["date"]]
+        return max(dates) if dates else None
+
+    def _fill_date_for_time(self, time_var, date_var, is_to):
+        """時間欄輸入完成（離開/Enter/貼上）時，日期是「不限」就自動補上日期並顯示出來"""
+        if date_var.get() not in ("", ANY):
+            return
+        try:
+            if parse_tod(time_var.get()) is None:
+                return
+        except (ValueError, TypeError):
+            return
+        fb = None
+        if is_to and self.var_date_from.get() not in ("", ANY):
+            fb = self.var_date_from.get()
+        d = self._guess_date(time_var.get(), fb)
+        if d:
+            date_var.set(d)
+            self.refresh_view(scroll="end")
 
     def _filter_sn(self, sn):
         self.var_search.set(sn)
@@ -857,12 +893,19 @@ class App(tk.Tk):
             if date_var is not None:
                 m = re.search(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})", text)
                 t = re.search(r"\d{1,2}:\d{2}(:\d{2})?", text)
-                if m:
-                    date_var.set(f"{int(m[1]):04d}/{int(m[2]):02d}/{int(m[3]):02d}")
                 if t:
                     var.set(t[0])
                 elif not m:
                     var.set(text)
+                if m:
+                    date_var.set(f"{int(m[1]):04d}/{int(m[2]):02d}/{int(m[3]):02d}")
+                elif t:
+                    # 只貼了時間：從表格複製的就用那一列的日期，否則日期不限時補最新一天
+                    copied = getattr(self, "_copied", None)
+                    if copied and copied[1] and t[0] in copied[0]:
+                        date_var.set(copied[1])
+                    else:
+                        self._fill_date_for_time(var, date_var, date_var is self.var_date_to)
                 self.refresh_view(scroll="end")
                 return "break"
             try:
@@ -891,6 +934,10 @@ class App(tk.Tk):
 
         ent.bind("<Button-3>", popup)
         ent.bind("<<Paste>>", paste)
+        if date_var is not None:
+            fill = lambda e: self._fill_date_for_time(var, date_var, date_var is self.var_date_to)
+            ent.bind("<FocusOut>", fill, add="+")
+            ent.bind("<Return>", fill, add="+")
 
     # ---- 右鍵複製 ----
     def _rows_to_text(self, rows, cols, header=True):
@@ -928,7 +975,7 @@ class App(tk.Tk):
             show = text if len(text) <= 40 else text[:40] + "…"
             top.add_command(label=f"複製：{show}" if text else "複製（空白）",
                             state="normal" if text else "disabled",
-                            command=lambda: self._copy_text(text))
+                            command=lambda: self._copy_text(text, rec))
             top.add_separator()
             # 這一列每個欄位都能單獨複製
             sub = tk.Menu(m, tearoff=0)
@@ -936,12 +983,12 @@ class App(tk.Tk):
                 v = cell_text(rec, k)
                 sub.add_command(label=f"{t}：{v[:40] or '（空白）'}",
                                 state="normal" if v else "disabled",
-                                command=lambda v=v: self._copy_text(v))
+                                command=lambda v=v: self._copy_text(v, rec))
             sub.add_separator()
             for k in ("notes", "out_dir", "duration_s", "measure_s", "engine_version"):
                 v = rec["_raw"].get(k, "")
                 if v:
-                    sub.add_command(label=f"{k}：{v[:40]}", command=lambda v=v: self._copy_text(v))
+                    sub.add_command(label=f"{k}：{v[:40]}", command=lambda v=v: self._copy_text(v, rec))
             m.add_cascade(label="複製這一列的其他欄位", menu=sub)
             m.add_command(label="複製這一整列（含標題）",
                           command=lambda: self._copy_block(self._rows_to_text([rec], cols), "這一列"))
@@ -1127,8 +1174,9 @@ class App(tk.Tk):
 
     def filtered(self):
         """日期區間 + 時間 + 站別 + 結果 + SN + OPID，所有條件同時成立。
-        有選日期：時間是「起始日的開始時間」到「結束日的結束時間」（可跨天）。
-        沒選日期：時間是每天的時段（例如 20:00～08:00 夜班可跨午夜）。"""
+        起始（日期+時間）～結束（日期+時間），可跨天；
+        只有開始沒有結束 → 開始之後全部列出；只有結束 → 結束之前全部列出。
+        時間沒填日期時，自動用 _guess_date 決定是哪一天。"""
         s, v = self.var_station.get(), self.var_verdict.get()
         q = self.var_search.get().strip().upper()
         qo = self.var_opid.get().strip().upper()
@@ -1138,20 +1186,21 @@ class App(tk.Tk):
         if d_from and d_to and d_from > d_to:   # 起訖日期選反了就自動對調
             d_from, d_to = d_to, d_from
         t_from, t_to = self._time_bounds()
+        if t_from and not d_from:
+            d_from = self._guess_date(self.var_time_from.get())
+        if t_to and not d_to:
+            d_to = self._guess_date(self.var_time_to.get(), d_from)
 
         start = end = None
-        tod_from = tod_to = None
         if d_from:
             start = datetime.combine(datetime.strptime(d_from, "%Y/%m/%d").date(),
                                      t_from or dtime(0, 0, 0))
-        else:
-            tod_from = t_from
         if d_to:
             end = datetime.combine(datetime.strptime(d_to, "%Y/%m/%d").date(),
                                    t_to or dtime(23, 59, 59))
-        else:
-            tod_to = t_to
-        need_dt = bool(start or end or tod_from or tod_to)
+        if start and end and start > end:   # 起訖時間顛倒就自動對調
+            start, end = end, start
+        need_dt = bool(start or end)
 
         out = []
         for r in self.records:
@@ -1171,13 +1220,6 @@ class App(tk.Tk):
                     continue
                 if end and dt > end:
                     continue
-                if tod_from or tod_to:
-                    t = dt.time()
-                    if tod_from and tod_to and tod_from > tod_to:    # 跨午夜
-                        if not (t >= tod_from or t <= tod_to):
-                            continue
-                    elif (tod_from and t < tod_from) or (tod_to and t > tod_to):
-                        continue
             if self.only_lines is not None and r["_line"] not in self.only_lines:
                 continue
             out.append(r)

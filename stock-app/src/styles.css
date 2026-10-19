@@ -170,8 +170,8 @@ a.btn[aria-disabled="true"] { opacity: 0.5; pointer-events: none; }
 /* 標題旁的動態雷達：掃描區每 3 秒轉一圈 */
 .brand { display: flex; align-items: center; gap: 8px; }
 .radar-logo { width: 28px; height: 28px; flex: none; }
-.radar-logo circle { fill: none; stroke: var(--accent); stroke-width: 3; }
-.radar-logo .radar-sweep path { fill: var(--accent); }
+.radar-logo circle { fill: none; stroke: #3A9BEA; stroke-width: 3; }
+.radar-logo .radar-sweep path { fill: #3A9BEA; }
 .radar-logo .radar-sweep { transform-origin: 0 0; animation: radar-spin 3s linear infinite; }
 .radar-logo .radar-line { fill: none; stroke: var(--up); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
 @keyframes radar-spin { to { transform: rotate(360deg); } }

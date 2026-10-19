@@ -174,6 +174,22 @@ function check(ok, name, detail = "") {
   check(sectors.length >= 10, "族群表至少 10 個產業", `${sectors.length} 個`);
   check(sectors.some((r) => r.includes("半導體")), "族群表包含半導體");
   await shot("04-族群輪動");
+  // 點族群 → 選股只看該族群：要有明顯的篩選提示，評等檔數要跟清單一致，取消後恢復全部
+  await page.click("table.sectors tbody tr");
+  await page.waitForSelector('[data-testid="sector-filter"]', { timeout: 10000 });
+  const secView = await page.evaluate(() => ({
+    banner: document.querySelector('[data-testid="sector-filter"]').innerText.replace(/\s+/g, " "),
+    chip: document.querySelector('.chips .chip[aria-pressed="true"]').textContent,
+    title: document.querySelector(".section-title").innerText.replace(/\s+/g, " "),
+  }));
+  log("族群篩選", JSON.stringify(secView));
+  const chipN = Number(/(\d+) 檔/.exec(secView.chip)?.[1]), listN = Number(/(\d+) 檔/.exec(secView.title)?.[1]);
+  check(/只看「.+」族群/.test(secView.banner) && chipN === listN, "族群篩選有明顯提示，評等檔數與清單一致", `${secView.chip} / ${secView.title}`);
+  await shot("04b-族群篩選");
+  await page.click('[data-testid="sector-filter"] button');
+  await page.waitForFunction(() => !document.querySelector('[data-testid="sector-filter"]'), null, { timeout: 5000 });
+  const allN = await page.$eval('.chips .chip[aria-pressed="true"]', (c) => Number(/(\d+) 檔/.exec(c.textContent)?.[1]));
+  check(allN >= chipN, "取消族群篩選後恢復全部", `${allN} 檔`);
 
   // 數據：CNBC 國際指標＋證交所指數
   await page.click("nav.tabs button:nth-child(5)");

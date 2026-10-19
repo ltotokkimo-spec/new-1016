@@ -30,11 +30,12 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
     const lq = live[s.code];
     return lq && lq.date && lq.date >= (ms.asOf ?? "") ? lq : undefined;
   };
+  // 從「族群」分頁點進來時只看該族群，評等檔數也跟著只算該族群
   const counts = useMemo(() => {
-    const c: Record<string, number> = { 全部: ms.scored.length, 買入: 0, 觀望: 0, 離場: 0 };
-    for (const s of ms.scored) c[s.rating]++;
+    const c: Record<string, number> = { 全部: 0, 買入: 0, 觀望: 0, 離場: 0 };
+    for (const s of ms.scored) if (!sector || s.sector === sector) { c["全部"]++; c[s.rating]++; }
     return c;
-  }, [ms.scored]);
+  }, [ms.scored, sector]);
   const list = useMemo(() => {
     const t = q.trim().toUpperCase();
     return ms.scored.filter((s) =>
@@ -62,8 +63,13 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
           : (["買入", "觀望", "離場", "全部"] as const).map((f) => (
             <button class="chip" aria-pressed={filter === f} onClick={() => setFilter(f)}>{f} {counts[f] ?? 0} 檔</button>
           ))}
-        {sector && <button class="chip" aria-pressed="true" onClick={() => setSector("")}>{sector} ✕</button>}
       </div>
+      {sector && (
+        <div class="notice row" data-testid="sector-filter" style={{ marginTop: "10px", justifyContent: "space-between", gap: "8px" }}>
+          <span>只看「<b style={{ color: "var(--fg)" }}>{sector}</b>」族群（從族群分頁點進來）</span>
+          <button class="chip" aria-pressed="true" onClick={() => setSector("")}>看全部族群 ✕</button>
+        </div>
+      )}
       <BacktestCard market={market} />
       {ms.error && <div class="error" style={{ marginTop: "10px" }}>{ms.error}</div>}
       {ms.warning && <div class="notice" style={{ marginTop: "10px" }}>{ms.warning}</div>}
@@ -72,7 +78,7 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
       {ms.status === "ready" && (
         <>
           <div class="section-title">
-            <span>{filter === "全部" ? (market === "ETF" ? "全部 ETF" : "全部股票") : `評等「${filter}」`}・依分數排序</span>
+            <span>{sector ? `${sector}・` : ""}{filter === "全部" ? (market === "ETF" ? "全部 ETF" : "全部股票") : `評等「${filter}」`}・依分數排序</span>
             <span>{list.length} 檔</span>
           </div>
           {market === "US" && <UsLookup q={q} found={list.length > 0} />}

@@ -29,7 +29,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
-APP_VERSION = "1.6.0"
+APP_VERSION = "1.7.0"
 APP_TITLE = f"測試結果檢視器 v{APP_VERSION}"
 DEFAULT_CSV_NAME = "operator_log.csv"
 DEFAULT_CHANNELS = 6
@@ -545,7 +545,8 @@ class GridTable(ttk.Frame):
         ent.icursor("end")
         ent.bind("<Escape>", lambda ev: self.close_editor())
         ent.bind("<Return>", lambda ev: self.close_editor())
-        ent.bind("<FocusOut>", lambda ev: self.close_editor())
+        ent.bind("<FocusOut>", self._editor_focus_out)
+        ent.bind("<Button-3>", lambda ev: self._editor_menu(ev, ent, text))
         for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
             ent.bind(seq, lambda ev: (self.close_editor(), self._on_wheel(ev)))
         if text:
@@ -553,6 +554,34 @@ class GridTable(ttk.Frame):
             self.clipboard_append(text)
             if self.on_copy:
                 self.on_copy(text)
+        return "break"
+
+    def _editor_focus_out(self, ev):
+        if not getattr(self, "_editor_menu_open", False):
+            self.close_editor()
+
+    def _editor_menu(self, ev, ent, text):
+        """雙擊後的文字框右鍵：只有「複製」（有反白就複製反白部分）"""
+        try:
+            part = ent.selection_get() if ent.selection_present() else text
+        except tk.TclError:
+            part = text
+
+        def copy():
+            self.clipboard_clear()
+            self.clipboard_append(part)
+            if self.on_copy:
+                self.on_copy(part)
+            self.close_editor()
+
+        m = tk.Menu(self, tearoff=0)
+        m.add_command(label="複製", command=copy, state="normal" if part else "disabled")
+        self._editor_menu_open = True
+        try:
+            m.tk_popup(ev.x_root, ev.y_root)
+        finally:
+            m.grab_release()
+            self._editor_menu_open = False
         return "break"
 
     def close_editor(self):
@@ -887,7 +916,9 @@ class App(tk.Tk):
         self.var_time_to.set(rec["time"])
 
     def _context_menu(self, e):
-        m = self.menu = tk.Menu(self, tearoff=0)
+        """右鍵選單：第一項只有「複製」這一格，其他功能收在「更多」裡"""
+        top = self.menu = tk.Menu(self, tearoff=0)
+        m = tk.Menu(top, tearoff=0)      # 「更多」子選單
         cols = self.table.columns
         cell = self.table.ctx_cell
         if cell:
@@ -895,9 +926,10 @@ class App(tk.Tk):
             title = next((t for k, t, _ in cols if k == key), key)
             text = cell_text(rec, key)
             show = text if len(text) <= 40 else text[:40] + "…"
-            m.add_command(label=f"複製「{title}」：{show or '（空白）'}",
-                          state="normal" if text else "disabled",
-                          command=lambda: self._copy_text(text))
+            top.add_command(label=f"複製：{show}" if text else "複製（空白）",
+                            state="normal" if text else "disabled",
+                            command=lambda: self._copy_text(text))
+            top.add_separator()
             # 這一列每個欄位都能單獨複製
             sub = tk.Menu(m, tearoff=0)
             for k, t, _ in all_columns(self.n_ch):
@@ -941,10 +973,11 @@ class App(tk.Tk):
         m.add_command(label="只顯示選取的列", command=self.show_only_selected)
         m.add_command(label="顯示全部", command=self.show_all)
         m.add_command(label="選擇欄位…", command=self.choose_columns)
+        top.add_cascade(label="更多", menu=m)
         try:
-            m.tk_popup(e.x_root, e.y_root)
+            top.tk_popup(e.x_root, e.y_root)
         finally:
-            m.grab_release()
+            top.grab_release()
 
     def _header_menu(self, e):
         """在標題列按右鍵：複製整欄"""

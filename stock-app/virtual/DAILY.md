@@ -10,7 +10,7 @@
 - 價格一律用證交所資料工具（MCP，名稱類似 `get_realtime_quote`，收盤後回傳當天開高低收；上市、上櫃都可查）。這個環境連不到證交所網站，不要用 curl。
 
 ## 步驟（D = 今天，台北日期 YYYYMMDD）
-1. `git pull origin claude/ui-calculator-interface-t3x9kh`，再 `show` 看狀態。如果狀態的 `asOf` 已經是 D，代表今天做過了，直接結束。
+1. 先 `git remote set-url origin https://github.com/ltotokkimo-spec/new-1016`（環境重啟後網址會被改掉），再 `git pull origin claude/ui-calculator-interface-t3x9kh`，再 `show` 看狀態。如果狀態的 `asOf` 已經是 D，代表今天做過了，直接結束。
 2. 用 `get_realtime_quote` 查 0050 確認今天有交易（時間戳是今天）。沒交易（假日、颱風）就結束，不要改檔案。
 3. **成交前一天的委託**：查所有 `pending` 代號與 0050 的今日開高低收，寫成 quotes.json，執行 `fill D quotes.json`。
 4. **收盤**：查所有持股與 0050 的收盤（同樣的 quotes 格式），執行 `close D quotes.json`。工具會自動把收盤跌破停損價的持股排入明天開盤賣出。

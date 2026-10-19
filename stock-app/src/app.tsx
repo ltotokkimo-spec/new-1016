@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import { etfAlertsNow, findScored, init, refreshEsb, refreshMacro, refreshTw, refreshUs, useStore, type AiJob, type Market } from "./store";
+import { autoRefresh, etfAlertsNow, findScored, init, refreshEsb, refreshMacro, refreshTw, refreshUs, useStore, type AiJob, type Market } from "./store";
 import type { Scored } from "./engine/score";
 import { pretty } from "./lib/dates";
 import { AiEtfScreen } from "./ui/aiEtf";
@@ -25,6 +25,12 @@ export function App() {
   const { tw, etf, us, loaded } = useStore((s) => ({ tw: s.tw, etf: s.etf, us: s.us, loaded: s.loaded, aiEtf: s.aiEtf, prices: s.prices }));
   const etfAlert = etfAlertsNow().length > 0;
   useEffect(() => { init(); }, []);
+  // 從背景切回 App 時，資料過時就自動更新（例如傍晚 4:30 後有當天評分）
+  useEffect(() => {
+    const onShow = () => { if (document.visibilityState === "visible") autoRefresh(); };
+    document.addEventListener("visibilitychange", onShow);
+    return () => document.removeEventListener("visibilitychange", onShow);
+  }, []);
   const mainRef = useRef<HTMLElement>(null);
   useEffect(() => { history.replaceState(null, "", `#${tab}`); mainRef.current?.scrollTo(0, 0); }, [tab, market, sector]);
 

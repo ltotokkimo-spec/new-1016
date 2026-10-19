@@ -8,7 +8,7 @@ import { UsLoader, type UsSnapshot } from "./data/usLoader";
 import { cnbcUrl, isUsSymbol, MACRO_SYMBOLS, parseCnbcQuotes, US_UNIVERSE, type MacroQuote, type UsExtra } from "./data/us";
 import { scoreStocks, reviewHolding, type Holding, type HoldingView, type Scored, type SectorStat } from "./engine/score";
 import { aiEtfAdvice, explainError, type AiProgress, type EtfAdviceInput, type AiReport, type OnProgress } from "./ai/claude";
-import { orderDay, prettyW, taipeiToday } from "./lib/dates";
+import { orderDay, prettyW, taipeiToday, twNeedsRefresh } from "./lib/dates";
 import * as upd from "./lib/update";
 import type { BacktestResult } from "./engine/backtest";
 import type { VirtualEtf } from "./engine/virtualEtf";
@@ -118,10 +118,8 @@ export async function init() {
   set({ usExtra: (await kv.get<UsExtra[]>("usExtra")) ?? [], aiEtf: (await kv.get<AiEtf>("aiEtf")) ?? emptyEtf() });
   const vt = await kv.get<State["virtual"]>("virtual");
   if (vt) set({ virtual: vt });
-  refreshVirtual();
   const bt = await kv.get<State["backtest"]>("backtest");
   if (bt) set({ backtest: bt });
-  if (!bt || Date.now() - bt.fetchedAt > 6 * 3600_000) refreshBacktest();
   // 舊版快照沒有 ETF，直接當作沒有資料重抓
   const twSnap = twSnap0?.version === TW_SNAPSHOT_VERSION ? twSnap0 : undefined;
   mark("kvRead");
@@ -129,14 +127,29 @@ export async function init() {
   if (twSnap) applyTw(twSnap);
   if (usSnap) applyUs(usSnap);
   if (esbSnap) applyEsb(esbSnap);
-  // 開 App 時自動更新：沒資料或資料不是今天抓的就重抓（快取會讓已下載的日子不重抓）
-  const today = taipeiToday();
-  if (!twSnap || taipeiToday(twSnap.fetchedAt) !== today || Date.now() - twSnap.fetchedAt > 3 * 3600_000) refreshTw();
-  if (!usSnap || taipeiToday(usSnap.fetchedAt) !== today) refreshUs();
-  else ensureUsHoldings(); // 今天的美股已下載過，但持股裡可能有還沒下載的代號
-  if (!esbSnap || taipeiToday(esbSnap.fetchedAt) !== today || Date.now() - esbSnap.fetchedAt > 3 * 3600_000) refreshEsb();
-  refreshMacro();
+  esbFetchedAt = esbSnap?.fetchedAt;
+  autoRefresh();
   if (upd.isNative()) checkForUpdate();
+}
+
+let esbFetchedAt: number | undefined;
+let lastAuto = 0;
+
+/**
+ * 開 App 或從背景切回來時：資料過時就自動重抓（快取會讓已下載的日子不重抓）。
+ * 台股：沒資料、不是今天抓的、超過 3 小時，或 16:30 後但資料是 16:30 前抓的（當天評分已公布）。
+ */
+export function autoRefresh() {
+  if (Date.now() - lastAuto < 60_000) return; // 一分鐘內切來切去不重複檢查
+  lastAuto = Date.now();
+  const today = taipeiToday();
+  if (twNeedsRefresh(state.tw.fetchedAt)) refreshTw();
+  if (!state.us.fetchedAt || taipeiToday(state.us.fetchedAt) !== today) refreshUs();
+  else ensureUsHoldings(); // 今天的美股已下載過，但持股裡可能有還沒下載的代號
+  if (twNeedsRefresh(esbFetchedAt)) refreshEsb();
+  refreshMacro();
+  if (!state.virtual || Date.now() - state.virtual.fetchedAt > 10 * 60_000) refreshVirtual();
+  if (!state.backtest || Date.now() - state.backtest.fetchedAt > 6 * 3600_000) refreshBacktest();
 }
 
 function pricesOf(stocks: { code: string; name: string; close: number }[]) {
@@ -173,6 +186,7 @@ export async function refreshEsb() {
     const quotes = parseEsbLatest(await fetcher(twUrls.esbLatest()));
     if (!quotes.length) return;
     const snap = { quotes, fetchedAt: Date.now() };
+    esbFetchedAt = snap.fetchedAt;
     await kv.set("snap:esb", snap);
     applyEsb(snap);
   } catch { /* 興櫃只是補充報價，失敗時沿用上次的資料 */ }

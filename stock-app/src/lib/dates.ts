@@ -60,3 +60,22 @@ export function orderDay(asOf: string, now = Date.now()): string {
   while (!isWeekday(d) || d < today || (d === today && closed)) d = addDays(d, 1);
   return d;
 }
+
+/** 台北時間當天的分鐘數（0～1439） */
+function taipeiMinutes(t: number): number {
+  const d = new Date(t + 8 * 3600_000);
+  return d.getUTCHours() * 60 + d.getUTCMinutes();
+}
+
+const FLOWS_READY = 16 * 60 + 30; // 三大法人約 16:30 前公布完，之後才有當天完整評分
+
+/**
+ * 台股資料要不要重抓：沒抓過、不是今天抓的、超過 3 小時，
+ * 或現在已過 16:30 但資料是今天 16:30 以前抓的（當天收盤與法人資料已公布）。
+ */
+export function twNeedsRefresh(fetchedAt: number | undefined, now = Date.now()): boolean {
+  if (!fetchedAt) return true;
+  if (taipeiToday(fetchedAt) !== taipeiToday(now)) return true;
+  if (now - fetchedAt > 3 * 3600_000) return true;
+  return taipeiMinutes(now) >= FLOWS_READY && taipeiMinutes(fetchedAt) < FLOWS_READY;
+}

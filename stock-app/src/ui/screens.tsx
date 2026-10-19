@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import {
   findScored, getFetcher, getKv, getState, holdingViews, refreshEsb, refreshMacro, refreshTw, refreshUs, saveHoldings, saveReport,
   saveSettings, clearCache, useStore, usBars, recordSpend, estimatedBalance, checkForUpdate, installUpdate,
-  addUsSymbol, removeUsSymbol, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
+  addUsSymbol, removeUsSymbol, refreshLive, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
 } from "../store";
 import type { Holding, Rating, Scored, SectorStat } from "../engine/score";
 import { type AiReport, analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, parseUrls, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
@@ -10,6 +10,7 @@ import { twHistory } from "../data/history";
 import { isEtf } from "../data/tw";
 import { freeReport } from "../engine/freeReport";
 import { isUsSymbol, MACRO_SYMBOLS } from "../data/us";
+import { marketOpen } from "../data/twLive";
 import { pretty, taipeiToday } from "../lib/dates";
 import { cls, fmtMoney, fmtPct, fmtPrice, lots, Markdown, PriceChart, Progress, RatingPill, Sheet } from "./common";
 
@@ -430,7 +431,27 @@ export function AiReportView({ r }: { r: AiReport }) {
 export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
   useStore((s) => [s.holdings, s.tw.scored, s.etf.scored, s.us.scored, s.esb, s.prices]);
   const apiKey = useStore((s) => s.settings.apiKey);
-  const views = holdingViews();
+  const live = useStore((s) => s.live);
+  const twAsOf = useStore((s) => s.tw.asOf);
+  // 台股持股用證交所即時價（盤中每 30 秒更新）；美股用最近一個交易日的漲跌
+  const twCodes = useStore((s) => s.holdings).filter((h) => h.market !== "US").map((h) => h.code);
+  const codeKey = twCodes.join(",");
+  useEffect(() => {
+    if (!twCodes.length) return;
+    refreshLive(twCodes);
+    const t = setInterval(() => { if (marketOpen()) refreshLive(twCodes); }, 30_000);
+    return () => clearInterval(t);
+  }, [codeKey]);
+  const today = taipeiToday();
+  const views = holdingViews().map((v) => {
+    const q = v.market !== "US" ? live[v.code] : undefined;
+    if (q && q.date && q.date >= (twAsOf ?? "")) {
+      const price = q.price;
+      return { ...v, price, pnl: (price - v.cost) * v.shares, pnlPct: v.cost > 0 ? price / v.cost - 1 : NaN,
+        chg: Number.isFinite(q.prevClose) ? price / q.prevClose - 1 : NaN, liveTime: q.date === today && !q.final ? q.time.slice(0, 5) : "" };
+    }
+    return { ...v, chg: v.scored?.chg1d ?? NaN, liveTime: "" };
+  });
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState<{ rows: ImportedHolding[]; note: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -438,7 +459,11 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
 
   const total = (m: "TW" | "US") => {
     const vs = views.filter((v) => (m === "US") === (v.market === "US") && Number.isFinite(v.price));
-    return { value: vs.reduce((a, v) => a + v.price * v.shares, 0), pnl: vs.reduce((a, v) => a + v.pnl, 0), cost: vs.reduce((a, v) => a + v.cost * v.shares, 0) };
+    // 今日損益：有今日漲跌的持股，現價 − 昨收
+    const dv = vs.filter((v) => Number.isFinite(v.chg));
+    const day = dv.reduce((a, v) => a + v.shares * (v.price - v.price / (1 + v.chg)), 0);
+    const dayBase = dv.reduce((a, v) => a + v.shares * v.price / (1 + v.chg), 0);
+    return { value: vs.reduce((a, v) => a + v.price * v.shares, 0), pnl: vs.reduce((a, v) => a + v.pnl, 0), cost: vs.reduce((a, v) => a + v.cost * v.shares, 0), day, dayPct: dayBase ? day / dayBase : NaN, hasDay: dv.length > 0 };
   };
   const tw = total("TW"), us = total("US");
 
@@ -476,8 +501,8 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
   return (
     <div>
       <div class="summary">
-        <div class="card"><div class="muted" style={{ fontSize: "12px" }}>台股市值</div>{tw.cost ? <><div class="big num">{fmtMoney(tw.value)}</div><div class={`num ${cls(tw.pnl)}`} style={{ fontSize: "13px" }}>{fmtMoney(tw.pnl)}（{fmtPct(tw.pnl / tw.cost)}）</div></> : <div class="big muted">—</div>}</div>
-        <div class="card"><div class="muted" style={{ fontSize: "12px" }}>美股市值</div>{us.cost ? <><div class="big num">{fmtMoney(us.value, "US")}</div><div class={`num ${cls(us.pnl)}`} style={{ fontSize: "13px" }}>{fmtMoney(us.pnl, "US")}（{fmtPct(us.pnl / us.cost)}）</div></> : <div class="big muted">—</div>}</div>
+        <div class="card"><div class="muted" style={{ fontSize: "12px" }}>台股市值</div>{tw.cost ? <><div class="big num">{fmtMoney(tw.value)}</div><div class={`num ${cls(tw.pnl)}`} style={{ fontSize: "13px" }}>{fmtMoney(tw.pnl)}（{fmtPct(tw.pnl / tw.cost)}）</div>{tw.hasDay && <div class={`num ${cls(tw.day)}`} style={{ fontSize: "12px" }} data-testid="tw-day">今日 {fmtMoney(tw.day)}（{fmtPct(tw.dayPct)}）</div>}</> : <div class="big muted">—</div>}</div>
+        <div class="card"><div class="muted" style={{ fontSize: "12px" }}>美股市值</div>{us.cost ? <><div class="big num">{fmtMoney(us.value, "US")}</div><div class={`num ${cls(us.pnl)}`} style={{ fontSize: "13px" }}>{fmtMoney(us.pnl, "US")}（{fmtPct(us.pnl / us.cost)}）</div>{us.hasDay && <div class={`num ${cls(us.day)}`} style={{ fontSize: "12px" }}>今日 {fmtMoney(us.day, "US")}（{fmtPct(us.dayPct)}）</div>}</> : <div class="big muted">—</div>}</div>
       </div>
       <div class="row" style={{ marginTop: "12px" }}>
         <label class="btn" style={{ flex: 1 }} aria-disabled={busy || !apiKey}>
@@ -501,7 +526,8 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
                 <div class="sub">{v.advice.join("；")}</div>
               </div>
               <div class="px">
-                <div class="p num"><span class="lbl">現價</span>{fmtPrice(v.price, v.market)}</div>
+                <div class="p num"><span class="lbl">{v.liveTime ? `現價 ${v.liveTime}` : "現價"}</span>{fmtPrice(v.price, v.market)}</div>
+                {Number.isFinite(v.chg) && <div class={`c num ${cls(v.chg)}`} data-testid="hold-day"><span class="lbl">今日</span>{fmtPct(v.chg)}</div>}
                 <div class={`c num ${cls(v.pnl)}`}><span class="lbl">損益</span>{fmtPct(v.pnlPct)}</div>
               </div>
               <RatingPill rating={v.rating} />

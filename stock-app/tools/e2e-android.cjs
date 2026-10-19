@@ -231,6 +231,9 @@ function check(ok, name, detail = "") {
   const hold = await page.$eval(".list .item", (e) => e.innerText.replace(/\s+/g, " "));
   log("持股", hold);
   check(/台積電/.test(hold) && /(買入|觀望|離場)/.test(hold) && /%/.test(hold), "持股顯示現價、損益與評等", hold);
+  const dayTxt = await page.waitForFunction(() => document.querySelector('[data-testid="hold-day"]')?.innerText, null, { timeout: 20000 }).then((h) => h.jsonValue()).catch(() => "");
+  log("持股今日漲跌", dayTxt);
+  check(/今日\s*[+-]?\d/.test(dayTxt), "持股顯示今日漲跌", dayTxt);
 
   // ETF 與興櫃持股（使用者回報 0050、00406A、7861 顯示無資料）
   for (const [code, cost] of [["0050", "100"], ["00406A", "10"], ["7861", "900"]]) {

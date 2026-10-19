@@ -192,7 +192,7 @@ export function buildTwInputs(p: {
   const flowDays = p.flows.map((rows) => new Map(rows.map((r) => [r[0], r])));
   const ret = (now: number, then: number | undefined) => (then && then > 0 ? now / then - 1 : NaN);
 
-  return p.latest.map(([code, name, close, , value]) => {
+  return p.latest.map(([code, name, close, change, value]) => {
     let foreign5 = 0, foreign10 = 0, trust5 = 0, has = false;
     flowDays.forEach((m, i) => {
       const r = m.get(code);
@@ -214,6 +214,7 @@ export function buildTwInputs(p: {
       code, name, market: p.tpexCodes.has(code) ? ("TPEX" as const) : ("TWSE" as const),
       sector: isEtf(code) ? etfCategory(name) : ind.get(code) ?? "其他", close, value,
       ret1w: ret(close, wk.get(code)), ret1m: ret(close, mo.get(code)), ret3m: ret(close, qt.get(code)),
+      chg1d: Number.isFinite(change) && close - change > 0 ? change / (close - change) : undefined,
       foreign5: has ? foreign5 : 0, foreign10: has ? foreign10 : 0, foreignStreak: streak, trust5: has ? trust5 : 0,
     };
   });

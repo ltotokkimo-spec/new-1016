@@ -92,6 +92,7 @@ export class UsLoader {
         value: last.close * last.volume,
         // 日K不到 70 天（剛上市）：只提供現價算損益，近1月報酬設為無資料，評分時就會略過，不會被誤判成跌破均線
         ret1w: retN(b, 5), ret1m: b.length >= 70 ? retN(b, 21) : NaN, ret3m: retN(b, 63),
+        chg1d: b.length >= 2 && b[b.length - 2].close > 0 ? last.close / b[b.length - 2].close - 1 : undefined,
         aboveMa50: last.close > ma50, ma20AboveMa50: ma20 > ma50, rsVsIndex1m: retN(b, 21) - spy1m,
       });
     }

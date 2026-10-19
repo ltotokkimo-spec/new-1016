@@ -13,6 +13,7 @@ export interface StockInput {
   ret1w: number; // 小數，0.05 = +5%
   ret1m: number;
   ret3m: number;
+  chg1d?: number; // 最近一個交易日的漲跌幅（小數）
   // 台股才有（美股為 undefined）
   foreign5?: number; // 外資近 5 日買賣超（股）
   foreign10?: number;

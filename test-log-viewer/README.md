@@ -25,6 +25,8 @@
 - 用 Ctrl+C 複製選取的列（以 Tab 分隔，可直接貼進 Excel）。
 
 ## 直接使用 exe（免安裝 Python）
+**⬇ 下載最新版：https://github.com/ltotokkimo-spec/new-1016/releases/latest**（點頁面下方 Assets 裡的 `TestLogViewer_v版本.exe`）
+
 到 [`release/`](release/) 下載 `TestLogViewer_v版本.exe`，雙擊即可執行。版本號寫在 `log_viewer.py` 的 `APP_VERSION`，也會顯示在視窗標題。要重新打包時，到 GitHub Actions 的「Build TestLogViewer.exe」按 Run workflow，它會在 Windows 上打包並把 exe 存回分支。
 
 ## 用 Python 執行

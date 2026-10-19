@@ -110,6 +110,28 @@ function check(ok, name, detail = "") {
   check(!!pickDay && pickDay.every((t) => /(現價|收盤).*今日\s*[+-]?\d/.test(t)), "選股每列顯示今日漲跌", JSON.stringify(pickDay));
   await shot("02-選股-台股");
 
+  // 剛轉強：回測資料裡的訊號（站上 20 日線 5% 以內、MACD 剛翻正、RSI<70、法人買超）
+  const hasTurn = await page.waitForSelector('[data-testid="turn-chip"]', { timeout: 60000 }).then(() => true).catch(() => false);
+  check(hasTurn, "選股有「剛轉強」篩選");
+  if (hasTurn) {
+    await page.click('[data-testid="turn-chip"]');
+    await page.waitForSelector('[data-testid="turn-card"]', { timeout: 5000 });
+    await sleep(500);
+    const tv = await page.evaluate(() => ({
+      chip: document.querySelector('[data-testid="turn-chip"]').textContent,
+      card: document.querySelector('[data-testid="turn-card"]').innerText.replace(/\s+/g, " "),
+      rows: [...document.querySelectorAll(".item")].slice(0, 8).map((r) => r.innerText.replace(/\s+/g, " ")),
+      empty: document.querySelector(".empty")?.innerText || "",
+    }));
+    log("剛轉強", JSON.stringify(tv));
+    const n = Number(/(\d+) 檔/.exec(tv.chip)?.[1] ?? -1);
+    check(/條件：收盤在 20 日線上方 5% 以內/.test(tv.card) && /根據 \d+\/\d+/.test(tv.card), "剛轉強說明條件與資料日期", tv.card.slice(0, 80));
+    check(n === 0 ? /沒有股票同時符合/.test(tv.empty) : tv.rows.length === Math.min(n, 8) && tv.rows.every((r) => /離20日線 \+\d/.test(r) && /停損 \d/.test(r)), "剛轉強每檔顯示離 20 日線與停損價", `${n} 檔 ${tv.rows[0] ?? tv.empty}`);
+    await shot("02c-剛轉強");
+    await page.evaluate(() => [...document.querySelectorAll(".chips .chip")].find((c) => c.textContent.startsWith("買入"))?.click());
+    await sleep(500);
+  }
+
   // 個股詳細：真實日K走勢
   await page.click(".item");
   await page.waitForSelector(".sheet", { timeout: 10000 });

@@ -4,6 +4,7 @@ import { buildTwInputs, type FRow, type QRow } from "../data/twLoader";
 import { isEtf, type Company } from "../data/tw";
 import { addDays } from "../lib/dates";
 import { scoreStocks, type Rating } from "./score";
+import { adjustedSeries, turningAt, type Indicators, type TurnPick } from "./turning";
 
 export interface BtDay { date: string; quotes: QRow[]; tpexCodes: Set<string>; flows: FRow[] }
 
@@ -31,6 +32,8 @@ export interface BacktestResult {
   dataTo: string; // 最新資料日
   stocks: BtUniverse;
   etf: BtUniverse;
+  // 「剛轉強」：最新一天符合的股票，以及過去每個評等日符合的股票之後的表現
+  turning?: { asOf: string; picks: TurnPick[]; signals: number; stat: Partial<Record<H, GroupStat>> };
 }
 
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
@@ -70,6 +73,8 @@ export function runBacktest(days: BtDay[], companies: Company[], opts: { step?: 
     ({ pairs: {}, excess: {}, series: [], signals: 0 });
   const acc = { stocks: uni(), etf: uni() };
   const signalDates: string[] = [];
+  const series = adjustedSeries(days), ind = new Map<string, Indicators>();
+  const turn: { pairs: Partial<Record<H, number[]>>; excess: Partial<Record<H, boolean[]>>; signals: number } = { pairs: {}, excess: {}, signals: 0 };
 
   for (let i = HORIZONS[0]; i < days.length; i += step) {
     const s = days[i].date;
@@ -106,6 +111,21 @@ export function runBacktest(days: BtDay[], companies: Company[], opts: { step?: 
         });
         if (buys.length) row.buy[h] = mean(buys);
       }
+      if (key === "stocks") {
+        const picks = turningAt(days, i, series, ind);
+        if (picks.length) turn.signals++;
+        for (const h of HORIZONS) {
+          const all = scored.map((x) => fwd(x.code, i, h)).filter(Number.isFinite);
+          if (!all.length) continue;
+          const med = median(all);
+          for (const p of picks) {
+            const r = fwd(p.code, i, h);
+            if (!Number.isFinite(r)) continue;
+            (turn.pairs[h] ??= []).push(r);
+            (turn.excess[h] ??= []).push(r > med);
+          }
+        }
+      }
       row.nBuy = scored.filter((x) => x.rating === "買入").length;
       a.series.push(row);
     }
@@ -124,8 +144,12 @@ export function runBacktest(days: BtDay[], companies: Company[], opts: { step?: 
     }
     return { signals: a.signals, groups, series: a.series };
   };
+  const stat = (xs: number[], ex: boolean[]): GroupStat => ({ n: xs.length, avg: mean(xs), median: median(xs), win: xs.filter((x) => x > 0).length / xs.length, beat: ex.filter(Boolean).length / ex.length });
+  const turnStat: Partial<Record<H, GroupStat>> = {};
+  for (const h of HORIZONS) if (turn.pairs[h]?.length) turnStat[h] = stat(turn.pairs[h]!, turn.excess[h]!);
   return {
     version: 1, generatedAt: opts.now ?? Date.now(),
+    turning: days.length ? { asOf: days[0].date, picks: turningAt(days, 0, series, ind), signals: turn.signals, stat: turnStat } : undefined,
     from: signalDates[signalDates.length - 1] ?? "", to: signalDates[0] ?? "", dataTo: days[0]?.date ?? "",
     stocks: finish(acc.stocks), etf: finish(acc.etf),
   };

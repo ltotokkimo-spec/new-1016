@@ -11,7 +11,9 @@ import { isEtf } from "../data/tw";
 import { freeReport } from "../engine/freeReport";
 import { isUsSymbol, MACRO_SYMBOLS } from "../data/us";
 import { marketOpen, type LiveQuote } from "../data/twLive";
-import { pretty, taipeiToday } from "../lib/dates";
+import { pretty, prettyW, taipeiToday } from "../lib/dates";
+import type { BacktestResult } from "../engine/backtest";
+import type { TurnPick } from "../engine/turning";
 import { cls, fmtMoney, fmtPct, fmtPrice, lots, Markdown, PriceChart, Progress, RatingPill, Sheet } from "./common";
 
 // ---------------- 選股 ----------------
@@ -19,7 +21,10 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
   market: Market; setMarket: (m: Market) => void; sector: string; setSector: (s: string) => void; open: (s: Scored) => void;
 }) {
   const ms = useStore((s) => (market === "TW" ? s.tw : market === "ETF" ? s.etf : s.us));
-  const [filter0, setFilter] = useState<Rating | "全部">("買入");
+  const [filter0, setFilter] = useState<Rating | "全部" | "剛轉強">("買入");
+  // 剛轉強：每天回測時一起算好（需要 3 個月以上的日K），只有台股
+  const turn = useStore((s) => (market === "TW" ? s.backtest?.data.turning : undefined));
+  const turnMap = useMemo(() => new Map((turn?.picks ?? []).map((p) => [p.code, p])), [turn]);
   const refOnly = market === "ETF";
   const filter = refOnly ? "全部" : filter0; // ETF 不分評等
   const [q, setQ] = useState("");
@@ -32,16 +37,16 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
   };
   // 從「族群」分頁點進來時只看該族群，評等檔數也跟著只算該族群
   const counts = useMemo(() => {
-    const c: Record<string, number> = { 全部: 0, 買入: 0, 觀望: 0, 離場: 0 };
-    for (const s of ms.scored) if (!sector || s.sector === sector) { c["全部"]++; c[s.rating]++; }
+    const c: Record<string, number> = { 全部: 0, 買入: 0, 觀望: 0, 離場: 0, 剛轉強: 0 };
+    for (const s of ms.scored) if (!sector || s.sector === sector) { c["全部"]++; c[s.rating]++; if (turnMap.has(s.code)) c["剛轉強"]++; }
     return c;
-  }, [ms.scored, sector]);
+  }, [ms.scored, sector, turnMap]);
   const list = useMemo(() => {
     const t = q.trim().toUpperCase();
     return ms.scored.filter((s) =>
-      (filter === "全部" || s.rating === filter) && (!sector || s.sector === sector) &&
+      (filter === "全部" || (filter === "剛轉強" ? turnMap.has(s.code) : s.rating === filter)) && (!sector || s.sector === sector) &&
       (!t || s.code.toUpperCase().includes(t) || s.name.toUpperCase().includes(t)));
-  }, [ms.scored, filter, q, sector]);
+  }, [ms.scored, filter, q, sector, turnMap]);
   const liveCodes = market === "US" ? [] : list.slice(0, 60).map((x) => x.code);
   const liveKey = liveCodes.join(",");
   useEffect(() => {
@@ -60,8 +65,8 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
       <div class="chips" style={{ marginTop: "10px" }} role="group" aria-label="評等篩選">
         {refOnly
           ? <button class="chip" aria-pressed="true">全部 {counts["全部"]} 檔</button>
-          : (["買入", "觀望", "離場", "全部"] as const).map((f) => (
-            <button class="chip" aria-pressed={filter === f} onClick={() => setFilter(f)}>{f} {counts[f] ?? 0} 檔</button>
+          : (["買入", ...(turn ? ["剛轉強"] as const : []), "觀望", "離場", "全部"] as const).map((f) => (
+            <button class="chip" aria-pressed={filter === f} onClick={() => setFilter(f)} data-testid={f === "剛轉強" ? "turn-chip" : undefined}>{f} {counts[f] ?? 0} 檔</button>
           ))}
       </div>
       {sector && (
@@ -70,7 +75,7 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
           <button class="chip" aria-pressed="true" onClick={() => setSector("")}>看全部族群 ✕</button>
         </div>
       )}
-      <BacktestCard market={market} />
+      {filter === "剛轉強" && turn ? <TurnCard turn={turn} /> : <BacktestCard market={market} />}
       {ms.error && <div class="error" style={{ marginTop: "10px" }}>{ms.error}</div>}
       {ms.warning && <div class="notice" style={{ marginTop: "10px" }}>{ms.warning}</div>}
       {ms.status === "loading" && <Progress p={ms.progress} />}
@@ -78,17 +83,17 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
       {ms.status === "ready" && (
         <>
           <div class="section-title">
-            <span>{sector ? `${sector}・` : ""}{filter === "全部" ? (market === "ETF" ? "全部 ETF" : "全部股票") : `評等「${filter}」`}・依分數排序</span>
+            <span>{sector ? `${sector}・` : ""}{filter === "全部" ? (market === "ETF" ? "全部 ETF" : "全部股票") : filter === "剛轉強" ? "剛轉強" : `評等「${filter}」`}・依分數排序</span>
             <span>{list.length} 檔</span>
           </div>
           {market === "US" && <UsLookup q={q} found={list.length > 0} />}
           {list.length === 0 ? (
             <div class="empty">
-              {filter === "買入" && !q && !sector ? <>今天沒有股票同時符合「分數 70 以上、外資買超、一週漲幅未過熱」。<br /><button class="chip" style={{ marginTop: "10px" }} onClick={() => setFilter("觀望")}>看「觀望」名單</button></> : "沒有符合的股票"}
+              {filter === "剛轉強" && !q && !sector ? `${prettyW(turn?.asOf ?? "")}收盤沒有股票同時符合「剛轉強」的條件。` : filter === "買入" && !q && !sector ? <>今天沒有股票同時符合「分數 70 以上、外資買超、一週漲幅未過熱」。<br /><button class="chip" style={{ marginTop: "10px" }} onClick={() => setFilter("觀望")}>看「觀望」名單</button></> : "沒有符合的股票"}
             </div>
           ) : (
             <div class="list">
-              {list.slice(0, 150).map((s) => <StockRow s={s} q={freshLive(s)} onClick={() => open(s)} />)}
+              {list.slice(0, 150).map((s) => <StockRow s={s} q={freshLive(s)} turn={filter === "剛轉強" ? turnMap.get(s.code) : undefined} onClick={() => open(s)} />)}
             </div>
           )}
           <p class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
@@ -114,7 +119,7 @@ function MarketSeg({ market, setMarket }: { market: Market; setMarket: (m: Marke
   );
 }
 
-function StockRow({ s, q, onClick }: { s: Scored; q?: LiveQuote; onClick: () => void }) {
+function StockRow({ s, q, turn, onClick }: { s: Scored; q?: LiveQuote; turn?: TurnPick; onClick: () => void }) {
   const price = q?.price ?? s.close;
   const chg = q && Number.isFinite(q.prevClose) ? q.price / q.prevClose - 1 : s.chg1d;
   const intraday = !!q && !q.final && q.date === taipeiToday();
@@ -126,6 +131,7 @@ function StockRow({ s, q, onClick }: { s: Scored; q?: LiveQuote; onClick: () => 
           {s.sector}
           {s.market !== "US" ? <>・外資5日 <span class={cls(s.foreign5)}>{lots(s.foreign5)}</span></> : <>・相對大盤 <span class={cls(s.rsVsIndex1m)}>{fmtPct(s.rsVsIndex1m)}</span></>}
         </div>
+        {turn && <div class="sub" data-testid="turn-info">離20日線 {fmtPct(turn.gap20)}・MACD {turn.turnedAgo ? `${turn.turnedAgo} 天前` : "今天"}翻正・停損 {fmtPrice(turn.stop, s.market)}</div>}
       </div>
       <div class="px">
         <div class="p num"><span class="lbl">{intraday ? `現價 ${q!.time.slice(0, 5)}` : "收盤"}</span>{fmtPrice(price, s.market)}</div>
@@ -160,6 +166,22 @@ function UsLookup({ q, found }: { q: string; found: boolean }) {
 type BtGroup = "買入" | "觀望" | "離場" | "全部";
 
 /** 選股頁上方的回測摘要：這套評等過去準不準 */
+// 剛轉強的條件說明與過去表現
+function TurnCard({ turn }: { turn: NonNullable<BacktestResult["turning"]> }) {
+  const x = turn.stat[20];
+  return (
+    <div class="card" style={{ marginTop: "10px" }} data-testid="turn-card">
+      <div style={{ fontWeight: 700 }}>剛轉強：剛站上 20 日線、還沒漲遠</div>
+      <div style={{ fontSize: "13px", lineHeight: 1.7, marginTop: "6px" }}>
+        條件：收盤在 20 日線上方 5% 以內、不低於 60 日線、MACD 最近 5 天內由負轉正、RSI 低於 70、沒有超過布林上軌、外資＋投信近 5 日買超、成交金額 5 千萬以上。
+        停損參考設在 20／60 日線下方（約 −3%～−8%），跌破就出場。
+      </div>
+      {x && <div style={{ marginTop: "6px" }}>過去評等日符合的股票，之後 20 個交易日：平均 <b class={cls(x.avg)}>{fmtPct(x.avg)}</b>・上漲機率 {Math.round(x.win * 100)}%・贏過一半股票 {Math.round(x.beat * 100)}%（{x.n} 筆）</div>}
+      <div class="muted" style={{ fontSize: "12px", marginTop: "4px" }}>根據 {prettyW(turn.asOf)} 收盤，每天傍晚更新。剛起漲的股票也常站不穩又跌回，一定要設停損；過去表現不代表未來。</div>
+    </div>
+  );
+}
+
 function BacktestCard({ market }: { market: Market }) {
   const bt = useStore((s) => s.backtest);
   const [open, setOpen] = useState(false);

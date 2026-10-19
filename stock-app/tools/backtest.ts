@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { TwLoader } from "../src/data/twLoader";
 import { runBacktest, type BtDay } from "../src/engine/backtest";
+import { adjustedSeries, indicators } from "../src/engine/turning";
 import { taipeiToday, weekdaysBack } from "../src/lib/dates";
 import type { KV } from "../src/lib/kv";
 
@@ -75,6 +76,19 @@ for (const u of ["stocks", "etf"] as const) {
   for (const g of ["買入", "觀望", "離場", "全部"] as const) {
     const s5 = r[u].groups[g][5], s20 = r[u].groups[g][20];
     log(`${g}  5日 n=${s5?.n ?? 0} 平均 ${pct(s5?.avg)} 上漲 ${pct(s5?.win)} 贏過一半 ${pct(s5?.beat)} | 20日 n=${s20?.n ?? 0} 平均 ${pct(s20?.avg)} 中位數 ${pct(s20?.median)} 上漲 ${pct(s20?.win)} 贏過一半 ${pct(s20?.beat)}`);
+  }
+}
+const t = r.turning;
+if (t) {
+  log(`== 剛轉強 ${t.asOf}：${t.picks.length} 檔`, t.picks.map((p) => `${p.code}${p.name} 離20日線${pct(p.gap20)} RSI${p.rsi.toFixed(0)} 翻正${p.turnedAgo}天 停損${p.stop}`).join("；"));
+  for (const h of [5, 20] as const) { const x = t.stat[h]; log(`剛轉強 ${h}日 n=${x?.n ?? 0} 平均 ${pct(x?.avg)} 上漲 ${pct(x?.win)} 贏過一半 ${pct(x?.beat)}（${t.signals} 個評等日有訊號）`); }
+  // 和證交所 MCP 的技術指標對照用（還原價，數值應接近）
+  const ser = adjustedSeries(days);
+  for (const code of ["9945", "2002", "2409", "2330"]) {
+    const s = ser.get(code); if (!s) continue;
+    const x = indicators(s.adj), p = s.adj.length - 1, f = days[0].quotes.find((q) => q[0] === code)?.[2] ?? NaN;
+    const k = f / s.adj[p];
+    log(`指標 ${code} 收${f} MA20 ${(x.ma20[p] * k).toFixed(2)} MA60 ${(x.ma60[p] * k).toFixed(2)} RSI ${x.rsi[p].toFixed(2)} OSC ${(x.osc[p] * k).toFixed(3)} 上軌 ${(x.upper[p] * k).toFixed(2)}`);
   }
 }
 log("完成", outFile, fs.statSync(outFile).size, "bytes，網路請求", requests);

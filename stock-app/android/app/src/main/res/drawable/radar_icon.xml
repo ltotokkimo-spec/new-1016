@@ -1,9 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 開啟 App 時的雷達掃描動畫（Android 12 以上的啟動畫面） -->
-<animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:aapt="http://schemas.android.com/aapt">
-    <aapt:attr name="android:drawable">
-        <vector android:width="240dp" android:height="240dp"
+<!-- 啟動畫面的雷達（靜態）；轉一圈的動畫由 App 畫面接手（index.html 的 #boot-radar） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="240dp" android:height="240dp"
             android:viewportWidth="240" android:viewportHeight="240">
             <group android:name="sweep" android:pivotX="120" android:pivotY="120">
                 <path android:fillColor="#5AB8FF" android:fillAlpha="0.85" android:pathData="M120,120 L120,64 A56,56 0 0,1 159.6,80.4 Z"/>
@@ -19,12 +16,3 @@
                 android:pathData="M71,144.5 L95.5,123.5 L113,135.75 L151.5,92"/>
             <path android:fillColor="#FF5A5F" android:pathData="M151.5,85 a7,7 0 1,1 0,14 a7,7 0 1,1 0,-14"/>
         </vector>
-    </aapt:attr>
-    <target android:name="sweep">
-        <aapt:attr name="android:animation">
-            <objectAnimator android:propertyName="rotation" android:valueFrom="0" android:valueTo="360"
-                android:duration="1000" android:repeatCount="infinite"
-                android:interpolator="@android:anim/linear_interpolator"/>
-        </aapt:attr>
-    </target>
-</animated-vector>

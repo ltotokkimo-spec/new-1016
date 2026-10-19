@@ -3,11 +3,9 @@
     <!-- Android 12 以上：啟動畫面顯示雷達掃描動畫 -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">#071526</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/avd_radar</item>
-        <item name="windowSplashScreenAnimationDuration">1000</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/radar_icon</item>
         <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
         <item name="android:windowSplashScreenBackground">#071526</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/avd_radar</item>
-        <item name="android:windowSplashScreenAnimationDuration">1000</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/radar_icon</item>
     </style>
 </resources>

@@ -8,6 +8,34 @@
     <title>掃雷專區</title>
   </head>
   <body>
+    <!-- 開 App 時：接手系統啟動畫面的雷達（同大小、同位置），轉滿一圈再淡出 -->
+    <div id="boot-radar" aria-hidden="true">
+      <svg viewBox="0 0 240 240" width="240" height="240">
+        <g class="sw">
+          <path fill="#5AB8FF" fill-opacity="0.85" d="M120,120 L120,64 A56,56 0 0,1 159.6,80.4 Z" />
+          <path fill="#5AB8FF" fill-opacity="0.45" d="M120,120 L98.6,68.3 A56,56 0 0,1 120,64 Z" />
+          <path fill="#5AB8FF" fill-opacity="0.22" d="M120,120 L80.4,80.4 A56,56 0 0,1 98.6,68.3 Z" />
+          <path fill="#5AB8FF" fill-opacity="0.1" d="M120,120 L68.3,98.6 A56,56 0 0,1 80.4,80.4 Z" />
+          <path stroke="#DDF1FF" stroke-width="4" stroke-linecap="round" d="M120,120 L159.6,80.4" />
+        </g>
+        <g fill="none" stroke="#5AB8FF" stroke-width="3.8"><circle cx="120" cy="120" r="56" /><circle cx="120" cy="120" r="36.75" /><circle cx="120" cy="120" r="17.5" /></g>
+        <path fill="none" stroke="#FF5A5F" stroke-width="6.3" stroke-linecap="round" stroke-linejoin="round" d="M71,144.5 L95.5,123.5 L113,135.75 L151.5,92" />
+        <circle cx="151.5" cy="92" r="7" fill="#FF5A5F" />
+      </svg>
+    </div>
+    <style>
+      #boot-radar { position: fixed; inset: 0; z-index: 9999; background: #071526; display: grid; place-items: center; transition: opacity 0.25s ease-out; }
+      #boot-radar .sw { transform-origin: 120px 120px; animation: boot-spin 1s linear 1 both; }
+      #boot-radar.done { opacity: 0; pointer-events: none; }
+      @keyframes boot-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    </style>
+    <script>
+      // 轉滿一圈（1 秒）後淡出並移除；只在 App 剛打開時出現
+      (function () {
+        var el = document.getElementById("boot-radar");
+        setTimeout(function () { el.classList.add("done"); setTimeout(function () { el.remove(); }, 300); }, 1000);
+      })();
+    </script>
     <div id="app"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

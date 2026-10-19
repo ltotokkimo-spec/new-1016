@@ -1,7 +1,7 @@
 // 「自組ETF」分頁：請 Claude 建議要買什麼、買幾股，照著實際下單後填入成交，追蹤淨值並和 0050 比較。
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
-  addEtfTrades, deleteEtfTrade, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
+  addEtfTrades, deleteEtfTrade, refreshVirtual, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError, holdingsFromImage, shrinkImage } from "../ai/claude";
 import { comparePlans, DEFAULT_STOP, fitBudget, parsePlan, positions, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
@@ -10,8 +10,7 @@ import { cls, fmtMoney, fmtPct, fmtPrice } from "./common";
 import { AiProgressView, AiReportView, BalanceHint, copyText } from "./screens";
 
 /** 兩條線：我的組合 vs 0050（報酬率 %） */
-function NavChart({ points }: { points: { date: string; nav: number; bench: number }[]; }) {
-  const budget = useStore((s) => s.aiEtf.budget);
+function NavChart({ points, budget, mine = "我的自組 ETF" }: { points: { date: string; nav: number; bench: number }[]; budget: number; mine?: string }) {
   if (points.length < 2) return null;
   const W = 340, H = 150, pad = 28;
   const a = points.map((p) => p.nav / budget - 1), b = points.map((p) => p.bench / budget - 1);
@@ -31,7 +30,7 @@ function NavChart({ points }: { points: { date: string; nav: number; bench: numb
         <text x={W - 6} y={H - 4} font-size="10" fill="var(--muted)" text-anchor="end">{pretty(points[points.length - 1].date)}</text>
       </svg>
       <div class="row" style={{ fontSize: "12px", gap: "14px" }}>
-        <span><b style={{ color: "var(--accent)" }}>━</b> 我的自組 ETF</span><span class="muted">━ 同樣的錢買 0050</span>
+        <span><b style={{ color: "var(--accent)" }}>━</b> {mine}</span><span class="muted">━ 同樣的錢買 0050</span>
       </div>
     </div>
   );
@@ -299,7 +298,127 @@ function ManualTrade() {
   );
 }
 
+/** 自組 ETF 分頁：Claude 虛擬操作（預設）／我的實單紀錄 */
 export function AiEtfScreen() {
+  const [mode, setMode] = useState<"virtual" | "real">(() => { try { return (localStorage.getItem("aietfMode") as "real") || "virtual"; } catch { return "virtual"; } });
+  const pick = (m: "virtual" | "real") => { setMode(m); try { localStorage.setItem("aietfMode", m); } catch { /* 不重要 */ } };
+  return (
+    <div>
+      <div class="seg" role="group" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", marginBottom: "10px" }}>
+        <button aria-pressed={mode === "virtual"} onClick={() => pick("virtual")} data-testid="mode-virtual">Claude 虛擬操作</button>
+        <button aria-pressed={mode === "real"} onClick={() => pick("real")} data-testid="mode-real">我的實單紀錄</button>
+      </div>
+      {mode === "virtual" ? <VirtualView /> : <RealEtfScreen />}
+    </div>
+  );
+}
+
+/** Claude 每個交易日自動操作的虛擬 10 萬（唯讀） */
+function VirtualView() {
+  const vt = useStore((s) => s.virtual);
+  const [busy, setBusy] = useState(false);
+  const reload = async () => { setBusy(true); await refreshVirtual(); setBusy(false); };
+  useEffect(() => { if (!vt || Date.now() - vt.fetchedAt > 10 * 60_000) reload(); }, []);
+  if (!vt) return <div class="empty">{busy ? "下載 Claude 的虛擬操作紀錄中…" : "還沒有下載到 Claude 的虛擬操作紀錄，請確認網路後按右上角重新整理。"}</div>;
+  const v = vt.data;
+  const px = (c: string) => v.last[c]?.close;
+  const val = valuate(v, px);
+  const pos = positions(v.trades).filter((p) => p.shares > 0);
+  const nextDay = v.asOf ? orderDay(v.asOf) : undefined;
+  const notes = [...v.notes].reverse();
+  return (
+    <div data-testid="virtual-view">
+      <div class="card stack" data-testid="virtual-summary">
+        <div class="row" style={{ justifyContent: "space-between" }}>
+          <b>Claude 虛擬自組 ETF</b>
+          <span class="muted" style={{ fontSize: "12px" }}>虛擬資金 {fmtMoney(v.budget)}・{pretty(v.start)} 開始</span>
+        </div>
+        <div class="grid2">
+          <div class="metric"><div class="k">淨值（現金＋股票）</div><div class="v num">{fmtMoney(val.nav)}</div><div class={`d num ${cls(val.ret)}`}>報酬 {fmtPct(val.ret, 2)}</div></div>
+          <div class="metric"><div class="k">同樣的錢買 0050</div><div class="v num">{fmtMoney(val.bench)}</div><div class={`d num ${cls(val.benchRet)}`}>報酬 {fmtPct(val.benchRet, 2)}</div></div>
+        </div>
+        <div style={{ fontSize: "14px" }}>
+          {val.missing.length ? <span class="muted">收盤價更新後再比較輸贏</span> : val.ret >= val.benchRet ? <span class="up">贏過 0050 {fmtPct(val.ret - val.benchRet, 2)}</span> : <span class="down">落後 0050 {fmtPct(val.ret - val.benchRet, 2)}</span>}
+          <span class="muted">・現金 {fmtMoney(val.cash)}・股票市值 {fmtMoney(val.marketValue)}</span>
+        </div>
+        <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
+          {v.asOf ? <>資料日 {prettyW(v.asOf)} 收盤・</> : <>今天收盤後第一次更新・</>}Claude 每個交易日收盤後自動更新（約 18:00）。虛擬成交規則：前一天收盤後下單，隔天買進以開盤價成交（開盤高於限價就等盤中碰到限價，沒碰到就不買），賣出以開盤價成交；已計手續費與證交稅。
+        </div>
+        {vt.error && <div class="muted" style={{ fontSize: "12px" }}>{vt.error}</div>}
+        <button class="btn secondary" onClick={reload} disabled={busy} data-testid="virtual-reload">{busy ? "更新中…" : "重新下載最新紀錄"}</button>
+      </div>
+
+      {v.nav.length >= 2 && <><div class="section-title"><span>報酬走勢</span><span>{v.nav.length} 天</span></div><NavChart points={v.nav} budget={v.budget} mine="Claude 虛擬組合" /></>}
+
+      {v.pending.length > 0 && (
+        <div class="card stack" style={{ marginTop: "12px" }} data-testid="virtual-pending">
+          <b>📅 {nextDay ? `${prettyW(nextDay)} ` : "下一個交易日"}預計操作</b>
+          {v.pending.map((o) => (
+            <div style={{ fontSize: "14px", lineHeight: 1.6 }}>
+              <span class={o.side === "buy" ? "up" : "down"}>{o.side === "buy" ? "買進" : "賣出"}</span> <b>{o.name}</b> <span class="muted num">{o.code}</span> {o.shares.toLocaleString()} 股{o.limit ? `・限價 ${o.limit}` : "・開盤價"}
+              <div class="muted" style={{ fontSize: "12px" }}>{o.reason}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {pos.length > 0 && (
+        <>
+          <div class="section-title"><span>目前持股</span><span>{pos.length} 檔</span></div>
+          <div class="list">
+            {pos.map((p) => {
+              const c = px(p.code);
+              return (
+                <div class="item" style={{ cursor: "default" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div class="name">{p.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{p.code}</span></div>
+                    <div class="sub num">{p.shares.toLocaleString()} 股・均價 {fmtPrice(p.avgCost)}・佔 {c ? `${((p.shares * c / val.nav) * 100).toFixed(1)}%` : "—"}</div>
+                    {v.stops?.[p.code] && <div class="sub num">停損 {fmtPrice(v.stops[p.code])}</div>}
+                  </div>
+                  <div class="px">
+                    <div class="p num"><span class="lbl">收盤</span>{c ? fmtPrice(c) : "—"}</div>
+                    <div class={`c num ${cls(c ? c - p.avgCost : 0)}`}><span class="lbl">損益</span>{c ? fmtPct(c / p.avgCost - 1) : "—"}</div>
+                  </div>
+                  <div />
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {notes.length > 0 && (
+        <>
+          <div class="section-title"><span>Claude 每日操作說明</span><span>{notes.length} 則</span></div>
+          <div class="card stack" data-testid="virtual-notes">
+            {notes.slice(0, 10).map((n) => (
+              <div style={{ fontSize: "14px", lineHeight: 1.7 }}><b class="num">{prettyW(n.date)}</b>　{n.text}</div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {v.trades.length > 0 && (
+        <>
+          <div class="section-title"><span>虛擬成交紀錄</span><span>{v.trades.length} 筆</span></div>
+          <div class="card" style={{ padding: "6px 10px" }}>
+            {[...v.trades].reverse().map((t) => (
+              <div class="row" style={{ justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: "13px" }}>
+                <span class="num">{pretty(t.date)} <span class={t.side === "buy" ? "up" : "down"}>{t.side === "buy" ? "買" : "賣"}</span> {t.name} {t.shares.toLocaleString()} 股 @ {fmtPrice(t.price)}</span>
+              </div>
+            ))}
+            {(v.cancelled ?? []).slice(-5).reverse().map((c) => (
+              <div class="muted" style={{ padding: "6px 0", fontSize: "12px" }}>{pretty(c.date)} {c.name} 委託未成交：{c.reason}</div>
+            ))}
+          </div>
+        </>
+      )}
+      <div class="muted" style={{ fontSize: "11px", lineHeight: 1.6, marginTop: "12px" }}>這是 Claude 用虛擬資金的模擬操作，用來觀察建議的效果；不是真的下單，也不是投資建議。</div>
+    </div>
+  );
+}
+
+function RealEtfScreen() {
   const st = useStore((s) => ({ asOf: s.tw.asOf, etf: s.aiEtf, prices: s.prices, scored: s.tw.scored, reports: s.reports, jobs: s.aiJobs, apiKey: s.settings.apiKey, twReady: s.tw.status === "ready" }));
   const { etf } = st;
   const v = valuate(etf, etfPrice);
@@ -364,7 +483,7 @@ export function AiEtfScreen() {
         <div class="muted" style={{ fontSize: "11px", lineHeight: 1.6 }}>已估算手續費 0.1425% 與賣出證交稅 0.3%（未計券商折扣）。對照組：每次買賣時，用同樣金額買賣 0050。</div>
       </div>
 
-      {etf.nav.length >= 2 && <><div class="section-title"><span>報酬走勢</span><span>{etf.nav.length} 天</span></div><NavChart points={etf.nav} /></>}
+      {etf.nav.length >= 2 && <><div class="section-title"><span>報酬走勢</span><span>{etf.nav.length} 天</span></div><NavChart points={etf.nav} budget={etf.budget} /></>}
 
       {pos.length > 0 && (
         <>

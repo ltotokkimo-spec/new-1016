@@ -11,9 +11,12 @@ import { aiEtfAdvice, explainError, type AiProgress, type EtfAdviceInput, type A
 import { orderDay, prettyW, taipeiToday } from "./lib/dates";
 import * as upd from "./lib/update";
 import type { BacktestResult } from "./engine/backtest";
+import type { VirtualEtf } from "./engine/virtualEtf";
 import { parseRevenue, revenueUrls, type Revenue } from "./data/revenue";
 import { emptyEtf, etfAlerts, positions as etfPositions, recordNav, stopOf, valuate, type AiEtf, type EtfTrade } from "./engine/aiEtf";
 
+// Claude 每個交易日收盤後更新的虛擬自組 ETF（存在 GitHub 分支上，App 只讀取顯示）
+export const VIRTUAL_URL = "https://raw.githubusercontent.com/ltotokkimo-spec/new-1016/claude/ui-calculator-interface-t3x9kh/stock-app/virtual/virtual-etf.json";
 export const BACKTEST_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/backtest.json";
 
 export type Market = "TW" | "ETF" | "US";
@@ -59,6 +62,7 @@ export interface State {
   };
   spend: { at: number; usd: number; kind: string }[]; // 這支手機呼叫 Claude 的實際花費紀錄
   backtest?: { data: BacktestResult; fetchedAt: number };
+  virtual?: { data: VirtualEtf; fetchedAt: number; error?: string };
   usExtra: UsExtra[]; // 使用者自己加的美股
   usPending: string[]; // 正在下載的美股持股代號
   usNotFound: string[]; // Nasdaq 查不到的代號
@@ -109,6 +113,9 @@ export async function init() {
     kv.get<EsbSnapshot>("snap:esb"),
   ]);
   set({ usExtra: (await kv.get<UsExtra[]>("usExtra")) ?? [], aiEtf: (await kv.get<AiEtf>("aiEtf")) ?? emptyEtf() });
+  const vt = await kv.get<State["virtual"]>("virtual");
+  if (vt) set({ virtual: vt });
+  refreshVirtual();
   const bt = await kv.get<State["backtest"]>("backtest");
   if (bt) set({ backtest: bt });
   if (!bt || Date.now() - bt.fetchedAt > 6 * 3600_000) refreshBacktest();
@@ -350,6 +357,20 @@ export async function installUpdate() {
   set({ update: { status: "ready", info: { current: state.update.info?.current, latest: { versionCode: 999999, versionName: "測試版", notes: "測試下載流程" }, available: true } } });
 
 // ---------- 回測結果（GitHub Actions 算好，App 只下載） ----------
+/** 下載 Claude 的虛擬自組 ETF；失敗就沿用上次下載的 */
+export async function refreshVirtual() {
+  try {
+    const data = (await fetcher(`${VIRTUAL_URL}?t=${Date.now()}`)) as VirtualEtf;
+    if (data?.version !== 1 || !Array.isArray(data.trades)) throw new Error("格式不對");
+    const v = { data, fetchedAt: Date.now() };
+    await kv.set("virtual", v);
+    set({ virtual: v });
+  } catch (e) {
+    if (state.virtual) set({ virtual: { ...state.virtual, error: "這次沒下載到最新資料，顯示上次的內容" } });
+    else set({ virtual: undefined });
+  }
+}
+
 export async function refreshBacktest() {
   try {
     const data = (await fetcher(`${BACKTEST_URL}?t=${Date.now()}`)) as BacktestResult;

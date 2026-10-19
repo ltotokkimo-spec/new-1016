@@ -101,6 +101,13 @@ function check(ok, name, detail = "") {
   const total = Number(/全部 (\d+)/.exec(tw.chips.join(" "))?.[1] || 0);
   check(total > 300, "全市場評分股票數量合理", `全部 ${total} 檔`);
   check(tw.rows.length > 0 && tw.rows.every((r) => /(買入|觀望|離場)/.test(r) && /分數 \d+/.test(r)), "每列都有評等與分數", tw.rows[0]);
+  // 今日漲跌：前 60 檔用證交所即時價（盤中標示「現價 HH:MM」），其餘用最近收盤
+  const pickDay = await page.waitForFunction(() => {
+    const els = [...document.querySelectorAll('[data-testid="pick-day"]')];
+    return els.length >= 3 ? els.slice(0, 3).map((e) => e.closest(".item").querySelector(".px").innerText.replace(/\s+/g, " ")) : null;
+  }, null, { timeout: 30000 }).then((h) => h.jsonValue()).catch(() => null);
+  log("選股今日漲跌", JSON.stringify(pickDay));
+  check(!!pickDay && pickDay.every((t) => /(現價|收盤).*今日\s*[+-]?\d/.test(t)), "選股每列顯示今日漲跌", JSON.stringify(pickDay));
   await shot("02-選股-台股");
 
   // 個股詳細：真實日K走勢

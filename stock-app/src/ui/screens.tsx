@@ -10,7 +10,7 @@ import { twHistory } from "../data/history";
 import { isEtf } from "../data/tw";
 import { freeReport } from "../engine/freeReport";
 import { isUsSymbol, MACRO_SYMBOLS } from "../data/us";
-import { marketOpen } from "../data/twLive";
+import { marketOpen, type LiveQuote } from "../data/twLive";
 import { pretty, taipeiToday } from "../lib/dates";
 import { cls, fmtMoney, fmtPct, fmtPrice, lots, Markdown, PriceChart, Progress, RatingPill, Sheet } from "./common";
 
@@ -23,6 +23,13 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
   const refOnly = market === "ETF";
   const filter = refOnly ? "全部" : filter0; // ETF 不分評等
   const [q, setQ] = useState("");
+  const live = useStore((s) => s.live);
+  // 台股／ETF：清單前 60 檔用證交所即時價（盤中每 30 秒更新），其餘顯示最近收盤的漲跌
+  const freshLive = (s: Scored): LiveQuote | undefined => {
+    if (s.market === "US") return undefined;
+    const lq = live[s.code];
+    return lq && lq.date && lq.date >= (ms.asOf ?? "") ? lq : undefined;
+  };
   const counts = useMemo(() => {
     const c: Record<string, number> = { 全部: ms.scored.length, 買入: 0, 觀望: 0, 離場: 0 };
     for (const s of ms.scored) c[s.rating]++;
@@ -34,6 +41,14 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
       (filter === "全部" || s.rating === filter) && (!sector || s.sector === sector) &&
       (!t || s.code.toUpperCase().includes(t) || s.name.toUpperCase().includes(t)));
   }, [ms.scored, filter, q, sector]);
+  const liveCodes = market === "US" ? [] : list.slice(0, 60).map((x) => x.code);
+  const liveKey = liveCodes.join(",");
+  useEffect(() => {
+    if (!liveCodes.length) return;
+    refreshLive(liveCodes);
+    const t = setInterval(() => { if (marketOpen()) refreshLive(liveCodes); }, 30_000);
+    return () => clearInterval(t);
+  }, [liveKey]);
 
   return (
     <div>
@@ -67,7 +82,7 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
             </div>
           ) : (
             <div class="list">
-              {list.slice(0, 150).map((s) => <StockRow s={s} onClick={() => open(s)} />)}
+              {list.slice(0, 150).map((s) => <StockRow s={s} q={freshLive(s)} onClick={() => open(s)} />)}
             </div>
           )}
           <p class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
@@ -93,7 +108,10 @@ function MarketSeg({ market, setMarket }: { market: Market; setMarket: (m: Marke
   );
 }
 
-function StockRow({ s, onClick }: { s: Scored; onClick: () => void }) {
+function StockRow({ s, q, onClick }: { s: Scored; q?: LiveQuote; onClick: () => void }) {
+  const price = q?.price ?? s.close;
+  const chg = q && Number.isFinite(q.prevClose) ? q.price / q.prevClose - 1 : s.chg1d;
+  const intraday = !!q && !q.final && q.date === taipeiToday();
   return (
     <button class="item" onClick={onClick}>
       <div style={{ minWidth: 0 }}>
@@ -104,7 +122,8 @@ function StockRow({ s, onClick }: { s: Scored; onClick: () => void }) {
         </div>
       </div>
       <div class="px">
-        <div class="p num"><span class="lbl">收盤</span>{fmtPrice(s.close, s.market)}</div>
+        <div class="p num"><span class="lbl">{intraday ? `現價 ${q!.time.slice(0, 5)}` : "收盤"}</span>{fmtPrice(price, s.market)}</div>
+        {chg !== undefined && Number.isFinite(chg) && <div class={`c num ${cls(chg)}`} data-testid="pick-day"><span class="lbl">今日</span>{fmtPct(chg)}</div>}
         <div class={`c num ${cls(s.ret1m)}`}><span class="lbl">近1月</span>{fmtPct(s.ret1m)}</div>
       </div>
       <div>

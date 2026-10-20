@@ -732,6 +732,15 @@ export function MacroScreen() {
           <div class="section-title" data-testid="tw-index-title"><span>台股{idxFinal ? "收盤" : idxTime ? `盤中 ${idxTime}` : ""}</span></div>
           <div class="grid2">
             {liveIdx.map((i) => <Metric k={i.name.replace("發行量加權股價指數", "加權指數")} v={i.value.toLocaleString("zh-TW", { maximumFractionDigits: 2 })} c={cls(i.change)} d={`${i.change > 0 ? "+" : ""}${i.change.toFixed(2)}（${i.changePct > 0 ? "+" : ""}${i.changePct.toFixed(2)}%）`} />)}
+            {(() => {
+              const w = st.idxLive["加權指數"];
+              if (!w) return null;
+              return <>
+                {w.volShares !== undefined && <Metric k="成交量" v={`${(w.volShares / 1e8).toFixed(1)} 億股`} c="" d={idxFinal ? "收盤累計" : "盤中累計"} />}
+                {w.trades !== undefined && <Metric k="成交筆數" v={`${(w.trades / 1e4).toFixed(0)} 萬筆`} c="" d={idxFinal ? "收盤累計" : "盤中累計"} />}
+                {w.high !== undefined && w.low !== undefined && <Metric k="加權今日高低" v={`${w.high.toLocaleString("zh-TW", { maximumFractionDigits: 0 })} / ${w.low.toLocaleString("zh-TW", { maximumFractionDigits: 0 })}`} c="" d="最高 / 最低" />}
+              </>;
+            })()}
           </div>
         </>
       ) : st.idx.length > 0 && (

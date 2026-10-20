@@ -228,6 +228,8 @@ function check(ok, name, detail = "") {
   log("台股指數區", idxTitle);
   check(/台股(盤中 \d\d:\d\d|收盤)/.test(idxTitle), "台股指數改成盤中即時（或收盤）", idxTitle);
   check(["加權指數", "臺灣50指數", "半導體類指數", "金融保險類指數"].every((n) => macro.some((m) => m.includes(n))), "四大台股指數都顯示", JSON.stringify(macro.slice(0, 6)));
+  // 盤中量能：成交量（億股）與成交筆數（萬筆）
+  check(macro.some((m) => /成交量 [\d.]+ 億股/.test(m)) && macro.some((m) => /成交筆數 \d+ 萬筆/.test(m)), "顯示大盤成交量與成交筆數", JSON.stringify(macro.filter((m) => /成交/.test(m))));
   await shot("05-國內外數據");
 
   // 自組 ETF：手動記一筆台積電成交，檢查淨值與 0050 對照

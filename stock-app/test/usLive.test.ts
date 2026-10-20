@@ -17,7 +17,15 @@ describe("美股即時報價（CNBC）", () => {
     expect(q.final).toBe(true);
     expect(q.date).toBe("20261019");
     expect(q.time).toBe("04:00"); // 紐約 16:00 EDT = 台北 04:00
-    expect(q.ext).toEqual({ label: "盤後", price: 343.04, chg: 0.0003, time: "07:59" });
+    expect(q.ext).toMatchObject({ label: "盤後", price: 343.04, time: "07:59" });
+    expect(q.ext!.chg).toBeCloseTo(343.04 / 342.94 - 1, 6);
+  });
+
+  it("盤後價低於收盤要算成跌（使用者回報 DRAM 盤後 48.18 < 收盤 48.33 卻顯示紅色）", () => {
+    const f = structuredClone(post);
+    Object.assign(f.FormattedQuoteResult.FormattedQuote[0], { last: "48.33" });
+    Object.assign(f.FormattedQuoteResult.FormattedQuote[0].ExtendedMktQuote!, { last: "48.18", change_pct: "+3.70%" });
+    expect(parseUsLive(f).AAPL.ext!.chg).toBeLessThan(0);
     expect(parseUsLive(post).NOSUCHX).toBeUndefined();
   });
 

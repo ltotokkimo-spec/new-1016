@@ -588,7 +588,7 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
               <div class="px">
                 <div class="p num"><span class="lbl">{v.liveTime ? `現價 ${v.liveTime}` : "現價"}</span>{fmtPrice(v.price, v.market)}</div>
                 {Number.isFinite(v.chg) && <div class={`c num ${cls(v.chg)}`} data-testid="hold-day"><span class="lbl">今日</span>{fmtPct(v.chg)}</div>}
-                {"ext" in v && v.ext && <div class={`c num ${cls(v.ext.chg)}`} data-testid="hold-ext"><span class="lbl">{v.ext.label} {v.ext.time}</span>{fmtPrice(v.ext.price, v.market)}</div>}
+                {"ext" in v && v.ext && <div class={`c num ${cls(v.ext.chg)}`} data-testid="hold-ext"><span class="lbl">{v.ext.label} {v.ext.time}</span>{fmtPrice(v.ext.price, v.market)} {fmtPct(v.ext.chg)}</div>}
                 <div class={`c num ${cls(v.pnl)}`}><span class="lbl">損益</span>{fmtPct(v.pnlPct)}</div>
               </div>
               <RatingPill rating={v.rating} />

@@ -32,7 +32,8 @@ export function parseUsLive(json: any): Record<string, LiveQuote> {
     const x = q.ExtendedMktQuote, xt = parseTime(x?.last_time), xp = num(x?.last);
     // 只在盤前／盤後時段顯示延長交易，避免正常交易時段還掛著昨天的盤後價
     if ((status === "PRE_MKT" || status === "POST_MKT") && x?.type === status && xt && xp > 0)
-      lq.ext = { label: status === "PRE_MKT" ? "盤前" : "盤後", price: xp, chg: num(x.change_pct) / 100, time: taipeiClock(xt.t) };
+      // 漲跌自己算（對照正常盤的價格），不用 CNBC 的 change_pct：避免盤後價低於收盤卻顯示成紅色
+      lq.ext = { label: status === "PRE_MKT" ? "盤前" : "盤後", price: xp, chg: xp / price - 1, time: taipeiClock(xt.t) };
     out[lq.code] = lq;
   }
   return out;

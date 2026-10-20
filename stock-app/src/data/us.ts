@@ -104,7 +104,6 @@ export const MACRO_SYMBOLS: { symbol: string; label: string; group: "美股" | "
   { symbol: "JPY=", label: "美元兌日圓", group: "利率匯率" },
   { symbol: "@CL.1", label: "WTI 原油", group: "原物料" },
   { symbol: "@GC.1", label: "黃金", group: "原物料" },
-  { symbol: ".TWII", label: "台股加權（盤中）", group: "亞洲" },
   { symbol: ".N225", label: "日經 225", group: "亞洲" },
 ];
 

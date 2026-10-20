@@ -6,6 +6,7 @@ import { TwLoader, TW_SNAPSHOT_VERSION, type TwSnapshot } from "./data/twLoader"
 import { isEtf, parseEsbLatest, twUrls, type EsbQuote } from "./data/tw";
 import { UsLoader, type UsSnapshot } from "./data/usLoader";
 import { cnbcUrl, isUsSymbol, MACRO_SYMBOLS, parseCnbcQuotes, US_UNIVERSE, type MacroQuote, type UsExtra } from "./data/us";
+import { indexLiveUrl, parseIndexLive, type IndexLive } from "./data/twIndexLive";
 import { scoreStocks, reviewHolding, type Holding, type HoldingView, type Scored, type SectorStat } from "./engine/score";
 import { aiEtfAdvice, explainError, type AiProgress, type EtfAdviceInput, type AiReport, type OnProgress } from "./ai/claude";
 import { orderDay, prettyW, taipeiToday, twNeedsRefresh, usNeedsRefresh } from "./lib/dates";
@@ -54,6 +55,7 @@ export interface State {
   twIndices: TwSnapshot["indices"];
   usSectorEtfs: UsSnapshot["sectorEtfs"];
   macro: { status: "idle" | "loading" | "ready" | "error"; quotes: MacroQuote[]; error?: string; at?: number };
+  twIndexLive: Record<string, IndexLive>; // 台股指數盤中即時（證交所 MIS）
   holdings: Holding[];
   settings: Settings;
   reports: Record<string, AiReport>; // key: "stock:2330:20261016" / "brief:20261016"
@@ -81,7 +83,7 @@ const starting = (): MarketState => ({ status: "loading", scored: [], sectors: [
 
 let state: State = {
   tw: starting(), etf: starting(), us: starting(), esb: {}, twIndices: [], usSectorEtfs: [],
-  macro: { status: "idle", quotes: [] }, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], update: { status: "idle" }, usExtra: [], usPending: [], usNotFound: [], aiJobs: {}, aiEtf: emptyEtf(), live: {}, loaded: false,
+  macro: { status: "idle", quotes: [] }, twIndexLive: {}, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], update: { status: "idle" }, usExtra: [], usPending: [], usNotFound: [], aiJobs: {}, aiEtf: emptyEtf(), live: {}, loaded: false,
 };
 const listeners = new Set<() => void>();
 
@@ -148,7 +150,7 @@ export function autoRefresh() {
   if (usNeedsRefresh(state.us.fetchedAt)) refreshUs();
   else ensureUsHoldings(); // 今天的美股已下載過，但持股裡可能有還沒下載的代號
   if (twNeedsRefresh(esbFetchedAt)) refreshEsb();
-  refreshMacro();
+  refreshMacro(); refreshTwIndex();
   if (!state.virtual || Date.now() - state.virtual.fetchedAt > 10 * 60_000) refreshVirtual();
   if (!state.backtest || Date.now() - state.backtest.fetchedAt > 6 * 3600_000) refreshBacktest();
 }
@@ -257,6 +259,14 @@ async function doRefreshUs() {
   } catch (e: any) {
     set({ usPending: [], us: { ...state.us, status: state.us.scored.length ? "ready" : "error", error: `美股資料更新失敗：${e?.message ?? e}`, progress: undefined } });
   }
+}
+
+/** 台股指數盤中即時（加權、台灣50、半導體類、金融保險類…）；抓不到就沿用快照的收盤 */
+export async function refreshTwIndex() {
+  try {
+    const got = parseIndexLive(await fetcher(indexLiveUrl()));
+    if (Object.keys(got).length) set({ twIndexLive: { ...state.twIndexLive, ...got } });
+  } catch { /* 盤中即時只是輔助 */ }
 }
 
 export async function refreshMacro() {

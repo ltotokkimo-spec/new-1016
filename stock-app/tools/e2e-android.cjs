@@ -223,6 +223,11 @@ function check(ok, name, detail = "") {
   log("數據", JSON.stringify(macro.slice(0, 12)));
   check(macro.some((m) => m.includes("加權指數")), "顯示台股加權指數");
   check(macro.some((m) => m.includes("S&P 500")) && macro.some((m) => m.includes("美債 10 年")), "顯示美股與美債殖利率");
+  // 台股指數盤中即時（證交所 MIS）：有「盤中 HH:MM」或「收盤」標題，且四大指數都在
+  const idxTitle = await page.$eval('[data-testid="tw-index-title"]', (e) => e.innerText).catch(() => "");
+  log("台股指數區", idxTitle);
+  check(/台股(盤中 \d\d:\d\d|收盤)/.test(idxTitle), "台股指數改成盤中即時（或收盤）", idxTitle);
+  check(["加權指數", "臺灣50指數", "半導體類指數", "金融保險類指數"].every((n) => macro.some((m) => m.includes(n))), "四大台股指數都顯示", JSON.stringify(macro.slice(0, 6)));
   await shot("05-國內外數據");
 
   // 自組 ETF：手動記一筆台積電成交，檢查淨值與 0050 對照

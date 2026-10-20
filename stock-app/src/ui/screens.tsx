@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import {
   findScored, getFetcher, getKv, getState, holdingViews, refreshEsb, refreshMacro, refreshTw, refreshUs, saveHoldings, saveReport,
   saveSettings, clearCache, useStore, usBars, recordSpend, estimatedBalance, checkForUpdate, installUpdate,
-  addUsSymbol, removeUsSymbol, refreshLive, refreshUsLive, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
+  addUsSymbol, removeUsSymbol, refreshLive, refreshUsLive, refreshTwIndex, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
 } from "../store";
 import type { Holding, Rating, Scored, SectorStat } from "../engine/score";
 import { type AiReport, analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, parseUrls, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
@@ -11,6 +11,7 @@ import { isEtf } from "../data/tw";
 import { freeReport } from "../engine/freeReport";
 import { isUsSymbol, MACRO_SYMBOLS } from "../data/us";
 import { marketOpen, type LiveQuote } from "../data/twLive";
+import { INDEX_CH } from "../data/twIndexLive";
 import { pretty, prettyW, taipeiToday, usQuoteHours } from "../lib/dates";
 import type { BacktestResult } from "../engine/backtest";
 import type { TurnPick } from "../engine/turning";
@@ -697,7 +698,17 @@ function ImportReview({ data, onDone }: { data: { rows: ImportedHolding[]; note:
 
 // ---------------- 數據（國內外指標＋AI 解讀） ----------------
 export function MacroScreen() {
-  const st = useStore((s) => ({ macro: s.macro, tw: s.tw, us: s.us, idx: s.twIndices, etfs: s.usSectorEtfs, apiKey: s.settings.apiKey, reports: s.reports }));
+  const st = useStore((s) => ({ macro: s.macro, tw: s.tw, us: s.us, idx: s.twIndices, idxLive: s.twIndexLive, etfs: s.usSectorEtfs, apiKey: s.settings.apiKey, reports: s.reports }));
+  // 台股指數盤中每 30 秒更新（收盤後 MIS 回傳收盤價，仍會顯示）
+  useEffect(() => {
+    refreshTwIndex();
+    const t = setInterval(() => { if (marketOpen()) refreshTwIndex(); }, 30_000);
+    return () => clearInterval(t);
+  }, []);
+  // 盤中即時優先，沒有再用快照的收盤
+  const liveIdx = INDEX_CH.map((c) => st.idxLive[c.name]).filter(Boolean);
+  const idxFinal = liveIdx.length > 0 && liveIdx.every((i) => i.final);
+  const idxTime = liveIdx.find((i) => !i.final)?.time?.slice(0, 5) ?? "";
   const today = taipeiToday();
   const key = `brief:${today}`;
   const job = useStore((s) => s.aiJobs[key]);
@@ -716,7 +727,14 @@ export function MacroScreen() {
 
   return (
     <div>
-      {st.idx.length > 0 && (
+      {liveIdx.length > 0 ? (
+        <>
+          <div class="section-title" data-testid="tw-index-title"><span>台股{idxFinal ? "收盤" : idxTime ? `盤中 ${idxTime}` : ""}</span></div>
+          <div class="grid2">
+            {liveIdx.map((i) => <Metric k={i.name.replace("發行量加權股價指數", "加權指數")} v={i.value.toLocaleString("zh-TW", { maximumFractionDigits: 2 })} c={cls(i.change)} d={`${i.change > 0 ? "+" : ""}${i.change.toFixed(2)}（${i.changePct > 0 ? "+" : ""}${i.changePct.toFixed(2)}%）`} />)}
+          </div>
+        </>
+      ) : st.idx.length > 0 && (
         <>
           <div class="section-title"><span>台股收盤（{st.tw.asOf ? pretty(st.tw.asOf) : ""}）</span></div>
           <div class="grid2">

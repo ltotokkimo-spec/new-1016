@@ -14,7 +14,8 @@ export interface LiveQuote {
 export const liveUrl = (codes: string[]) =>
   `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?json=1&delay=0&ex_ch=${codes.flatMap((c) => [`tse_${c}.tw`, `otc_${c}.tw`]).join("|")}`;
 
-const num = (s: unknown) => { const n = parseFloat(String(s ?? "")); return Number.isFinite(n) && n > 0 ? n : NaN; };
+export const parseNum = (s: unknown) => { const n = parseFloat(String(s ?? "")); return Number.isFinite(n) && n > 0 ? n : NaN; };
+const num = parseNum;
 const first = (s: unknown) => num(String(s ?? "").split("_")[0]);
 
 export function parseLive(json: any): Record<string, LiveQuote> {

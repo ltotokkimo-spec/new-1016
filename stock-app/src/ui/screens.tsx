@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import {
   findScored, getFetcher, getKv, getState, holdingViews, refreshEsb, refreshMacro, refreshTw, refreshUs, saveHoldings, saveReport,
   saveSettings, clearCache, useStore, usBars, recordSpend, estimatedBalance, checkForUpdate, installUpdate,
-  addUsSymbol, removeUsSymbol, refreshLive, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
+  addUsSymbol, removeUsSymbol, refreshLive, refreshUsLive, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
 } from "../store";
 import type { Holding, Rating, Scored, SectorStat } from "../engine/score";
 import { type AiReport, analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, parseUrls, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
@@ -11,7 +11,7 @@ import { isEtf } from "../data/tw";
 import { freeReport } from "../engine/freeReport";
 import { isUsSymbol, MACRO_SYMBOLS } from "../data/us";
 import { marketOpen, type LiveQuote } from "../data/twLive";
-import { pretty, prettyW, taipeiToday } from "../lib/dates";
+import { pretty, prettyW, taipeiToday, usQuoteHours } from "../lib/dates";
 import type { BacktestResult } from "../engine/backtest";
 import type { TurnPick } from "../engine/turning";
 import { cls, fmtMoney, fmtPct, fmtPrice, lots, Markdown, PriceChart, Progress, RatingPill, Sheet } from "./common";
@@ -29,9 +29,8 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
   const filter = refOnly ? "全部" : filter0; // ETF 不分評等
   const [q, setQ] = useState("");
   const live = useStore((s) => s.live);
-  // 台股／ETF：清單前 60 檔用證交所即時價（盤中每 30 秒更新），其餘顯示最近收盤的漲跌
+  // 清單前 60 檔用即時價（台股：證交所；美股：CNBC，盤中每 30 秒更新），其餘顯示最近收盤的漲跌
   const freshLive = (s: Scored): LiveQuote | undefined => {
-    if (s.market === "US") return undefined;
     const lq = live[s.code];
     return lq && lq.date && lq.date >= (ms.asOf ?? "") ? lq : undefined;
   };
@@ -47,12 +46,14 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
       (filter === "全部" || (filter === "剛轉強" ? turnMap.has(s.code) : s.rating === filter)) && (!sector || s.sector === sector) &&
       (!t || s.code.toUpperCase().includes(t) || s.name.toUpperCase().includes(t)));
   }, [ms.scored, filter, q, sector, turnMap]);
-  const liveCodes = market === "US" ? [] : list.slice(0, 60).map((x) => x.code);
-  const liveKey = liveCodes.join(",");
+  const liveCodes = list.slice(0, 60).map((x) => x.code);
+  const liveKey = market + liveCodes.join(",");
   useEffect(() => {
     if (!liveCodes.length) return;
-    refreshLive(liveCodes);
-    const t = setInterval(() => { if (marketOpen()) refreshLive(liveCodes); }, 30_000);
+    const us = market === "US";
+    const pull = () => (us ? refreshUsLive(liveCodes) : refreshLive(liveCodes));
+    pull();
+    const t = setInterval(() => { if (us ? usQuoteHours() : marketOpen()) pull(); }, 30_000);
     return () => clearInterval(t);
   }, [liveKey]);
 
@@ -122,9 +123,9 @@ function MarketSeg({ market, setMarket }: { market: Market; setMarket: (m: Marke
 function StockRow({ s, q, turn, onClick }: { s: Scored; q?: LiveQuote; turn?: TurnPick; onClick: () => void }) {
   const price = q?.price ?? s.close;
   const chg = q && Number.isFinite(q.prevClose) ? q.price / q.prevClose - 1 : s.chg1d;
-  const intraday = !!q && !q.final && q.date === taipeiToday();
+  const intraday = !!q && !q.final && (s.market === "US" || q.date === taipeiToday());
   return (
-    <button class="item" onClick={onClick}>
+    <button class="item" onClick={onClick} data-live={q ? "1" : undefined}>
       <div style={{ minWidth: 0 }}>
         <div class="name">{s.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{s.code}</span></div>
         <div class="sub">
@@ -139,6 +140,7 @@ function StockRow({ s, q, turn, onClick }: { s: Scored; q?: LiveQuote; turn?: Tu
       <div class="px">
         <div class="p num"><span class="lbl">{intraday ? `現價 ${q!.time.slice(0, 5)}` : "收盤"}</span>{fmtPrice(price, s.market)}</div>
         {chg !== undefined && Number.isFinite(chg) && <div class={`c num ${cls(chg)}`} data-testid="pick-day"><span class="lbl">今日</span>{fmtPct(chg)}</div>}
+        {q?.ext && <div class={`c num ${cls(q.ext.chg)}`} data-testid="pick-ext"><span class="lbl">{q.ext.label} {q.ext.time}</span>{fmtPrice(q.ext.price, s.market)} {fmtPct(q.ext.chg)}</div>}
         <div class={`c num ${cls(s.ret1m)}`}><span class="lbl">近1月</span>{fmtPct(s.ret1m)}</div>
       </div>
       <div>
@@ -483,22 +485,29 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
   const apiKey = useStore((s) => s.settings.apiKey);
   const live = useStore((s) => s.live);
   const twAsOf = useStore((s) => s.tw.asOf);
-  // 台股持股用證交所即時價（盤中每 30 秒更新）；美股用最近一個交易日的漲跌
-  const twCodes = useStore((s) => s.holdings).filter((h) => h.market !== "US").map((h) => h.code);
-  const codeKey = twCodes.join(",");
+  const usAsOf = useStore((s) => s.us.asOf);
+  // 持股即時價：台股用證交所、美股用 CNBC（盤中每 30 秒更新）
+  const hs = useStore((s) => s.holdings);
+  const twCodes = hs.filter((h) => h.market !== "US").map((h) => h.code);
+  const usCodes = hs.filter((h) => h.market === "US").map((h) => h.code);
+  const codeKey = twCodes.join(",") + "|" + usCodes.join(",");
   useEffect(() => {
-    if (!twCodes.length) return;
-    refreshLive(twCodes);
-    const t = setInterval(() => { if (marketOpen()) refreshLive(twCodes); }, 30_000);
+    if (twCodes.length) refreshLive(twCodes);
+    if (usCodes.length) refreshUsLive(usCodes);
+    const t = setInterval(() => {
+      if (twCodes.length && marketOpen()) refreshLive(twCodes);
+      if (usCodes.length && usQuoteHours()) refreshUsLive(usCodes);
+    }, 30_000);
     return () => clearInterval(t);
   }, [codeKey]);
   const today = taipeiToday();
   const views = holdingViews().map((v) => {
-    const q = v.market !== "US" ? live[v.code] : undefined;
-    if (q && q.date && q.date >= (twAsOf ?? "")) {
+    const isUs = v.market === "US";
+    const q = live[v.code];
+    if (q && q.date && q.date >= ((isUs ? usAsOf : twAsOf) ?? "")) {
       const price = q.price;
       return { ...v, price, pnl: (price - v.cost) * v.shares, pnlPct: v.cost > 0 ? price / v.cost - 1 : NaN,
-        chg: Number.isFinite(q.prevClose) ? price / q.prevClose - 1 : NaN, liveTime: q.date === today && !q.final ? q.time.slice(0, 5) : "" };
+        chg: Number.isFinite(q.prevClose) ? price / q.prevClose - 1 : NaN, liveTime: !q.final && (isUs || q.date === today) ? q.time.slice(0, 5) : "", ext: q.ext };
     }
     return { ...v, chg: v.scored?.chg1d ?? NaN, liveTime: "" };
   });
@@ -578,6 +587,7 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
               <div class="px">
                 <div class="p num"><span class="lbl">{v.liveTime ? `現價 ${v.liveTime}` : "現價"}</span>{fmtPrice(v.price, v.market)}</div>
                 {Number.isFinite(v.chg) && <div class={`c num ${cls(v.chg)}`} data-testid="hold-day"><span class="lbl">今日</span>{fmtPct(v.chg)}</div>}
+                {"ext" in v && v.ext && <div class={`c num ${cls(v.ext.chg)}`} data-testid="hold-ext"><span class="lbl">{v.ext.label} {v.ext.time}</span>{fmtPrice(v.ext.price, v.market)}</div>}
                 <div class={`c num ${cls(v.pnl)}`}><span class="lbl">損益</span>{fmtPct(v.pnlPct)}</div>
               </div>
               <RatingPill rating={v.rating} />

@@ -351,6 +351,22 @@ function check(ok, name, detail = "") {
   check(us.length >= 6, "美股清單有資料", us[0]);
   const prices = new Set(us.map((r) => /(\d[\d,]*\.\d\d)/.exec(r)?.[1]));
   check(prices.size >= 4, "美股各檔價格不同（是真實資料）", [...prices].join(" "));
+  // 美股即時價（CNBC）：每列要用即時報價，顯示「收盤／現價 HH:MM」與今日漲跌；資料日要是最近一個收盤日
+  const usLive = await page2.waitForFunction(() => {
+    const rows = [...document.querySelectorAll(".item")].slice(0, 6);
+    return rows.length >= 6 && rows.every((r) => r.dataset.live === "1") ? rows.map((r) => r.querySelector(".px").innerText.replace(/\s+/g, " ")) : null;
+  }, null, { timeout: 30000 }).then((h) => h.jsonValue()).catch(() => null);
+  log("美股即時價", JSON.stringify(usLive));
+  check(!!usLive && usLive.every((t) => /(現價 \d\d:\d\d|收盤)\s*[\d,]+\.\d+ 今日\s*[+-]?\d/.test(t)), "美股每列用即時報價並顯示今日漲跌", JSON.stringify(usLive));
+  const usAsof = await page2.$eval(".asof", (e) => e.innerText);
+  // 預期資料日：紐約 17:00 後算當天，往前找平日
+  const ny = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23" }).formatToParts(new Date());
+  const P = Object.fromEntries(ny.map((x) => [x.type, x.value]));
+  let exp = new Date(Date.UTC(+P.year, +P.month - 1, +P.day - (+P.hour >= 17 ? 0 : 1)));
+  while ([0, 6].includes(exp.getUTCDay())) exp = new Date(exp.getTime() - 86400000);
+  const expTxt = `${exp.getUTCMonth() + 1}/${exp.getUTCDate()}`;
+  log("美股資料日", usAsof, "預期", expTxt);
+  check(usAsof.includes(`美股資料 ${expTxt}`), "美股資料是最近一個收盤日", `${usAsof} 預期 ${expTxt}（美國假日會不同）`);
   await shot("07-選股-美股");
 
   // 搜尋不在預設清單裡的美股（使用者回報 AAOI 搜不到）

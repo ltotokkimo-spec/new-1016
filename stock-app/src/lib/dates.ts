@@ -79,3 +79,36 @@ export function twNeedsRefresh(fetchedAt: number | undefined, now = Date.now()):
   if (now - fetchedAt > 3 * 3600_000) return true;
   return taipeiMinutes(now) >= FLOWS_READY && taipeiMinutes(fetchedAt) < FLOWS_READY;
 }
+
+const NY_FMT = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23", weekday: "short" });
+/** 紐約時間：日期 YYYYMMDD、當天分鐘數、星期（0=週日） */
+export function nyParts(t = Date.now()): { ymd: string; minutes: number; weekday: number } {
+  const p: Record<string, string> = {};
+  for (const x of NY_FMT.formatToParts(new Date(t))) p[x.type] = x.value;
+  return { ymd: `${p.year}${p.month}${p.day}`, minutes: (+p.hour % 24) * 60 + +p.minute, weekday: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(p.weekday) };
+}
+
+const US_BARS_READY = 17 * 60; // 美股 16:00 收盤，Nasdaq 日K 約 1 小時內補上當天
+
+/** 美股日K 的「資料日」：紐約 17:00 以後算當天，之前算前一天。換日就要重抓。 */
+export function usSessionDay(t = Date.now()): string {
+  const n = nyParts(t);
+  return n.minutes >= US_BARS_READY ? n.ymd : addDays(n.ymd, -1);
+}
+
+/** 美股資料要不要重抓：沒抓過，或抓的時候還沒有最新一天收盤（例如台北凌晨抓、清晨收盤後又打開） */
+export function usNeedsRefresh(fetchedAt: number | undefined, now = Date.now()): boolean {
+  return !fetchedAt || usSessionDay(fetchedAt) !== usSessionDay(now);
+}
+
+/** 美股含盤前盤後的時段（紐約平日 4:00～20:00），這段時間才需要一直更新即時價 */
+export function usQuoteHours(now = Date.now()): boolean {
+  const n = nyParts(now);
+  return n.weekday >= 1 && n.weekday <= 5 && n.minutes >= 4 * 60 && n.minutes < 20 * 60;
+}
+
+/** 任意時間點的台北時間 HH:MM */
+export function taipeiClock(t: number): string {
+  const d = new Date(t + 8 * 3600_000);
+  return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+}

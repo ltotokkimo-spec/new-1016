@@ -6,7 +6,9 @@ export interface LiveQuote {
   prevClose: number; open: number; high: number; low: number;
   date: string; // YYYYMMDD
   time: string; // HH:MM:SS
-  final: boolean; // 13:30 收盤後的價格
+  final: boolean; // 13:30 收盤後的價格（美股：不在正常交易時段）
+  // 美股才有：時間已換成台北時間；盤前／盤後的成交
+  ext?: { label: "盤前" | "盤後"; price: number; chg: number; time: string };
 }
 
 export const liveUrl = (codes: string[]) =>

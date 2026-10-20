@@ -1,7 +1,7 @@
 // 美股：大型股＋產業 ETF 的 6~9 個月日K（Nasdaq），每天快取一次。
 import type { Fetcher } from "../lib/net";
 import type { KV } from "../lib/kv";
-import { addDays, dash, taipeiToday } from "../lib/dates";
+import { addDays, dash, taipeiToday, usSessionDay } from "../lib/dates";
 import {
   nasdaqInfoUrl, nasdaqSummaryUrl, nasdaqUrl, parseNasdaqHistory, parseNasdaqName, parseNasdaqSector, retN, sma,
   US_SECTOR_ETF, US_UNIVERSE, type Bar, type UsExtra,
@@ -24,7 +24,8 @@ export class UsLoader {
 
   async history(symbol: string, etf: boolean): Promise<Bar[]> {
     const today = taipeiToday(this.now());
-    const key = `us:h:${symbol}:${today}`;
+    // 快取以「美股資料日」為準：紐約收盤後換新的一天，台北凌晨抓的舊資料在清晨收盤後會重抓
+    const key = `us:h:${symbol}:${usSessionDay(this.now())}`;
     const hit = await this.kv.get<Bar[]>(key);
     if (hit) return hit;
     this.requests++;
@@ -101,10 +102,10 @@ export class UsLoader {
       return { sector, symbol, ret1w: retN(b, 5), ret1m: retN(b, 21), ret3m: retN(b, 63) };
     });
     // 清掉前幾天的快取
-    const today = taipeiToday(this.now());
+    const day = usSessionDay(this.now());
     for (const k of await this.kv.keys()) {
       const m = /^us:h:.+:(\d{8})$/.exec(k);
-      if (m && m[1] < today) await this.kv.del(k);
+      if (m && m[1] < day) await this.kv.del(k);
     }
     return { asOf: spy[spy.length - 1].date, stocks, bars, sectorEtfs, failed, fetchedAt: this.now() };
   }

@@ -8,7 +8,8 @@ import { UsLoader, type UsSnapshot } from "./data/usLoader";
 import { cnbcUrl, isUsSymbol, MACRO_SYMBOLS, parseCnbcQuotes, US_UNIVERSE, type MacroQuote, type UsExtra } from "./data/us";
 import { scoreStocks, reviewHolding, type Holding, type HoldingView, type Scored, type SectorStat } from "./engine/score";
 import { aiEtfAdvice, explainError, type AiProgress, type EtfAdviceInput, type AiReport, type OnProgress } from "./ai/claude";
-import { orderDay, prettyW, taipeiToday, twNeedsRefresh } from "./lib/dates";
+import { orderDay, prettyW, taipeiToday, twNeedsRefresh, usNeedsRefresh } from "./lib/dates";
+import { parseUsLive, usLiveUrl } from "./data/usLive";
 import * as upd from "./lib/update";
 import type { BacktestResult } from "./engine/backtest";
 import type { VirtualEtf } from "./engine/virtualEtf";
@@ -138,13 +139,13 @@ let lastAuto = 0;
 /**
  * 開 App 或從背景切回來時：資料過時就自動重抓（快取會讓已下載的日子不重抓）。
  * 台股：沒資料、不是今天抓的、超過 3 小時，或 16:30 後但資料是 16:30 前抓的（當天評分已公布）。
+ * 美股：紐約 17:00（台北清晨）後還沒抓過當天收盤就重抓。
  */
 export function autoRefresh() {
   if (Date.now() - lastAuto < 60_000) return; // 一分鐘內切來切去不重複檢查
   lastAuto = Date.now();
-  const today = taipeiToday();
   if (twNeedsRefresh(state.tw.fetchedAt)) refreshTw();
-  if (!state.us.fetchedAt || taipeiToday(state.us.fetchedAt) !== today) refreshUs();
+  if (usNeedsRefresh(state.us.fetchedAt)) refreshUs();
   else ensureUsHoldings(); // 今天的美股已下載過，但持股裡可能有還沒下載的代號
   if (twNeedsRefresh(esbFetchedAt)) refreshEsb();
   refreshMacro();
@@ -383,6 +384,17 @@ export async function refreshLive(codes: string[]) {
     for (let i = 0; i < list.length; i += 20) Object.assign(got, parseLive(await fetcher(liveUrl(list.slice(i, i + 20)))));
     set({ live: { ...state.live, ...got }, liveAt: Date.now() });
   } catch { /* 即時報價只是輔助，抓不到就顯示收盤價 */ }
+}
+
+/** 美股即時報價（CNBC）：盤中最新價、收盤後收盤價，附盤前／盤後成交 */
+export async function refreshUsLive(symbols: string[]) {
+  const list = [...new Set(symbols.filter((c) => /^[A-Z][A-Z.\-]{0,9}$/.test(c)))];
+  if (!list.length) return;
+  try {
+    const got: Record<string, LiveQuote> = {};
+    for (let i = 0; i < list.length; i += 20) Object.assign(got, parseUsLive(await fetcher(usLiveUrl(list.slice(i, i + 20)))));
+    set({ live: { ...state.live, ...got }, liveAt: Date.now() });
+  } catch { /* 抓不到就顯示最近收盤 */ }
 }
 
 /** 下載 Claude 的虛擬自組 ETF；失敗就沿用上次下載的 */

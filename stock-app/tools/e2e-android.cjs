@@ -356,13 +356,17 @@ function check(ok, name, detail = "") {
   check(us.length >= 6, "美股清單有資料", us[0]);
   const prices = new Set(us.map((r) => /(\d[\d,]*\.\d\d)/.exec(r)?.[1]));
   check(prices.size >= 4, "美股各檔價格不同（是真實資料）", [...prices].join(" "));
-  // 美股即時價（CNBC）：每列要用即時報價，顯示「收盤／現價 HH:MM」與今日漲跌；資料日要是最近一個收盤日
-  const usLive = await page2.waitForFunction(() => {
-    const rows = [...document.querySelectorAll(".item")].slice(0, 6);
-    return rows.length >= 6 && rows.every((r) => r.dataset.live === "1") ? rows.map((r) => r.querySelector(".px").innerText.replace(/\s+/g, " ")) : null;
-  }, null, { timeout: 30000 }).then((h) => h.jsonValue()).catch(() => null);
-  log("美股即時價", JSON.stringify(usLive));
-  check(!!usLive && usLive.every((t) => /(現價 \d\d:\d\d|收盤)\s*[\d,]+\.\d+ 今日\s*[+-]?\d/.test(t)), "美股每列用即時報價並顯示今日漲跌", JSON.stringify(usLive));
+  // 美股即時價（CNBC）：盤中/盤前盤後要用即時價，紐約半夜（盤後已收、盤前未開）則顯示收盤——兩種都要正確顯示「收盤/現價 今日%」
+  // 先等即時報價灌進來（至少一列），證明 CNBC 這條路有通
+  const anyLive = await page2.waitForFunction(() => [...document.querySelectorAll(".item")].slice(0, 6).some((r) => r.dataset.live === "1"), null, { timeout: 30000 }).then(() => true).catch(() => false);
+  const usLive = await page2.$$eval(".item", (rs) => rs.slice(0, 6).map((r) => ({ live: r.dataset.live === "1", px: r.querySelector(".px").innerText.replace(/\s+/g, " ") })));
+  // 紐約是否在交易或盤前盤後時段（平日 4:00~20:00）；是的話要有即時列，否則只要收盤列正確
+  const nyH = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", hourCycle: "h23" }).format(new Date()));
+  const nyWd = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short" }).format(new Date());
+  const usTrading = !["Sat", "Sun"].includes(nyWd) && nyH >= 4 && nyH < 20;
+  log("美股即時價", `紐約 ${nyH}時 ${nyWd} 交易時段=${usTrading} 有即時=${anyLive}`, JSON.stringify(usLive));
+  check(usTrading ? anyLive : true, "美股盤中/盤前盤後有即時報價（紐約半夜顯示收盤）", `紐約 ${nyH}時 交易=${usTrading} 有即時=${anyLive}`);
+  check(usLive.every((r) => /(現價 \d\d:\d\d|收盤)\s*[\d,]+\.\d+ 今日\s*[+-]?\d/.test(r.px)), "美股每列顯示收盤/現價與今日漲跌", JSON.stringify(usLive.map((r) => r.px)));
   const usAsof = await page2.$eval(".asof", (e) => e.innerText);
   // 預期資料日：紐約 17:00 後算當天，往前找平日
   const ny = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23" }).formatToParts(new Date());

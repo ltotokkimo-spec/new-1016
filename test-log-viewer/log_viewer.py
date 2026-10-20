@@ -29,7 +29,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
-APP_VERSION = "1.8.0"
+APP_VERSION = "1.9.0"
 APP_TITLE = f"測試結果檢視器 v{APP_VERSION}"
 DEFAULT_CSV_NAME = "operator_log.csv"
 DEFAULT_CHANNELS = 6
@@ -757,7 +757,9 @@ class App(tk.Tk):
         self.ent_sn = ttk.Entry(barf, textvariable=self.var_search, width=22)
         self.ent_sn.pack(side="left", **pad)
         ttk.Label(barf, text="OPID").pack(side="left")
-        self.ent_opid = ttk.Entry(barf, textvariable=self.var_opid, width=10)
+        # 可下拉選擇（只列出資料裡有的 OPID），也可以手動輸入
+        self.ent_opid = ttk.Combobox(barf, textvariable=self.var_opid, width=12,
+                                     postcommand=self._update_opid_choices)
         self.ent_opid.pack(side="left", **pad)
         # 輸入框右鍵選單（剪下/複製/貼上/全選/清除）；時間欄貼上會自動拆出日期
         self._entry_menu(self.ent_time_from, self.var_time_from, self.var_date_from)
@@ -1172,14 +1174,19 @@ class App(tk.Tk):
             out.append(t)
         return out
 
-    def filtered(self):
+    def _update_opid_choices(self):
+        """下拉清單：符合其他篩選條件（日期、站別、結果、SN）的資料裡出現過的 OPID"""
+        opids = sorted({r["opid"] for r in self.filtered(ignore_opid=True) if r["opid"]})
+        self.ent_opid["values"] = [""] + opids
+
+    def filtered(self, ignore_opid=False):
         """日期區間 + 時間 + 站別 + 結果 + SN + OPID，所有條件同時成立。
         起始（日期+時間）～結束（日期+時間），可跨天；
         只有開始沒有結束 → 開始之後全部列出；只有結束 → 結束之前全部列出。
         時間沒填日期時，自動用 _guess_date 決定是哪一天。"""
         s, v = self.var_station.get(), self.var_verdict.get()
         q = self.var_search.get().strip().upper()
-        qo = self.var_opid.get().strip().upper()
+        qo = "" if ignore_opid else self.var_opid.get().strip().upper()
         d_from, d_to = self.var_date_from.get(), self.var_date_to.get()
         d_from = None if d_from in ("", ANY) else d_from
         d_to = None if d_to in ("", ANY) else d_to

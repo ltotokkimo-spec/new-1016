@@ -24,6 +24,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 先確認測試主機連得到證交所：連不到時 App 第一次開啟會卡在下載，跑完整個打包＋模擬器（約 12 分鐘）才失敗。
+      # 這裡最多等 4 分鐘（證交所常是暫時擋），還是連不到就直接停，省下打包與模擬器的時間。
+      - name: 檢查證交所連線
+        run: |
+          for i in 1 2 3 4 5 6 7 8; do
+            body=$(curl -s -m 20 -A "Mozilla/5.0" "https://www.twse.com.tw/rwd/zh/fund/T86?date=20261016&selectType=ALLBUT0999&response=json" | head -c 200)
+            case "$body" in *'"stat"'*) echo "證交所可連線（第 $i 次）"; exit 0;; esac
+            echo "第 $i 次連不到證交所，30 秒後重試"; sleep 30
+          done
+          echo "::error::測試主機連不到證交所（www.twse.com.tw），台股資料無法下載，先停止測試；稍後重跑即可"
+          exit 1
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'

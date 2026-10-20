@@ -29,7 +29,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
-APP_VERSION = "1.9.0"
+APP_VERSION = "1.10.0"
 APP_TITLE = f"測試結果檢視器 v{APP_VERSION}"
 DEFAULT_CSV_NAME = "operator_log.csv"
 DEFAULT_CHANNELS = 6
@@ -49,6 +49,7 @@ COLORS = {
     "HOLD": ("#FFC000", "#000000"),
     "ch_fail": ("#FFC7CE", "#C00000"),
     "ch_hold": ("#FFEB9C", "#9C5700"),
+    "dup": ("#D9B3FF", "#4B0082"),      # 同站別 SN 重覆測試
 }
 
 CHANNEL_METRICS = [
@@ -158,6 +159,17 @@ def load_records(path):
 
     # 依時間排序；無法解析時間的排最後，同時間維持檔案順序
     records.sort(key=lambda r: (r["_dt"] is None, r["_dt"] or datetime.min, r["_line"]))
+
+    # 同一站別內 SN 出現 2 次以上 = 重覆測試（異常）；_dup_no 是依時間的第幾次
+    total, seen = {}, {}
+    for r in records:
+        k = (r["station"], r["sn"])
+        total[k] = total.get(k, 0) + 1
+    for r in records:
+        k = (r["station"], r["sn"])
+        seen[k] = seen.get(k, 0) + 1
+        r["_dup"] = total[k] if r["sn"] else 1
+        r["_dup_no"] = seen[k]
     return records, (n_ch or DEFAULT_CHANNELS)
 
 
@@ -170,6 +182,9 @@ def cell_text(rec, key):
 
 def cell_style(rec, key):
     """回傳 (bg, fg, bold)"""
+    if key == "sn" and rec.get("_dup", 1) >= 2:
+        bg, fg = COLORS["dup"]
+        return bg, fg, True
     if key == "verdict":
         bg, fg = COLORS.get(rec["verdict"], (COLORS["cell_bg"], COLORS["cell_fg"]))
         return bg, fg, False
@@ -684,6 +699,7 @@ class App(tk.Tk):
         self.var_opid = tk.StringVar()
         self.var_station = tk.StringVar(value="全部")
         self.var_verdict = tk.StringVar(value="全部")
+        self.var_dup_only = tk.BooleanVar(value=False)
         self.var_search = tk.StringVar()
         self.hidden_cols = set(self.settings.get("hidden_cols", []))
         self.only_lines = None     # None = 顯示全部；set = 只顯示框選確認的列
@@ -766,6 +782,8 @@ class App(tk.Tk):
         self._entry_menu(self.ent_time_to, self.var_time_to, self.var_date_to)
         self._entry_menu(self.ent_sn, self.var_search)
         self._entry_menu(self.ent_opid, self.var_opid)
+        ttk.Checkbutton(barf, text="只看重覆測試", variable=self.var_dup_only,
+                        command=lambda: self.refresh_view(scroll="end")).pack(side="left", **pad)
         ttk.Button(barf, text="✖ 清除篩選", command=self.clear_filters).pack(side="left", **pad)
         for cb in (self.cb_date_from, self.cb_date_to, self.cb_station, self.cb_verdict):
             cb.bind("<<ComboboxSelected>>", lambda e: self.refresh_view(scroll="end"))
@@ -795,7 +813,9 @@ class App(tk.Tk):
         self.lbl_fail = tk.Label(stat, font=big, fg="#C00000")
         self.lbl_hold = tk.Label(stat, font=big, fg="#B07000")
         self.lbl_yield = tk.Label(stat, font=big, fg="#0050A0")
-        for w in (self.lbl_total, self.lbl_pass, self.lbl_fail, self.lbl_hold, self.lbl_yield):
+        self.lbl_dup = tk.Label(stat, font=big, bg=COLORS["dup"][0], fg=COLORS["dup"][1])
+        for w in (self.lbl_total, self.lbl_pass, self.lbl_fail, self.lbl_hold, self.lbl_yield,
+                  self.lbl_dup):
             w.pack(side="left", padx=(0, 22))
         self.lbl_update = tk.Label(stat, fg="#555555")
         self.lbl_update.pack(side="right")
@@ -881,6 +901,7 @@ class App(tk.Tk):
             v.set("全部")
         for v in (self.var_time_from, self.var_time_to, self.var_search, self.var_opid):
             v.set("")
+        self.var_dup_only.set(False)
         self._suspend = False
         self.refresh_view(scroll="end")
 
@@ -1187,6 +1208,7 @@ class App(tk.Tk):
         s, v = self.var_station.get(), self.var_verdict.get()
         q = self.var_search.get().strip().upper()
         qo = "" if ignore_opid else self.var_opid.get().strip().upper()
+        dup_only = self.var_dup_only.get()
         d_from, d_to = self.var_date_from.get(), self.var_date_to.get()
         d_from = None if d_from in ("", ANY) else d_from
         d_to = None if d_to in ("", ANY) else d_to
@@ -1214,6 +1236,8 @@ class App(tk.Tk):
             if s != "全部" and r["station"] != s:
                 continue
             if v != "全部" and r["verdict"] != v:
+                continue
+            if dup_only and r.get("_dup", 1) < 2:
                 continue
             if q and q not in r["sn"].upper():
                 continue
@@ -1262,6 +1286,10 @@ class App(tk.Tk):
         self.lbl_fail.config(text=f"FAIL {cnt['FAIL']}")
         self.lbl_hold.config(text=f"HOLD {cnt['HOLD']}")
         self.lbl_yield.config(text=f"良率 {cnt['PASS'] / n * 100:.1f}%" if n else "良率 -")
+        dup_rows = [r for r in rows if r.get("_dup", 1) >= 2]
+        dup_sn = {(r["station"], r["sn"]) for r in dup_rows}
+        self.lbl_dup.config(text=f" 同站重覆測試：{len(dup_sn)} 個 SN／{len(dup_rows)} 筆 "
+                            if dup_rows else " 同站重覆測試：無 ")
 
     # ---- 定時更新 ----
     def _schedule_tick(self):
@@ -1294,6 +1322,11 @@ class App(tk.Tk):
         tk.Label(top, text=f"  {rec['sn']}   OPID {rec['opid']}   {rec['timestamp']}   "
                            f"{rec['station']} {rec['station_name']}",
                  font=tkfont.Font(size=11)).pack(side="left")
+        if rec.get("_dup", 1) >= 2:
+            tk.Label(win, text=f" ⚠ 同站（{rec['station']}）重覆測試：這是第 {rec['_dup_no']} 次，"
+                               f"共測了 {rec['_dup']} 次 ",
+                     bg=COLORS["dup"][0], fg=COLORS["dup"][1], anchor="w",
+                     font=tkfont.Font(size=11, weight="bold")).pack(fill="x", padx=8, pady=(0, 6))
 
         # 各通道量測值
         metrics = [(lbl, split_values(d.get(k))) for k, lbl in CHANNEL_METRICS if k in d]

@@ -1,7 +1,8 @@
 // 美股：大型股＋產業 ETF 的 6~9 個月日K（Nasdaq），每天快取一次。
 import type { Fetcher } from "../lib/net";
 import type { KV } from "../lib/kv";
-import { addDays, dash, taipeiToday, usSessionDay } from "../lib/dates";
+import { addDays, dash, taipeiToday, usLatestSession, usSessionDay } from "../lib/dates";
+import { parseUsLive, usLiveUrl } from "./usLive";
 import {
   nasdaqInfoUrl, nasdaqSummaryUrl, nasdaqUrl, parseNasdaqHistory, parseNasdaqName, parseNasdaqSector, retN, sma,
   US_SECTOR_ETF, US_UNIVERSE, type Bar, type UsExtra,
@@ -28,9 +29,15 @@ export class UsLoader {
     const key = `us:h:${symbol}:${usSessionDay(this.now())}`;
     const hit = await this.kv.get<Bar[]>(key);
     if (hit) return hit;
+    // Nasdaq 還沒補上最新一天時，暫存 30 分鐘就好，之後重抓（不要把舊資料存成今天的）
+    const staleKey = `us:hs:${symbol}`;
+    const stale = await this.kv.get<{ at: number; bars: Bar[] }>(staleKey);
+    if (stale && this.now() - stale.at < 30 * 60_000) return stale.bars;
     this.requests++;
     const bars = parseNasdaqHistory(await this.fetch(nasdaqUrl(symbol, etf ? "etf" : "stocks", dash(addDays(today, -280)), dash(today))));
-    if (bars.length) await this.kv.set(key, bars);
+    if (!bars.length) return bars;
+    if (bars[bars.length - 1].date >= usLatestSession(this.now())) { await this.kv.set(key, bars); await this.kv.del(staleKey); }
+    else await this.kv.set(staleKey, { at: this.now(), bars });
     return bars;
   }
 
@@ -50,6 +57,26 @@ export class UsLoader {
     }
     if (netError) throw netError;
     return null;
+  }
+
+  /**
+   * 收盤後 Nasdaq 日K 有時還沒補上當天：用 CNBC 的正式收盤（開高低收）補一根，
+   * 讓評分、資料日與今日漲跌都對到最新收盤。盤中（還沒收盤）不補。
+   */
+  async patchLatest(bars: Record<string, Bar[]>) {
+    const want = usLatestSession(this.now());
+    const need = Object.keys(bars).filter((s) => bars[s].length && bars[s][bars[s].length - 1].date < want);
+    if (!need.length) return;
+    for (let i = 0; i < need.length; i += 20) {
+      let q: ReturnType<typeof parseUsLive> = {};
+      try { q = parseUsLive(await this.fetch(usLiveUrl(need.slice(i, i + 20)))); } catch { continue; }
+      for (const sym of need.slice(i, i + 20)) {
+        const x = q[sym], b = bars[sym];
+        if (!x || !x.final || x.date !== want || x.date <= b[b.length - 1].date) continue;
+        const open = Number.isFinite(x.open) ? x.open : x.price, high = Number.isFinite(x.high) ? x.high : x.price, low = Number.isFinite(x.low) ? x.low : x.price;
+        bars[sym] = [...b, { date: x.date, open, high, low, close: x.price, volume: x.volume ?? b[b.length - 1].volume }];
+      }
+    }
   }
 
   async load(progress: Progress = () => {}, extra: UsExtra[] = []): Promise<UsSnapshot> {
@@ -77,6 +104,7 @@ export class UsLoader {
       }
     };
     await Promise.all([worker(), worker(), worker()]);
+    await this.patchLatest(bars);
     const spy = bars["SPY"] ?? [];
     if (!spy.length) throw new Error("美股資料下載失敗，請稍後再試");
     const spy1m = retN(spy, 21);

@@ -147,7 +147,7 @@ export function autoRefresh() {
   if (Date.now() - lastAuto < 60_000) return; // 一分鐘內切來切去不重複檢查
   lastAuto = Date.now();
   if (twNeedsRefresh(state.tw.fetchedAt)) refreshTw();
-  if (usNeedsRefresh(state.us.fetchedAt)) refreshUs();
+  if (usNeedsRefresh(state.us.fetchedAt, Date.now(), state.us.asOf)) refreshUs();
   else ensureUsHoldings(); // 今天的美股已下載過，但持股裡可能有還沒下載的代號
   if (twNeedsRefresh(esbFetchedAt)) refreshEsb();
   refreshMacro(); refreshTwIndex();

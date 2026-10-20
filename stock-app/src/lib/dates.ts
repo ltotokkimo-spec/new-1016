@@ -96,9 +96,20 @@ export function usSessionDay(t = Date.now()): string {
   return n.minutes >= US_BARS_READY ? n.ymd : addDays(n.ymd, -1);
 }
 
-/** 美股資料要不要重抓：沒抓過，或抓的時候還沒有最新一天收盤（例如台北凌晨抓、清晨收盤後又打開） */
-export function usNeedsRefresh(fetchedAt: number | undefined, now = Date.now()): boolean {
-  return !fetchedAt || usSessionDay(fetchedAt) !== usSessionDay(now);
+/** 最近一個已收盤的美股交易日（平日；美國假日會比實際晚一天，最多多重試幾次） */
+export function usLatestSession(t = Date.now()): string {
+  let d = usSessionDay(t);
+  while (!isWeekday(d)) d = addDays(d, -1);
+  return d;
+}
+
+/**
+ * 美股資料要不要重抓：沒抓過、抓的時候還沒有最新一天收盤（例如台北凌晨抓、清晨收盤後又打開），
+ * 或資料日落後最近交易日（Nasdaq 日K 有時晚更新）且已經 30 分鐘沒重試。
+ */
+export function usNeedsRefresh(fetchedAt: number | undefined, now = Date.now(), asOf?: string): boolean {
+  if (!fetchedAt || usSessionDay(fetchedAt) !== usSessionDay(now)) return true;
+  return !!asOf && asOf < usLatestSession(now) && now - fetchedAt > 30 * 60_000;
 }
 
 /** 美股含盤前盤後的時段（紐約平日 4:00～20:00），這段時間才需要一直更新即時價 */

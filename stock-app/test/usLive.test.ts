@@ -38,6 +38,23 @@ describe("美股即時報價（CNBC）", () => {
     expect(q.ext).toBeUndefined();
   });
 
+  it("紐約半夜 CNBC 只給日期、昨收等於收盤：仍要解析，今日漲跌用 change 算（2026/10/20 實測格式）", () => {
+    const night = { FormattedQuoteResult: { FormattedQuote: [{
+      symbol: "AAPL", code: 0, name: "Apple Inc.", last: "342.94", last_time: "2026-10-19", change: "-0.52", change_pct: "-0.15%",
+      previous_day_closing: "342.94", curmktstatus: "POST_MKT", volume: "31,482,031",
+      ExtendedMktQuote: { type: "POST_MKT", last: "343.04", last_time: "2026-10-19", change: "+0.10", change_pct: "+0.03%" },
+    }] } };
+    const q = parseUsLive(night).AAPL;
+    expect(q).toBeDefined();
+    expect(q.date).toBe("20261019");
+    expect(q.final).toBe(true);
+    expect(q.time).toBe("");
+    expect(q.prevClose).toBeCloseTo(343.46, 2);
+    expect(q.price / q.prevClose - 1).toBeLessThan(0); // 今日是跌
+    expect(q.volume).toBe(31482031);
+    expect(q.ext).toBeUndefined(); // 只有日期的盤後資料不顯示
+  });
+
   it("單一筆回應不是陣列也能解析", () => {
     expect(parseUsLive({ FormattedQuoteResult: { FormattedQuote: post.FormattedQuoteResult.FormattedQuote[0] } }).AAPL.price).toBe(342.94);
   });

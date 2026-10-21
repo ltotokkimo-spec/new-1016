@@ -349,10 +349,12 @@ export function aiEtfAdvice(apiKey: string, p: EtfAdviceInput, onProgress?: OnPr
 export function aiEtfPrompt(p: EtfAdviceInput, forApp = false): string {
   const review = p.holdings.some((h) => h.shares > 0);
   const lots = (x: number | undefined) => (x === undefined ? "無" : `${x >= 0 ? "+" : ""}${Math.round(x / 1000).toLocaleString("en-US")}張`);
-  const cand = p.candidates.map((s) =>
-    `${s.code} ${s.name}(${s.sector}) ${s.close}｜${s.score}分｜週${fmtPct(s.ret1w)} 月${fmtPct(s.ret1m)}｜外資5日${lots(s.foreign5)}`).join("\n");
-  const hold = p.holdings.filter((h) => h.shares > 0).map((h) =>
-    `${h.code} ${h.name} ${h.shares}股｜成本${h.avgCost.toFixed(1)}→${h.price ?? "無價"}${h.price ? `(${fmtPct(h.price / h.avgCost - 1)})` : ""}${h.stop ? `｜停損${h.stop}` : ""}${h.rating ? `｜App ${h.rating}` : ""}`).join("\n");
+  const row = (cells: (string | number)[]) => `| ${cells.join(" | ")} |`;
+  const cand = [row(["代號", "名稱", "產業", "收盤", "分數", "週", "月", "外資5日"]), row(["---", "---", "---", "---", "---", "---", "---", "---"]),
+    ...p.candidates.map((s) => row([s.code, s.name, s.sector, s.close, s.score, fmtPct(s.ret1w), fmtPct(s.ret1m), lots(s.foreign5)]))].join("\n");
+  const holds = p.holdings.filter((h) => h.shares > 0);
+  const hold = [row(["代號", "名稱", "股數", "成本", "現價(損益)", "停損", "App評等"]), row(["---", "---", "---", "---", "---", "---", "---"]),
+    ...holds.map((h) => row([h.code, h.name, h.shares, h.avgCost.toFixed(1), h.price ? `${h.price}(${fmtPct(h.price / h.avgCost - 1)})` : "無價", h.stop ?? "—", h.rating ?? "—"]))].join("\n");
   const prompt = `今天是 ${p.today}。我要用新台幣 ${p.budget.toLocaleString()} 元做「自組 ETF」，會照你的建議真的下單。${p.dataDate ? `\n下面的價格與籌碼是 ${p.dataDate} 收盤後的資料；我會在 ${p.orderDate} 盤中用限價單下單，請以這天下單為前提給建議（例如參考價、不要追高的價位）。` : ""}
 ${review ? `組合淨值 ${Math.round(p.nav).toLocaleString()}，可用現金 ${Math.round(p.cash).toLocaleString()}。
 
@@ -370,10 +372,11 @@ ${cand}
 - 買進總額含手續費 0.1425% 不超過可用現金${review ? "（賣出的錢可以拿來買）" : ""}，留約 3～5% 現金。
 - 上網查近 7 天的新聞、營收、外資報告再決定；來源只寫「日期＋媒體名」。
 
-請簡短回答，全部不超過 400 字，格式：
+請簡短回答，全部不超過 400 字（表格不算），格式：
 1. 一句話總結（這次${review ? "調整" : "建倉"}的主軸）
-2. 每檔一行：代號 名稱｜${review ? "買／賣／不動 " : "買 "}股數｜約金額（佔比）｜理由（20 字內）｜停損價
-3. 風險與出場條件（一兩句）
+2. Markdown 表格，每檔一行，只放這 5 欄（手機螢幕窄）：| 股票（代號 名稱） | ${review ? "動作（買／賣／不動）" : "動作（買）"} | 股數 | 金額（佔比） | 停損價 |
+3. 理由：每檔一行條列，格式「名稱：理由」，20 字內
+4. 風險與出場條件（一兩句）
 不要長篇新聞摘要。
 
 最後附上 JSON 區塊（trades 只放要執行的買賣；每筆買進都要給停損價 stop${review ? "；stops 放「不動」持股要更新的停損價，不用更新就省略" : ""}）：

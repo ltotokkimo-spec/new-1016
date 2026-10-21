@@ -7,7 +7,8 @@ describe("aiEtfPrompt", () => {
     const api = aiEtfPrompt(input), app = aiEtfPrompt(input, true);
     expect(app.startsWith(api)).toBe(true);
     expect(app).toMatch(/MCP/);
-    expect(api).toMatch(/6515 穎崴 20股｜成本5127\.3→5160.*｜停損4614\.6｜App 離場/);
+    expect(api).toMatch(/\| 6515 \| 穎崴 \| 20 \| 5127\.3 \| 5160\(.*\) \| 4614\.6 \| 離場 \|/);
+    expect(api).toMatch(/\| 代號 \| 名稱 \| 股數 \| 成本 \| 現價\(損益\) \| 停損 \| App評等 \|/);
     expect(api).toMatch(/請檢視這個組合/);
   });
 });
@@ -23,10 +24,13 @@ describe("aiEtfPrompt 精簡版", () => {
   const mk = (code: string, sector: string, score: number) => ({ code, name: `股${code}`, sector, close: 100, score, rating: "買入", ret1w: 0.01, ret1m: 0.05, foreign5: 1500000 } as any);
   it("候選股一行一檔、只有必要欄位；要求簡短回答", () => {
     const p = aiEtfPrompt({ today: "2026/10/21", budget: 500000, cash: 400000, nav: 497000, holdings: [], candidates: [mk("2006", "鋼鐵", 83)] });
-    expect(p).toContain("2006 股2006(鋼鐵) 100｜83分｜週+1.0% 月+5.0%｜外資5日+1,500張");
+    expect(p).toContain("| 代號 | 名稱 | 產業 | 收盤 | 分數 | 週 | 月 | 外資5日 |");
+    expect(p).toContain("| 2006 | 股2006 | 鋼鐵 | 100 | 83 | +1.0% | +5.0% | +1,500張 |");
+    expect(p).toMatch(/Markdown 表格，每檔一行，只放這 5 欄/);
+    expect(p).toMatch(/理由：每檔一行條列/);
     expect(p).not.toMatch(/買入｜|近1週|近1月/);
     expect(p).toMatch(/不超過 400 字/);
-    expect(p.length).toBeLessThan(1100);
+    expect(p.length).toBeLessThan(1250);
   });
 });
 

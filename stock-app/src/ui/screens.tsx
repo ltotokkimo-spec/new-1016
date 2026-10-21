@@ -16,7 +16,7 @@ import { pretty, prettyW, taipeiToday, usQuoteHours } from "../lib/dates";
 import { latestNotes } from "../lib/notes";
 import type { BacktestResult } from "../engine/backtest";
 import type { TurnPick } from "../engine/turning";
-import { cls, fmtMoney, fmtPct, fmtPrice, lots, Markdown, PriceChart, Progress, RatingPill, Sheet } from "./common";
+import { cls, fmtMoney, fmtPct, fmtPrice, fmtSigned, lots, Markdown, PriceChart, Progress, RatingPill, Sheet } from "./common";
 
 // ---------------- 選股 ----------------
 export function PicksScreen({ market, setMarket, sector, setSector, open }: {
@@ -580,27 +580,32 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
         <div class="empty">還沒有持股。<br />拍一張證券 App 的「庫存」畫面，Claude 會自動辨識代號、股數與成本。</div>
       ) : (
         <div class="list">
-          {views.map((v) => (
-            <button class="item" onClick={() => v.scored && open(v.scored)}>
-              <div style={{ minWidth: 0 }}>
-                <div class="name">{v.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{v.code}</span></div>
-                <div class="sub">{v.advice.join("；")}</div>
-              </div>
-              <div class="px">
-                <div class="p num"><span class="lbl">{v.liveTime ? `現價 ${v.liveTime}` : "現價"}</span>{fmtPrice(v.price, v.market)}</div>
-                {Number.isFinite(v.chg) && <div class={`c num ${cls(v.chg)}`} data-testid="hold-day"><span class="lbl">今日</span>{fmtPct(v.chg)}</div>}
-                {"ext" in v && v.ext && <div class={`c num ${cls(v.ext.chg)}`} data-testid="hold-ext"><span class="lbl">{v.ext.label} {v.ext.time}</span>{fmtPrice(v.ext.price, v.market)} {fmtPct(v.ext.chg)}</div>}
-                <div class={`c num ${cls(v.pnl)}`}><span class="lbl">損益</span>{fmtPct(v.pnlPct)}</div>
-              </div>
-              <RatingPill rating={v.rating} />
-            </button>
-          ))}
+          {views.map((v) => <HoldingRow v={v} open={open} />)}
         </div>
       )}
       {views.length > 0 && <HoldingsEditor />}
       {adding && <HoldingForm onDone={() => setAdding(false)} />}
       {importing && <ImportReview data={importing} onDone={() => setImporting(null)} />}
     </div>
+  );
+}
+
+/** 持股一列：左邊是名稱、損益金額（含報酬率）、建議；右邊是現價、今日漲跌、（美股盤前盤後）；賺紅賠綠 */
+function HoldingRow({ v, open }: { v: any; open: (s: Scored) => void }) {
+  return (
+    <button class="item" onClick={() => v.scored && open(v.scored)}>
+      <div style={{ minWidth: 0 }}>
+        <div class="name">{v.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{v.code}</span></div>
+        <div class={`num ${cls(v.pnl)}`} style={{ fontSize: "13px", fontWeight: 600, marginTop: "2px" }} data-testid="hold-pnl"><span class="lbl" style={{ fontFamily: "var(--font)", fontSize: "11px", fontWeight: 400, color: "var(--muted)", marginRight: "4px" }}>損益</span>{fmtSigned(v.pnl, v.market)}<span style={{ whiteSpace: "nowrap" }}>（{fmtPct(v.pnlPct)}）</span></div>
+        <div class="sub">{v.advice.join("；")}</div>
+      </div>
+      <div class="px">
+        <div class="p num"><span class="lbl">{v.liveTime ? `現價 ${v.liveTime}` : "現價"}</span>{fmtPrice(v.price, v.market)}</div>
+        {Number.isFinite(v.chg) && <div class={`c num ${cls(v.chg)}`} data-testid="hold-day"><span class="lbl">今日</span>{fmtPct(v.chg)}</div>}
+        {"ext" in v && v.ext && <div class={`c num ${cls(v.ext.chg)}`} data-testid="hold-ext"><span class="lbl">{v.ext.label} {v.ext.time}</span>{fmtPrice(v.ext.price, v.market)} {fmtPct(v.ext.chg)}</div>}
+      </div>
+      <RatingPill rating={v.rating} />
+    </button>
   );
 }
 

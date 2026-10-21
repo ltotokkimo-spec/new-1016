@@ -7,6 +7,14 @@ export const fmtPct = (x: number | undefined, digits = 1) =>
 
 export const cls = (x: number | undefined) => (x === undefined || !Number.isFinite(x) || x === 0 ? "" : x > 0 ? "up" : "down");
 
+/** 帶正負號的損益金額：台股 +1,234／-567（台幣，不加幣別字樣）；美股 +$1,234／-$567 */
+export function fmtSigned(x: number, market?: string) {
+  if (!Number.isFinite(x)) return "—";
+  const sign = x < 0 ? "-" : x > 0 ? "+" : "";
+  const n = Math.round(Math.abs(x)).toLocaleString("en-US");
+  return market === "US" ? `${sign}$${n}` : `${sign}${n}`;
+}
+
 export function fmtPrice(x: number, market?: string) {
   if (!Number.isFinite(x)) return "—";
   const d = market === "US" ? 2 : x >= 100 ? 1 : 2;

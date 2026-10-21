@@ -5,7 +5,7 @@ import type { KV } from "../lib/kv";
 import { addDays, taipeiHour, taipeiToday, weekdaysBack } from "../lib/dates";
 import {
   parseTpexCompanies, parseTpexFlows, parseTpexQuotes, parseTwseCompanies, parseTwseFlows, parseTwseQuotes,
-  twUrls, type Company, type Flow, type MarketIndex, type Quote, isEtf, etfCategory,
+  twUrls, type Company, type Flow, type MarketIndex, type Quote, isEtf, etfCategory, isCommonStock,
 } from "./tw";
 import type { StockInput } from "../engine/score";
 
@@ -21,12 +21,29 @@ const HOLIDAY = { holiday: true } as const;
 // tw.ts 的網址函式用本地時間的 Date；這裡用 UTC 午夜建 Date 再轉成「本地同一天」
 const localDate = (s: string) => new Date(+s.slice(0, 4), +s.slice(4, 6) - 1, +s.slice(6, 8));
 
+export interface Breadth { up: number; down: number; flat: number }
+export interface TwBreadth { twse: Breadth; tpex: Breadth }
+
+/** 收盤漲跌家數：只算普通股（不含 ETF、權證等），依當日漲跌（元）分上漲、下跌、持平 */
+export function countBreadth(twse: QRow[], tpex: QRow[]): TwBreadth {
+  const count = (rows: QRow[]): Breadth => {
+    const b = { up: 0, down: 0, flat: 0 };
+    for (const r of rows) {
+      if (!isCommonStock(r[0]) || !Number.isFinite(r[2]) || !Number.isFinite(r[3])) continue;
+      if (r[3] > 0) b.up++; else if (r[3] < 0) b.down++; else b.flat++;
+    }
+    return b;
+  };
+  return { twse: count(twse), tpex: count(tpex) };
+}
+
 export interface TwSnapshot {
   asOf: string; // 最新交易日
   dates: string[]; // 最近 10 個交易日（新到舊）
   ref: { w1: string; m1: string; m3: string }; // 計算報酬的基準日
   stocks: StockInput[];
   indices: MarketIndex[];
+  breadth?: TwBreadth; // 最新交易日的收盤漲跌家數
   fetchedAt: number;
   version?: number; // 2 = 含 ETF
 }
@@ -155,7 +172,7 @@ export class TwLoader {
     await this.prune(dates[dates.length - 1], m3?.date);
     return {
       asOf: d0, dates, ref: { w1, m1: m1?.date ?? "", m3: m3?.date ?? "" },
-      stocks, indices: q0.a.indices ?? [], fetchedAt: this.now(), version: TW_SNAPSHOT_VERSION,
+      stocks, indices: q0.a.indices ?? [], breadth: countBreadth(q0.a.rows, q0.b?.rows ?? []), fetchedAt: this.now(), version: TW_SNAPSHOT_VERSION,
     };
   }
 

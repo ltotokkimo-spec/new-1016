@@ -53,6 +53,7 @@ export interface State {
   us: MarketState;
   esb: Record<string, true>; // 興櫃股票代號
   twIndices: TwSnapshot["indices"];
+  twBreadth?: TwSnapshot["breadth"]; // 收盤漲跌家數
   usSectorEtfs: UsSnapshot["sectorEtfs"];
   macro: { status: "idle" | "loading" | "ready" | "error"; quotes: MacroQuote[]; error?: string; at?: number };
   twIndexLive: Record<string, IndexLive>; // 台股指數盤中即時（證交所 MIS）
@@ -169,7 +170,7 @@ function applyTw(snap: TwSnapshot) {
   set({ prices: pricesOf(snap.stocks) });
   // ETF 回測顯示規則分辨不出好壞，只給分數當參考，不給買入／觀望／離場
   const etfScored = b.scored.map((x) => ({ ...x, refOnly: true }));
-  set({ tw: { ...meta, scored: a.scored, sectors: a.sectors }, etf: { ...meta, scored: etfScored, sectors: b.sectors }, twIndices: snap.indices });
+  set({ tw: { ...meta, scored: a.scored, sectors: a.sectors }, etf: { ...meta, scored: etfScored, sectors: b.sectors }, twIndices: snap.indices, twBreadth: snap.breadth });
   void snapshotEtfNav(snap.asOf);
 }
 

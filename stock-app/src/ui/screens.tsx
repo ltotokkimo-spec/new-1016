@@ -698,7 +698,7 @@ function ImportReview({ data, onDone }: { data: { rows: ImportedHolding[]; note:
 
 // ---------------- 數據（國內外指標＋AI 解讀） ----------------
 export function MacroScreen() {
-  const st = useStore((s) => ({ macro: s.macro, tw: s.tw, us: s.us, idx: s.twIndices, idxLive: s.twIndexLive, etfs: s.usSectorEtfs, apiKey: s.settings.apiKey, reports: s.reports }));
+  const st = useStore((s) => ({ macro: s.macro, tw: s.tw, us: s.us, idx: s.twIndices, breadth: s.twBreadth, idxLive: s.twIndexLive, etfs: s.usSectorEtfs, apiKey: s.settings.apiKey, reports: s.reports }));
   // 台股指數盤中每 30 秒更新（收盤後 MIS 回傳收盤價，仍會顯示）
   useEffect(() => {
     refreshTwIndex();
@@ -748,6 +748,16 @@ export function MacroScreen() {
           <div class="section-title"><span>台股收盤（{st.tw.asOf ? pretty(st.tw.asOf) : ""}）</span></div>
           <div class="grid2">
             {st.idx.map((i) => <Metric k={i.name.replace("發行量加權股價指數", "加權指數")} v={i.close.toLocaleString("zh-TW")} c={cls(i.change)} d={`${i.change > 0 ? "+" : ""}${i.change.toFixed(2)}（${i.changePct > 0 ? "+" : ""}${i.changePct}%）`} />)}
+          </div>
+        </>
+      )}
+      {st.breadth && (
+        <>
+          <div class="section-title"><span>漲跌家數（收盤 {st.tw.asOf ? pretty(st.tw.asOf) : ""}）</span></div>
+          <div class="grid2">
+            {([["上市", st.breadth.twse], ["上櫃", st.breadth.tpex]] as const).map(([k, b]) => (
+              <Metric k={k} v={`漲 ${b.up}／跌 ${b.down}`} c={b.up > b.down ? "up" : b.up < b.down ? "down" : ""} d={`持平 ${b.flat}`} />
+            ))}
           </div>
         </>
       )}

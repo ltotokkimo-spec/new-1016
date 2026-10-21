@@ -230,6 +230,10 @@ function check(ok, name, detail = "") {
   check(["加權指數", "臺灣50指數", "半導體類指數", "金融保險類指數"].every((n) => macro.some((m) => m.includes(n))), "四大台股指數都顯示", JSON.stringify(macro.slice(0, 6)));
   // 盤中量能：成交量（億股）與成交筆數（萬筆）
   check(macro.some((m) => /成交量 [\d.]+ 億股/.test(m)) && macro.some((m) => /成交筆數 \d+ 萬筆/.test(m)), "顯示大盤成交量與成交筆數", JSON.stringify(macro.filter((m) => /成交/.test(m))));
+  // 收盤漲跌家數：上市、上櫃都要有「漲 N／跌 N」，且上市家數合理（普通股約 1000 檔以上）
+  check(macro.some((m) => /^上市 漲 \d+／跌 \d+ 持平 \d+/.test(m)) && macro.some((m) => /^上櫃 漲 \d+／跌 \d+ 持平 \d+/.test(m)), "顯示收盤漲跌家數（上市、上櫃）", JSON.stringify(macro.filter((m) => /漲 \d+／跌/.test(m))));
+  const bsum = macro.find((m) => /^上市 漲 \d+／跌/.test(m))?.match(/漲 (\d+)／跌 (\d+) 持平 (\d+)/);
+  check(!!bsum && +bsum[1] + +bsum[2] + +bsum[3] >= 900, "上市漲跌家數加總合理（≥900）", bsum ? bsum.slice(1).join("/") : "無");
   await shot("05-國內外數據");
 
   // 自組 ETF：手動記一筆台積電成交，檢查淨值與 0050 對照

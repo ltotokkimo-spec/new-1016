@@ -93,3 +93,16 @@ describe("清除快取", () => {
     expect((await kv.keys()).sort()).toEqual(["holdings", "reports", "settings", "spend"]);
   });
 });
+
+describe("countBreadth 收盤漲跌家數", () => {
+  it("只算普通股，依漲跌分上漲、下跌、持平", async () => {
+    const { countBreadth } = await import("../src/data/twLoader");
+    const r = (code: string, change: number): [string, string, number, number, number, number] => [code, code, 100, change, 0, 0];
+    const b = countBreadth(
+      [r("2330", 5), r("2317", -1), r("1101", 0), r("0050", 3), r("00632R", -2), r("2303", NaN)],
+      [r("6488", 1), r("3293", 2), r("8069", -3)],
+    );
+    expect(b.twse).toEqual({ up: 1, down: 1, flat: 1 });
+    expect(b.tpex).toEqual({ up: 2, down: 1, flat: 0 });
+  });
+});

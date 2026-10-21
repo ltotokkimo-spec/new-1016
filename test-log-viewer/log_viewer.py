@@ -29,7 +29,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
-APP_VERSION = "1.11.0"
+APP_VERSION = "1.12.0"
 APP_TITLE = f"測試結果檢視器 v{APP_VERSION}"
 DEFAULT_CSV_NAME = "operator_log.csv"
 DEFAULT_CHANNELS = 6
@@ -212,6 +212,20 @@ def parse_tod(s, upper=False):
         raise ValueError(s)
     parts += [59 if upper else 0] * (3 - len(parts))
     return dtime(*parts)
+
+
+def parse_dt_text(s, upper=False):
+    """時間欄文字：'15:50' / '2026/10/14 15:50:22' / '2026-10-14' → (日期字串|None, time|None)
+    空白 → (None, None)；格式錯誤丟 ValueError"""
+    s = (s or "").strip().replace("：", ":")
+    if not s:
+        return None, None
+    date, rest = None, s
+    m = re.search(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})", s)
+    if m:
+        date = f"{int(m[1]):04d}/{int(m[2]):02d}/{int(m[3]):02d}"
+        rest = (s[:m.start()] + " " + s[m.end():]).strip()
+    return date, parse_tod(rest, upper)
 
 
 def build_columns(n_ch, hidden=()):
@@ -692,8 +706,6 @@ class App(tk.Tk):
         self.var_auto = tk.BooleanVar(value=self.settings.get("auto_refresh", True))
         self.var_newest_first = tk.BooleanVar(value=self.settings.get("newest_first", False))
         self.var_follow = tk.BooleanVar(value=self.settings.get("follow", True))
-        self.var_date_from = tk.StringVar(value=ANY)
-        self.var_date_to = tk.StringVar(value=ANY)
         self.var_time_from = tk.StringVar()
         self.var_time_to = tk.StringVar()
         self.var_opid = tk.StringVar()
@@ -748,22 +760,17 @@ class App(tk.Tk):
         barf.pack(fill="x", padx=6, pady=(2, 0))
         ttk.Label(barf, text="篩選", font=tkfont.Font(weight="bold")).pack(side="left", padx=(4, 6))
         ttk.Label(barf, text="日期").pack(side="left")
-        self.cb_date_from = ttk.Combobox(barf, textvariable=self.var_date_from, width=11,
-                                         state="readonly", values=[ANY])
-        self.cb_date_from.pack(side="left", padx=(4, 0))
-        ttk.Label(barf, text="～").pack(side="left")
-        self.cb_date_to = ttk.Combobox(barf, textvariable=self.var_date_to, width=11,
-                                       state="readonly", values=[ANY])
-        self.cb_date_to.pack(side="left", padx=(0, 4))
-        self.btn_dates = ttk.Button(barf, text="多選日期…", command=self.choose_dates)
-        self.btn_dates.pack(side="left", padx=(6, 0))
+        self.btn_dates = ttk.Button(barf, width=15, command=self.toggle_date_dropdown)
+        self.btn_dates.pack(side="left", padx=(4, 6))
+        self._date_pop = None
+        self._update_dates_button()
         ttk.Label(barf, text="時間").pack(side="left", padx=(8, 0))
-        self.ent_time_from = tk.Entry(barf, textvariable=self.var_time_from, width=8)
+        self.ent_time_from = tk.Entry(barf, textvariable=self.var_time_from, width=18)
         self.ent_time_from.pack(side="left", padx=(4, 0))
         ttk.Label(barf, text="～").pack(side="left")
-        self.ent_time_to = tk.Entry(barf, textvariable=self.var_time_to, width=8)
+        self.ent_time_to = tk.Entry(barf, textvariable=self.var_time_to, width=18)
         self.ent_time_to.pack(side="left", padx=(0, 4))
-        ttk.Label(barf, text="(HH:MM)", foreground="#888888").pack(side="left")
+        ttk.Label(barf, text="(HH:MM 或含日期)", foreground="#888888").pack(side="left")
         ttk.Label(barf, text="站別").pack(side="left", padx=(10, 0))
         self.cb_station = ttk.Combobox(barf, textvariable=self.var_station, width=8,
                                        state="readonly", values=["全部"])
@@ -781,14 +788,14 @@ class App(tk.Tk):
                                      postcommand=self._update_opid_choices)
         self.ent_opid.pack(side="left", **pad)
         # 輸入框右鍵選單（剪下/複製/貼上/全選/清除）；時間欄貼上會自動拆出日期
-        self._entry_menu(self.ent_time_from, self.var_time_from, self.var_date_from)
-        self._entry_menu(self.ent_time_to, self.var_time_to, self.var_date_to)
+        self._entry_menu(self.ent_time_from, self.var_time_from, "from")
+        self._entry_menu(self.ent_time_to, self.var_time_to, "to")
         self._entry_menu(self.ent_sn, self.var_search)
         self._entry_menu(self.ent_opid, self.var_opid)
         ttk.Checkbutton(barf, text="只看重覆測試", variable=self.var_dup_only,
                         command=lambda: self.refresh_view(scroll="end")).pack(side="left", **pad)
         ttk.Button(barf, text="✖ 清除篩選", command=self.clear_filters).pack(side="left", **pad)
-        for cb in (self.cb_date_from, self.cb_date_to, self.cb_station, self.cb_verdict):
+        for cb in (self.cb_station, self.cb_verdict):
             cb.bind("<<ComboboxSelected>>", lambda e: self.refresh_view(scroll="end"))
         for v in (self.var_search, self.var_opid, self.var_time_from, self.var_time_to):
             v.trace_add("write", lambda *a: self.refresh_view(scroll="end"))
@@ -852,36 +859,40 @@ class App(tk.Tk):
         self._copied = (text, rec["date"] if rec else None)
         self.var_status.set(msg)
 
-    def _guess_date(self, time_text, fallback=None):
+    def _guess_date(self, time_text, fallback=None, is_to=False):
         """時間欄只有時間沒有日期時，要用哪一天：
         1. 這個時間是從表格某一列複製來的 → 用那一列的日期
-        2. 結束時間 → 跟起始日期同一天
-        3. 否則 → 資料裡最新的一天"""
+        2. 結束時間 → 跟起始時間同一天
+        3. 有勾選日期 → 開始用最早勾選日、結束用最晚勾選日
+        4. 否則 → 資料裡最新的一天"""
         copied = getattr(self, "_copied", None)
         t = (time_text or "").strip()
         if copied and copied[1] and t and t in copied[0]:
             return copied[1]
         if fallback:
             return fallback
+        if self.pick_dates:
+            return max(self.pick_dates) if is_to else min(self.pick_dates)
         dates = [r["date"] for r in self.records if r["date"]]
         return max(dates) if dates else None
 
-    def _fill_date_for_time(self, time_var, date_var, is_to):
-        """時間欄輸入完成（離開/Enter/貼上）時，日期是「不限」就自動補上日期並顯示出來"""
-        if date_var.get() not in ("", ANY):
-            return
+    def _fill_date_for_time(self, var, is_to):
+        """時間欄只有時間（離開/Enter/貼上）→ 自動補上日期，顯示成「日期 時間」"""
         try:
-            if parse_tod(time_var.get()) is None:
-                return
+            d, t = parse_dt_text(var.get(), is_to)
         except (ValueError, TypeError):
             return
+        if d or t is None:
+            return
         fb = None
-        if is_to and self.var_date_from.get() not in ("", ANY):
-            fb = self.var_date_from.get()
-        d = self._guess_date(time_var.get(), fb)
+        if is_to:
+            try:
+                fb = parse_dt_text(self.var_time_from.get())[0]
+            except (ValueError, TypeError):
+                fb = None
+        d = self._guess_date(var.get(), fb, is_to)
         if d:
-            date_var.set(d)
-            self.refresh_view(scroll="end")
+            var.set(f"{d} {var.get().strip()}")
 
     def _filter_sn(self, sn):
         self.var_search.set(sn)
@@ -892,14 +903,12 @@ class App(tk.Tk):
         self.var_status.set(f"已用 OPID 篩選：{opid}　（按「清除篩選」還原）")
 
     def _filter_date(self, date):
-        self.var_date_from.set(date)
-        self.var_date_to.set(date)
+        self.pick_dates = {date}
+        self._update_dates_button()
         self.refresh_view(scroll="end")
 
     def clear_filters(self):
         self._suspend = True
-        for v in (self.var_date_from, self.var_date_to):
-            v.set(ANY)
         for v in (self.var_station, self.var_verdict):
             v.set("全部")
         for v in (self.var_time_from, self.var_time_to, self.var_search, self.var_opid):
@@ -911,30 +920,25 @@ class App(tk.Tk):
         self.refresh_view(scroll="end")
 
     # ---- 輸入框：右鍵選單與貼上 ----
-    def _entry_menu(self, ent, var, date_var=None):
+    def _entry_menu(self, ent, var, time_kind=None):
         def paste(e=None):
             try:
                 text = self.clipboard_get()
             except tk.TclError:
                 return "break"
             text = " ".join(text.split())          # 去掉換行/Tab（從 Excel 複製常帶換行）
-            if date_var is not None:
+            if time_kind is not None:
                 m = re.search(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})", text)
                 t = re.search(r"\d{1,2}:\d{2}(:\d{2})?", text)
-                if t:
-                    var.set(t[0])
-                elif not m:
-                    var.set(text)
-                if m:
-                    date_var.set(f"{int(m[1]):04d}/{int(m[2]):02d}/{int(m[3]):02d}")
+                if m and t:
+                    var.set(f"{int(m[1]):04d}/{int(m[2]):02d}/{int(m[3]):02d} {t[0]}")
                 elif t:
-                    # 只貼了時間：從表格複製的就用那一列的日期，否則日期不限時補最新一天
-                    copied = getattr(self, "_copied", None)
-                    if copied and copied[1] and t[0] in copied[0]:
-                        date_var.set(copied[1])
-                    else:
-                        self._fill_date_for_time(var, date_var, date_var is self.var_date_to)
-                self.refresh_view(scroll="end")
+                    var.set(t[0])
+                    self._fill_date_for_time(var, time_kind == "to")
+                elif m:
+                    var.set(f"{int(m[1]):04d}/{int(m[2]):02d}/{int(m[3]):02d}")
+                else:
+                    var.set(text)
                 return "break"
             try:
                 ent.delete("sel.first", "sel.last")
@@ -962,8 +966,8 @@ class App(tk.Tk):
 
         ent.bind("<Button-3>", popup)
         ent.bind("<<Paste>>", paste)
-        if date_var is not None:
-            fill = lambda e: self._fill_date_for_time(var, date_var, date_var is self.var_date_to)
+        if time_kind is not None:
+            fill = lambda e: self._fill_date_for_time(var, time_kind == "to")
             ent.bind("<FocusOut>", fill, add="+")
             ent.bind("<Return>", fill, add="+")
 
@@ -983,12 +987,10 @@ class App(tk.Tk):
         self._copy_block("\n".join(vals), f"整欄「{title}」共 {len(vals)} 筆")
 
     def _filter_time_from(self, rec):
-        self.var_date_from.set(rec["date"])
-        self.var_time_from.set(rec["time"])
+        self.var_time_from.set(f"{rec['date']} {rec['time']}")
 
     def _filter_time_to(self, rec):
-        self.var_date_to.set(rec["date"])
-        self.var_time_to.set(rec["time"])
+        self.var_time_to.set(f"{rec['date']} {rec['time']}")
 
     def _context_menu(self, e):
         """右鍵選單：第一項只有「複製」這一格，其他功能收在「更多」裡"""
@@ -1138,8 +1140,8 @@ class App(tk.Tk):
             self.file_sig = None
             self.records = []
             self.only_lines = None
-            self.var_date_from.set(ANY)
-            self.var_date_to.set(ANY)
+            self.pick_dates = set()
+            self._update_dates_button()
             self.var_station.set("全部")
             self.reload(force=True, scroll="end")
             self._save_settings()
@@ -1181,76 +1183,112 @@ class App(tk.Tk):
     def _update_filter_choices(self):
         dates = sorted({r["date"] for r in self.records if r["date"]}, reverse=True)
         stations = sorted({r["station"] for r in self.records if r["station"]})
-        self.cb_date_from["values"] = [ANY] + dates
-        self.cb_date_to["values"] = [ANY] + dates
         self.cb_station["values"] = ["全部"] + stations
 
     # ---- 篩選/顯示 ----
     def _time_bounds(self):
-        """解析時間欄位；格式錯誤的欄位標紅並忽略"""
+        """解析時間欄（可含日期）；格式錯誤的欄位標紅並忽略。回傳 [(日期|None, time|None), ...]"""
         out = []
         for ent, var, upper in ((self.ent_time_from, self.var_time_from, False),
                                 (self.ent_time_to, self.var_time_to, True)):
             try:
-                t = parse_tod(var.get(), upper)
+                out.append(parse_dt_text(var.get(), upper))
                 ent.configure(bg="#FFFFFF")
             except (ValueError, TypeError):
-                t = None
+                out.append((None, None))
                 ent.configure(bg="#FFC7CE")
-            out.append(t)
         return out
 
     def _update_dates_button(self):
-        n = len(self.pick_dates)
-        self.btn_dates.config(text=f"多選日期（{n} 天）✔" if n else "多選日期…")
+        d = sorted(self.pick_dates)
+        if not d:
+            txt = "不限"
+        elif len(d) <= 2:
+            txt = ", ".join(x[5:] for x in d)
+        else:
+            txt = f"已選 {len(d)} 天"
+        self.btn_dates.config(text=f"{txt}  ▼")
 
-    def choose_dates(self):
-        """勾選要看的日期（可不連續，例如只看 10/14 和 10/16）"""
+    def close_date_dropdown(self):
+        pop, self._date_pop = self._date_pop, None
+        if pop is not None:
+            try:
+                pop.grab_release()
+            except tk.TclError:
+                pass
+            pop.destroy()
+
+    def toggle_date_dropdown(self):
+        """日期下拉選單：每個日期前面有打勾框，可重覆勾選多個不連續的日子，馬上套用"""
+        if self._date_pop is not None:
+            self.close_date_dropdown()
+            return
         counts = {}
         for r in self.records:
             if r["date"]:
                 counts[r["date"]] = counts.get(r["date"], 0) + 1
         dates = sorted(counts, reverse=True)
-        win = tk.Toplevel(self)
-        win.title("多選日期")
-        win.transient(self)
-        win.geometry("+%d+%d" % (self.winfo_rootx() + 120, self.winfo_rooty() + 90))
-        ttk.Label(win, text="點選日期即可加選／取消（可多選不連續的日子）",
-                  padding=(10, 8, 10, 4)).pack(anchor="w")
-        box = ttk.Frame(win, padding=(10, 0))
-        box.pack(fill="both", expand=True)
-        lb = tk.Listbox(box, selectmode="multiple", exportselection=False, height=min(max(len(dates), 3), 14),
-                        width=28, activestyle="none", font=tkfont.Font(size=11))
-        sb = ttk.Scrollbar(box, orient="vertical", command=lb.yview)
-        lb.configure(yscrollcommand=sb.set)
-        lb.pack(side="left", fill="both", expand=True)
-        sb.pack(side="left", fill="y")
-        for i, d in enumerate(dates):
-            lb.insert("end", f"{d}　（{counts[d]} 筆）")
-            if d in self.pick_dates:
-                lb.selection_set(i)
-        lbl = ttk.Label(win, padding=(10, 4))
-        lbl.pack(anchor="w")
+        pop = self._date_pop = tk.Toplevel(self)
+        pop.overrideredirect(True)
+        pop.geometry("+%d+%d" % (self.btn_dates.winfo_rootx(),
+                                 self.btn_dates.winfo_rooty() + self.btn_dates.winfo_height()))
+        frame = tk.Frame(pop, bd=1, relief="solid", bg="#FFFFFF")
+        frame.pack(fill="both", expand=True)
+        top = tk.Frame(frame, bg="#F0F0F0")
+        top.pack(fill="x")
+        vars_ = {d: tk.BooleanVar(value=d in self.pick_dates) for d in dates}
 
-        def upd(*_):
-            lbl.config(text=f"已選 {len(lb.curselection())} 天")
-        lb.bind("<<ListboxSelect>>", upd)
-        upd()
-
-        def apply():
-            self.pick_dates = {dates[i] for i in lb.curselection()}
-            win.destroy()
+        def apply(*_):
+            self.pick_dates = {d for d, v in vars_.items() if v.get()}
             self._update_dates_button()
             self.refresh_view(scroll="end")
 
-        row = ttk.Frame(win, padding=(10, 4, 10, 10))
-        row.pack(fill="x")
-        ttk.Button(row, text="全選", command=lambda: (lb.selection_set(0, "end"), upd())).pack(side="left")
-        ttk.Button(row, text="清除", command=lambda: (lb.selection_clear(0, "end"), upd())).pack(side="left", padx=4)
-        ttk.Button(row, text="取消", command=win.destroy).pack(side="right")
-        ttk.Button(row, text="確定", command=apply).pack(side="right", padx=4)
-        win.grab_set()
-        return win
+        def set_all(val):
+            for v in vars_.values():
+                v.set(val)
+            apply()
+
+        ttk.Button(top, text="全選", width=6, command=lambda: set_all(True)).pack(side="left", padx=2, pady=2)
+        ttk.Button(top, text="清除", width=6, command=lambda: set_all(False)).pack(side="left", pady=2)
+        ttk.Button(top, text="關閉", width=6, command=self.close_date_dropdown).pack(side="right", padx=2, pady=2)
+        body = tk.Frame(frame, bg="#FFFFFF")
+        body.pack(fill="both", expand=True)
+        cv = tk.Canvas(body, bg="#FFFFFF", highlightthickness=0, width=210,
+                       height=min(len(dates), 12) * 26 or 26)
+        inner = tk.Frame(cv, bg="#FFFFFF")
+        cv.create_window(0, 0, window=inner, anchor="nw")
+        for d in dates:
+            tk.Checkbutton(inner, text=f"{d}　（{counts[d]} 筆）", variable=vars_[d], command=apply,
+                           bg="#FFFFFF", activebackground="#E5F1FB", anchor="w",
+                           font=tkfont.Font(size=11)).pack(fill="x", ipady=1)
+        if not dates:
+            tk.Label(inner, text="（沒有資料）", bg="#FFFFFF", fg="#888888").pack(padx=10, pady=6)
+        inner.update_idletasks()
+        cv.configure(scrollregion=(0, 0, inner.winfo_reqwidth(), inner.winfo_reqheight()))
+        cv.pack(side="left", fill="both", expand=True)
+        if len(dates) > 12:
+            sb = ttk.Scrollbar(body, orient="vertical", command=cv.yview)
+            cv.configure(yscrollcommand=sb.set)
+            sb.pack(side="left", fill="y")
+        scroll = lambda e: cv.yview_scroll(-1 if (getattr(e, "num", 0) == 4 or e.delta > 0) else 1, "units")
+        for w in (pop, cv, inner):
+            w.bind("<MouseWheel>", scroll)
+            w.bind("<Button-4>", scroll)
+            w.bind("<Button-5>", scroll)
+        pop.bind("<Escape>", lambda e: self.close_date_dropdown())
+
+        def outside(e):
+            # 點到選單範圍外面 → 關閉（選單內的點擊交給各個勾選框）
+            x0, y0 = pop.winfo_rootx(), pop.winfo_rooty()
+            if not (x0 <= e.x_root < x0 + pop.winfo_width() and y0 <= e.y_root < y0 + pop.winfo_height()):
+                self.close_date_dropdown()
+        pop.update_idletasks()
+        try:
+            pop.grab_set()
+        except tk.TclError:
+            pass
+        pop.bind("<Button-1>", outside, add="+")
+        pop.focus_set()
 
     def _update_opid_choices(self):
         """下拉清單：符合其他篩選條件（日期、站別、結果、SN）的資料裡出現過的 OPID"""
@@ -1267,25 +1305,17 @@ class App(tk.Tk):
         qo = "" if ignore_opid else self.var_opid.get().strip().upper()
         dup_only = self.var_dup_only.get()
         pick = self.pick_dates
-        d_from, d_to = self.var_date_from.get(), self.var_date_to.get()
-        d_from = None if d_from in ("", ANY) else d_from
-        d_to = None if d_to in ("", ANY) else d_to
-        if d_from and d_to and d_from > d_to:   # 起訖日期選反了就自動對調
-            d_from, d_to = d_to, d_from
-        t_from, t_to = self._time_bounds()
-        if t_from and not d_from:
-            d_from = self._guess_date(self.var_time_from.get())
-        if t_to and not d_to:
-            d_to = self._guess_date(self.var_time_to.get(), d_from)
-
+        (df, tf), (dt_, tt) = self._time_bounds()
+        if tf and not df:
+            df = self._guess_date(self.var_time_from.get())
+        if tt and not dt_:
+            dt_ = self._guess_date(self.var_time_to.get(), df, True)
         start = end = None
-        if d_from:
-            start = datetime.combine(datetime.strptime(d_from, "%Y/%m/%d").date(),
-                                     t_from or dtime(0, 0, 0))
-        if d_to:
-            end = datetime.combine(datetime.strptime(d_to, "%Y/%m/%d").date(),
-                                   t_to or dtime(23, 59, 59))
-        if start and end and start > end:   # 起訖時間顛倒就自動對調
+        if df:
+            start = datetime.combine(datetime.strptime(df, "%Y/%m/%d").date(), tf or dtime(0, 0, 0))
+        if dt_:
+            end = datetime.combine(datetime.strptime(dt_, "%Y/%m/%d").date(), tt or dtime(23, 59, 59))
+        if start and end and start > end:   # 起訖顛倒就自動對調
             start, end = end, start
         need_dt = bool(start or end)
 

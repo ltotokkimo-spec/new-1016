@@ -105,6 +105,7 @@ export const MACRO_SYMBOLS: { symbol: string; label: string; group: "美股" | "
   { symbol: "@CL.1", label: "WTI 原油", group: "原物料" },
   { symbol: "@GC.1", label: "黃金", group: "原物料" },
   { symbol: ".N225", label: "日經 225", group: "亞洲" },
+  { symbol: ".KS11", label: "韓國 KOSPI", group: "亞洲" },
 ];
 
 export const cnbcUrl = (symbols: string[]) =>

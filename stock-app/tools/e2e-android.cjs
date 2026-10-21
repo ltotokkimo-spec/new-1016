@@ -223,6 +223,7 @@ function check(ok, name, detail = "") {
   log("數據", JSON.stringify(macro.slice(0, 12)));
   check(macro.some((m) => m.includes("加權指數")), "顯示台股加權指數");
   check(macro.some((m) => m.includes("S&P 500")) && macro.some((m) => m.includes("美債 10 年")), "顯示美股與美債殖利率");
+  check(macro.some((m) => /^韓國 KOSPI [\d,.]+/.test(m)) && macro.some((m) => /^日經 225 [\d,.]+/.test(m)), "亞洲大盤顯示日經與韓國 KOSPI", JSON.stringify(macro.filter((m) => /KOSPI|日經/.test(m))));
   // 台股指數盤中即時（證交所 MIS）：有「盤中 HH:MM」或「收盤」標題，且四大指數都在
   const idxTitle = await page.$eval('[data-testid="tw-index-title"]', (e) => e.innerText).catch(() => "");
   log("台股指數區", idxTitle);

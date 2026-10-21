@@ -296,6 +296,13 @@ function check(ok, name, detail = "") {
   check(wide[0] <= wide[1] + 1, "我的實單紀錄固定滿版，不會左右晃動", `內容寬 ${wide[0]}／螢幕寬 ${wide[1]}`);
   const rTrades = await page.$eval('[data-testid="etf-trades"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   check(/成交價 [\d.,]+・損益 [+-]?[\d,]+/.test(rTrades) && !rTrades.includes("@"), "實單成交紀錄寫「成交價・損益」、不再用 @ 符號", rTrades.slice(0, 120));
+  // 按成交紀錄的 ✕：只是從列表移除，持股不能跟著消失
+  const posBefore = await page.$$eval('.list .item .name', (e) => e.length);
+  page.once("dialog", (d) => d.accept());
+  await page.click('[data-testid="trade-hide"]');
+  await page.waitForTimeout(600);
+  const afterHide = await page.evaluate(() => ({ rows: document.querySelectorAll('[data-testid="etf-trades"] .row').length, pos: document.querySelectorAll('.list .item .name').length, nav: document.querySelector('[data-testid="etf-summary"]').innerText.includes("股票市值") }));
+  check(afterHide.rows === 0 && afterHide.pos === posBefore && afterHide.pos > 0 && afterHide.nav, "刪除成交紀錄那一列時，持股不會跟著消失", JSON.stringify({ posBefore, ...afterHide }));
   await shot("05b-自組ETF");
   // 免費停損提醒：把停損價設在現價之上，應該馬上出現提醒與分頁紅點
   // 剛買進不會跌破預設停損（成本 −10%）；但台積電當天若被評為離場，會有離場提醒，這是正確的

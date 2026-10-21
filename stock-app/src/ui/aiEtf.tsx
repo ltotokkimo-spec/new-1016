@@ -1,7 +1,7 @@
 // 「自組ETF」分頁：請 Claude 建議要買什麼、買幾股，照著實際下單後填入成交，追蹤淨值並和 0050 比較。
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
-  addEtfTrades, deleteEtfTrade, refreshLive, refreshVirtual, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
+  addEtfTrades, hideEtfTrade, refreshLive, refreshVirtual, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError, holdingsFromImage, shrinkImage } from "../ai/claude";
 import { type EtfTrade, comparePlans, DEFAULT_STOP, fitBudget, looksLikePlanReply, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
@@ -743,16 +743,16 @@ function RealEtfScreen() {
 
       {etf.trades.length > 0 && (
         <>
-          <div class="section-title"><span>成交紀錄</span><span>{etf.trades.length} 筆</span></div>
+          <div class="section-title"><span>成交紀錄</span><span>{etf.trades.filter((t) => !t.hidden).length} 筆</span></div>
           <div class="card" style={{ padding: "6px 10px" }} data-testid="etf-trades">
-            {[...etf.trades].reverse().map((t) => (
+            {[...etf.trades].reverse().filter((t) => !t.hidden).map((t) => (
               <div class="row" style={{ justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: "13px", flexWrap: "nowrap" }}>
                 <TradeLine t={t} pnl={tradePnl[t.id]} />
-                <button class="iconbtn" style={{ width: "28px", height: "28px" }} aria-label="刪除這筆" onClick={() => window.confirm("刪除這筆成交紀錄？") && deleteEtfTrade(t.id)}>✕</button>
+                <button class="iconbtn" style={{ width: "28px", height: "28px" }} aria-label="刪除這筆" onClick={() => window.confirm("把這一列從成交紀錄移除？\n\n只是不再顯示在列表，持股、現金和損益不會變。") && hideEtfTrade(t.id)} data-testid="trade-hide">✕</button>
               </div>
             ))}
           </div>
-          <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, marginTop: "6px" }}>{TRADE_HINT}</div>
+          <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, marginTop: "6px" }}>{TRADE_HINT}　按 ✕ 只是把那一列從列表移除，上面的持股、現金和損益不會跟著變；要更正持股，請用持股的「賣出」或「手動新增一筆成交」。</div>
           <button class="btn danger block" style={{ marginTop: "12px" }} onClick={() => window.confirm("清空整個自組 ETF（成交紀錄與走勢）重新開始？") && resetAiEtf()}>清空重新開始</button>
         </>
       )}

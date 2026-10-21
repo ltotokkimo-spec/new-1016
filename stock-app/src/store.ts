@@ -546,9 +546,9 @@ export async function addEtfTrades(trades: Omit<EtfTrade, "id" | "benchPrice">[]
   await snapshotEtfNav();
 }
 
-export async function deleteEtfTrade(id: string) {
-  await saveAiEtf({ ...state.aiEtf, trades: state.aiEtf.trades.filter((t) => t.id !== id) });
-  await snapshotEtfNav();
+/** 從成交紀錄列表移除這一列；只是隱藏，這筆仍算在持股、現金與損益裡（持股不跟著消失） */
+export async function hideEtfTrade(id: string) {
+  await saveAiEtf({ ...state.aiEtf, trades: state.aiEtf.trades.map((t) => (t.id === id ? { ...t, hidden: true } : t)) });
 }
 
 /** 設定或清除（undefined）某檔的停損價 */

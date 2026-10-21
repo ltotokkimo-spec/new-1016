@@ -10,6 +10,7 @@ export interface EtfTrade {
   shares: number;
   price: number; // 實際成交價
   benchPrice: number; // 當天 0050 價格（用來模擬「同樣的錢買 0050」）
+  hidden?: boolean; // 只從成交紀錄列表隱藏；持股、現金、損益仍照這筆計算
 }
 export interface NavPoint { date: string; nav: number; bench: number }
 export interface AiEtf {

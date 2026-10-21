@@ -201,3 +201,13 @@ describe("tradePnls 成交紀錄每一列的損益", () => {
   });
 });
 
+describe("隱藏成交紀錄不影響持股", () => {
+  it("hidden 的成交照樣算進持股、現金與損益", () => {
+    const base = [{ id: "a", date: "20261019", code: "2330", name: "台積電", side: "buy" as const, shares: 10, price: 1000, benchPrice: 100 }, { id: "b", date: "20261020", code: "2330", name: "台積電", side: "buy" as const, shares: 5, price: 1010, benchPrice: 100 }];
+    const hid = base.map((t) => (t.id === "a" ? { ...t, hidden: true } : t));
+    expect(positions(hid)).toEqual(positions(base));
+    const e = { ...emptyEtf(), trades: hid };
+    expect(valuate(e, () => 1100).nav).toBeCloseTo(valuate({ ...e, trades: base }, () => 1100).nav, 6);
+  });
+});
+

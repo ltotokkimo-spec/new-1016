@@ -170,6 +170,11 @@ def load_records(path):
         seen[k] = seen.get(k, 0) + 1
         r["_dup"] = total[k] if r["sn"] else 1
         r["_dup_no"] = seen[k]
+        # Test Status：只有 Cal2 有作用。同一個 SN 在 Cal2 依時間：第 1 次 FT，第 2 次 RT1，第 3 次 RT2…
+        if (r["station"] or "").strip().lower() == "cal2":
+            r["test_status"] = "FT" if seen[k] == 1 else f"RT{seen[k] - 1}"
+        else:
+            r["test_status"] = "NA"
     return records, (n_ch or DEFAULT_CHANNELS)
 
 
@@ -240,6 +245,7 @@ def all_columns(n_ch):
         ("time", "time", "e"),
         ("opid", "opid", "e"),
         ("sn", "sn", "w"),
+        ("test_status", "Test Status", "w"),
         ("verdict", "verdict", "w"),
         ("hold_channels", "hold_channels", "w"),
         ("fail_channels", "fail_channels", "w"),

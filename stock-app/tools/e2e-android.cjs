@@ -246,6 +246,9 @@ function check(ok, name, detail = "") {
   check(/虛擬資金 50\.0 萬/.test(virt) && /0050/.test(virt), "自組ETF 顯示 Claude 虛擬操作（虛擬 50 萬、0050 對照）", virt.slice(0, 80));
   check(/起資金由 10\.0 萬 加到 50\.0 萬/.test(virt) && /加碼前 \d+ 天/.test(virt), "虛擬操作顯示加碼說明與加碼前報酬", virt.slice(0, 300));
   check((await page.$$('[data-testid="virtual-view"] .list .item')).length >= 4, "Claude 虛擬操作列出持股");
+  const gauge = await page.$eval('[data-testid="cash-gauge"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
+  log("資金水位", gauge.slice(0, 200));
+  check(/股票 \d+%・現金 \d+%/.test(gauge) && /目標股票 \d+%/.test(gauge) && /7 成股票・3 成現金/.test(gauge), "虛擬操作顯示資金水位（股票／現金比重、目標、規劃）", gauge.slice(0, 160));
   // 即時報價（證交所 mis）：每檔持股要顯示「現價 HH:MM」或「收盤」＋今日漲跌
   const livePx = await page.waitForFunction(() => {
     const els = [...document.querySelectorAll('[data-testid="virtual-price"]')];

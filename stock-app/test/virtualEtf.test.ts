@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { beforeTopUp, closeDay, fillPending, newVirtual, placeOrders, topUp } from "../src/engine/virtualEtf";
+import { beforeTopUp, cashLevel, closeDay, fillPending, newVirtual, placeOrders, setCashPlan, targetFor, topUp } from "../src/engine/virtualEtf";
 import { positions, valuate } from "../src/engine/aiEtf";
 
 const q = (open: number, low = open, close = open, high = open) => ({ open, high, low, close });
@@ -58,5 +58,20 @@ describe("虛擬自組 ETF", () => {
     expect(b.ret).toBeCloseTo(closed.nav[0].nav / 100_000 - 1, 6);
     expect(b.days).toBe(1);
     expect(() => topUp(t, "20261022", 400_000)).toThrow();
+  });
+
+  it("資金水位：平常 7 成，大盤跌 5% 起 8 成、10% 起 9 成，最多 9 成", () => {
+    expect(targetFor(-0.02).target).toBe(0.7);
+    expect(targetFor(-0.05).target).toBe(0.8);
+    expect(targetFor(-0.059).target).toBe(0.8);
+    expect(targetFor(-0.10).target).toBe(0.9);
+    expect(targetFor(-0.3).target).toBe(0.9);
+    const v = setCashPlan(newVirtual("20261019"), "20261021", -0.059, "x");
+    expect(v.cashPlan).toMatchObject({ target: 0.8, drawdown: -0.059 });
+    const lv = cashLevel(v.cashPlan, 500_000, 300_000);
+    expect(lv.stock).toBeCloseTo(0.6);
+    expect(lv.room).toBeCloseTo(100_000);
+    expect(cashLevel(undefined, 500_000, 400_000).room).toBeCloseTo(-50_000);
+    expect(() => setCashPlan(v, "20261021", 0.05, "x")).toThrow();
   });
 });

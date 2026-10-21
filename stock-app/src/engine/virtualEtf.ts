@@ -18,6 +18,38 @@ export interface VirtualEtf extends AiEtf {
   cancelled?: { date: string; code: string; name: string; reason: string }[]; // 沒成交的委託
   // 加碼紀錄：date 起資金由 from 加到 to；加入的錢視為一開始就在、之前閒置的現金（淨值歷史一起加上）
   topUps?: { date: string; from: number; to: number }[];
+  cashPlan?: CashPlan; // 資金水位：Claude 每天收盤後依大盤跌幅更新
+}
+
+/**
+ * 資金水位規劃（使用者 10/21 指定）：平常 7 成股票、3 成現金；
+ * 大盤跌深時分段加碼，最多 9 成股票，至少留 1 成現金；反彈回穩再降回 7 成。
+ */
+export interface CashPlan {
+  target: number; // 目前的股票比重目標（0.7 / 0.8 / 0.9）
+  drawdown: number; // 加權指數距近 20 日最高收盤（負數，-0.059 = 跌 5.9%）
+  date: string; // 判斷日 YYYYMMDD
+  reason: string; // 一句話說明
+}
+export const CASH_BASE = 0.7;
+export const CASH_MAX = 0.9;
+export const CASH_STEPS = [
+  { dd: 0.05, target: 0.8, label: "跌深第 1 段" },
+  { dd: 0.10, target: 0.9, label: "跌深第 2 段" },
+] as const;
+
+/** 依大盤跌幅決定股票比重目標 */
+export function targetFor(drawdown: number): { target: number; label: string } {
+  let out = { target: CASH_BASE, label: "正常" };
+  for (const s of CASH_STEPS) if (-drawdown >= s.dd - 1e-9) out = { target: s.target, label: s.label };
+  return out;
+}
+
+/** 目前股票、現金比重，以及離目標還差多少錢（正＝還可以買、負＝超出目標） */
+export function cashLevel(plan: CashPlan | undefined, nav: number, marketValue: number) {
+  const target = plan?.target ?? CASH_BASE;
+  const stock = nav > 0 ? marketValue / nav : 0;
+  return { stock, cash: 1 - stock, target, room: target * nav - marketValue, label: plan ? targetFor(plan.drawdown).label : "正常" };
 }
 
 export const newVirtual = (start: string, budget = 100_000): VirtualEtf => ({
@@ -115,6 +147,12 @@ export function beforeTopUp(v: VirtualEtf): { from: number; to: number; date: st
   const add = t.to - t.from;
   const cut = (v.topUps ?? []).filter((x) => x !== t).reduce((s, x) => s + x.to - x.from, 0); // 之後的加碼也加在歷史上
   return { ...t, days: pts.length, ret: (last.nav - add - cut) / t.from - 1, benchRet: (last.bench - add - cut) / t.from - 1 };
+}
+
+/** 記錄當天的資金水位判斷（目標由跌幅決定，不能超過 9 成） */
+export function setCashPlan(v: VirtualEtf, date: string, drawdown: number, reason: string): VirtualEtf {
+  if (!Number.isFinite(drawdown) || drawdown > 0 || drawdown < -0.6) throw new Error(`大盤跌幅要是 0 到 -0.6 之間的小數：${drawdown}`);
+  return { ...v, cashPlan: { target: Math.min(CASH_MAX, targetFor(drawdown).target), drawdown, date, reason } };
 }
 
 export function addNote(v: VirtualEtf, date: string, text: string): VirtualEtf {

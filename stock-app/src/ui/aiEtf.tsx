@@ -6,7 +6,7 @@ import {
 import { aiEtfPrompt, claudeAppUrl, explainError, holdingsFromImage, shrinkImage } from "../ai/claude";
 import { comparePlans, DEFAULT_STOP, fitBudget, parsePlan, positions, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { orderDay, pretty, prettyW, taipeiToday } from "../lib/dates";
-import { beforeTopUp } from "../engine/virtualEtf";
+import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
 import { marketOpen, type LiveQuote } from "../data/twLive";
 import { cls, fmtMoney, fmtPct, fmtPrice } from "./common";
 import { AiProgressView, AiReportView, BalanceHint, copyText } from "./screens";
@@ -33,6 +33,57 @@ function NavChart({ points, budget, mine = "我的自組 ETF" }: { points: { dat
       </svg>
       <div class="row" style={{ fontSize: "12px", gap: "14px" }}>
         <span><b style={{ color: "var(--accent)" }}>━</b> {mine}</span><span class="muted">━ 同樣的錢買 0050</span>
+      </div>
+    </div>
+  );
+}
+
+/** 資金水位：一條 0~100% 的橫條，看股票佔多少、目標在哪、還能不能加碼；下面一張小表列出規劃，目前所在的那一段標出來 */
+export function CashGauge({ plan, nav, marketValue, pendingNet = 0 }: { plan?: CashPlan; nav: number; marketValue: number; pendingNet?: number }) {
+  const lv = cashLevel(plan, nav, marketValue);
+  const pct = (x: number) => `${Math.round(x * 100)}%`;
+  const after = nav > 0 ? (marketValue + pendingNet) / nav : 0; // 已排定的委託成交後
+  const left = lv.room - pendingNet;
+  const near = Math.abs(left) < nav * 0.02; // 差不到 2% 就算到位
+  const status = near ? "已到目標水位" : left > 0 ? `還可加碼約 ${fmtMoney(left)}` : `超出目標約 ${fmtMoney(-left)}，反彈時減碼`;
+  const rows = [
+    { k: "平常", v: `${Math.round(CASH_BASE * 10)} 成股票・${Math.round((1 - CASH_BASE) * 10)} 成現金`, t: CASH_BASE },
+    ...CASH_STEPS.map((x) => ({ k: `大盤跌 ${Math.round(x.dd * 100)}%`, v: `股票最多 ${Math.round(x.target * 10)} 成`, t: x.target })),
+  ];
+  return (
+    <div class="card stack" style={{ marginTop: "12px" }} data-testid="cash-gauge">
+      <div class="row" style={{ justifyContent: "space-between" }}>
+        <b>資金水位</b>
+        <span class="num" style={{ fontSize: "14px" }}>股票 <b>{pct(lv.stock)}</b>・現金 <b>{pct(lv.cash)}</b></span>
+      </div>
+      <div style={{ position: "relative", height: "22px", borderRadius: "6px", background: "var(--surface-2, var(--line))", overflow: "hidden" }}>
+        {/* 跌深加碼區（7~9 成）與保留現金區（9 成以上，斜線） */}
+        <div style={{ position: "absolute", left: pct(CASH_BASE), width: pct(CASH_MAX - CASH_BASE), top: 0, bottom: 0, background: "var(--hold-bg)" }} />
+        <div style={{ position: "absolute", left: pct(CASH_MAX), right: 0, top: 0, bottom: 0, background: "repeating-linear-gradient(45deg, transparent 0 4px, var(--line) 4px 6px)" }} />
+        {pendingNet > 0 && <div style={{ position: "absolute", left: 0, width: pct(Math.min(1, after)), top: "5px", bottom: "5px", borderRadius: "0 4px 4px 0", border: "1.5px dashed var(--accent)", boxSizing: "border-box" }} />}
+        <div style={{ position: "absolute", left: 0, width: pct(Math.min(1, Math.max(0, lv.stock))), top: "5px", bottom: "5px", borderRadius: "0 4px 4px 0", background: "var(--accent)" }} />
+        <div style={{ position: "absolute", left: pct(lv.target), top: 0, bottom: 0, width: "2px", marginLeft: "-1px", background: "var(--fg)" }} />
+      </div>
+      <div class="num muted" style={{ position: "relative", height: "14px", fontSize: "11px", marginTop: "-6px" }}>
+        <span style={{ position: "absolute", left: 0 }}>0</span>
+        <span style={{ position: "absolute", left: pct(CASH_BASE), transform: "translateX(-50%)" }}>7 成</span>
+        <span style={{ position: "absolute", left: pct(CASH_MAX), transform: "translateX(-50%)" }}>9 成</span>
+      </div>
+      <div style={{ fontSize: "14px", lineHeight: 1.6 }} data-testid="cash-status">
+        目標股票 <b class="num">{pct(lv.target)}</b>（{lv.label}）・<b>{status}</b>
+        {pendingNet !== 0 && <div class="muted" style={{ fontSize: "12px" }}>已排定委託 {pendingNet > 0 ? "淨買進" : "淨賣出"}約 {fmtMoney(Math.abs(pendingNet))}，成交後股票約 {pct(after)}（虛線）</div>}
+        {plan && <div class="muted" style={{ fontSize: "12px" }}>{prettyW(plan.date)} 判斷：加權指數距近 20 日最高收盤 <span class={cls(plan.drawdown)}>{fmtPct(plan.drawdown, 1)}</span>。{plan.reason}</div>}
+      </div>
+      <div style={{ fontSize: "13px" }}>
+        {rows.map((r) => {
+          const on = Math.abs(r.t - lv.target) < 1e-9;
+          return (
+            <div class="row" style={{ justifyContent: "space-between", padding: "4px 8px", borderRadius: "6px", background: on ? "var(--hold-bg)" : "transparent", fontWeight: on ? 700 : 400 }}>
+              <span>{on ? "▶ " : ""}{r.k}</span><span class="num">{r.v}</span>
+            </div>
+          );
+        })}
+        <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, marginTop: "4px" }}>至少留 1 成現金（斜線區不動用）。反彈站回 20 日線後，分批降回 7 成。Claude 每天收盤後自動判斷並調整。</div>
       </div>
     </div>
   );
@@ -369,6 +420,8 @@ function VirtualView() {
         {vt.error && <div class="muted" style={{ fontSize: "12px" }}>{vt.error}</div>}
         <button class="btn secondary" onClick={reload} disabled={busy} data-testid="virtual-reload">{busy ? "更新中…" : "重新下載最新紀錄"}</button>
       </div>
+
+      <CashGauge plan={v.cashPlan} nav={val.nav} marketValue={val.marketValue} pendingNet={v.pending.reduce((t, o) => t + (o.side === "buy" ? 1 : -1) * o.shares * (o.limit ?? px(o.code) ?? 0), 0)} />
 
       {v.nav.length >= 2 && <><div class="section-title"><span>報酬走勢</span><span>{v.nav.length} 天</span></div><NavChart points={v.nav} budget={v.budget} mine="Claude 虛擬組合" /></>}
 

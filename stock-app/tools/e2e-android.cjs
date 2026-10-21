@@ -277,6 +277,12 @@ function check(ok, name, detail = "") {
   check(/現金/.test(etfSum) && /股票市值/.test(etfSum), "自組ETF 成交後顯示現金與市值");
   check(/報酬 [+-]?[\d.]+% 總損益 [+-]?[\d,]+/.test(etfSum) && (etfSum.match(/總損益/g) || []).length === 2, "實單紀錄淨值與 0050 兩格都在報酬後面顯示總損益", etfSum.slice(0, 200));
   check(!!(await page.$("text=台積電")), "自組ETF 持股列出台積電");
+  // 持股列的「賣出」按鈕：帶入代號、全部股數，表單切到賣出
+  await page.click('[data-testid="sell-btn-2330"]');
+  await page.waitForSelector('[data-testid="etf-trade-form"]', { timeout: 5000 });
+  const sellForm = await page.evaluate(() => ({ code: document.querySelector("#etf-code").value, shares: document.querySelector("#etf-shares").value, sellOn: document.querySelector('[data-testid="etf-trade-form"] .seg button[aria-pressed="true"]')?.textContent }));
+  check(sellForm.code === "2330" && sellForm.shares === "10" && sellForm.sellOn === "賣出", "持股的「賣出」按鈕帶入代號、全部股數並切到賣出", JSON.stringify(sellForm));
+  await page.click('[data-testid="etf-trade-form"] button:has-text("取消")');
   check(!!(await page.$('[data-testid="etf-ask"]')), "自組ETF 有請 Claude 建議按鈕");
   // 從 Claude App 回來：模擬已按過「在 Claude App 檢視」再回到前景，要出現偵測卡或「貼上並載入」按鈕
   await page.evaluate(() => { localStorage.setItem("proPending", String(Date.now())); document.dispatchEvent(new Event("visibilitychange")); });

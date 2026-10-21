@@ -415,25 +415,37 @@ function PhotoImport({ suggested, planKey }: { suggested: Set<string>; planKey?:
   );
 }
 
-function ManualTrade() {
+export interface SellDraft { code: string; shares: number; price?: number; n: number }
+
+function ManualTrade({ draft }: { draft?: SellDraft }) {
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState(""), [side, setSide] = useState<"buy" | "sell">("buy"), [shares, setShares] = useState(""), [price, setPrice] = useState("");
   const [err, setErr] = useState("");
+  // 按持股列的「賣出」：打開表單，帶入代號、全部股數與現價，捲到表單
+  useEffect(() => {
+    if (!draft) return;
+    setOpen(true); setSide("sell"); setCode(draft.code); setShares(String(draft.shares)); setPrice(draft.price ? String(draft.price) : ""); setErr("");
+    setTimeout(() => document.querySelector('[data-testid="etf-trade-form"]')?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
+  }, [draft?.n]);
   if (!open) return <button class="btn secondary block" onClick={() => setOpen(true)}>手動新增一筆成交</button>;
   const save = async () => {
     const c = code.trim().toUpperCase();
     if (!c || !(Number(shares) > 0) || !(Number(price) > 0)) return setErr("請填代號、股數與成交價");
-    await addEtfTrades([{ date: taipeiToday(), code: c, name: getState().prices[c]?.name ?? c, side, shares: Number(shares), price: Number(price) }]);
+    const pos = positions(getState().aiEtf.trades).find((p) => p.code === c);
+    const held = pos?.shares ?? 0;
+    if (side === "sell" && Number(shares) > held) return setErr(held ? `你只有 ${held.toLocaleString()} 股，賣出股數不能超過` : "目前沒有這檔持股可以賣");
+    await addEtfTrades([{ date: taipeiToday(), code: c, name: getState().prices[c]?.name ?? pos?.name ?? c, side, shares: Number(shares), price: Number(price) }]);
     setOpen(false); setCode(""); setShares(""); setPrice(""); setErr("");
   };
   return (
-    <div class="card stack">
+    <div class="card stack" data-testid="etf-trade-form">
       <div class="seg" role="group"><button aria-pressed={side === "buy"} onClick={() => setSide("buy")}>買進</button><button aria-pressed={side === "sell"} onClick={() => setSide("sell")}>賣出</button></div>
       <div class="formgrid">
         <label class="field">代號<input id="etf-code" value={code} onInput={(e) => { const v = (e.target as HTMLInputElement).value; setCode(v); const p = etfPrice(v.trim().toUpperCase()); if (p && !price) setPrice(String(p)); }} placeholder="例如 2330" /></label>
         <label class="field">股數<input id="etf-shares" inputMode="numeric" value={shares} onInput={(e) => setShares((e.target as HTMLInputElement).value)} /></label>
         <label class="field">成交價<input id="etf-price" inputMode="decimal" value={price} onInput={(e) => setPrice((e.target as HTMLInputElement).value)} /></label>
       </div>
+      {side === "sell" && <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>在券商 App 賣掉之後，把實際成交的股數和價格填在這裡；這裡只是記錄，不會真的下單。</div>}
       {err && <div class="error">{err}</div>}
       <div class="row"><button class="btn" style={{ flex: 1 }} onClick={save} data-testid="etf-trade-save">儲存</button><button class="btn secondary" onClick={() => setOpen(false)}>取消</button></div>
     </div>
@@ -602,6 +614,7 @@ function RealEtfScreen() {
   const [view, setView] = useState<"api" | "pro">("pro");
   const [budgetText, setBudgetText] = useState(String(etf.budget));
   const [editBudget, setEditBudget] = useState(false);
+  const [sellDraft, setSellDraft] = useState<SellDraft | undefined>();
   useEffect(() => { if (st.twReady) snapshotEtfNav(); }, [st.twReady]);
 
   const ask = () => {
@@ -664,7 +677,7 @@ function RealEtfScreen() {
                   <div style={{ minWidth: 0 }}>
                     <div class="name">{p.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{p.code}</span></div>
                     <div class="sub num" style={{ whiteSpace: "normal" }}>{p.shares.toLocaleString()} 股・均價 {fmtPrice(p.avgCost)}・<TwdPnl shares={p.shares} avgCost={p.avgCost} price={px} /><span style={{ whiteSpace: "nowrap" }}>佔 {Number.isFinite(mv) ? `${((mv / v.nav) * 100).toFixed(1)}%` : "—"}</span></div>
-                    <div class="sub row" style={{ gap: "8px" }}><StopEdit p={p} stops={etf.stops} />{rating && <span class={`pill ${rating === "買入" ? "buy" : rating === "離場" ? "exit" : "hold"}`} style={{ fontSize: "11px" }}>App {rating}</span>}</div>
+                    <div class="sub row" style={{ gap: "8px" }}><StopEdit p={p} stops={etf.stops} /><button class="btn secondary mini" onClick={() => setSellDraft({ code: p.code, shares: p.shares, price: px, n: Date.now() })} data-testid={`sell-btn-${p.code}`}>賣出</button>{rating && <span class={`pill ${rating === "買入" ? "buy" : rating === "離場" ? "exit" : "hold"}`} style={{ fontSize: "11px" }}>App {rating}</span>}</div>
                   </div>
                   <div class="px">
                     <div class="p num"><span class="lbl">現價</span>{fmtPrice(px ?? NaN)}</div>
@@ -710,7 +723,7 @@ function RealEtfScreen() {
         {st.apiKey && <BalanceHint />}
         <ProReview disabled={!st.twReady} review={pos.length > 0} />
         <PhotoImport suggested={new Set([...(parsed?.items ?? []), ...(proParsed?.items ?? [])].map((x) => x.code))} planKey={fillKey} />
-        <ManualTrade />
+        <ManualTrade draft={sellDraft} />
       </div>
 
       {etf.trades.length > 0 && (

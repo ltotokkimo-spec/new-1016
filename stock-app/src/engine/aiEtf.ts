@@ -200,6 +200,23 @@ export function parsePlan(text: string): { items: PlanItem[]; body: string; stop
   return { items, body: (text.slice(0, last.start) + text.slice(last.end)).trim(), stops };
 }
 
+/** 給 Claude 的候選股：只取 App「買入」的高分股，每個產業最多 perSector 檔、全部最多 max 檔，已持有的不重複列（持股那邊已有最新價格）。不夠 minCount 檔時用高分的「觀望」補 */
+export function pickCandidates<T extends { code: string; sector: string; rating: string }>(scored: T[], held: Set<string>, max = 12, perSector = 3, minCount = 6): T[] {
+  minCount = Math.min(minCount, max);
+  const out: T[] = [];
+  const per = new Map<string, number>();
+  const take = (list: T[], limit: number) => {
+    for (const x of list) {
+      if (out.length >= limit) break;
+      if (held.has(x.code) || out.includes(x) || (per.get(x.sector) ?? 0) >= perSector) continue;
+      out.push(x); per.set(x.sector, (per.get(x.sector) ?? 0) + 1);
+    }
+  };
+  take(scored.filter((x) => x.rating === "買入"), max);
+  if (out.length < minCount) take(scored.filter((x) => x.rating === "觀望"), minCount); // 只補到 minCount 檔
+  return out;
+}
+
 /** 剪貼簿裡的文字像不像 Claude 對自組 ETF 的回覆：有買賣清單，或明說維持不變；App 自己送出去的提問不算 */
 export function looksLikePlanReply(text: string): { ok: boolean; items: number } {
   const t = text.trim();

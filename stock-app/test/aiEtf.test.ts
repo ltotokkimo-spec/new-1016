@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cashFlow, comparePlans, reconcilePhoto, emptyEtf, etfAlerts, fitBudget, looksLikePlanReply, parsePlan, tradePnls, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
+import { cashFlow, comparePlans, reconcilePhoto, emptyEtf, etfAlerts, fitBudget, looksLikePlanReply, parsePlan, pickCandidates, tradePnls, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
 
 const t = (code: string, side: "buy" | "sell", shares: number, price: number, benchPrice = 100, date = "20261017") =>
   ({ id: code + side + date, date, code, name: code, side, shares, price, benchPrice });
@@ -208,6 +208,23 @@ describe("隱藏成交紀錄不影響持股", () => {
     expect(positions(hid)).toEqual(positions(base));
     const e = { ...emptyEtf(), trades: hid };
     expect(valuate(e, () => 1100).nav).toBeCloseTo(valuate({ ...e, trades: base }, () => 1100).nav, 6);
+  });
+});
+
+describe("pickCandidates 候選股精簡", () => {
+  const mk = (code: string, sector: string, rating = "買入") => ({ code, sector, rating });
+  it("只取買入、每產業最多 3 檔、最多 12 檔、不重複列持股", () => {
+    const scored = [...Array(6).keys()].map((i) => mk(`10${i}`, "鋼鐵")).concat([...Array(8).keys()].map((i) => mk(`20${i}`, `產業${i}`)), [mk("999", "金融", "觀望")]);
+    const out = pickCandidates(scored, new Set(["200"]));
+    expect(out.filter((x) => x.sector === "鋼鐵")).toHaveLength(3);
+    expect(out.map((x) => x.code)).not.toContain("200");
+    expect(out).toHaveLength(10);
+    expect(out.map((x) => x.code)).not.toContain("999");
+    expect(pickCandidates(scored, new Set(), 5)).toHaveLength(5);
+  });
+  it("買入不夠 6 檔時用觀望補", () => {
+    const out = pickCandidates([mk("1", "A"), mk("2", "B"), mk("3", "C", "觀望"), mk("4", "D", "觀望"), mk("5", "E", "觀望"), mk("6", "F", "觀望"), mk("7", "G", "觀望")], new Set());
+    expect(out.map((x) => x.code)).toEqual(["1", "2", "3", "4", "5", "6"]);
   });
 });
 

@@ -348,35 +348,37 @@ export function aiEtfAdvice(apiKey: string, p: EtfAdviceInput, onProgress?: OnPr
 /** 自組 ETF 的提問；forApp＝交給 Claude App（Pro 訂閱）用，多一段說明工具與回貼方式。兩邊數據與規則完全相同，方便比較 */
 export function aiEtfPrompt(p: EtfAdviceInput, forApp = false): string {
   const review = p.holdings.some((h) => h.shares > 0);
+  const lots = (x: number | undefined) => (x === undefined ? "無" : `${x >= 0 ? "+" : ""}${Math.round(x / 1000).toLocaleString("en-US")}張`);
   const cand = p.candidates.map((s) =>
-    `${s.code} ${s.name}｜${s.sector}｜收盤 ${s.close}｜分數 ${s.score}｜${s.rating}｜近1週 ${fmtPct(s.ret1w)}・近1月 ${fmtPct(s.ret1m)}｜外資5日 ${s.foreign5 !== undefined ? Math.round(s.foreign5 / 1000) + " 張" : "無"}`).join("\n");
+    `${s.code} ${s.name}(${s.sector}) ${s.close}｜${s.score}分｜週${fmtPct(s.ret1w)} 月${fmtPct(s.ret1m)}｜外資5日${lots(s.foreign5)}`).join("\n");
   const hold = p.holdings.filter((h) => h.shares > 0).map((h) =>
-    `${h.code} ${h.name}：${h.shares} 股，平均成本 ${h.avgCost.toFixed(2)}，現價 ${h.price ?? "無資料"}${h.price ? `（${fmtPct(h.price / h.avgCost - 1)}）` : ""}${h.stop ? `，停損價 ${h.stop}` : ""}${h.rating ? `，App 評等 ${h.rating}` : ""}`).join("\n");
-  const prompt = `今天是 ${p.today}。我要用新台幣 ${p.budget.toLocaleString()} 元做一個「自組 ETF」，會照你的建議真的下單，之後看效益。${p.dataDate ? `\n下面的價格與籌碼是 ${p.dataDate} 收盤後的資料；我會在 ${p.orderDate} 盤中用限價單下單，請以這天下單為前提給建議（例如參考價、不要追高的價位）。` : ""}
-${review ? `目前組合淨值 ${Math.round(p.nav).toLocaleString()} 元，可用現金 ${Math.round(p.cash).toLocaleString()} 元。
+    `${h.code} ${h.name} ${h.shares}股｜成本${h.avgCost.toFixed(1)}→${h.price ?? "無價"}${h.price ? `(${fmtPct(h.price / h.avgCost - 1)})` : ""}${h.stop ? `｜停損${h.stop}` : ""}${h.rating ? `｜App ${h.rating}` : ""}`).join("\n");
+  const prompt = `今天是 ${p.today}。我要用新台幣 ${p.budget.toLocaleString()} 元做「自組 ETF」，會照你的建議真的下單。${p.dataDate ? `\n下面的價格與籌碼是 ${p.dataDate} 收盤後的資料；我會在 ${p.orderDate} 盤中用限價單下單，請以這天下單為前提給建議（例如參考價、不要追高的價位）。` : ""}
+${review ? `組合淨值 ${Math.round(p.nav).toLocaleString()}，可用現金 ${Math.round(p.cash).toLocaleString()}。
 
-【目前持股】
+【持股】
 ${hold}
 
-請檢視這個組合，建議要賣出、減碼或加碼哪些（不需要每次都調整，沒有必要就說維持不變）。` : `可用現金 ${Math.round(p.cash).toLocaleString()} 元，目前沒有持股。請建議第一次建倉的組合。`}
+請檢視這個組合，建議賣出、減碼或加碼哪些（沒必要就說維持不變）。` : `可用現金 ${Math.round(p.cash).toLocaleString()}，目前沒有持股。請建議第一次建倉的組合。`}
 
-【App 篩選出的候選股（台股，依分數排序）】
+【候選股（App 已篩過，共 ${p.candidates.length} 檔，依分數排序）】
 ${cand}
 
 規則：
-- 以上面的候選股為主，必要時可加入其他台股上市櫃個股，但要說明理由。
-- 挑 4～8 檔，分散到至少 3 個產業，單一檔不超過總資金 25%。
-- 股數用「股」為單位，可以買零股；買進總金額加手續費（0.1425%）不能超過可用現金${review ? "（賣出的錢可以拿來買）" : ""}，保留約 3～5% 現金。
-- 請上網搜尋這些股票最近 7 天的新聞、營收與外資報告再決定，寫出日期與來源。
+- 以候選股為主，也可加其他台股，但要一句話說明理由。
+- 4～8 檔、至少 3 個產業、單檔不超過總資金 25%；股數用「股」（可零股）。
+- 買進總額含手續費 0.1425% 不超過可用現金${review ? "（賣出的錢可以拿來買）" : ""}，留約 3～5% 現金。
+- 上網查近 7 天的新聞、營收、外資報告再決定；來源只寫「日期＋媒體名」。
 
-請用以下段落回答：
-1. 組合總結（一句話＋這次${review ? "調整" : "建倉"}的主軸）
-2. 每一檔的理由（代號、名稱、${review ? "買進／賣出／不動、" : ""}股數、約略金額、佔比、理由）
-3. 風險與停損規則（什麼情況要賣出；每檔寫出停損價）
+請簡短回答，全部不超過 400 字，格式：
+1. 一句話總結（這次${review ? "調整" : "建倉"}的主軸）
+2. 每檔一行：代號 名稱｜${review ? "買／賣／不動 " : "買 "}股數｜約金額（佔比）｜理由（20 字內）｜停損價
+3. 風險與出場條件（一兩句）
+不要長篇新聞摘要。
 
-最後一定要附上一個 JSON 區塊（trades 只放要執行的買賣，不動的不要列；每筆買進都要給停損價 stop${review ? "；stops 放「不動」持股要更新的停損價，不用更新就省略" : ""}），格式：
+最後附上 JSON 區塊（trades 只放要執行的買賣；每筆買進都要給停損價 stop${review ? "；stops 放「不動」持股要更新的停損價，不用更新就省略" : ""}）：
 \`\`\`json
-{"trades":[{"code":"2330","side":"buy","shares":10,"stop":900,"reason":"一句話理由"}]${review ? ',"stops":{"2454":1100}' : ""}}
+{"trades":[{"code":"2330","side":"buy","shares":10,"stop":900,"reason":"一句話"}]${review ? ',"stops":{"2454":1100}' : ""}}
 \`\`\``;
   if (!forApp) return prompt;
   return `${prompt}

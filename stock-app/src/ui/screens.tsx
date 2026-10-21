@@ -14,6 +14,7 @@ import { marketOpen, type LiveQuote } from "../data/twLive";
 import { INDEX_CH } from "../data/twIndexLive";
 import { pretty, prettyW, taipeiToday, usQuoteHours } from "../lib/dates";
 import { latestNotes } from "../lib/notes";
+import { fmtNtd, usdTwdRate } from "../lib/fx";
 import type { BacktestResult } from "../engine/backtest";
 import type { TurnPick } from "../engine/turning";
 import { cls, fmtMoney, fmtPct, fmtPrice, fmtSigned, lots, Markdown, PriceChart, Progress, RatingPill, Sheet } from "./common";
@@ -485,6 +486,7 @@ export function AiReportView({ r }: { r: AiReport }) {
 export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
   useStore((s) => [s.holdings, s.tw.scored, s.etf.scored, s.us.scored, s.esb, s.prices]);
   const apiKey = useStore((s) => s.settings.apiKey);
+  const fx = usdTwdRate(useStore((s) => s.macro.quotes)); // 美元兌台幣，美股損益換成台幣用
   const live = useStore((s) => s.live);
   const twAsOf = useStore((s) => s.tw.asOf);
   const usAsOf = useStore((s) => s.us.asOf);
@@ -563,8 +565,9 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
     <div>
       <div class="summary">
         <div class="card"><div class="muted" style={{ fontSize: "12px" }}>台股市值</div>{tw.cost ? <><div class="big num">{fmtMoney(tw.value)}</div><div class={`num ${cls(tw.pnl)}`} style={{ fontSize: "13px" }}>{fmtMoney(tw.pnl)}（{fmtPct(tw.pnl / tw.cost)}）</div>{tw.hasDay && <div class={`num ${cls(tw.day)}`} style={{ fontSize: "12px" }} data-testid="tw-day">今日 {fmtMoney(tw.day)}（{fmtPct(tw.dayPct)}）</div>}</> : <div class="big muted">—</div>}</div>
-        <div class="card"><div class="muted" style={{ fontSize: "12px" }}>美股市值</div>{us.cost ? <><div class="big num">{fmtMoney(us.value, "US")}</div><div class={`num ${cls(us.pnl)}`} style={{ fontSize: "13px" }}>{fmtMoney(us.pnl, "US")}（{fmtPct(us.pnl / us.cost)}）</div>{us.hasDay && <div class={`num ${cls(us.day)}`} style={{ fontSize: "12px" }}>今日 {fmtMoney(us.day, "US")}（{fmtPct(us.dayPct)}）</div>}</> : <div class="big muted">—</div>}</div>
+        <div class="card"><div class="muted" style={{ fontSize: "12px" }}>美股市值</div>{us.cost ? <><div class="big num">{fmtMoney(us.value, "US")}</div><div class={`num ${cls(us.pnl)}`} style={{ fontSize: "13px" }}>{fmtMoney(us.pnl, "US")}（{fmtPct(us.pnl / us.cost)}）</div>{fx && <div class={`num ${cls(us.pnl)}`} style={{ fontSize: "13px" }} data-testid="us-ntd">{fmtNtd(us.pnl, fx)}</div>}{us.hasDay && <div class={`num ${cls(us.day)}`} style={{ fontSize: "12px" }}>今日 {fmtMoney(us.day, "US")}（{fmtPct(us.dayPct)}）</div>}</> : <div class="big muted">—</div>}</div>
       </div>
+      {fx && us.cost > 0 && <div class="muted" style={{ fontSize: "11px", marginTop: "6px", lineHeight: 1.5 }}>美股的台幣金額用今日匯率 {fx.toFixed(2)} 換算，不含買進後的匯率變動。</div>}
       <div class="row" style={{ marginTop: "12px" }}>
         <label class="btn" style={{ flex: 1 }} aria-disabled={busy || !apiKey}>
           {busy ? "Claude 辨識中…" : <><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></svg>拍照／截圖匯入（API 付費）</>}
@@ -580,7 +583,7 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
         <div class="empty">還沒有持股。<br />拍一張證券 App 的「庫存」畫面，Claude 會自動辨識代號、股數與成本。</div>
       ) : (
         <div class="list">
-          {views.map((v) => <HoldingRow v={v} open={open} />)}
+          {views.map((v) => <HoldingRow v={v} open={open} fx={fx} />)}
         </div>
       )}
       {views.length > 0 && <HoldingsEditor />}
@@ -591,12 +594,12 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
 }
 
 /** 持股一列：左邊是名稱、損益金額（含報酬率）、建議；右邊是現價、今日漲跌、（美股盤前盤後）；賺紅賠綠 */
-function HoldingRow({ v, open }: { v: any; open: (s: Scored) => void }) {
+function HoldingRow({ v, open, fx }: { v: any; open: (s: Scored) => void; fx?: number }) {
   return (
     <button class="item" onClick={() => v.scored && open(v.scored)}>
       <div style={{ minWidth: 0 }}>
         <div class="name">{v.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{v.code}</span></div>
-        <div class={`num ${cls(v.pnl)}`} style={{ fontSize: "13px", fontWeight: 600, marginTop: "2px" }} data-testid="hold-pnl"><span class="lbl" style={{ fontFamily: "var(--font)", fontSize: "11px", fontWeight: 400, color: "var(--muted)", marginRight: "4px" }}>損益</span>{fmtSigned(v.pnl, v.market)}<span style={{ whiteSpace: "nowrap" }}>（{fmtPct(v.pnlPct)}）</span></div>
+        <div class={`num ${cls(v.pnl)}`} style={{ fontSize: "13px", fontWeight: 600, marginTop: "2px" }} data-testid="hold-pnl"><span class="lbl" style={{ fontFamily: "var(--font)", fontSize: "11px", fontWeight: 400, color: "var(--muted)", marginRight: "4px" }}>損益</span>{fmtSigned(v.pnl, v.market)}<span style={{ whiteSpace: "nowrap" }}>（{fmtPct(v.pnlPct)}）</span>{v.market === "US" && fx && Number.isFinite(v.pnl) && <span style={{ display: "block", whiteSpace: "nowrap" }} data-testid="hold-ntd">{fmtNtd(v.pnl, fx)}</span>}</div>
         <div class="sub">{v.advice.join("；")}</div>
       </div>
       <div class="px">

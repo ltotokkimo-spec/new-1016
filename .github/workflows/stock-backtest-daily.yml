@@ -2,7 +2,7 @@ name: Stock Backtest Daily
 
 # 股市雷達 App 的回測每天自動更新。
 # GitHub 只會在預設分支執行定時工作，所以這裡只負責「每天叫一次」，
-# 實際的回測程式在 App 的開發分支（stock-backtest.yml）。
+# 實際的回測程式在 main 分支的 stock-backtest.yml。
 on:
   schedule:
     - cron: '40 10 * * 1-5' # 週一到週五 台灣時間 18:40（證交所當日資料公布後）
@@ -18,4 +18,4 @@ jobs:
       - name: 觸發回測
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run stock-backtest.yml --repo "${{ github.repository }}" --ref claude/ui-calculator-interface-t3x9kh
+        run: gh workflow run stock-backtest.yml --repo "${{ github.repository }}" --ref main

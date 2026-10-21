@@ -89,7 +89,8 @@ main { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px 16px 24px; -
 .progress { padding: 28px 8px; text-align: center; }
 .progress .bar { height: 8px; margin: 14px auto; max-width: 280px; }
 .empty { padding: 30px 12px; text-align: center; color: var(--muted); line-height: 1.7; }
-.error { border: 1px solid var(--down); background: var(--down-bg); color: var(--fg); border-radius: 12px; padding: 10px 12px; font-size: 14px; margin-bottom: 10px; }
+/* 提醒與錯誤用琥珀色：這個 App 的綠色代表「跌」，用綠色會被誤看成成功訊息 */
+.error { border: 1px solid var(--hold); background: var(--hold-bg); color: var(--fg); border-radius: 12px; padding: 10px 12px; font-size: 14px; margin-bottom: 10px; }
 .notice { border: 1px solid var(--line); background: var(--surface-2); border-radius: 12px; padding: 10px 12px; font-size: 13px; color: var(--muted); line-height: 1.6; }
 
 .btn { border: 0; border-radius: 11px; padding: 11px 16px; font-weight: 700; cursor: pointer; background: var(--accent); color: #1b1407; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }

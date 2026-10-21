@@ -292,6 +292,12 @@ function check(ok, name, detail = "") {
   check(!!resumeUi, "從 Claude App 回來時出現「偵測到回覆／貼上並載入」提示", resumeUi);
   if (resumeUi === "pro-resume") await page.click("text=不用了");
   await page.evaluate(() => localStorage.removeItem("proPending"));
+  // 把「送給 Claude 的提問」貼進回覆框：要立刻提醒、不能儲存
+  await page.fill('[data-testid="pro-text"]', "今天是 2026/10/21。我要用新台幣 100,000 元做「自組 ETF」，會照你的建議真的下單。\n【持股】\n| 代號 | 名稱 |\n".padEnd(260, "字"));
+  const promptErr = await page.$eval('[data-testid="pro-err"]', (e) => e.innerText).catch(() => "");
+  const saveOff = await page.$eval('[data-testid="pro-save"]', (b) => b.disabled).catch(() => false);
+  check(/不是 Claude 的回覆/.test(promptErr) && saveOff, "貼上送給 Claude 的提問會立刻提醒、不能儲存", promptErr.slice(0, 60));
+  await page.click('[data-testid="pro-clear"]');
   const wide = await page.evaluate(() => { const m = document.querySelector("main"); return [m.scrollWidth, m.clientWidth]; });
   check(wide[0] <= wide[1] + 1, "我的實單紀錄固定滿版，不會左右晃動", `內容寬 ${wide[0]}／螢幕寬 ${wide[1]}`);
   const rTrades = await page.$eval('[data-testid="etf-trades"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");

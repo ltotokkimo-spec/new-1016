@@ -254,9 +254,12 @@ function ProReview({ disabled, review }: { disabled: boolean; review: boolean })
   const [text, setText] = useState("");
   const [err, setErr] = useState("");
   const prompt = disabled ? "" : aiEtfPrompt(etfAdviceInput(), true);
+  const PROMPT_MSG = "⚠ 這是 App 送給 Claude 的提問，不是 Claude 的回覆。按「在 Claude App 檢視調整」時剪貼簿會被換成提問，所以要先到 Claude 那邊（Claude App 或正在對話的視窗）長按「它的回覆」→ 複製，再回來貼上。";
+  const onText = (v: string) => { setText(v); setErr(isOwnPrompt(v) ? PROMPT_MSG : ""); };
+  const bad = isOwnPrompt(text);
   const save = async () => {
     if (text.trim().length < 20) return setErr("請把 Claude App 的整段回覆貼上來");
-    if (isOwnPrompt(text)) return setErr("這是 App 送給 Claude 的提問，不是 Claude 的回覆。請回到 Claude App，等它回答完，長按「它的回覆」再複製。");
+    if (bad) return setErr(PROMPT_MSG);
     if (!parsePlan(text).items.length && !/維持不變/.test(text)) setErr("回覆最後沒有找到 JSON 買賣清單，仍會存下文字；可以請 Claude 補上 JSON 區塊再貼一次");
     else setErr("");
     await saveProReply(text);
@@ -275,10 +278,11 @@ function ProReview({ disabled, review }: { disabled: boolean; review: boolean })
       {copied === "ok" && <div class="muted" style={{ fontSize: "12px" }} data-testid="pro-copied">已複製提問。Claude 沒有自動帶入的話，在輸入框長按「貼上」再送出。</div>}
       {copied === "fail" && <div class="muted" style={{ fontSize: "12px" }}>沒辦法自動複製提問，請再按一次。</div>}
       <label class="field">貼上 Claude App 的回覆
-        <textarea rows={4} value={text} onInput={(e) => setText((e.target as HTMLTextAreaElement).value)} placeholder="在 Claude App 長按回覆 →「複製」，再貼到這裡" data-testid="pro-text" />
+        <textarea rows={4} value={text} onInput={(e) => onText((e.target as HTMLTextAreaElement).value)} placeholder="在 Claude App 長按回覆 →「複製」，再貼到這裡" data-testid="pro-text" />
       </label>
-      {err && <div class="error">{err}</div>}
-      <button class="btn secondary block" disabled={!text.trim()} onClick={save} data-testid="pro-save">儲存並和付費版比較</button>
+      {err && <div class="error" data-testid="pro-err">{err}</div>}
+      {text && <button class="linkbtn" style={{ alignSelf: "flex-start" }} onClick={() => onText("")} data-testid="pro-clear">清除重貼</button>}
+      <button class="btn secondary block" disabled={!text.trim() || bad} onClick={save} data-testid="pro-save">儲存並和付費版比較</button>
     </div>
   );
 }

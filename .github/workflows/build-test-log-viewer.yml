@@ -1,0 +1,69 @@
+name: Build TestLogViewer.exe
+
+# 只在手動觸發時打包（Actions 頁面按 Run workflow），確認畫面後再打包
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build deps
+        run: python -m pip install --upgrade pip pyinstaller openpyxl
+
+      - name: Read version
+        id: ver
+        shell: bash
+        working-directory: test-log-viewer
+        run: echo "version=$(python -c 'import re;print(re.search(r"APP_VERSION = \"(.+?)\"", open("log_viewer.py", encoding="utf-8").read()).group(1))')" >> "$GITHUB_OUTPUT"
+
+      - name: Build exe
+        working-directory: test-log-viewer
+        run: pyinstaller --noconfirm --onefile --windowed --name TestLogViewer_v${{ steps.ver.outputs.version }} log_viewer.py
+
+      - name: Smoke test (import + parse sample CSV)
+        working-directory: test-log-viewer
+        run: python -c "import log_viewer as lv; r,n=lv.load_records('sample_operator_log.csv'); print(len(r), n); assert len(r)==35"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TestLogViewer_v${{ steps.ver.outputs.version }}
+          path: test-log-viewer/dist/TestLogViewer_v${{ steps.ver.outputs.version }}.exe
+
+      - name: Publish GitHub Release (download page)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER="${{ steps.ver.outputs.version }}"
+          EXE="test-log-viewer/dist/TestLogViewer_v${VER}.exe"
+          if gh release view "v${VER}" >/dev/null 2>&1; then
+            gh release upload "v${VER}" "$EXE" --clobber
+          else
+            gh release create "v${VER}" "$EXE" --target "$GITHUB_SHA" --latest \
+              --title "TestLogViewer v${VER}" \
+              --notes "測試結果檢視器 v${VER}：下載下方的 TestLogViewer_v${VER}.exe，雙擊即可執行（Windows 64 位元，免安裝 Python）。"
+          fi
+
+      - name: Commit exe to branch
+        shell: bash
+        run: |
+          EXE="TestLogViewer_v${{ steps.ver.outputs.version }}.exe"
+          git rm -q --ignore-unmatch "test-log-viewer/release/*.exe"
+          mkdir -p test-log-viewer/release
+          cp "test-log-viewer/dist/$EXE" "test-log-viewer/release/$EXE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A test-log-viewer/release
+          git commit -m "Build TestLogViewer.exe (${GITHUB_SHA::7})" || exit 0
+          git pull --rebase origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

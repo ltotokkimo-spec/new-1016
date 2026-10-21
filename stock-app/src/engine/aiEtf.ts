@@ -111,16 +111,47 @@ export function recordNav(etf: AiEtf, date: string, v: Valuation): AiEtf {
 // ---------- Claude 建議的格式 ----------
 export interface PlanItem { code: string; side: "buy" | "sell"; shares: number; reason: string; stop?: number }
 
-/** 從 Claude 回覆最後的 ```json 區塊取出買賣清單；回傳清單與去掉 JSON 後的說明文字 */
-export function parsePlan(text: string): { items: PlanItem[]; body: string; stops: Record<string, number> } {
+/** 從 index 開始的 { 或 [ 往後找到對應的結尾（字串裡的括號不算），找不到回傳 -1 */
+function matchEnd(text: string, start: number): number {
+  let depth = 0, inStr = false;
+  for (let k = start; k < text.length; k++) {
+    const c = text[k];
+    if (inStr) { if (c === "\\") k++; else if (c === '"') inStr = false; continue; }
+    if (c === '"') inStr = true;
+    else if (c === "{" || c === "[") depth++;
+    else if (c === "}" || c === "]") { if (--depth === 0) return k + 1; }
+  }
+  return -1;
+}
+
+/**
+ * 找出回覆裡的買賣清單 JSON：優先用最後一個 ```json 區塊；
+ * 從 Claude App 複製回覆常會掉掉 ``` 框，所以也認「沒有框的 JSON」（以 {"trades"、{"stops"、{"picks" 或 [{"code" 開頭，最後一段能解析的）。
+ */
+function findPlanJson(text: string): { json: string; start: number; end: number } | null {
   const re = /```json\s*([\s\S]*?)```/g;
   let m: RegExpExecArray | null, last: RegExpExecArray | null = null;
   while ((m = re.exec(text))) last = m;
+  if (last) return { json: last[1], start: last.index, end: last.index + last[0].length };
+  const starts = [...text.matchAll(/[{[]\s*(?:"(?:trades|picks|stops)"\s*:|\{\s*"code"\s*:)/g)].map((x) => x.index!);
+  // 能解析的候選裡，取結尾最後面的；結尾相同取最外層（最前面開始），免得只抓到裡面那層陣列
+  let best: { json: string; start: number; end: number } | null = null;
+  for (const st of starts) {
+    const end = matchEnd(text, st);
+    if (end < 0 || (best && end <= best.end)) continue;
+    try { JSON.parse(text.slice(st, end)); best = { json: text.slice(st, end), start: st, end }; } catch { /* 下一個 */ }
+  }
+  return best;
+}
+
+/** 從 Claude 回覆取出買賣清單；回傳清單與去掉 JSON 後的說明文字 */
+export function parsePlan(text: string): { items: PlanItem[]; body: string; stops: Record<string, number> } {
+  const last = findPlanJson(text);
   if (!last) return { items: [], body: text, stops: {} };
   let items: PlanItem[] = [];
   const stops: Record<string, number> = {};
   try {
-    const j = JSON.parse(last[1]);
+    const j = JSON.parse(last.json);
     const arr = Array.isArray(j) ? j : j.trades ?? j.picks ?? [];
     items = arr
       .map((x: any) => ({
@@ -136,7 +167,7 @@ export function parsePlan(text: string): { items: PlanItem[]; body: string; stop
       for (const [k, v] of Object.entries(j.stops)) if (Number(v) > 0) stops[k.trim().toUpperCase()] = Number(v);
     for (const it of items) if (it.stop) stops[it.code] = it.stop;
   } catch { /* JSON 壞掉就只顯示文字 */ }
-  return { items, body: (text.slice(0, last.index) + text.slice(last.index + last[0].length)).trim(), stops };
+  return { items, body: (text.slice(0, last.start) + text.slice(last.end)).trim(), stops };
 }
 
 /** 依預算檢查：買進總額（含手續費）超過可用現金時，等比例縮小股數 */

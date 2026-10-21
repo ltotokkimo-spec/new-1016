@@ -140,3 +140,28 @@ describe("comparePlans 付費版 vs Pro 版", () => {
     expect(r[3].api).toBeUndefined();
   });
 });
+
+describe("parsePlan 沒有 ``` 框的 JSON（從 Claude App 複製會掉框）", () => {
+  const text = `結論：分批買進。\n\n{"trades":[\n{"code":"2027","side":"buy","shares":440,"stop":46.8,"reason":"9月營收年增41%，限價49.5"},\n{"code":"2609","side":"buy","shares":280,"stop":59.8,"reason":"運價高檔 {不追過64.7}"}\n]}\n\nSources: 公股4金2銀（優分析，2026/10/14）`;
+  it("讀出清單與停損，JSON 從說明文字拿掉，後面的來源保留", () => {
+    const { items, body, stops } = parsePlan(text);
+    expect(items.map((x) => [x.code, x.shares])).toEqual([["2027", 440], ["2609", 280]]);
+    expect(stops).toEqual({ "2027": 46.8, "2609": 59.8 });
+    expect(items[1].reason).toContain("{不追過64.7}");
+    expect(body).toContain("結論：分批買進。");
+    expect(body).toContain("Sources: 公股4金2銀");
+    expect(body).not.toContain('"trades"');
+  });
+  it("陣列格式、維持不變只給停損也能讀", () => {
+    expect(parsePlan('好\n[{"code":"2330","side":"buy","shares":5,"reason":"x"}]').items).toHaveLength(1);
+    expect(parsePlan('維持不變\n{"trades":[],"stops":{"2002":18.4}}').stops).toEqual({ "2002": 18.4 });
+  });
+  it("文字裡有大括號但不是清單，不會誤判", () => {
+    expect(parsePlan("內文 {不是 json} 與 [1, 2, 3]").items).toEqual([]);
+    expect(parsePlan('{"trades":[{"code":"2330"').items).toEqual([]);
+  });
+  it("有 ``` 框時照舊優先用框裡的", () => {
+    expect(parsePlan('{"trades":[{"code":"1111","side":"buy","shares":1}]}\n```json\n[{"code":"2222","side":"buy","shares":2,"reason":"y"}]\n```').items[0].code).toBe("2222");
+  });
+});
+

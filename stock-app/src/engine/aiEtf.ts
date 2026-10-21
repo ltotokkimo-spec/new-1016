@@ -217,10 +217,25 @@ export function pickCandidates<T extends { code: string; sector: string; rating:
   return out;
 }
 
+/** 是不是 App 自己送給 Claude 的提問（貼錯時要擋下來，不能存成 Claude 的回覆） */
+export function isOwnPrompt(text: string): boolean {
+  const t = text.trim();
+  return t.slice(0, 120).includes("我要用新台幣") && /【(候選股|持股)/.test(t);
+}
+
+/** 候選股依產業分組（組內分數高到低，組與組依最高分排序），給畫面顯示用 */
+export function groupBySector<T extends { sector: string; score: number }>(list: T[]): { sector: string; items: T[] }[] {
+  const m = new Map<string, T[]>();
+  for (const x of list) m.set(x.sector, [...(m.get(x.sector) ?? []), x]);
+  return [...m.entries()]
+    .map(([sector, items]) => ({ sector, items: [...items].sort((a, b) => b.score - a.score) }))
+    .sort((a, b) => b.items[0].score - a.items[0].score);
+}
+
 /** 剪貼簿裡的文字像不像 Claude 對自組 ETF 的回覆：有買賣清單，或明說維持不變；App 自己送出去的提問不算 */
 export function looksLikePlanReply(text: string): { ok: boolean; items: number } {
   const t = text.trim();
-  if (t.length < 80 || t.slice(0, 80).includes("我要用新台幣")) return { ok: false, items: 0 };
+  if (t.length < 80 || isOwnPrompt(t) || t.slice(0, 80).includes("我要用新台幣")) return { ok: false, items: 0 };
   const items = parsePlan(t).items.length;
   return { ok: items > 0 || (/維持不變/.test(t) && t.length > 150), items };
 }

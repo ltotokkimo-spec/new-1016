@@ -303,6 +303,8 @@ function check(ok, name, detail = "") {
   await page.waitForTimeout(600);
   const afterHide = await page.evaluate(() => ({ rows: document.querySelectorAll('[data-testid="etf-trades"] .row').length, pos: document.querySelectorAll('.list .item .name').length, nav: document.querySelector('[data-testid="etf-summary"]').innerText.includes("股票市值") }));
   check(afterHide.rows === 0 && afterHide.pos === posBefore && afterHide.pos > 0 && afterHide.nav, "刪除成交紀錄那一列時，持股不會跟著消失", JSON.stringify({ posBefore, ...afterHide }));
+  const cand = await page.$eval('[data-testid="candidates"]', (e) => ({ rows: e.querySelectorAll("tbody tr:not(.grp)").length, grp: e.querySelectorAll("tbody tr.grp").length, cols: e.querySelectorAll("thead th").length, over: e.querySelector("table").scrollWidth > e.querySelector("table").parentElement.clientWidth + 1 })).catch(() => null);
+  check(!!cand && cand.rows >= 3 && cand.rows <= 12 && cand.cols === 5 && !cand.over, "候選股一覽：依產業分組、5 欄、手機寬度不用左右滑", JSON.stringify(cand));
   await shot("05b-自組ETF");
   // 免費停損提醒：把停損價設在現價之上，應該馬上出現提醒與分頁紅點
   // 剛買進不會跌破預設停損（成本 −10%）；但台積電當天若被評為離場，會有離場提醒，這是正確的

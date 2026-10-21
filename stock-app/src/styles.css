@@ -179,3 +179,11 @@ a.btn[aria-disabled="true"] { opacity: 0.5; pointer-events: none; }
 .radar-logo .radar-line { fill: none; stroke: var(--up); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
 @keyframes radar-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .radar-logo .radar-sweep { animation: none; } }
+
+/* 候選股一覽：5 欄窄表，依產業分組 */
+table.cand { width: 100%; border-collapse: collapse; font-size: 12.5px; table-layout: auto; }
+table.cand th { text-align: right; font-weight: 600; color: var(--muted); padding: 4px 4px; font-size: 11px; white-space: nowrap; }
+table.cand th:first-child, table.cand td:first-child { text-align: left; }
+table.cand td { padding: 5px 4px; border-top: 1px solid var(--line); text-align: right; white-space: nowrap; }
+table.cand td:first-child { white-space: normal; }
+table.cand tr.grp td { background: var(--surface-2); color: var(--muted); font-size: 11px; font-weight: 700; text-align: left; padding: 3px 6px; border-top: 0; }

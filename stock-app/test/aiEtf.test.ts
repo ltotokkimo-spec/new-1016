@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cashFlow, comparePlans, reconcilePhoto, emptyEtf, etfAlerts, fitBudget, looksLikePlanReply, parsePlan, pickCandidates, tradePnls, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
+import { cashFlow, comparePlans, reconcilePhoto, emptyEtf, etfAlerts, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, parsePlan, pickCandidates, tradePnls, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
 
 const t = (code: string, side: "buy" | "sell", shares: number, price: number, benchPrice = 100, date = "20261017") =>
   ({ id: code + side + date, date, code, name: code, side, shares, price, benchPrice });
@@ -225,6 +225,22 @@ describe("pickCandidates 候選股精簡", () => {
   it("買入不夠 6 檔時用觀望補", () => {
     const out = pickCandidates([mk("1", "A"), mk("2", "B"), mk("3", "C", "觀望"), mk("4", "D", "觀望"), mk("5", "E", "觀望"), mk("6", "F", "觀望"), mk("7", "G", "觀望")], new Set());
     expect(out.map((x) => x.code)).toEqual(["1", "2", "3", "4", "5", "6"]);
+  });
+});
+
+describe("isOwnPrompt／groupBySector", () => {
+  it("認得 App 自己送出的提問（新舊格式都算），不會誤殺 Claude 的回覆", () => {
+    const old = "今天是 2026/10/21。我要用新台幣 500,000 元做「自組 ETF」，會照你的建議真的下單。\n【持股】\n1476 儒鴻 60股";
+    const tbl = "今天是 2026/10/21。我要用新台幣 500,000 元做「自組 ETF」。\n【候選股（App 已篩過，共 12 檔）】\n| 代號 |";
+    expect(isOwnPrompt(old)).toBe(true);
+    expect(isOwnPrompt(tbl)).toBe(true);
+    expect(isOwnPrompt("結論：分批買進。\n| 股票 | 動作 |\n{\"trades\":[]}")).toBe(false);
+    expect(looksLikePlanReply(old.padEnd(300, "字") + '{"trades":[{"code":"2330","side":"buy","shares":5}]}').ok).toBe(false);
+  });
+  it("依產業分組，組內分數高到低，組依最高分排序", () => {
+    const g = groupBySector([{ sector: "鋼鐵", score: 70 }, { sector: "光電", score: 80 }, { sector: "鋼鐵", score: 83 }, { sector: "金融", score: 75 }]);
+    expect(g.map((x) => x.sector)).toEqual(["鋼鐵", "光電", "金融"]);
+    expect(g[0].items.map((x) => x.score)).toEqual([83, 70]);
   });
 });
 

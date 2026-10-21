@@ -4,7 +4,8 @@ import {
   addEtfTrades, hideEtfTrade, refreshLive, refreshVirtual, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError, holdingsFromImage, shrinkImage } from "../ai/claude";
-import { type EtfTrade, comparePlans, DEFAULT_STOP, fitBudget, looksLikePlanReply, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
+import type { Scored } from "../engine/score";
+import { type EtfTrade, comparePlans, DEFAULT_STOP, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { orderDay, pretty, prettyW, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
 import { marketOpen, type LiveQuote } from "../data/twLive";
@@ -255,6 +256,7 @@ function ProReview({ disabled, review }: { disabled: boolean; review: boolean })
   const prompt = disabled ? "" : aiEtfPrompt(etfAdviceInput(), true);
   const save = async () => {
     if (text.trim().length < 20) return setErr("請把 Claude App 的整段回覆貼上來");
+    if (isOwnPrompt(text)) return setErr("這是 App 送給 Claude 的提問，不是 Claude 的回覆。請回到 Claude App，等它回答完，長按「它的回覆」再複製。");
     if (!parsePlan(text).items.length && !/維持不變/.test(text)) setErr("回覆最後沒有找到 JSON 買賣清單，仍會存下文字；可以請 Claude 補上 JSON 區塊再貼一次");
     else setErr("");
     await saveProReply(text);
@@ -277,6 +279,54 @@ function ProReview({ disabled, review }: { disabled: boolean; review: boolean })
       </label>
       {err && <div class="error">{err}</div>}
       <button class="btn secondary block" disabled={!text.trim()} onClick={save} data-testid="pro-save">儲存並和付費版比較</button>
+    </div>
+  );
+}
+
+/** 候選股表：依產業分組，5 個窄欄位（股票、收盤、分數、月、外資張） */
+export function CandidateTable({ candidates }: { candidates: Scored[] }) {
+  const groups = groupBySector(candidates);
+  const lots = (x: number | undefined) => (x === undefined ? "—" : `${x >= 0 ? "+" : ""}${Math.round(x / 1000).toLocaleString("en-US")}`);
+  return (
+    <table class="cand">
+      <thead><tr><th>股票</th><th>收盤</th><th>分數</th><th>月</th><th>外資張</th></tr></thead>
+      <tbody>
+        {groups.map((g) => (
+          <>
+            <tr class="grp"><td colSpan={5}>{g.sector}</td></tr>
+            {g.items.map((s) => (
+              <tr>
+                <td><span class="muted num">{s.code}</span> {s.name}</td>
+                <td class="num">{fmtPrice(s.close)}</td>
+                <td class="num">{s.score}</td>
+                <td class={`num ${cls(s.ret1m)}`}>{fmtPct(s.ret1m, 1)}</td>
+                <td class={`num ${cls(s.foreign5)}`}>{lots(s.foreign5)}</td>
+              </tr>
+            ))}
+          </>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** 候選股一覽：App 篩出、準備交給 Claude 的清單；純給你看，不用複製貼上 */
+function CandidateCard() {
+  const input = etfAdviceInput();
+  const [open, setOpen] = useState(true);
+  if (!input.candidates.length) return null;
+  return (
+    <div class="card stack" data-testid="candidates">
+      <div class="row" style={{ justifyContent: "space-between" }}>
+        <b>候選股一覽（{input.candidates.length} 檔）</b>
+        <button class="linkbtn" onClick={() => setOpen(!open)}>{open ? "收起" : "展開"}</button>
+      </div>
+      {open && (
+        <>
+          <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>App 篩出的「買入」高分股，依產業分組、每產業最多 3 檔，已持有的不列；請 Claude 建議時就是用這份清單。</div>
+          <CandidateTable candidates={input.candidates} />
+        </>
+      )}
     </div>
   );
 }
@@ -706,6 +756,7 @@ function RealEtfScreen() {
         </>
       )}
 
+      <div style={{ marginTop: "12px" }}><CandidateCard /></div>
       <div class="section-title"><span>Claude 建議</span>{(plan || pro) && <span>{fmtAt(Math.max(plan?.at ?? 0, pro?.at ?? 0))}</span>}</div>
       {job?.status === "error" && <div class="error">{job.error}</div>}
       {busy && <AiProgressView job={job!} />}

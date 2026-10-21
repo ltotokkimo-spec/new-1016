@@ -243,6 +243,7 @@ function check(ok, name, detail = "") {
   await page.waitForSelector('[data-testid="virtual-summary"]', { timeout: 30000 });
   const virt = await page.$eval('[data-testid="virtual-summary"]', (e) => e.innerText.replace(/\s+/g, " "));
   log("Claude 虛擬操作", virt.slice(0, 160));
+  check(/報酬 [+-]?[\d.]+% 總損益 [+-]?[\d,]+/.test(virt) && (virt.match(/總損益/g) || []).length === 2, "虛擬操作淨值與 0050 兩格都在報酬後面顯示總損益", virt.slice(0, 200));
   check(/虛擬資金 50\.0 萬/.test(virt) && /0050/.test(virt), "自組ETF 顯示 Claude 虛擬操作（虛擬 50 萬、0050 對照）", virt.slice(0, 80));
   check(/起資金由 10\.0 萬 加到 50\.0 萬/.test(virt) && /加碼前 \d+ 天/.test(virt), "虛擬操作顯示加碼說明與加碼前報酬", virt.slice(0, 300));
   check((await page.$$('[data-testid="virtual-view"] .list .item')).length >= 4, "Claude 虛擬操作列出持股");
@@ -274,6 +275,7 @@ function check(ok, name, detail = "") {
   const etfSum = await page.$eval('[data-testid="etf-summary"]', (e) => e.innerText.replace(/\s+/g, " "));
   log("自組ETF", etfSum);
   check(/現金/.test(etfSum) && /股票市值/.test(etfSum), "自組ETF 成交後顯示現金與市值");
+  check(/報酬 [+-]?[\d.]+% 總損益 [+-]?[\d,]+/.test(etfSum) && (etfSum.match(/總損益/g) || []).length === 2, "實單紀錄淨值與 0050 兩格都在報酬後面顯示總損益", etfSum.slice(0, 200));
   check(!!(await page.$("text=台積電")), "自組ETF 持股列出台積電");
   check(!!(await page.$('[data-testid="etf-ask"]')), "自組ETF 有請 Claude 建議按鈕");
   const wide = await page.evaluate(() => { const m = document.querySelector("main"); return [m.scrollWidth, m.clientWidth]; });

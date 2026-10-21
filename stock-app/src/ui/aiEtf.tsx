@@ -11,6 +11,15 @@ import { marketOpen, type LiveQuote } from "../data/twLive";
 import { cls, fmtMoney, fmtPct, fmtPrice } from "./common";
 import { AiProgressView, AiReportView, BalanceHint, copyText } from "./screens";
 
+/** 帶正負號的台幣金額：+1,234／-567／0 */
+const signedMoney = (x: number) => `${x < 0 ? "-" : x > 0 ? "+" : ""}${Math.round(Math.abs(x)).toLocaleString("zh-TW")}`;
+
+/** 報酬率下一行的總損益（現在的淨值減起始資金，賺紅賠綠，顏色跟著外層） */
+function TotalPnl({ now, budget }: { now: number; budget: number }) {
+  const x = now - budget;
+  return <div style={{ whiteSpace: "nowrap" }}>總損益 {signedMoney(x)}</div>;
+}
+
 /** 持股損益用台幣金額顯示：+1,234／-567（賺紅賠綠）；還沒有現價就不顯示 */
 function TwdPnl({ shares, avgCost, price }: { shares: number; avgCost: number; price: number | undefined }) {
   if (price === undefined || !Number.isFinite(price)) return null;
@@ -407,8 +416,8 @@ function VirtualView() {
           <span class="muted" style={{ fontSize: "12px" }}>虛擬資金 {fmtMoney(v.budget)}・{pretty(v.start)} 開始</span>
         </div>
         <div class="grid2">
-          <div class="metric"><div class="k">淨值（現金＋股票）</div><div class="v num">{fmtMoney(val.nav)}</div><div class={`d num ${cls(val.ret)}`}>報酬 {fmtPct(val.ret, 2)}</div></div>
-          <div class="metric"><div class="k">同樣的錢買 0050</div><div class="v num">{fmtMoney(val.bench)}</div><div class={`d num ${cls(val.benchRet)}`}>報酬 {fmtPct(val.benchRet, 2)}</div></div>
+          <div class="metric"><div class="k">淨值（現金＋股票）</div><div class="v num">{fmtMoney(val.nav)}</div><div class={`d num ${cls(val.ret)}`}>報酬 {fmtPct(val.ret, 2)}<TotalPnl now={val.nav} budget={v.budget} /></div></div>
+          <div class="metric"><div class="k">同樣的錢買 0050</div><div class="v num">{fmtMoney(val.bench)}</div><div class={`d num ${cls(val.benchRet)}`}>報酬 {fmtPct(val.benchRet, 2)}<TotalPnl now={val.bench} budget={v.budget} /></div></div>
         </div>
         <div style={{ fontSize: "14px" }}>
           {val.missing.length ? <span class="muted">收盤價更新後再比較輸贏</span> : val.ret >= val.benchRet ? <span class="up">贏過 0050 {fmtPct(val.ret - val.benchRet, 2)}</span> : <span class="down">落後 0050 {fmtPct(val.ret - val.benchRet, 2)}</span>}
@@ -538,8 +547,8 @@ function RealEtfScreen() {
           <span class="muted" style={{ fontSize: "12px" }}>起始資金 {fmtMoney(etf.budget)}</span>
         </div>
         <div class="grid2">
-          <div class="metric"><div class="k">淨值（現金＋股票）</div><div class="v num">{fmtMoney(v.nav)}</div><div class={`d num ${cls(v.ret)}`}>報酬 {fmtPct(v.ret, 2)}</div></div>
-          <div class="metric"><div class="k">同樣的錢買 0050</div><div class="v num">{fmtMoney(v.bench)}</div><div class={`d num ${cls(v.benchRet)}`}>報酬 {fmtPct(v.benchRet, 2)}</div></div>
+          <div class="metric"><div class="k">淨值（現金＋股票）</div><div class="v num">{fmtMoney(v.nav)}</div><div class={`d num ${cls(v.ret)}`}>報酬 {fmtPct(v.ret, 2)}<TotalPnl now={v.nav} budget={etf.budget} /></div></div>
+          <div class="metric"><div class="k">同樣的錢買 0050</div><div class="v num">{fmtMoney(v.bench)}</div><div class={`d num ${cls(v.benchRet)}`}>報酬 {fmtPct(v.benchRet, 2)}<TotalPnl now={v.bench} budget={etf.budget} /></div></div>
         </div>
         {etf.trades.length > 0 && (
           <div style={{ fontSize: "14px" }}>

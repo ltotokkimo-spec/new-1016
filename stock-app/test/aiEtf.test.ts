@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cashFlow, comparePlans, reconcilePhoto, emptyEtf, etfAlerts, fitBudget, looksLikePlanReply, parsePlan, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
+import { cashFlow, comparePlans, reconcilePhoto, emptyEtf, etfAlerts, fitBudget, looksLikePlanReply, parsePlan, tradePnls, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
 
 const t = (code: string, side: "buy" | "sell", shares: number, price: number, benchPrice = 100, date = "20261017") =>
   ({ id: code + side + date, date, code, name: code, side, shares, price, benchPrice });
@@ -178,6 +178,26 @@ describe("looksLikePlanReply 剪貼簿裡是不是 Claude 的回覆", () => {
   });
   it("App 自己送出去的提問不算", () => {
     expect(looksLikePlanReply("今天是 2026/10/21。我要用新台幣 500,000 元做一個「自組 ETF」，會照你的建議真的下單。".padEnd(300, "字") + '{"trades":[{"code":"2330","side":"buy","shares":5}]}').ok).toBe(false);
+  });
+});
+
+describe("tradePnls 成交紀錄每一列的損益", () => {
+  const t = (id: string, date: string, code: string, side: "buy" | "sell", shares: number, price: number) => ({ id, date, code, name: code, side, shares, price, benchPrice: 100 });
+  it("賣出＝這筆已實現（扣手續費與證交稅、減當時均價）；賣光後買進那列不顯示", () => {
+    const trades = [t("b", "20261021", "2393", "buy", 150, 67.9), t("s", "20261021", "2393", "sell", 150, 85)];
+    const r = tradePnls(trades, () => 70);
+    const expected = 150 * 85 * (1 - FEE - TAX) - 150 * 67.9 * (1 + FEE);
+    expect(r.s).toBeCloseTo(expected, 6);
+    expect(r.s!).toBeGreaterThan(2000);
+    expect(r.b).toBeUndefined();
+  });
+  it("部分賣出用當時的平均成本；還有持股的買進那列用現價算", () => {
+    const trades = [t("b1", "20261019", "2027", "buy", 100, 50), t("b2", "20261020", "2027", "buy", 100, 60), t("s", "20261021", "2027", "sell", 50, 58)];
+    const r = tradePnls(trades, () => 62);
+    const avg = (100 * 50 * (1 + FEE) + 100 * 60 * (1 + FEE)) / 200;
+    expect(r.s).toBeCloseTo(50 * 58 * (1 - FEE - TAX) - 50 * avg, 6);
+    expect(r.b2).toBeCloseTo((62 - 60 * (1 + FEE)) * 100, 6);
+    expect(tradePnls(trades, () => undefined).b1).toBeUndefined();
   });
 });
 

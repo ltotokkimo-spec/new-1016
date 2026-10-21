@@ -262,6 +262,8 @@ function check(ok, name, detail = "") {
   }, null, { timeout: 30000 }).then((h) => h.jsonValue()).catch(() => null);
   log("即時價", JSON.stringify(livePx));
   check(!!livePx && livePx.every((t) => /(現價|收盤).*\d/.test(t)), "Claude 虛擬操作持股顯示即時價（證交所 mis）");
+  const vTrades = await page.$eval('[data-testid="virtual-trades"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
+  check(/成交價 [\d.,]+/.test(vTrades) && !vTrades.includes("@"), "虛擬成交紀錄寫「成交價」、不再用 @ 符號", vTrades.slice(0, 120));
   await shot("05a-Claude虛擬操作");
   await page.click('[data-testid="mode-real"]');
   await page.waitForSelector('[data-testid="etf-summary"]', { timeout: 10000 });
@@ -292,6 +294,8 @@ function check(ok, name, detail = "") {
   await page.evaluate(() => localStorage.removeItem("proPending"));
   const wide = await page.evaluate(() => { const m = document.querySelector("main"); return [m.scrollWidth, m.clientWidth]; });
   check(wide[0] <= wide[1] + 1, "我的實單紀錄固定滿版，不會左右晃動", `內容寬 ${wide[0]}／螢幕寬 ${wide[1]}`);
+  const rTrades = await page.$eval('[data-testid="etf-trades"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
+  check(/成交價 [\d.,]+・損益 [+-]?[\d,]+/.test(rTrades) && !rTrades.includes("@"), "實單成交紀錄寫「成交價・損益」、不再用 @ 符號", rTrades.slice(0, 120));
   await shot("05b-自組ETF");
   // 免費停損提醒：把停損價設在現價之上，應該馬上出現提醒與分頁紅點
   // 剛買進不會跌破預設停損（成本 −10%）；但台積電當天若被評為離場，會有離場提醒，這是正確的

@@ -4,7 +4,7 @@ import {
   addEtfTrades, deleteEtfTrade, refreshLive, refreshVirtual, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError, holdingsFromImage, shrinkImage } from "../ai/claude";
-import { comparePlans, DEFAULT_STOP, fitBudget, looksLikePlanReply, parsePlan, positions, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
+import { type EtfTrade, comparePlans, DEFAULT_STOP, fitBudget, looksLikePlanReply, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { orderDay, pretty, prettyW, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
 import { marketOpen, type LiveQuote } from "../data/twLive";
@@ -26,6 +26,18 @@ function TwdPnl({ shares, avgCost, price }: { shares: number; avgCost: number; p
   const x = (price - avgCost) * shares;
   return <><span class={cls(x)} style={{ whiteSpace: "nowrap" }}>損益 {x < 0 ? "-" : x > 0 ? "+" : ""}{Math.round(Math.abs(x)).toLocaleString("zh-TW")}</span>・</>;
 }
+
+/** 成交紀錄一列：日期 買／賣 名稱 股數・成交價・損益（賣出＝已實現，買進＝現價帳面，賺紅賠綠） */
+function TradeLine({ t, pnl }: { t: EtfTrade; pnl?: number }) {
+  return (
+    <span class="num" style={{ minWidth: 0 }}>
+      {pretty(t.date)} <span class={t.side === "buy" ? "up" : "down"}>{t.side === "buy" ? "買" : "賣"}</span> {t.name} {t.shares.toLocaleString()} 股・成交價 {fmtPrice(t.price)}
+      {pnl !== undefined && Number.isFinite(pnl) && <>・<span class={cls(pnl)} style={{ whiteSpace: "nowrap" }}>損益 {signedMoney(pnl)}</span></>}
+    </span>
+  );
+}
+
+const TRADE_HINT = "賣出的損益是這筆已實現的賺賠（已扣手續費與證交稅）；買進的損益用現價計算，這檔賣光後就不顯示。";
 
 /** 兩條線：我的組合 vs 0050（報酬率 %） */
 function NavChart({ points, budget, mine = "我的自組 ETF" }: { points: { date: string; nav: number; bench: number }[]; budget: number; mine?: string }) {
@@ -490,6 +502,7 @@ function VirtualView() {
   const px = (c: string) => fresh(c)?.price ?? v.last[c]?.close;
   const intraday = Object.values(live).find((q) => q.date === taipeiToday() && !q.final && codes.includes(q.code));
   const val = valuate(v, px);
+  const tradePnl = tradePnls(v.trades, px);
   const pos = positions(v.trades).filter((p) => p.shares > 0);
   const nextDay = v.asOf ? orderDay(v.asOf) : undefined;
   const notes = [...v.notes].reverse();
@@ -578,16 +591,17 @@ function VirtualView() {
       {v.trades.length > 0 && (
         <>
           <div class="section-title"><span>虛擬成交紀錄</span><span>{v.trades.length} 筆</span></div>
-          <div class="card" style={{ padding: "6px 10px" }}>
+          <div class="card" style={{ padding: "6px 10px" }} data-testid="virtual-trades">
             {[...v.trades].reverse().map((t) => (
               <div class="row" style={{ justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: "13px" }}>
-                <span class="num">{pretty(t.date)} <span class={t.side === "buy" ? "up" : "down"}>{t.side === "buy" ? "買" : "賣"}</span> {t.name} {t.shares.toLocaleString()} 股 @ {fmtPrice(t.price)}</span>
+                <TradeLine t={t} pnl={tradePnl[t.id]} />
               </div>
             ))}
             {(v.cancelled ?? []).slice(-5).reverse().map((c) => (
               <div class="muted" style={{ padding: "6px 0", fontSize: "12px" }}>{pretty(c.date)} {c.name} 委託未成交：{c.reason}</div>
             ))}
           </div>
+          <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, marginTop: "6px" }}>{TRADE_HINT}</div>
         </>
       )}
       <div class="muted" style={{ fontSize: "11px", lineHeight: 1.6, marginTop: "12px" }}>這是 Claude 用虛擬資金的模擬操作，用來觀察建議的效果；不是真的下單，也不是投資建議。</div>
@@ -599,6 +613,7 @@ function RealEtfScreen() {
   const st = useStore((s) => ({ asOf: s.tw.asOf, etf: s.aiEtf, prices: s.prices, scored: s.tw.scored, reports: s.reports, jobs: s.aiJobs, apiKey: s.settings.apiKey, twReady: s.tw.status === "ready" }));
   const { etf } = st;
   const v = valuate(etf, etfPrice);
+  const tradePnl = tradePnls(etf.trades, etfPrice);
   const pos = positions(etf.trades).filter((p) => p.shares > 0);
   const job = etf.planKey ? st.jobs[etf.planKey] : undefined;
   const busy = job?.status === "running";
@@ -729,14 +744,15 @@ function RealEtfScreen() {
       {etf.trades.length > 0 && (
         <>
           <div class="section-title"><span>成交紀錄</span><span>{etf.trades.length} 筆</span></div>
-          <div class="card" style={{ padding: "6px 10px" }}>
+          <div class="card" style={{ padding: "6px 10px" }} data-testid="etf-trades">
             {[...etf.trades].reverse().map((t) => (
               <div class="row" style={{ justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: "13px", flexWrap: "nowrap" }}>
-                <span class="num">{pretty(t.date)} <span class={t.side === "buy" ? "up" : "down"}>{t.side === "buy" ? "買" : "賣"}</span> {t.name} {t.shares.toLocaleString()} 股 @ {fmtPrice(t.price)}</span>
+                <TradeLine t={t} pnl={tradePnl[t.id]} />
                 <button class="iconbtn" style={{ width: "28px", height: "28px" }} aria-label="刪除這筆" onClick={() => window.confirm("刪除這筆成交紀錄？") && deleteEtfTrade(t.id)}>✕</button>
               </div>
             ))}
           </div>
+          <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, marginTop: "6px" }}>{TRADE_HINT}</div>
           <button class="btn danger block" style={{ marginTop: "12px" }} onClick={() => window.confirm("清空整個自組 ETF（成交紀錄與走勢）重新開始？") && resetAiEtf()}>清空重新開始</button>
         </>
       )}

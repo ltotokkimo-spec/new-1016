@@ -59,6 +59,35 @@ export function positions(trades: EtfTrade[]): Position[] {
   return [...m.values()];
 }
 
+/**
+ * 成交紀錄每一列的損益：
+ * 賣出＝這筆賣出已實現的賺賠（賣出金額扣手續費與證交稅，減去當時的平均成本）；
+ * 買進＝這檔還有持股時，用現價算的帳面損益（扣買進手續費）；已經賣光或沒有現價就不給。
+ */
+export function tradePnls(trades: EtfTrade[], price: (code: string) => number | undefined): Record<string, number | undefined> {
+  const held = new Map<string, { shares: number; avgCost: number }>();
+  const out: Record<string, number | undefined> = {};
+  for (const t of [...trades].sort((a, b) => a.date.localeCompare(b.date))) {
+    const p = held.get(t.code) ?? { shares: 0, avgCost: 0 };
+    if (t.side === "buy") {
+      const cost = p.avgCost * p.shares + t.shares * t.price * (1 + FEE);
+      p.shares += t.shares;
+      p.avgCost = p.shares ? cost / p.shares : 0;
+    } else {
+      const n = Math.min(t.shares, p.shares);
+      out[t.id] = cashFlow({ side: "sell", shares: n, price: t.price }) - n * p.avgCost;
+      p.shares -= n;
+    }
+    held.set(t.code, p);
+  }
+  for (const t of trades) {
+    if (t.side !== "buy") continue;
+    const px = price(t.code);
+    out[t.id] = (held.get(t.code)?.shares ?? 0) > 0 && px !== undefined && Number.isFinite(px) ? (px - t.price * (1 + FEE)) * t.shares : undefined;
+  }
+  return out;
+}
+
 export interface Valuation {
   cash: number;
   marketValue: number;

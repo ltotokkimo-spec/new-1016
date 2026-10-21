@@ -467,11 +467,9 @@ function VirtualView() {
 
       {notes.length > 0 && (
         <>
-          <div class="section-title"><span>Claude 每日操作說明</span><span>{notes.length} 則</span></div>
+          <div class="section-title"><span>Claude 每日操作說明</span><span>{prettyW(notes[0].date)}</span></div>
           <div class="card stack" data-testid="virtual-notes">
-            {notes.slice(0, 10).map((n) => (
-              <div style={{ fontSize: "14px", lineHeight: 1.7 }}><b class="num">{prettyW(n.date)}</b>　{n.text}</div>
-            ))}
+            <div style={{ fontSize: "14px", lineHeight: 1.7 }}>{notes[0].text}</div>
           </div>
         </>
       )}

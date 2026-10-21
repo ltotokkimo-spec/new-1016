@@ -248,6 +248,8 @@ function check(ok, name, detail = "") {
   check((await page.$$('[data-testid="virtual-view"] .list .item')).length >= 4, "Claude 虛擬操作列出持股");
   const gauge = await page.$eval('[data-testid="cash-gauge"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   log("資金水位", gauge.slice(0, 200));
+  const noteN = await page.$$eval('[data-testid="virtual-notes"] > div', (d) => d.length).catch(() => -1);
+  check(noteN === 1, "每日操作說明只顯示最新一天", `${noteN} 則`);
   check(/股票 \d+%・現金 \d+%/.test(gauge) && /目標股票 \d+%/.test(gauge) && /7 成股票・3 成現金/.test(gauge), "虛擬操作顯示資金水位（股票／現金比重、目標、規劃）", gauge.slice(0, 160));
   // 即時報價（證交所 mis）：每檔持股要顯示「現價 HH:MM」或「收盤」＋今日漲跌
   const livePx = await page.waitForFunction(() => {

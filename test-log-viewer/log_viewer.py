@@ -29,7 +29,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
-APP_VERSION = "1.10.0"
+APP_VERSION = "1.11.0"
 APP_TITLE = f"測試結果檢視器 v{APP_VERSION}"
 DEFAULT_CSV_NAME = "operator_log.csv"
 DEFAULT_CHANNELS = 6
@@ -700,6 +700,7 @@ class App(tk.Tk):
         self.var_station = tk.StringVar(value="全部")
         self.var_verdict = tk.StringVar(value="全部")
         self.var_dup_only = tk.BooleanVar(value=False)
+        self.pick_dates = set()    # 多選日期（可不連續）；空 = 不限
         self.var_search = tk.StringVar()
         self.hidden_cols = set(self.settings.get("hidden_cols", []))
         self.only_lines = None     # None = 顯示全部；set = 只顯示框選確認的列
@@ -754,6 +755,8 @@ class App(tk.Tk):
         self.cb_date_to = ttk.Combobox(barf, textvariable=self.var_date_to, width=11,
                                        state="readonly", values=[ANY])
         self.cb_date_to.pack(side="left", padx=(0, 4))
+        self.btn_dates = ttk.Button(barf, text="多選日期…", command=self.choose_dates)
+        self.btn_dates.pack(side="left", padx=(6, 0))
         ttk.Label(barf, text="時間").pack(side="left", padx=(8, 0))
         self.ent_time_from = tk.Entry(barf, textvariable=self.var_time_from, width=8)
         self.ent_time_from.pack(side="left", padx=(4, 0))
@@ -902,6 +905,8 @@ class App(tk.Tk):
         for v in (self.var_time_from, self.var_time_to, self.var_search, self.var_opid):
             v.set("")
         self.var_dup_only.set(False)
+        self.pick_dates = set()
+        self._update_dates_button()
         self._suspend = False
         self.refresh_view(scroll="end")
 
@@ -1195,6 +1200,58 @@ class App(tk.Tk):
             out.append(t)
         return out
 
+    def _update_dates_button(self):
+        n = len(self.pick_dates)
+        self.btn_dates.config(text=f"多選日期（{n} 天）✔" if n else "多選日期…")
+
+    def choose_dates(self):
+        """勾選要看的日期（可不連續，例如只看 10/14 和 10/16）"""
+        counts = {}
+        for r in self.records:
+            if r["date"]:
+                counts[r["date"]] = counts.get(r["date"], 0) + 1
+        dates = sorted(counts, reverse=True)
+        win = tk.Toplevel(self)
+        win.title("多選日期")
+        win.transient(self)
+        win.geometry("+%d+%d" % (self.winfo_rootx() + 120, self.winfo_rooty() + 90))
+        ttk.Label(win, text="點選日期即可加選／取消（可多選不連續的日子）",
+                  padding=(10, 8, 10, 4)).pack(anchor="w")
+        box = ttk.Frame(win, padding=(10, 0))
+        box.pack(fill="both", expand=True)
+        lb = tk.Listbox(box, selectmode="multiple", exportselection=False, height=min(max(len(dates), 3), 14),
+                        width=28, activestyle="none", font=tkfont.Font(size=11))
+        sb = ttk.Scrollbar(box, orient="vertical", command=lb.yview)
+        lb.configure(yscrollcommand=sb.set)
+        lb.pack(side="left", fill="both", expand=True)
+        sb.pack(side="left", fill="y")
+        for i, d in enumerate(dates):
+            lb.insert("end", f"{d}　（{counts[d]} 筆）")
+            if d in self.pick_dates:
+                lb.selection_set(i)
+        lbl = ttk.Label(win, padding=(10, 4))
+        lbl.pack(anchor="w")
+
+        def upd(*_):
+            lbl.config(text=f"已選 {len(lb.curselection())} 天")
+        lb.bind("<<ListboxSelect>>", upd)
+        upd()
+
+        def apply():
+            self.pick_dates = {dates[i] for i in lb.curselection()}
+            win.destroy()
+            self._update_dates_button()
+            self.refresh_view(scroll="end")
+
+        row = ttk.Frame(win, padding=(10, 4, 10, 10))
+        row.pack(fill="x")
+        ttk.Button(row, text="全選", command=lambda: (lb.selection_set(0, "end"), upd())).pack(side="left")
+        ttk.Button(row, text="清除", command=lambda: (lb.selection_clear(0, "end"), upd())).pack(side="left", padx=4)
+        ttk.Button(row, text="取消", command=win.destroy).pack(side="right")
+        ttk.Button(row, text="確定", command=apply).pack(side="right", padx=4)
+        win.grab_set()
+        return win
+
     def _update_opid_choices(self):
         """下拉清單：符合其他篩選條件（日期、站別、結果、SN）的資料裡出現過的 OPID"""
         opids = sorted({r["opid"] for r in self.filtered(ignore_opid=True) if r["opid"]})
@@ -1209,6 +1266,7 @@ class App(tk.Tk):
         q = self.var_search.get().strip().upper()
         qo = "" if ignore_opid else self.var_opid.get().strip().upper()
         dup_only = self.var_dup_only.get()
+        pick = self.pick_dates
         d_from, d_to = self.var_date_from.get(), self.var_date_to.get()
         d_from = None if d_from in ("", ANY) else d_from
         d_to = None if d_to in ("", ANY) else d_to
@@ -1236,6 +1294,8 @@ class App(tk.Tk):
             if s != "全部" and r["station"] != s:
                 continue
             if v != "全部" and r["verdict"] != v:
+                continue
+            if pick and r["date"] not in pick:
                 continue
             if dup_only and r.get("_dup", 1) < 2:
                 continue

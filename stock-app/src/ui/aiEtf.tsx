@@ -11,11 +11,11 @@ import { marketOpen, type LiveQuote } from "../data/twLive";
 import { cls, fmtMoney, fmtPct, fmtPrice } from "./common";
 import { AiProgressView, AiReportView, BalanceHint, copyText } from "./screens";
 
-/** 持股損益用台幣顯示：+NT$1,234／-NT$567（紅漲綠跌）；還沒有現價就不顯示 */
+/** 持股損益用台幣金額顯示：+1,234／-567（賺紅賠綠）；還沒有現價就不顯示 */
 function TwdPnl({ shares, avgCost, price }: { shares: number; avgCost: number; price: number | undefined }) {
   if (price === undefined || !Number.isFinite(price)) return null;
   const x = (price - avgCost) * shares;
-  return <><span class={cls(x)} style={{ whiteSpace: "nowrap" }}>損益 {x < 0 ? "-" : x > 0 ? "+" : ""}NT${Math.round(Math.abs(x)).toLocaleString("zh-TW")}</span>・</>;
+  return <><span class={cls(x)} style={{ whiteSpace: "nowrap" }}>損益 {x < 0 ? "-" : x > 0 ? "+" : ""}{Math.round(Math.abs(x)).toLocaleString("zh-TW")}</span>・</>;
 }
 
 /** 兩條線：我的組合 vs 0050（報酬率 %） */

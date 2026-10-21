@@ -248,7 +248,7 @@ function check(ok, name, detail = "") {
   check((await page.$$('[data-testid="virtual-view"] .list .item')).length >= 4, "Claude 虛擬操作列出持股");
   const posLines = await page.$$eval('[data-testid="virtual-pos-line"]', (els) => els.map((e) => e.innerText.replace(/\s+/g, " ")));
   log("持股行", JSON.stringify(posLines));
-  check(posLines.length >= 4 && posLines.every((t) => /均價 [\d.,]+・損益 [+-]?NT\$[\d,]+・佔/.test(t)), "虛擬操作每檔持股在均價後顯示台幣損益", JSON.stringify(posLines.slice(0, 2)));
+  check(posLines.length >= 4 && posLines.every((t) => /均價 [\d.,]+・損益 [+-]?[\d,]+・佔/.test(t)), "虛擬操作每檔持股在均價後顯示台幣損益", JSON.stringify(posLines.slice(0, 2)));
   const gauge = await page.$eval('[data-testid="cash-gauge"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   log("資金水位", gauge.slice(0, 200));
   const noteN = await page.$$eval('[data-testid="virtual-notes"] > div', (d) => d.length).catch(() => -1);

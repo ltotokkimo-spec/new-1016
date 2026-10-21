@@ -29,7 +29,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
-APP_VERSION = "1.13.0"
+APP_VERSION = "1.14.0"
 APP_TITLE = f"測試結果檢視器 v{APP_VERSION}"
 DEFAULT_CSV_NAME = "operator_log.csv"
 DEFAULT_CHANNELS = 6
@@ -416,9 +416,8 @@ class GridTable(ttk.Frame):
                                    tags="grid")
                 font = self.font_big if key == "CH0" else (
                     self.font_bold if bold else self.font)
-                tx = x + w - 6 if anchor == "e" else x + 6
-                c.create_text(tx, y + rh / 2, text=cell_text(rec, key), anchor=anchor,
-                              fill=fg, font=font, tags="grid")
+                c.create_text(x + w / 2, y + rh / 2, text=cell_text(rec, key), anchor="center",
+                              fill=fg, font=font, tags="grid")     # 資料全部置中
                 x += w
             if selected:
                 c.create_rectangle(1, y + 1, x - 1, y + rh - 1, outline="#0066CC", width=2,
@@ -565,7 +564,7 @@ class GridTable(ttk.Frame):
         self.close_editor()
         bg, fg, bold = cell_style(rec, key)
         font = self.font_big if key == "CH0" else (self.font_bold if bold else self.font)
-        ent = tk.Entry(self.body, font=font, relief="solid", bd=1,
+        ent = tk.Entry(self.body, font=font, relief="solid", bd=1, justify="center",
                        readonlybackground="#FFFFFF", fg="#000000",
                        selectbackground="#0078D7", selectforeground="#FFFFFF",
                        highlightthickness=2, highlightcolor="#0066CC")
@@ -1602,7 +1601,7 @@ def export_xlsx(path, cols, rows):
             if bg != COLORS["cell_bg"]:
                 c.fill = fill(bg)
             c.font = Font(bold=bold, color=fg.lstrip("#"), size=12 if key == "CH0" else 11)
-            c.alignment = Alignment(horizontal="right" if anchor == "e" else "left")
+            c.alignment = Alignment(horizontal="center")
             c.border = border
     for ci, (key, title, _) in enumerate(cols, 1):
         w = max([len(title)] + [len(str(cell_text(r, key))) for r in rows[-2000:]])

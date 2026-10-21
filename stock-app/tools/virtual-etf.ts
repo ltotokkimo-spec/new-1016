@@ -5,10 +5,11 @@
 //   close <state> <日期> <quotes.json>   收盤後記淨值、檢查停損（自動排隔天賣出）
 //   order <state> <日期> <orders.json>   加入隔天的委託 [{code,name,side,shares,limit?,stop?,reason}]
 //   note  <state> <日期> <文字>          記一則當天的操作說明
+//   topup <state> <日期> <加碼後資金>     資金加碼（例如 500000）
 //   show  <state>                        印出目前狀態
 // quotes.json 格式：{"2027":{"name":"大成鋼","open":50.7,"high":51.1,"low":50.1,"close":50.8}, "0050": {...}}
 import { readFileSync, writeFileSync } from "node:fs";
-import { addNote, closeDay, fillPending, newVirtual, placeOrders, type VirtualEtf } from "../src/engine/virtualEtf.ts";
+import { addNote, closeDay, fillPending, newVirtual, placeOrders, topUp, type VirtualEtf } from "../src/engine/virtualEtf.ts";
 import { positions, valuate } from "../src/engine/aiEtf.ts";
 
 const [cmd, file, a, b] = process.argv.slice(2);
@@ -32,6 +33,7 @@ switch (cmd) {
   case "close": save(closeDay(load(), ymd(a), json(b))); break;
   case "order": save(placeOrders(load(), ymd(a), json(b))); break;
   case "note": save(addNote(load(), ymd(a), process.argv.slice(5).join(" "))); break;
+  case "topup": save(topUp(load(), ymd(a), Number(b))); break;
   case "show": show(load()); break;
-  default: console.log("指令：init / fill / close / order / note / show"); process.exit(1);
+  default: console.log("指令：init / fill / close / order / note / topup / show"); process.exit(1);
 }

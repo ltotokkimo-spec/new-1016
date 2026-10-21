@@ -6,6 +6,7 @@ import {
 import { aiEtfPrompt, claudeAppUrl, explainError, holdingsFromImage, shrinkImage } from "../ai/claude";
 import { comparePlans, DEFAULT_STOP, fitBudget, parsePlan, positions, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { orderDay, pretty, prettyW, taipeiToday } from "../lib/dates";
+import { beforeTopUp } from "../engine/virtualEtf";
 import { marketOpen, type LiveQuote } from "../data/twLive";
 import { cls, fmtMoney, fmtPct, fmtPrice } from "./common";
 import { AiProgressView, AiReportView, BalanceHint, copyText } from "./screens";
@@ -314,7 +315,7 @@ export function AiEtfScreen() {
   );
 }
 
-/** Claude 每個交易日自動操作的虛擬 10 萬（唯讀） */
+/** Claude 每個交易日自動操作的虛擬資金（唯讀） */
 function VirtualView() {
   const vt = useStore((s) => s.virtual);
   const live = useStore((s) => s.live);
@@ -355,6 +356,12 @@ function VirtualView() {
           {val.missing.length ? <span class="muted">收盤價更新後再比較輸贏</span> : val.ret >= val.benchRet ? <span class="up">贏過 0050 {fmtPct(val.ret - val.benchRet, 2)}</span> : <span class="down">落後 0050 {fmtPct(val.ret - val.benchRet, 2)}</span>}
           <span class="muted">・現金 {fmtMoney(val.cash)}・股票市值 {fmtMoney(val.marketValue)}</span>
         </div>
+        {(() => {
+          const b = beforeTopUp(v);
+          return b && <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }} data-testid="virtual-topup">
+            💰 {prettyW(b.date)} 起資金由 {fmtMoney(b.from)} 加到 {fmtMoney(b.to)}（加入的錢之前算閒置現金，所以上面的報酬率會被稀釋）。加碼前 {b.days} 天以 {fmtMoney(b.from)} 操作：組合 <span class={cls(b.ret)}>{fmtPct(b.ret, 2)}</span>、0050 <span class={cls(b.benchRet)}>{fmtPct(b.benchRet, 2)}</span>
+          </div>;
+        })()}
         {intraday && <div class="date-hint" data-testid="virtual-live">⏱ 盤中即時估算（{intraday.time.slice(0, 5)}），每 30 秒更新；收盤後改用收盤價</div>}
         <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
           {v.asOf ? <>資料日 {prettyW(v.asOf)} 收盤・</> : <>今天收盤後第一次更新・</>}Claude 每個交易日收盤後自動更新（約 18:00）。虛擬成交規則：前一天收盤後下單，隔天買進以開盤價成交（開盤高於限價就等盤中碰到限價，沒碰到就不買），賣出以開盤價成交；已計手續費與證交稅。

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { closeDay, fillPending, newVirtual, placeOrders } from "../src/engine/virtualEtf";
+import { beforeTopUp, closeDay, fillPending, newVirtual, placeOrders, topUp } from "../src/engine/virtualEtf";
 import { positions, valuate } from "../src/engine/aiEtf";
 
 const q = (open: number, low = open, close = open, high = open) => ({ open, high, low, close });
@@ -36,5 +36,27 @@ describe("虛擬自組 ETF", () => {
     const f = fillPending(big, "20261019", { "2603": q(263.5), "0050": q(107) });
     expect(f.trades[0].shares).toBe(378);
     expect(valuate(f, () => 263.5).cash).toBeGreaterThanOrEqual(0);
+  });
+
+  it("當天盤中才下的委託不會用當天開盤價成交，留到下一個交易日", () => {
+    const v = placeOrders(newVirtual("20261019"), "20261019", [{ code: "2603", name: "長榮", side: "buy", shares: 10, reason: "x" }]);
+    const f = fillPending(v, "20261019", { "2603": q(263.5), "0050": q(107) });
+    expect(f.trades).toHaveLength(0);
+    expect(f.pending).toHaveLength(1);
+    expect(fillPending(f, "20261020", { "2603": q(260), "0050": q(107) }).trades[0].price).toBe(260);
+  });
+
+  it("加碼到 50 萬：現金多 40 萬、歷史淨值一起加，加碼前的報酬另外算", () => {
+    const closed = closeDay(filled, "20261019", { "2027": q(50, 50, 50), "2480": q(170, 170, 170), "0050": q(107.45) });
+    const before = valuate(closed, (c) => closed.last[c]?.close);
+    const t = topUp(closed, "20261021", 500_000);
+    const after = valuate(t, (c) => t.last[c]?.close);
+    expect(after.cash - before.cash).toBeCloseTo(400_000);
+    expect(after.nav - before.nav).toBeCloseTo(400_000);
+    expect(t.nav[0].nav - closed.nav[0].nav).toBe(400_000);
+    const b = beforeTopUp(t)!;
+    expect(b.ret).toBeCloseTo(closed.nav[0].nav / 100_000 - 1, 6);
+    expect(b.days).toBe(1);
+    expect(() => topUp(t, "20261022", 400_000)).toThrow();
   });
 });

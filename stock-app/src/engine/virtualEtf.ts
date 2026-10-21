@@ -16,6 +16,8 @@ export interface VirtualEtf extends AiEtf {
   notes: DayNote[]; // Claude 每天的操作說明
   last: Record<string, { name: string; close: number }>; // 最近收盤價（持股與 0050）
   cancelled?: { date: string; code: string; name: string; reason: string }[]; // 沒成交的委託
+  // 加碼紀錄：date 起資金由 from 加到 to；加入的錢視為一開始就在、之前閒置的現金（淨值歷史一起加上）
+  topUps?: { date: string; from: number; to: number }[];
 }
 
 export const newVirtual = (start: string, budget = 100_000): VirtualEtf => ({
@@ -36,7 +38,9 @@ export function fillPending(v: VirtualEtf, date: string, q: Record<string, Quote
   const bench = q["0050"]?.open ?? NaN;
   let cash = valuate(v, () => undefined).cash;
   // 先賣後買，賣出的錢可以拿來買
-  const order = [...v.pending].sort((a, b) => (a.side === b.side ? 0 : a.side === "sell" ? -1 : 1));
+  // 只成交 date 之前下的委託（當天盤中才下的單留到下一個交易日）
+  const due = v.pending.filter((o) => o.placed < date);
+  const order = [...due].sort((a, b) => (a.side === b.side ? 0 : a.side === "sell" ? -1 : 1));
   const held = new Map(positions(v.trades).map((p) => [p.code, p.shares]));
   for (const o of order) {
     const k = q[o.code];
@@ -59,7 +63,7 @@ export function fillPending(v: VirtualEtf, date: string, q: Record<string, Quote
     held.set(o.code, (held.get(o.code) ?? 0) + (o.side === "buy" ? shares : -shares));
     if (o.side === "buy" && o.stop) stops[o.code] = o.stop;
   }
-  return { ...v, trades, cancelled: cancelled.slice(-100), stops, pending: [] };
+  return { ...v, trades, cancelled: cancelled.slice(-100), stops, pending: v.pending.filter((o) => o.placed >= date) };
 }
 
 /** 收盤後：更新收盤價、記錄淨值；收盤跌破停損價的持股，自動排入隔天開盤賣出 */
@@ -85,6 +89,32 @@ export function placeOrders(v: VirtualEtf, date: string, orders: Omit<PendingOrd
   const pending = v.pending.filter((p) => !orders.some((o) => o.code === p.code && o.side === p.side));
   for (const o of orders) if (o.shares > 0) pending.push({ ...o, placed: date });
   return { ...v, pending };
+}
+
+/**
+ * 加碼：資金從目前的 budget 加到 to。加入的錢當作從頭就在、之前沒動用的現金，
+ * 所以淨值歷史（含 0050 對照）都加上同一筆金額，現金與報酬率的計算方式不變。
+ */
+export function topUp(v: VirtualEtf, date: string, to: number): VirtualEtf {
+  const add = to - v.budget;
+  if (!(add > 0)) throw new Error(`加碼後的資金要大於目前的 ${v.budget}`);
+  return {
+    ...v, budget: to,
+    nav: v.nav.map((p) => ({ ...p, nav: p.nav + add, bench: p.bench + add })),
+    topUps: [...(v.topUps ?? []), { date, from: v.budget, to }],
+  };
+}
+
+/** 加碼前那一段用原本資金算的報酬（加碼後報酬率會被稀釋，另外列出來才公平） */
+export function beforeTopUp(v: VirtualEtf): { from: number; to: number; date: string; days: number; ret: number; benchRet: number } | undefined {
+  const t = v.topUps?.[0];
+  if (!t) return undefined;
+  const pts = v.nav.filter((p) => p.date < t.date);
+  const last = pts.at(-1);
+  if (!last) return undefined;
+  const add = t.to - t.from;
+  const cut = (v.topUps ?? []).filter((x) => x !== t).reduce((s, x) => s + x.to - x.from, 0); // 之後的加碼也加在歷史上
+  return { ...t, days: pts.length, ret: (last.nav - add - cut) / t.from - 1, benchRet: (last.bench - add - cut) / t.from - 1 };
 }
 
 export function addNote(v: VirtualEtf, date: string, text: string): VirtualEtf {

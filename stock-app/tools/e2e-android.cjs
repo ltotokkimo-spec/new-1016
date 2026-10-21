@@ -243,7 +243,8 @@ function check(ok, name, detail = "") {
   await page.waitForSelector('[data-testid="virtual-summary"]', { timeout: 30000 });
   const virt = await page.$eval('[data-testid="virtual-summary"]', (e) => e.innerText.replace(/\s+/g, " "));
   log("Claude 虛擬操作", virt.slice(0, 160));
-  check(/虛擬資金 10\.0 萬/.test(virt) && /0050/.test(virt), "自組ETF 顯示 Claude 虛擬操作（虛擬 10 萬、0050 對照）");
+  check(/虛擬資金 50\.0 萬/.test(virt) && /0050/.test(virt), "自組ETF 顯示 Claude 虛擬操作（虛擬 50 萬、0050 對照）", virt.slice(0, 80));
+  check(/起資金由 10\.0 萬 加到 50\.0 萬/.test(virt) && /加碼前 \d+ 天/.test(virt), "虛擬操作顯示加碼說明與加碼前報酬", virt.slice(0, 300));
   check((await page.$$('[data-testid="virtual-view"] .list .item')).length >= 4, "Claude 虛擬操作列出持股");
   // 即時報價（證交所 mis）：每檔持股要顯示「現價 HH:MM」或「收盤」＋今日漲跌
   const livePx = await page.waitForFunction(() => {

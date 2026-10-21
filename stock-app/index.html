@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
+    <link rel="icon" href="./icon.png" />
+    <title>掃雷專區</title>
+  </head>
+  <body>
+    <!-- 開 App 時：從系統啟動畫面的小雷達放大接手，掃描一整圈（3 秒）後閃光淡出 -->
+    <div id="boot-radar" aria-hidden="true">
+      <div class="bg-grid"></div>
+      <svg viewBox="-150 -150 300 300" class="radar">
+        <defs>
+          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          <radialGradient id="core" r="0.5"><stop offset="0" stop-color="#1B4E80" stop-opacity="0.55"/><stop offset="1" stop-color="#071526" stop-opacity="0"/></radialGradient>
+        </defs>
+        <circle r="140" fill="url(#core)"/>
+        <g class="ticks" stroke="#5AB8FF" stroke-width="1.6" opacity="0.7"><path d="M0.0,-128.0 L0.0,-136.0 M13.4,-127.3 L13.8,-131.3 M26.6,-125.2 L27.4,-129.1 M39.6,-121.7 L40.8,-125.5 M52.1,-116.9 L53.7,-120.6 M64.0,-110.9 L68.0,-117.8 M75.2,-103.6 L77.6,-106.8 M85.6,-95.1 L88.3,-98.1 M95.1,-85.6 L98.1,-88.3 M103.6,-75.2 L106.8,-77.6 M110.9,-64.0 L117.8,-68.0 M116.9,-52.1 L120.6,-53.7 M121.7,-39.6 L125.5,-40.8 M125.2,-26.6 L129.1,-27.4 M127.3,-13.4 L131.3,-13.8 M128.0,-0.0 L136.0,-0.0 M127.3,13.4 L131.3,13.8 M125.2,26.6 L129.1,27.4 M121.7,39.6 L125.5,40.8 M116.9,52.1 L120.6,53.7 M110.9,64.0 L117.8,68.0 M103.6,75.2 L106.8,77.6 M95.1,85.6 L98.1,88.3 M85.6,95.1 L88.3,98.1 M75.2,103.6 L77.6,106.8 M64.0,110.9 L68.0,117.8 M52.1,116.9 L53.7,120.6 M39.6,121.7 L40.8,125.5 M26.6,125.2 L27.4,129.1 M13.4,127.3 L13.8,131.3 M0.0,128.0 L0.0,136.0 M-13.4,127.3 L-13.8,131.3 M-26.6,125.2 L-27.4,129.1 M-39.6,121.7 L-40.8,125.5 M-52.1,116.9 L-53.7,120.6 M-64.0,110.9 L-68.0,117.8 M-75.2,103.6 L-77.6,106.8 M-85.6,95.1 L-88.3,98.1 M-95.1,85.6 L-98.1,88.3 M-103.6,75.2 L-106.8,77.6 M-110.9,64.0 L-117.8,68.0 M-116.9,52.1 L-120.6,53.7 M-121.7,39.6 L-125.5,40.8 M-125.2,26.6 L-129.1,27.4 M-127.3,13.4 L-131.3,13.8 M-128.0,0.0 L-136.0,0.0 M-127.3,-13.4 L-131.3,-13.8 M-125.2,-26.6 L-129.1,-27.4 M-121.7,-39.6 L-125.5,-40.8 M-116.9,-52.1 L-120.6,-53.7 M-110.9,-64.0 L-117.8,-68.0 M-103.6,-75.2 L-106.8,-77.6 M-95.1,-85.6 L-98.1,-88.3 M-85.6,-95.1 L-88.3,-98.1 M-75.2,-103.6 L-77.6,-106.8 M-64.0,-110.9 L-68.0,-117.8 M-52.1,-116.9 L-53.7,-120.6 M-39.6,-121.7 L-40.8,-125.5 M-26.6,-125.2 L-27.4,-129.1 M-13.4,-127.3 L-13.8,-131.3"/></g>
+        <circle r="142" fill="none" stroke="#5AB8FF" stroke-width="1" stroke-dasharray="2 6" opacity="0.5" class="ticks-rev"/>
+        <g fill="none" stroke="#5AB8FF" stroke-width="2.4" filter="url(#glow)"><circle r="118"/><circle r="78" opacity="0.8"/><circle r="38" opacity="0.7"/></g>
+        <g stroke="#5AB8FF" stroke-width="1" opacity="0.35"><path d="M-118,0 H118 M0,-118 V118"/></g>
+        <circle r="10" fill="none" stroke="#DDF1FF" stroke-width="2" class="pulse"/>
+        <circle r="10" fill="none" stroke="#DDF1FF" stroke-width="2" class="pulse p2"/>
+        <g class="sw"><path d="M0,0 L-15.4,-117.0 A118,118 0 0,1 0.0,-118.0 Z" fill="#5AB8FF" fill-opacity="0.550"/><path d="M0,0 L-30.5,-114.0 A118,118 0 0,1 -15.4,-117.0 Z" fill="#5AB8FF" fill-opacity="0.479"/><path d="M0,0 L-45.2,-109.0 A118,118 0 0,1 -30.5,-114.0 Z" fill="#5AB8FF" fill-opacity="0.411"/><path d="M0,0 L-59.0,-102.2 A118,118 0 0,1 -45.2,-109.0 Z" fill="#5AB8FF" fill-opacity="0.347"/><path d="M0,0 L-71.8,-93.6 A118,118 0 0,1 -59.0,-102.2 Z" fill="#5AB8FF" fill-opacity="0.287"/><path d="M0,0 L-83.4,-83.4 A118,118 0 0,1 -71.8,-93.6 Z" fill="#5AB8FF" fill-opacity="0.232"/><path d="M0,0 L-93.6,-71.8 A118,118 0 0,1 -83.4,-83.4 Z" fill="#5AB8FF" fill-opacity="0.181"/><path d="M0,0 L-102.2,-59.0 A118,118 0 0,1 -93.6,-71.8 Z" fill="#5AB8FF" fill-opacity="0.136"/><path d="M0,0 L-109.0,-45.2 A118,118 0 0,1 -102.2,-59.0 Z" fill="#5AB8FF" fill-opacity="0.095"/><path d="M0,0 L-114.0,-30.5 A118,118 0 0,1 -109.0,-45.2 Z" fill="#5AB8FF" fill-opacity="0.060"/><path d="M0,0 L-117.0,-15.4 A118,118 0 0,1 -114.0,-30.5 Z" fill="#5AB8FF" fill-opacity="0.031"/><path d="M0,0 L-118.0,-0.0 A118,118 0 0,1 -117.0,-15.4 Z" fill="#5AB8FF" fill-opacity="0.010"/><path d="M0,0 L0,-118" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" filter="url(#glow)"/></g>
+        <circle class="blip" cx="60.6" cy="-35.0" r="4.5" fill="#7FD0FF" style="animation-delay:0.500s"/><circle class="blip" cx="61.1" cy="72.8" r="4.5" fill="#FF5A5F" style="animation-delay:1.168s"/><circle class="blip" cx="-28.7" cy="41.0" r="4.5" fill="#7FD0FF" style="animation-delay:1.792s"/><circle class="blip" cx="-76.2" cy="-44.0" r="4.5" fill="#7FD0FF" style="animation-delay:2.500s"/>
+        <g filter="url(#glow)"><path fill="none" stroke="#FF5A5F" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" d="M-84,46 L-42,10 L-12,31 L54,-44"/><circle cx="54" cy="-44" r="8" fill="#FF5A5F"/></g>
+      </svg>
+      <div class="hud"><b>掃雷專區</b><span>SCANNING <i id="boot-pct">0</i>%</span></div>
+    </div>
+    <style>
+      #boot-radar { position: fixed; inset: 0; z-index: 9999; background: radial-gradient(circle at 50% 45%, #0B2340, #071526 70%); display: grid; place-items: center; align-content: center; gap: 18px; overflow: hidden; transition: opacity 0.3s ease-out; }
+      #boot-radar .bg-grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(90,184,255,0.07) 1px, transparent 1px), linear-gradient(90deg, rgba(90,184,255,0.07) 1px, transparent 1px); background-size: 28px 28px; }
+      #boot-radar .radar { position: relative; width: min(82vw, 380px); height: min(82vw, 380px); animation: boot-zoom 0.35s cubic-bezier(.2,.8,.2,1) both; }
+      #boot-radar .sw { animation: boot-spin 3s linear 1 both; }
+      #boot-radar .ticks { animation: boot-spin 6s linear infinite reverse; }
+      #boot-radar .ticks-rev { transform-origin: 0 0; animation: boot-spin 3s linear infinite; }
+      #boot-radar .blip { opacity: 0; animation: boot-blip 1.5s ease-out both; }
+      #boot-radar .pulse { animation: boot-pulse 1.5s ease-out infinite; }
+      #boot-radar .pulse.p2 { animation-delay: 0.75s; }
+      #boot-radar .hud { position: relative; text-align: center; font-family: ui-monospace, "SF Mono", Menlo, monospace; color: #7FD0FF; letter-spacing: 0.18em; font-size: 13px; animation: boot-fadein 0.4s 0.15s both; }
+      #boot-radar .hud b { display: block; font-family: system-ui, "Noto Sans TC", sans-serif; font-size: 26px; letter-spacing: 0.3em; color: #E8F6FF; text-shadow: 0 0 12px #5AB8FF, 0 0 28px #2F8FE0; margin-bottom: 6px; }
+      #boot-radar .hud i { font-style: normal; display: inline-block; min-width: 3ch; text-align: right; color: #E8F6FF; }
+      #boot-radar.flash::after { content: ""; position: absolute; inset: 0; background: radial-gradient(circle, rgba(140,210,255,0.55), transparent 60%); animation: boot-flash 0.3s ease-out both; }
+      #boot-radar.done { opacity: 0; pointer-events: none; }
+      @keyframes boot-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      @keyframes boot-zoom { from { transform: scale(0.6); opacity: 0.6; } to { transform: scale(1); opacity: 1; } }
+      @keyframes boot-blip { 0% { opacity: 0; r: 2; } 15% { opacity: 1; r: 7; } 100% { opacity: 0.25; r: 4; } }
+      @keyframes boot-pulse { from { r: 10; opacity: 0.9; } to { r: 120; opacity: 0; } }
+      @keyframes boot-fadein { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+      @keyframes boot-flash { from { opacity: 1; } to { opacity: 0; } }
+    </style>
+    <script>
+      // 掃描一整圈（3 秒）：百分比跟著跑，轉完閃一下再淡出移除
+      (function () {
+        var el = document.getElementById("boot-radar"), pct = document.getElementById("boot-pct"), t0 = performance.now(), TURN = 3000;
+        (function tick(now) {
+          var p = Math.min(1, ((now || performance.now()) - t0) / TURN);
+          pct.textContent = Math.round(p * 100);
+          if (p < 1) requestAnimationFrame(tick);
+        })();
+        setTimeout(function () { el.classList.add("flash"); }, TURN);
+        setTimeout(function () { el.classList.add("done"); setTimeout(function () { el.remove(); }, 350); }, TURN + 150);
+      })();
+    </script>
+    <div id="app"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

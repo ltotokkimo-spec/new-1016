@@ -1,0 +1,7 @@
+{
+  "appId": "tw.ltotokkimo.stockradar",
+  "appName": "掃雷專區",
+  "webDir": "dist",
+  "android": { "backgroundColor": "#0e1215" },
+  "plugins": { "CapacitorHttp": { "enabled": false } }
+}

@@ -1,0 +1,17 @@
+name: Stock Data Probe
+
+on:
+  push:
+    branches: [ 'claude/**' ]
+    paths: [ 'stock-app/tools/probe/**', '.github/workflows/stock-probe.yml' ]
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 探測資料來源
+        run: for f in stock-app/tools/probe/*.mjs; do node "$f"; done

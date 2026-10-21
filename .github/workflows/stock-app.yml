@@ -1,0 +1,118 @@
+name: Stock App
+
+on:
+  push:
+    branches: [ main, 'claude/**' ]
+    paths: [ 'stock-app/**', '!stock-app/tools/probe/**', '!stock-app/virtual/**', '.github/workflows/stock-app.yml' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# 新的推送會取消同分支還在跑的舊測試
+concurrency:
+  group: stock-app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: stock-app
+    steps:
+      - uses: actions/checkout@v4
+
+      # 先確認測試主機連得到證交所：連不到時 App 第一次開啟會卡在下載，跑完整個打包＋模擬器（約 12 分鐘）才失敗。
+      # 這裡最多等 4 分鐘（證交所常是暫時擋），還是連不到就直接停，省下打包與模擬器的時間。
+      - name: 檢查證交所連線
+        run: |
+          for i in 1 2 3 4 5 6 7 8; do
+            body=$(curl -s -m 20 -A "Mozilla/5.0" "https://www.twse.com.tw/rwd/zh/fund/T86?date=20261016&selectType=ALLBUT0999&response=json" | head -c 200)
+            case "$body" in *'"stat"'*) echo "證交所可連線（第 $i 次）"; exit 0;; esac
+            echo "第 $i 次連不到證交所，30 秒後重試"; sleep 30
+          done
+          echo "::error::測試主機連不到證交所（www.twse.com.tw），台股資料無法下載，先停止測試；稍後重跑即可"
+          exit 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: stock-app/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: 安裝套件
+        run: npm ci
+
+      - name: 單元測試
+        run: npx vitest run
+
+      - name: 建置網頁
+        run: npm run build
+
+      - name: 同步到 Android 專案
+        run: npx cap sync android
+
+      - name: 打包 APK
+        working-directory: stock-app/android
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: 上傳 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-radar-apk
+          path: stock-app/android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: 啟用 KVM（模擬器加速）
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # 模擬器映像檔偶爾下載到壞檔（ZipFile unknown archive），先下載並重試，之後的步驟就直接用
+      - name: 預先下載模擬器映像（失敗重試）
+        run: |
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null || true
+          for i in 1 2 3; do
+            "$SDKM" --install 'system-images;android-34;google_apis;x86_64' 'emulator' 'platform-tools' > /dev/null && break
+            echo "第 $i 次下載失敗，10 秒後重試"; sleep 10
+          done
+          test -d "$ANDROID_HOME/system-images/android-34/google_apis/x86_64"
+
+      - name: Android 模擬器實測（真實網路資料）
+        timeout-minutes: 25
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          # Claude AI 實測會花 API 額度（約 US$1.5/次），只有手動執行時才測；平常推送不花錢
+          ANTHROPIC_API_KEY: ${{ github.event_name == 'workflow_dispatch' && secrets.ANTHROPIC_API_KEY || '' }}
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -timezone Asia/Taipei
+          working-directory: stock-app
+          script: node tools/e2e-android.cjs android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: 發布 APK（手機直接下載）
+        if: success() && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk stock-radar.apk
+          # App 內更新會讀這個檔案比對版本號
+          node -e 'const fs=require("fs");fs.writeFileSync("version.json",JSON.stringify({versionCode:Number(process.env.GITHUB_RUN_NUMBER),versionName:"1.0."+process.env.GITHUB_RUN_NUMBER,notes:fs.readFileSync("RELEASE_NOTES.txt","utf8").trim()}))'
+          cat version.json
+          gh release delete stock-radar-latest --yes --cleanup-tag || true
+          gh release create stock-radar-latest stock-radar.apk version.json \
+            --title "掃雷專區（最新版）" --prerelease --target "${{ github.sha }}" \
+            --notes "用 Android 手機開這個頁面，點 stock-radar.apk 下載安裝。版本 1.0.${{ github.run_number }}，已在 Android 模擬器上以真實資料測試通過。"

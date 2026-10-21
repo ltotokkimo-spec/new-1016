@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>計算機</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Noto+Sans+TC:wght@500&display=swap">
+<style>
+  /* 版面：單一置中的計算機機身，綠色液晶螢幕在上，4×5 按鍵在下（沿用 calculator.py 的配色） */
+  :root {
+    --page: #e9e4da;
+    --body: #f6f2ea;
+    --body-edge: #d6cfc2;
+    --screen: #1a2b26;
+    --screen-fg: #eef6f0;
+    --screen-sub: #7fae96;
+    --num: #e2dcd0;
+    --num-hover: #d6cfc1;
+    --num-fg: #2a2723;
+    --fn: #8a8478;
+    --fn-hover: #97907f;
+    --op: #b5502c;
+    --op-hover: #c25f39;
+    --eq: #2f5d62;
+    --eq-hover: #396d72;
+    --key-fg: #f4f0e8;
+    --hint: #6f685d;
+    --focus: #2f5d62;
+    --font-display: "IBM Plex Mono", Consolas, ui-monospace, monospace;
+    --font-ui: "Noto Sans TC", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --page: #161513; --body: #211f1d; --body-edge: #2e2b28;
+      --num: #3a3733; --num-hover: #47433d; --num-fg: #f4f0e8;
+      --hint: #8a8478; --focus: #7fae96; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --page: #161513; --body: #211f1d; --body-edge: #2e2b28;
+    --num: #3a3733; --num-hover: #47433d; --num-fg: #f4f0e8;
+    --hint: #8a8478; --focus: #7fae96; color-scheme: dark;
+  }
+
+  html, body { height: 100%; }
+  body {
+    background: var(--page);
+    color: var(--num-fg);
+    font-family: var(--font-ui);
+    display: grid;
+    place-items: center;
+    padding-inline: 16px;
+    padding-block: 24px;
+    box-sizing: border-box;
+  }
+  .calc {
+    width: 100%;
+    max-width: 340px;
+    background: var(--body);
+    border: 1px solid var(--body-edge);
+    border-radius: 22px;
+    padding: 18px;
+    box-sizing: border-box;
+    display: grid;
+    gap: 16px;
+    box-shadow: 0 18px 40px -24px rgba(0,0,0,.45);
+  }
+  .screen {
+    background: var(--screen);
+    border-radius: 12px;
+    padding: 12px 16px 14px;
+    text-align: right;
+    font-family: var(--font-display);
+    font-variant-numeric: tabular-nums;
+    min-width: 0;
+    box-shadow: inset 0 2px 6px rgba(0,0,0,.35);
+  }
+  .expr {
+    color: var(--screen-sub);
+    font-size: 0.95rem;
+    min-height: 1.4em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .result {
+    color: var(--screen-fg);
+    font-weight: 600;
+    font-size: 2.3rem;
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .result.small { font-size: 1.7rem; }
+  .result.tiny { font-size: 1.3rem; }
+
+  .keys {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+  .keys button {
+    font-family: var(--font-display);
+    font-size: 1.3rem;
+    font-weight: 600;
+    border: 0;
+    border-radius: 12px;
+    aspect-ratio: 1;
+    max-width: 100%;
+    cursor: pointer;
+    background: var(--num);
+    color: var(--num-fg);
+    transition: background-color .12s, transform .06s;
+  }
+  .keys button:hover { background: var(--num-hover); }
+  .keys button:active, .keys button.pressed { transform: scale(.94); }
+  .keys button:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+  .keys .fn { background: var(--fn); color: var(--key-fg); }
+  .keys .fn:hover { background: var(--fn-hover); }
+  .keys .op { background: var(--op); color: var(--key-fg); }
+  .keys .op:hover, .keys .op.active { background: var(--op-hover); }
+  .keys .op.active { box-shadow: inset 0 0 0 3px var(--key-fg); }
+  .keys .eq { background: var(--eq); color: var(--key-fg); }
+  .keys .eq:hover { background: var(--eq-hover); }
+  .keys .zero { grid-column: span 2; aspect-ratio: auto; text-align: left; padding-left: 26px; }
+
+  .hint {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--hint);
+    text-align: center;
+    letter-spacing: .02em;
+  }
+  kbd {
+    font-family: var(--font-display);
+    font-size: .72rem;
+    padding: 1px 5px;
+    border: 1px solid var(--body-edge);
+    border-radius: 4px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .keys button { transition: none; }
+    .keys button:active, .keys button.pressed { transform: none; }
+  }
+</style>
+</head>
+<body>
+
+<main class="calc" aria-label="計算機">
+  <div class="screen" aria-live="polite">
+    <div class="expr" id="expr">&nbsp;</div>
+    <div class="result" id="result">0</div>
+  </div>
+  <div class="keys" id="keys">
+    <button class="fn" data-a="clear" id="k-clear">AC</button>
+    <button class="fn" data-a="backspace" aria-label="刪除">⌫</button>
+    <button class="fn" data-a="percent">%</button>
+    <button class="op" data-a="op" data-v="÷" aria-label="除">÷</button>
+    <button data-a="num" data-v="7">7</button>
+    <button data-a="num" data-v="8">8</button>
+    <button data-a="num" data-v="9">9</button>
+    <button class="op" data-a="op" data-v="×" aria-label="乘">×</button>
+    <button data-a="num" data-v="4">4</button>
+    <button data-a="num" data-v="5">5</button>
+    <button data-a="num" data-v="6">6</button>
+    <button class="op" data-a="op" data-v="−" aria-label="減">−</button>
+    <button data-a="num" data-v="1">1</button>
+    <button data-a="num" data-v="2">2</button>
+    <button data-a="num" data-v="3">3</button>
+    <button class="op" data-a="op" data-v="+" aria-label="加">+</button>
+    <button class="zero" data-a="num" data-v="0">0</button>
+    <button data-a="decimal">.</button>
+    <button class="eq" data-a="equals">=</button>
+  </div>
+  <p class="hint">支援鍵盤：數字、<kbd>+ − * /</kbd>、<kbd>Enter</kbd>、<kbd>Esc</kbd>、<kbd>⌫</kbd></p>
+</main>
+
+<script>
+(function () {
+  const MAX_DIGITS = 12;
+  const state = { current: "0", previous: null, operator: null, justEvaluated: false, freshOperand: false };
+  const exprEl = document.getElementById("expr");
+  const resultEl = document.getElementById("result");
+  const keysEl = document.getElementById("keys");
+
+  function format(s) {
+    if (s === "Error") return "錯誤";
+    if (/e/i.test(s)) return s;
+    const neg = s.startsWith("-");
+    const body = neg ? s.slice(1) : s;
+    const [i, d] = body.split(".");
+    const intPart = (i || "0").replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return (neg ? "-" : "") + intPart + (d !== undefined ? "." + d : "");
+  }
+
+  function toStr(n) {
+    const r = Math.round(n * 1e10) / 1e10;
+    if (!isFinite(r)) return "Error";
+    if (Math.abs(r) >= 1e15) return r.toExponential(8).replace(/\.?0+e/, "e");
+    return String(r);
+  }
+
+  function compute(a, b, op) {
+    a = parseFloat(a); b = parseFloat(b);
+    switch (op) {
+      case "÷": return b === 0 ? null : a / b;
+      case "×": return a * b;
+      case "−": return a - b;
+      case "+": return a + b;
+    }
+    return b;
+  }
+
+  function render() {
+    const text = format(state.current);
+    resultEl.textContent = text;
+    resultEl.classList.toggle("small", text.length > 11 && text.length <= 15);
+    resultEl.classList.toggle("tiny", text.length > 15);
+    exprEl.textContent = state.operator && state.previous !== null
+      ? format(state.previous) + " " + state.operator
+      : " ";
+    keysEl.querySelectorAll(".op").forEach(b =>
+      b.classList.toggle("active", state.freshOperand && b.dataset.v === state.operator));
+    document.getElementById("k-clear").textContent =
+      state.current !== "0" && !state.justEvaluated ? "C" : "AC";
+  }
+
+  function error() {
+    Object.assign(state, { current: "Error", previous: null, operator: null, justEvaluated: true, freshOperand: false });
+  }
+
+  function startOperand() {
+    if (state.justEvaluated || state.freshOperand || state.current === "Error") {
+      state.current = "0";
+      state.justEvaluated = false;
+      state.freshOperand = false;
+    }
+  }
+
+  const actions = {
+    num(d) {
+      startOperand();
+      if (state.current === "0") state.current = d;
+      else if (state.current === "-0") state.current = "-" + d;
+      else if (state.current.replace(/[-.]/g, "").length < MAX_DIGITS) state.current += d;
+    },
+    decimal() {
+      startOperand();
+      if (!state.current.includes(".")) state.current += ".";
+    },
+    op(op) {
+      if (state.current === "Error") return;
+      // 連按運算子時只替換運算子，不拿 0 去算
+      if (state.freshOperand) { state.operator = op; return; }
+      if (state.operator && state.previous !== null && !state.justEvaluated) {
+        const r = compute(state.previous, state.current, state.operator);
+        if (r === null) return error();
+        state.previous = toStr(r);
+        if (state.previous === "Error") return error();
+      } else {
+        state.previous = state.current;
+      }
+      state.operator = op;
+      state.current = state.previous;
+      state.justEvaluated = false;
+      state.freshOperand = true;
+    },
+    equals() {
+      if (state.operator === null || state.previous === null) return;
+      const r = compute(state.previous, state.current, state.operator);
+      if (r === null) return error();
+      const s = toStr(r);
+      if (s === "Error") return error();
+      Object.assign(state, { current: s, previous: null, operator: null, justEvaluated: true, freshOperand: false });
+    },
+    clear() {
+      // 第一次按 C 清除目前輸入，再按 AC 全部清除
+      if (state.current !== "0" && !state.justEvaluated && state.current !== "Error") {
+        state.current = "0";
+        if (state.operator) state.freshOperand = false;
+        return;
+      }
+      Object.assign(state, { current: "0", previous: null, operator: null, justEvaluated: false, freshOperand: false });
+    },
+    backspace() {
+      if (state.justEvaluated || state.current === "Error") return actions.clear();
+      if (state.freshOperand) return;
+      const c = state.current;
+      state.current = (c.length <= 1 || (c.length === 2 && c.startsWith("-"))) ? "0" : c.slice(0, -1);
+    },
+    percent() {
+      if (state.current === "Error") return;
+      state.current = toStr(parseFloat(state.current) / 100);
+      state.freshOperand = false;
+    },
+  };
+
+  function run(a, v) { actions[a](v); render(); }
+
+  keysEl.addEventListener("click", e => {
+    const b = e.target.closest("button");
+    if (b) run(b.dataset.a, b.dataset.v);
+  });
+
+  const keyMap = { "+": "+", "-": "−", "*": "×", "x": "×", "/": "÷" };
+  document.addEventListener("keydown", e => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    let a, v, sel;
+    const k = e.key;
+    if (/^[0-9]$/.test(k)) { a = "num"; v = k; sel = `[data-v="${k}"]`; }
+    else if (k === "." || k === ",") { a = "decimal"; sel = '[data-a="decimal"]'; }
+    else if (keyMap[k]) { a = "op"; v = keyMap[k]; sel = `[data-v="${v}"]`; }
+    else if (k === "Enter" || k === "=") { a = "equals"; sel = '[data-a="equals"]'; }
+    else if (k === "Backspace") { a = "backspace"; sel = '[data-a="backspace"]'; }
+    else if (k === "Escape" || k === "Delete") { a = "clear"; sel = '[data-a="clear"]'; }
+    else if (k === "%") { a = "percent"; sel = '[data-a="percent"]'; }
+    else return;
+    e.preventDefault();
+    run(a, v);
+    const btn = keysEl.querySelector(sel);
+    if (btn) { btn.classList.add("pressed"); setTimeout(() => btn.classList.remove("pressed"), 100); }
+  });
+
+  // 範例狀態：開啟時顯示一個進行中的算式
+  state.previous = "1280"; state.operator = "×"; state.current = "12.5";
+  render();
+})();
+</script>
+</body>
+</html>

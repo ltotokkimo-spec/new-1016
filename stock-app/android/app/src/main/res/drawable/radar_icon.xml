@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 啟動畫面的雷達（靜態）；轉一圈的動畫由 App 畫面接手（index.html 的 #boot-radar） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="240dp" android:height="240dp"
+            android:viewportWidth="240" android:viewportHeight="240">
+            <group android:name="sweep" android:pivotX="120" android:pivotY="120">
+                <path android:fillColor="#5AB8FF" android:fillAlpha="0.85" android:pathData="M120,120 L120,64 A56,56 0 0,1 159.6,80.4 Z"/>
+                <path android:fillColor="#5AB8FF" android:fillAlpha="0.45" android:pathData="M120,120 L98.6,68.3 A56,56 0 0,1 120,64 Z"/>
+                <path android:fillColor="#5AB8FF" android:fillAlpha="0.22" android:pathData="M120,120 L80.4,80.4 A56,56 0 0,1 98.6,68.3 Z"/>
+                <path android:fillColor="#5AB8FF" android:fillAlpha="0.1" android:pathData="M120,120 L68.3,98.6 A56,56 0 0,1 80.4,80.4 Z"/>
+                <path android:strokeColor="#DDF1FF" android:strokeWidth="4" android:strokeLineCap="round" android:pathData="M120,120 L159.6,80.4"/>
+            </group>
+            <path android:strokeColor="#5AB8FF" android:strokeWidth="3.8" android:pathData="M120,64 a56,56 0 1,1 0,112 a56,56 0 1,1 0,-112"/>
+            <path android:strokeColor="#5AB8FF" android:strokeWidth="3.8" android:pathData="M120,83.25 a36.75,36.75 0 1,1 0,73.5 a36.75,36.75 0 1,1 0,-73.5"/>
+            <path android:strokeColor="#5AB8FF" android:strokeWidth="3.8" android:pathData="M120,102.5 a17.5,17.5 0 1,1 0,35 a17.5,17.5 0 1,1 0,-35"/>
+            <path android:strokeColor="#FF5A5F" android:strokeWidth="6.3" android:strokeLineCap="round" android:strokeLineJoin="round"
+                android:pathData="M71,144.5 L95.5,123.5 L113,135.75 L151.5,92"/>
+            <path android:fillColor="#FF5A5F" android:pathData="M151.5,85 a7,7 0 1,1 0,14 a7,7 0 1,1 0,-14"/>
+        </vector>

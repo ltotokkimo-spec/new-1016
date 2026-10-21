@@ -1,0 +1,75 @@
+name: Stock Backtest
+
+# 用 App 的評分規則回測過去約 6 個月，結果發布到 Releases 的 stock-radar-data，App 會自動下載。
+on:
+  push:
+    branches: [ main, 'claude/**' ]
+    paths: [ 'stock-app/src/engine/**', 'stock-app/src/data/**', 'stock-app/tools/backtest.ts', '.github/workflows/stock-backtest.yml' ]
+  workflow_dispatch: # 每天由預設分支的 stock-backtest-daily.yml 觸發（台灣時間 18:40）
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stock-backtest
+  cancel-in-progress: false
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    defaults:
+      run:
+        working-directory: stock-app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: stock-app/package-lock.json
+
+      - run: npm ci
+
+      - name: 單元測試
+        run: npx vitest run test/backtest.test.ts test/tw.test.ts test/score.test.ts
+
+      # 過去的交易日資料不會變，存在快取裡，之後每次只補新的日子
+      - name: 還原資料快取
+        uses: actions/cache/restore@v4
+        with:
+          path: stock-app/.bt-cache
+          key: bt-cache-${{ github.run_id }}
+          restore-keys: bt-cache-
+
+      - name: 下載證交所／櫃買資料並回測
+        run: |
+          npx vite build --ssr tools/backtest.ts --outDir .bt-build
+          node .bt-build/backtest.js .bt-cache backtest.json
+
+      - name: 儲存資料快取
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: stock-app/.bt-cache
+          key: bt-cache-${{ github.run_id }}
+
+      - name: 檢查結果
+        run: |
+          node -e '
+            const r = require("./backtest.json");
+            const s = r.stocks;
+            if (s.signals < 15) throw new Error("評等日太少：" + s.signals);
+            for (const g of ["買入","觀望","離場","全部"]) if (!(s.groups[g]?.[5]?.n > 0)) throw new Error(g + " 沒有樣本");
+            console.log("OK", r.from, "~", r.to, "評等日", s.signals, "買入樣本", s.groups["買入"][20]?.n);
+          '
+
+      - name: 發布結果（App 下載）
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view stock-radar-data >/dev/null 2>&1 || \
+            gh release create stock-radar-data --title "股市雷達回測資料" --prerelease --notes "App 自動下載的回測結果，不需要手動下載。" --target "${{ github.sha }}"
+          gh release upload stock-radar-data backtest.json --clobber

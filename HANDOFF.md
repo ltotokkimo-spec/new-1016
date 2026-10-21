@@ -68,6 +68,8 @@
 - 狀態檔 `stock-app/virtual/virtual-etf.json`；App 讀 `https://raw.githubusercontent.com/ltotokkimo-spec/new-1016/claude/ui-calculator-interface-t3x9kh/stock-app/virtual/virtual-etf.json`。程序在 `DAILY.md`，指令 `node --experimental-strip-types tools/virtual-etf.ts <init|fill|close|order|note|show> virtual/virtual-etf.json …`（在 `stock-app/` 執行）。
 - 排程 `trig_01GKTYGpLeqWRS2Nrv75CoTv`：平日 17:40（台北），**綁定舊對話 `session_01UVNmn5S34akG59uVThmBf3`**，不會喚醒新對話。之前試過建立新對話排程，系統**不讓新對話掛「台股官方」連接器**；使用者決定**維持現狀不動**。若舊對話不再可用，要重建排程並先測新對話查得到台股行情。
 - 10/20 收盤：淨值 97,733（−2.27%），0050 −0.50%。持有大成鋼、元大金、長榮、儒鴻、潤泰新、中鋼；10/21 開盤的委託是賣元大金 110 股、買宏碁 250 股（限價 32.85、停損 30.9）。
+- **10/21 起資金加碼到 50 萬**（`topup` 指令，加入的錢當作之前閒置的現金；App 另外列加碼前報酬），配置改成**核心＋衛星**（核心約 45%：台積電、鴻海、台達電，分批進場；使用者不要 0050）。細節在 `DAILY.md`。
+- **每週六 09:50 週檢視**：排程 `trig_015iTBWsQ3HRo3CfsdP7Djom`，綁定對話 `session_01ApWNmMJa7iJ1ivpuuMR7hZ`（新對話排程拿不到台股官方連接器與 repo，所以綁舊對話）；結果寫在 `stock-app/virtual/WEEKLY.md`，只在有數據時調整 `DAILY.md` 規則，大方向改變等使用者決定。
 - 規則：買進前要「離 20 日線 5% 內、MACD 或 KD 剛翻多、RSI<70、法人買超」，持股高檔回落（跌破 5 日線＋KD 高檔死叉）就換股；觀察名單：潤泰新、中鋼、友達。目的之一是**比較「剛轉強不追高」和「動能追強勢」哪個好**。
 
 ## 9. 待辦與未決（都等使用者決定，不要自己開工）

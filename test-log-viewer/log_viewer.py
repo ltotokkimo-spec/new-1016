@@ -29,7 +29,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
-APP_VERSION = "1.14.0"
+APP_VERSION = "1.14.1"
 APP_TITLE = f"測試結果檢視器 v{APP_VERSION}"
 DEFAULT_CSV_NAME = "operator_log.csv"
 DEFAULT_CHANNELS = 6
@@ -233,6 +233,10 @@ def parse_dt_text(s, upper=False):
     return date, parse_tod(rest, upper)
 
 
+# 這兩欄靠左對齊，其餘欄位的資料都置中
+LEFT_COLS = {"hold_channels", "fail_channels"}
+
+
 def build_columns(n_ch, hidden=()):
     """(key, 標題, 對齊)；hidden 內的欄位不顯示"""
     return [c for c in all_columns(n_ch) if c[0] not in hidden]
@@ -416,8 +420,12 @@ class GridTable(ttk.Frame):
                                    tags="grid")
                 font = self.font_big if key == "CH0" else (
                     self.font_bold if bold else self.font)
-                c.create_text(x + w / 2, y + rh / 2, text=cell_text(rec, key), anchor="center",
-                              fill=fg, font=font, tags="grid")     # 資料全部置中
+                if key in LEFT_COLS:
+                    c.create_text(x + 8, y + rh / 2, text=cell_text(rec, key), anchor="w",
+                                  fill=fg, font=font, tags="grid")
+                else:
+                    c.create_text(x + w / 2, y + rh / 2, text=cell_text(rec, key), anchor="center",
+                                  fill=fg, font=font, tags="grid")
                 x += w
             if selected:
                 c.create_rectangle(1, y + 1, x - 1, y + rh - 1, outline="#0066CC", width=2,
@@ -564,7 +572,8 @@ class GridTable(ttk.Frame):
         self.close_editor()
         bg, fg, bold = cell_style(rec, key)
         font = self.font_big if key == "CH0" else (self.font_bold if bold else self.font)
-        ent = tk.Entry(self.body, font=font, relief="solid", bd=1, justify="center",
+        ent = tk.Entry(self.body, font=font, relief="solid", bd=1,
+                       justify="left" if key in LEFT_COLS else "center",
                        readonlybackground="#FFFFFF", fg="#000000",
                        selectbackground="#0078D7", selectforeground="#FFFFFF",
                        highlightthickness=2, highlightcolor="#0066CC")
@@ -1601,7 +1610,7 @@ def export_xlsx(path, cols, rows):
             if bg != COLORS["cell_bg"]:
                 c.fill = fill(bg)
             c.font = Font(bold=bold, color=fg.lstrip("#"), size=12 if key == "CH0" else 11)
-            c.alignment = Alignment(horizontal="center")
+            c.alignment = Alignment(horizontal="left" if key in LEFT_COLS else "center")
             c.border = border
     for ci, (key, title, _) in enumerate(cols, 1):
         w = max([len(title)] + [len(str(cell_text(r, key))) for r in rows[-2000:]])

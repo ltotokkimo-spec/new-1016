@@ -177,7 +177,7 @@ const fmtAt = (t: number) => new Date(t).toLocaleString("zh-TW", { month: "numer
 
 // 去 Claude App 之前記一筆旗標；回到掃雷專區時，如果剪貼簿裡有 Claude 的回覆就問要不要載入，不用自己貼
 const PRO_KEY = "proPending";
-const PRO_TTL = 3 * 3600_000;
+const PRO_TTL = 24 * 3600_000; // 按過按鈕後 24 小時內，回到 App 都會自動偵測剪貼簿
 const proFlag = {
   get: () => { try { const t = Number(localStorage.getItem(PRO_KEY)); return t && Date.now() - t < PRO_TTL ? t : 0; } catch { return 0; } },
   set: () => { try { localStorage.setItem(PRO_KEY, String(Date.now())); } catch { /* 不重要 */ } },
@@ -268,21 +268,24 @@ function ProReview({ disabled, review }: { disabled: boolean; review: boolean })
   return (
     <div class="card stack" data-testid="pro-review">
       <b>用 Claude Pro 檢視（免費，用你的訂閱）</b>
-      <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
-        會打開 Claude App，帶入和付費版完全相同的數據與提問。Claude 回答完，長按複製整段回覆，回到這個 App 會自動偵測並問你要不要載入，載入後和付費版逐檔比較；偵測不到時也可以貼在下面。
-      </div>
+      <ol class="steps muted" style={{ fontSize: "12.5px", lineHeight: 1.7, margin: 0, paddingLeft: "18px" }} data-testid="pro-steps">
+        <li>按下面的按鈕，會自動複製提問並打開 Claude App。</li>
+        <li>在 Claude App 的輸入框<b>貼上並送出</b>，等它回答完。</li>
+        <li>按回覆<b>下方的「複製」圖示</b>（複製整段回覆；不用全選整個對話）。</li>
+        <li>回到這個 App，最上面會跳出「偵測到 Claude 的回覆」，按<b>「載入並整理」</b>就完成。</li>
+      </ol>
       <a class="btn secondary block" aria-disabled={disabled} href={prompt ? claudeAppUrl(prompt) : undefined} target="_blank" rel="noreferrer"
         onClick={() => { if (prompt) { proFlag.set(); copyText(prompt, (ok) => setCopied(ok ? "ok" : "fail")); } }} data-testid="pro-open">
         在 Claude App {review ? "檢視調整" : "建議建倉"}
       </a>
       {copied === "ok" && <div class="muted" style={{ fontSize: "12px" }} data-testid="pro-copied">已複製提問。Claude 沒有自動帶入的話，在輸入框長按「貼上」再送出。</div>}
       {copied === "fail" && <div class="muted" style={{ fontSize: "12px" }}>沒辦法自動複製提問，請再按一次。</div>}
-      <label class="field">貼上 Claude App 的回覆
+      <label class="field">偵測不到時，手動貼上 Claude 的回覆
         <textarea rows={4} value={text} onInput={(e) => onText((e.target as HTMLTextAreaElement).value)} placeholder="在 Claude App 長按回覆 →「複製」，再貼到這裡" data-testid="pro-text" />
       </label>
       {err && <div class="error" data-testid="pro-err">{err}</div>}
       {text && <button class="linkbtn" style={{ alignSelf: "flex-start" }} onClick={() => onText("")} data-testid="pro-clear">清除重貼</button>}
-      <button class="btn secondary block" disabled={!text.trim() || bad} onClick={save} data-testid="pro-save">儲存並和付費版比較</button>
+      <button class="btn secondary block" disabled={!text.trim() || bad} onClick={save} data-testid="pro-save">儲存並整理（有付費版時一併比較）</button>
     </div>
   );
 }

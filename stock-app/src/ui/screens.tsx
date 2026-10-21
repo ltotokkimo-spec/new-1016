@@ -13,6 +13,7 @@ import { isUsSymbol, MACRO_SYMBOLS } from "../data/us";
 import { marketOpen, type LiveQuote } from "../data/twLive";
 import { INDEX_CH } from "../data/twIndexLive";
 import { pretty, prettyW, taipeiToday, usQuoteHours } from "../lib/dates";
+import { latestNotes } from "../lib/notes";
 import type { BacktestResult } from "../engine/backtest";
 import type { TurnPick } from "../engine/turning";
 import { cls, fmtMoney, fmtPct, fmtPrice, lots, Markdown, PriceChart, Progress, RatingPill, Sheet } from "./common";
@@ -831,11 +832,25 @@ function UpdateBody({ compact }: { compact?: boolean }) {
   if (u.info?.available && latest) return (
     <div class="stack">
       <div><b>有新版本 {latest.versionName}</b>{compact ? "" : `（目前 ${u.info.current?.versionName}）`}</div>
-      {latest.notes && <div class="muted" style={{ fontSize: "13px", lineHeight: 1.6, whiteSpace: "pre-line" }}>{latest.notes}</div>}
+      {latest.notes && <UpdateNotes notes={latest.notes} />}
       <button class="btn block" onClick={installUpdate} data-testid="install-update">立即更新</button>
     </div>
   );
   return null;
+}
+
+/** 更新內容：只先顯示最新 5 項（新的在最上面），其餘收起來 */
+function UpdateNotes({ notes }: { notes: string }) {
+  const [all, setAll] = useState(false);
+  const { shown, hidden } = latestNotes(notes);
+  const list = all ? [...shown, ...hidden] : shown;
+  return (
+    <div class="muted" style={{ fontSize: "13px", lineHeight: 1.6 }} data-testid="update-notes">
+      <div style={{ fontWeight: 600, marginBottom: "2px" }}>最新更新</div>
+      {list.map((x) => <div>{x}</div>)}
+      {hidden.length > 0 && <button class="linkbtn" onClick={() => setAll(!all)}>{all ? "收起舊的更新" : `看更早的 ${hidden.length} 項更新`}</button>}
+    </div>
+  );
 }
 
 /** 有新版時顯示在每個分頁最上面 */

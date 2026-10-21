@@ -11,6 +11,13 @@ import { marketOpen, type LiveQuote } from "../data/twLive";
 import { cls, fmtMoney, fmtPct, fmtPrice } from "./common";
 import { AiProgressView, AiReportView, BalanceHint, copyText } from "./screens";
 
+/** 持股損益用台幣顯示：+NT$1,234／-NT$567（紅漲綠跌）；還沒有現價就不顯示 */
+function TwdPnl({ shares, avgCost, price }: { shares: number; avgCost: number; price: number | undefined }) {
+  if (price === undefined || !Number.isFinite(price)) return null;
+  const x = (price - avgCost) * shares;
+  return <><span class={cls(x)} style={{ whiteSpace: "nowrap" }}>損益 {x < 0 ? "-" : x > 0 ? "+" : ""}NT${Math.round(Math.abs(x)).toLocaleString("zh-TW")}</span>・</>;
+}
+
 /** 兩條線：我的組合 vs 0050（報酬率 %） */
 function NavChart({ points, budget, mine = "我的自組 ETF" }: { points: { date: string; nav: number; bench: number }[]; budget: number; mine?: string }) {
   if (points.length < 2) return null;
@@ -449,7 +456,7 @@ function VirtualView() {
                 <div class="item" style={{ cursor: "default" }}>
                   <div style={{ minWidth: 0 }}>
                     <div class="name">{p.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{p.code}</span></div>
-                    <div class="sub num">{p.shares.toLocaleString()} 股・均價 {fmtPrice(p.avgCost)}・佔 {c ? `${((p.shares * c / val.nav) * 100).toFixed(1)}%` : "—"}</div>
+                    <div class="sub num" style={{ whiteSpace: "normal" }} data-testid="virtual-pos-line">{p.shares.toLocaleString()} 股・均價 {fmtPrice(p.avgCost)}・<TwdPnl shares={p.shares} avgCost={p.avgCost} price={c} /><span style={{ whiteSpace: "nowrap" }}>佔 {c ? `${((p.shares * c / val.nav) * 100).toFixed(1)}%` : "—"}</span></div>
                     {v.stops?.[p.code] && <div class="sub num">停損 {fmtPrice(v.stops[p.code])}</div>}
                   </div>
                   <div class="px">
@@ -573,7 +580,7 @@ function RealEtfScreen() {
                 <div class="item" style={{ cursor: "default" }}>
                   <div style={{ minWidth: 0 }}>
                     <div class="name">{p.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{p.code}</span></div>
-                    <div class="sub num">{p.shares.toLocaleString()} 股・均價 {fmtPrice(p.avgCost)}・佔 {Number.isFinite(mv) ? `${((mv / v.nav) * 100).toFixed(1)}%` : "—"}</div>
+                    <div class="sub num" style={{ whiteSpace: "normal" }}>{p.shares.toLocaleString()} 股・均價 {fmtPrice(p.avgCost)}・<TwdPnl shares={p.shares} avgCost={p.avgCost} price={px} /><span style={{ whiteSpace: "nowrap" }}>佔 {Number.isFinite(mv) ? `${((mv / v.nav) * 100).toFixed(1)}%` : "—"}</span></div>
                     <div class="sub row" style={{ gap: "8px" }}><StopEdit p={p} stops={etf.stops} />{rating && <span class={`pill ${rating === "買入" ? "buy" : rating === "離場" ? "exit" : "hold"}`} style={{ fontSize: "11px" }}>App {rating}</span>}</div>
                   </div>
                   <div class="px">

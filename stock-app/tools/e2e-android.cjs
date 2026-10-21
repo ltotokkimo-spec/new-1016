@@ -276,6 +276,8 @@ function check(ok, name, detail = "") {
   check(/現金/.test(etfSum) && /股票市值/.test(etfSum), "自組ETF 成交後顯示現金與市值");
   check(!!(await page.$("text=台積電")), "自組ETF 持股列出台積電");
   check(!!(await page.$('[data-testid="etf-ask"]')), "自組ETF 有請 Claude 建議按鈕");
+  const wide = await page.evaluate(() => { const m = document.querySelector("main"); return [m.scrollWidth, m.clientWidth]; });
+  check(wide[0] <= wide[1] + 1, "我的實單紀錄固定滿版，不會左右晃動", `內容寬 ${wide[0]}／螢幕寬 ${wide[1]}`);
   await shot("05b-自組ETF");
   // 免費停損提醒：把停損價設在現價之上，應該馬上出現提醒與分頁紅點
   // 剛買進不會跌破預設停損（成本 −10%）；但台積電當天若被評為離場，會有離場提醒，這是正確的

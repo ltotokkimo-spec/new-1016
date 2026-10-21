@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cashFlow, comparePlans, reconcilePhoto, emptyEtf, etfAlerts, fitBudget, parsePlan, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
+import { cashFlow, comparePlans, reconcilePhoto, emptyEtf, etfAlerts, fitBudget, looksLikePlanReply, parsePlan, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
 
 const t = (code: string, side: "buy" | "sell", shares: number, price: number, benchPrice = 100, date = "20261017") =>
   ({ id: code + side + date, date, code, name: code, side, shares, price, benchPrice });
@@ -162,6 +162,22 @@ describe("parsePlan 沒有 ``` 框的 JSON（從 Claude App 複製會掉框）",
   });
   it("有 ``` 框時照舊優先用框裡的", () => {
     expect(parsePlan('{"trades":[{"code":"1111","side":"buy","shares":1}]}\n```json\n[{"code":"2222","side":"buy","shares":2,"reason":"y"}]\n```').items[0].code).toBe("2222");
+  });
+});
+
+describe("looksLikePlanReply 剪貼簿裡是不是 Claude 的回覆", () => {
+  it("有買賣清單（有框或沒框）就算", () => {
+    const body = "結論：分批買進，原因整理如下，".repeat(5);
+    expect(looksLikePlanReply(`${body}\n{"trades":[{"code":"2330","side":"buy","shares":5,"reason":"x"}]}`)).toEqual({ ok: true, items: 1 });
+    expect(looksLikePlanReply(`${body}\n\`\`\`json\n[{"code":"2330","side":"buy","shares":5}]\n\`\`\``).ok).toBe(true);
+  });
+  it("明說維持不變也算；太短、沒內容的不算", () => {
+    expect(looksLikePlanReply("目前組合配置合理，這次建議維持不變，理由：".repeat(10)).ok).toBe(true);
+    expect(looksLikePlanReply("維持不變").ok).toBe(false);
+    expect(looksLikePlanReply("隨便一段很長的文字".repeat(30)).ok).toBe(false);
+  });
+  it("App 自己送出去的提問不算", () => {
+    expect(looksLikePlanReply("今天是 2026/10/21。我要用新台幣 500,000 元做一個「自組 ETF」，會照你的建議真的下單。".padEnd(300, "字") + '{"trades":[{"code":"2330","side":"buy","shares":5}]}').ok).toBe(false);
   });
 });
 

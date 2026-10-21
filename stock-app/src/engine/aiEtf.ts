@@ -170,6 +170,14 @@ export function parsePlan(text: string): { items: PlanItem[]; body: string; stop
   return { items, body: (text.slice(0, last.start) + text.slice(last.end)).trim(), stops };
 }
 
+/** 剪貼簿裡的文字像不像 Claude 對自組 ETF 的回覆：有買賣清單，或明說維持不變；App 自己送出去的提問不算 */
+export function looksLikePlanReply(text: string): { ok: boolean; items: number } {
+  const t = text.trim();
+  if (t.length < 80 || t.slice(0, 80).includes("我要用新台幣")) return { ok: false, items: 0 };
+  const items = parsePlan(t).items.length;
+  return { ok: items > 0 || (/維持不變/.test(t) && t.length > 150), items };
+}
+
 /** 依預算檢查：買進總額（含手續費）超過可用現金時，等比例縮小股數 */
 export function fitBudget(items: PlanItem[], price: (code: string) => number | undefined, cash: number): PlanItem[] {
   const sells = items.filter((x) => x.side === "sell").reduce((a, x) => a + cashFlow({ side: "sell", shares: x.shares, price: price(x.code) ?? 0 }), 0);

@@ -278,6 +278,12 @@ function check(ok, name, detail = "") {
   check(/報酬 [+-]?[\d.]+% 總損益 [+-]?[\d,]+/.test(etfSum) && (etfSum.match(/總損益/g) || []).length === 2, "實單紀錄淨值與 0050 兩格都在報酬後面顯示總損益", etfSum.slice(0, 200));
   check(!!(await page.$("text=台積電")), "自組ETF 持股列出台積電");
   check(!!(await page.$('[data-testid="etf-ask"]')), "自組ETF 有請 Claude 建議按鈕");
+  // 從 Claude App 回來：模擬已按過「在 Claude App 檢視」再回到前景，要出現偵測卡或「貼上並載入」按鈕
+  await page.evaluate(() => { localStorage.setItem("proPending", String(Date.now())); document.dispatchEvent(new Event("visibilitychange")); });
+  const resumeUi = await page.waitForSelector('[data-testid="pro-found"], [data-testid="pro-resume"]', { timeout: 8000 }).then((h) => h.getAttribute("data-testid")).catch(() => "");
+  check(!!resumeUi, "從 Claude App 回來時出現「偵測到回覆／貼上並載入」提示", resumeUi);
+  if (resumeUi === "pro-resume") await page.click("text=不用了");
+  await page.evaluate(() => localStorage.removeItem("proPending"));
   const wide = await page.evaluate(() => { const m = document.querySelector("main"); return [m.scrollWidth, m.clientWidth]; });
   check(wide[0] <= wide[1] + 1, "我的實單紀錄固定滿版，不會左右晃動", `內容寬 ${wide[0]}／螢幕寬 ${wide[1]}`);
   await shot("05b-自組ETF");

@@ -4,7 +4,7 @@ import {
   addEtfTrades, deleteEtfTrade, refreshLive, refreshVirtual, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError, holdingsFromImage, shrinkImage } from "../ai/claude";
-import { comparePlans, DEFAULT_STOP, fitBudget, parsePlan, positions, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
+import { comparePlans, DEFAULT_STOP, fitBudget, looksLikePlanReply, parsePlan, positions, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { orderDay, pretty, prettyW, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
 import { marketOpen, type LiveQuote } from "../data/twLive";
@@ -162,6 +162,79 @@ function DateHint({ asOf, latest, what = "這份建議" }: { asOf?: string; late
 
 const fmtAt = (t: number) => new Date(t).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
+// 去 Claude App 之前記一筆旗標；回到掃雷專區時，如果剪貼簿裡有 Claude 的回覆就問要不要載入，不用自己貼
+const PRO_KEY = "proPending";
+const PRO_TTL = 3 * 3600_000;
+const proFlag = {
+  get: () => { try { const t = Number(localStorage.getItem(PRO_KEY)); return t && Date.now() - t < PRO_TTL ? t : 0; } catch { return 0; } },
+  set: () => { try { localStorage.setItem(PRO_KEY, String(Date.now())); } catch { /* 不重要 */ } },
+  clear: () => { try { localStorage.removeItem(PRO_KEY); } catch { /* 不重要 */ } },
+};
+let proIgnored = ""; // 按過「略過」或已載入的那份回覆，不再重複問
+
+/** 從 Claude App 回來：偵測剪貼簿的回覆，按一下載入並整理（讀不到剪貼簿就請你按「貼上並載入」） */
+function ProResume() {
+  const [pending, setPending] = useState(() => proFlag.get() > 0);
+  const [found, setFound] = useState<{ text: string; items: number } | null>(null);
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const check = async () => {
+    if (!proFlag.get()) { setPending(false); return; }
+    setPending(true);
+    try {
+      const text = await navigator.clipboard.readText();
+      const r = looksLikePlanReply(text);
+      if (r.ok && text.trim() !== proIgnored) { setFound({ text, items: r.items }); setMsg(""); }
+    } catch { /* 沒有權限或畫面還沒回到前景：用下面的按鈕，按下去就有權限 */ }
+  };
+  useEffect(() => {
+    check();
+    const on = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", on);
+    window.addEventListener("focus", on);
+    return () => { document.removeEventListener("visibilitychange", on); window.removeEventListener("focus", on); };
+  }, []);
+  const load = async (text: string, items: number) => {
+    setBusy(true);
+    await saveProReply(text);
+    proIgnored = text.trim();
+    proFlag.clear();
+    setFound(null); setPending(false); setBusy(false);
+    setMsg(`已載入 Claude 的建議（${items ? `${items} 筆買賣` : "維持不變"}），往下看整理好的結果${items ? "與填成交表單" : ""}。`);
+  };
+  const pasteAndLoad = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const r = looksLikePlanReply(text);
+      if (!r.ok) return setMsg("剪貼簿裡還沒有 Claude 的回覆。請到 Claude App 長按回覆 →「複製」，再回來按一次。");
+      await load(text, r.items);
+    } catch {
+      setMsg("這支手機不讓 App 讀剪貼簿，請用下面的「貼上 Claude App 的回覆」手動貼上。");
+      document.querySelector('[data-testid="pro-text"]')?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  };
+  const skip = () => { if (found) proIgnored = found.text.trim(); setFound(null); };
+  const cancel = () => { proFlag.clear(); setPending(false); setFound(null); };
+  if (found) return (
+    <div class="card stack" style={{ borderColor: "var(--accent)", marginBottom: "12px" }} data-testid="pro-found">
+      <b>偵測到 Claude 的回覆（{found.items ? `${found.items} 筆買賣` : "維持不變"}）</b>
+      <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>{parsePlan(found.text).body.replace(/\s+/g, " ").slice(0, 80)}…</div>
+      <button class="btn block" onClick={() => load(found.text, found.items)} disabled={busy} data-testid="pro-found-load">載入並整理</button>
+      <button class="linkbtn" onClick={skip}>這不是，略過</button>
+    </div>
+  );
+  if (pending) return (
+    <div class="card stack" style={{ borderColor: "var(--accent)", marginBottom: "12px" }} data-testid="pro-resume">
+      <b>從 Claude App 回來了嗎？</b>
+      <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>在 Claude App 長按回覆 →「複製」，回來按下面的按鈕，App 會自動整理並帶出填成交表單。</div>
+      <button class="btn block" onClick={pasteAndLoad} data-testid="pro-resume-paste">貼上 Claude 的回覆並載入</button>
+      {msg && <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>{msg}</div>}
+      <button class="linkbtn" onClick={cancel}>不用了</button>
+    </div>
+  );
+  return msg ? <div class="notice" style={{ marginBottom: "12px" }} data-testid="pro-loaded">{msg}</div> : null;
+}
+
 /** 用 Claude App（Pro 訂閱）檢視：帶同一份數據與提問過去，回覆貼回來比較，不扣 API 額度 */
 function ProReview({ disabled, review }: { disabled: boolean; review: boolean }) {
   const [copied, setCopied] = useState<"" | "ok" | "fail">("");
@@ -179,10 +252,10 @@ function ProReview({ disabled, review }: { disabled: boolean; review: boolean })
     <div class="card stack" data-testid="pro-review">
       <b>用 Claude Pro 檢視（免費，用你的訂閱）</b>
       <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
-        會打開 Claude App，帶入和付費版完全相同的數據與提問。Claude 回答完，長按複製整段回覆，回來貼在下面，App 會和付費版逐檔比較。
+        會打開 Claude App，帶入和付費版完全相同的數據與提問。Claude 回答完，長按複製整段回覆，回到這個 App 會自動偵測並問你要不要載入，載入後和付費版逐檔比較；偵測不到時也可以貼在下面。
       </div>
       <a class="btn secondary block" aria-disabled={disabled} href={prompt ? claudeAppUrl(prompt) : undefined} target="_blank" rel="noreferrer"
-        onClick={() => prompt && copyText(prompt, (ok) => setCopied(ok ? "ok" : "fail"))} data-testid="pro-open">
+        onClick={() => { if (prompt) { proFlag.set(); copyText(prompt, (ok) => setCopied(ok ? "ok" : "fail")); } }} data-testid="pro-open">
         在 Claude App {review ? "檢視調整" : "建議建倉"}
       </a>
       {copied === "ok" && <div class="muted" style={{ fontSize: "12px" }} data-testid="pro-copied">已複製提問。Claude 沒有自動帶入的話，在輸入框長按「貼上」再送出。</div>}
@@ -540,6 +613,7 @@ function RealEtfScreen() {
 
   return (
     <div>
+      <ProResume />
       <AlertCard alerts={alerts} onAsk={ask} canAsk={!busy && !!st.apiKey && st.twReady} asOf={st.asOf} />
       <div class="card stack" data-testid="etf-summary">
         <div class="row" style={{ justifyContent: "space-between" }}>

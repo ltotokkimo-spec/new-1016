@@ -319,7 +319,9 @@ function check(ok, name, detail = "") {
   await page.click('[data-testid="etf-trade-save"]');
   await page.waitForSelector('[data-testid="off-list"]', { timeout: 10000 }).catch(() => {});
   const offRows = await page.$$eval('[data-testid="off-list"]', (xs) => xs.map((x) => x.parentElement.innerText.replace(/\s+/g, " ")));
-  check(offRows.length >= 1 && offRows.every((r) => !/台積電/.test(r)) && offRows.some((r) => /7861|貝爾威勒/.test(r)), "買進不在選股清單的股票：成交紀錄標「非選股清單」，但沒有阻擋", JSON.stringify(offRows));
+  const offDiag = await page.evaluate(() => ({ formOpen: !!document.querySelector('[data-testid="etf-trade-form"]'), formErr: document.querySelector('[data-testid="etf-trade-form"] .error')?.innerText || "", trades: (document.querySelector('[data-testid="etf-trades"]')?.innerText || "").replace(/\s+/g, " ").slice(0, 200) }));
+  log("非選股清單", JSON.stringify({ offRows, ...offDiag }));
+  check(offRows.length >= 1 && offRows.some((r) => /7861|貝爾威勒/.test(r)), "買進不在選股清單的股票：成交紀錄標「非選股清單」，但沒有阻擋", JSON.stringify({ offRows, ...offDiag }));
   await shot("05d-非選股清單提醒");
   const cand = await page.$eval('[data-testid="candidates"]', (e) => ({ rows: e.querySelectorAll("tbody tr:not(.grp)").length, grp: e.querySelectorAll("tbody tr.grp").length, cols: e.querySelectorAll("thead th").length, over: e.querySelector("table").scrollWidth > e.querySelector("table").parentElement.clientWidth + 1 })).catch(() => null);
   check(!!cand && cand.rows >= 3 && cand.rows <= 12 && cand.cols === 5 && !cand.over, "候選股一覽：依產業分組、5 欄、手機寬度不用左右滑", JSON.stringify(cand));

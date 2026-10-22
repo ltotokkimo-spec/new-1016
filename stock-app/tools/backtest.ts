@@ -5,11 +5,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { TwLoader } from "../src/data/twLoader";
 import { runBacktest, type BtDay } from "../src/engine/backtest";
+import { formatFactors, runFactors } from "../src/engine/factors";
 import { adjustedSeries, indicators } from "../src/engine/turning";
 import { taipeiToday, weekdaysBack } from "../src/lib/dates";
 import type { KV } from "../src/lib/kv";
 
-const [cacheDir = ".bt-cache", outFile = "backtest.json"] = process.argv.slice(2);
+const [cacheDir = ".bt-cache", outFile = "backtest.json", factorsFile = "factors.json"] = process.argv.slice(2);
 fs.mkdirSync(cacheDir, { recursive: true });
 
 const fileKV = (dir: string): KV => {
@@ -70,6 +71,12 @@ if (days.length < 60) throw new Error("交易日太少，資料可能下載失�
 
 const r = runBacktest(days, companies);
 fs.writeFileSync(outFile, JSON.stringify(r));
+// 因子分析（研究用，不影響 App 的評分）：失敗也不能讓回測失敗
+try {
+  const fr = runFactors(days, companies);
+  fs.writeFileSync(factorsFile, JSON.stringify(fr));
+  for (const line of formatFactors(fr)) log(line);
+} catch (e) { log("因子分析失敗（不影響回測）：", e); }
 const pct = (x?: number) => (x === undefined || !Number.isFinite(x) ? "—" : `${(x * 100).toFixed(2)}%`);
 for (const u of ["stocks", "etf"] as const) {
   log(`== ${u}：${r[u].signals} 個評等日（${r.from} ~ ${r.to}）`);

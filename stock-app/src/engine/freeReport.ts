@@ -62,7 +62,7 @@ export function freeReport(p: { s: Scored; bars: FreeBar[]; revenue?: Revenue; h
   parts.push(s.sectorScore >= 0.6 ? "族群強勢" : s.sectorScore <= 0.4 ? "族群偏弱" : "族群持平");
   out.push(`- App 分數 **${s.score}/100**（動能 ${Math.round(s.momentum * 100)}、${us ? "趨勢" : "籌碼"} ${Math.round(s.flow * 100)}、族群 ${Math.round(s.sectorScore * 100)}）：${parts.join("、")}。`);
   if (ref) out.push("- ETF 只給分數當參考，不給買賣評等（回測顯示這套短線規則對 ETF 分辨不出好壞）。");
-  else if (s.rating === "買入") out.push("- 規則評為「買入」：動能、籌碼、族群同時偏多，而且一週漲幅還沒過熱。回測顯示這類股票之後一個月平均表現較好，但約有 4 成仍會下跌，務必設停損。");
+  else if (s.rating === "買入") out.push("- 規則評為「買入」：動能、籌碼、族群同時偏多，而且一週漲幅還沒過熱。但這只是依規則整理的現況：App 回測（約 6 個月）顯示「買入」股票之後一個月並沒有贏過全部股票的平均，約一半會下跌，不能當作會漲的保證，務必設停損。");
   else if (s.rating === "離場") out.push("- 規則評為「離場」：分數偏低，或近一個月跌深且外資賣超，短期不宜進場，持有者要考慮減碼。");
   else out.push(`- 規則評為「觀望」：訊號分歧${s.score >= 70 ? "（分數夠高，但外資沒有買超或一週漲幅已過熱）" : `（分數 ${s.score} 未達買入門檻 70）`}，可以放進觀察名單等待更明確的訊號。`);
 

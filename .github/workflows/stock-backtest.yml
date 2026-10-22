@@ -33,7 +33,7 @@ jobs:
       - run: npm ci
 
       - name: 單元測試
-        run: npx vitest run test/backtest.test.ts test/tw.test.ts test/score.test.ts
+        run: npx vitest run test/backtest.test.ts test/factors.test.ts test/tw.test.ts test/score.test.ts
 
       # 過去的交易日資料不會變，存在快取裡，之後每次只補新的日子
       - name: 還原資料快取
@@ -73,3 +73,4 @@ jobs:
           gh release view stock-radar-data >/dev/null 2>&1 || \
             gh release create stock-radar-data --title "股市雷達回測資料" --prerelease --notes "App 自動下載的回測結果，不需要手動下載。" --target "${{ github.sha }}"
           gh release upload stock-radar-data backtest.json --clobber
+          if [ -f factors.json ]; then gh release upload stock-radar-data factors.json --clobber; fi

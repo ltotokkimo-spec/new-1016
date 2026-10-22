@@ -792,8 +792,13 @@ export function MacroScreen() {
               <Metric k={`台指期 ${name}`} v={q.last.toLocaleString("zh-TW", { maximumFractionDigits: 0 })} c={cls(q.change)}
                 d={`${q.change > 0 ? "+" : ""}${q.change.toFixed(0)}（${q.changePct > 0 ? "+" : ""}${q.changePct.toFixed(2)}%）${q.time ? `・${q.time}` : ""}${q.high !== undefined && q.low !== undefined ? `・高 ${q.high.toLocaleString("zh-TW")} 低 ${q.low.toLocaleString("zh-TW")}` : ""}`} />
             ))}
+            {st.fut.day?.spot && (() => {
+              const q = st.fut.day, basis = q.last - q.spot!;
+              return <Metric k="基差（期貨−現貨）" v={`${basis > 0 ? "+" : ""}${basis.toFixed(0)} 點`}
+                d={`${basis > 0 ? "正價差" : basis < 0 ? "逆價差" : "平價"}（${basis > 0 ? "+" : ""}${((basis / q.spot!) * 100).toFixed(2)}%）・期貨 ${q.last.toLocaleString("zh-TW", { maximumFractionDigits: 0 })}／現貨 ${q.spot!.toLocaleString("zh-TW", { maximumFractionDigits: 0 })}`} />;
+            })()}
           </div>
-          <div class="muted" style={{ fontSize: "11px", marginTop: "4px", lineHeight: 1.5 }}>夜盤是昨晚 15:00 到今天清晨 05:00 的交易，漲跌是對前一個交易日的結算價；開盤前可以先看夜盤預判今天開盤方向。</div>
+          <div class="muted" style={{ fontSize: "11px", marginTop: "4px", lineHeight: 1.5 }}>夜盤是昨晚 15:00 到今天清晨 05:00 的交易，漲跌是對前一個交易日的結算價；開盤前可以先看夜盤預判今天開盤方向。基差＝日盤近月期貨價減現貨（加權指數）價，正的是正價差（期貨比現貨貴），負的是逆價差；日盤收盤後的基差是收盤時的。</div>
         </>
       )}
       {st.breadth && (

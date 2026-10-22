@@ -18,6 +18,7 @@ export interface FutQuote {
   changePct: number; // 百分比，例如 −0.21
   high?: number; low?: number;
   volume?: number; // 累計成交量（口）
+  spot?: number; // 同一份報價裡的現貨（加權指數）價位，算基差用；夜盤沒有現貨成交所沒有
   date: string; // 交易日 YYYYMMDD（夜盤算下一個交易日開頭的那一天，即 15:00 開盤那天）
   time: string; // HH:MM（最後一筆成交）
 }
@@ -31,12 +32,14 @@ export function parseTaifex(json: any, session: FutSession): FutQuote | undefine
   if (!q) return undefined;
   const last = parseNum(q.CLastPrice), ref = parseNum(q.CRefPrice);
   if (!(last > 0) || !(ref > 0)) return undefined;
+  const spotRow = list.find((x) => /^TXF-[SP]$/.test(String(x?.SymbolID ?? "")));
+  const spot = parseNum(spotRow?.CLastPrice);
   const diff = parseNum(q.CDiff);
   const change = Number.isFinite(diff) ? diff : last - ref;
   const t = String(q.CTime ?? "");
   return {
     session, symbol: String(q.SymbolID), last, ref, change, changePct: (change / ref) * 100,
-    high: positive(parseNum(q.CHighPrice)), low: positive(parseNum(q.CLowPrice)), volume: positive(parseNum(q.CTotalVolume)),
+    high: positive(parseNum(q.CHighPrice)), low: positive(parseNum(q.CLowPrice)), volume: positive(parseNum(q.CTotalVolume)), spot: positive(spot),
     date: String(q.CDate ?? ""), time: t.length >= 4 ? `${t.slice(0, 2)}:${t.slice(2, 4)}` : "",
   };
 }

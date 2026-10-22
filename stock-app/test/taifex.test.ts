@@ -23,6 +23,7 @@ describe("台指期（期交所 MIS）", () => {
     expect([q.high, q.low, q.volume]).toEqual([47337, 46840, 24199]);
     expect(q.time).toBe("10:21");
     expect(q.session).toBe("day");
+    expect(q.spot).toBe(46794.63); // 同一份報價裡的現貨（TXF-S）：基差 = 期貨 − 現貨 = 46,914 − 46,794.63
   });
   it("夜盤：昨晚到清晨的近月，漲跌對前一日結算價，時間是最後一筆成交", () => {
     const q = parseTaifex(NIGHT, "night")!;
@@ -31,6 +32,7 @@ describe("台指期（期交所 MIS）", () => {
     expect(q.change).toBe(469);
     expect(q.changePct).toBeCloseTo(0.9976, 3);
     expect(q.time).toBe("04:59");
+    expect(q.spot).toBeUndefined(); // 夜盤沒有現貨成交價，不算基差
   });
   it("開盤前沒有成交價（只有現貨或空值）就不顯示", () => {
     expect(parseTaifex({ RtData: { QuoteList: [{ SymbolID: "TXFK6-F", CLastPrice: "", CRefPrice: "47013.00" }] } }, "day")).toBeUndefined();

@@ -564,6 +564,13 @@ function check(ok, name, detail = "") {
   check(card.includes(`目前版本 1.0.${run}`), "App 讀到自己的版本號", card);
   // 上一版還沒有 version.json 時會是 404，之後的版本都要讀得到
   check(/已是最新版本/.test(card) || /HTTP 404/.test(card), "檢查更新可以讀到 GitHub 上的最新版資訊", card);
+  // 設定頁的「立即更新全部資料」：按下去要有回應（更新中→完成），並列出各來源的資料日（之前看起來沒反應）
+  await page2.click('[data-testid="refresh-all"]');
+  const busyTxt = await page2.$eval('[data-testid="refresh-all"]', (b) => b.innerText).catch(() => "");
+  await page2.waitForFunction(() => /已在 \d\d:\d\d 檢查完畢|失敗/.test(document.querySelector('[data-testid="data-status"]')?.innerText || ""), null, { timeout: 180000 }).catch(() => {});
+  const dataSt = await page2.$eval('[data-testid="data-status"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
+  log("資料更新", JSON.stringify({ busyTxt, dataSt }));
+  check(/台股：資料日 \d+\/\d+/.test(dataSt) && /美股：資料日 \d+\/\d+/.test(dataSt) && /已在 \d\d:\d\d 檢查完畢/.test(dataSt), "設定頁按「立即更新全部資料」後顯示各來源的資料日與完成時間", `${busyTxt}｜${dataSt}`);
   await page2.evaluate(() => window.__srForceUpdate());
   await device.shell(`appops set ${PKG} REQUEST_INSTALL_PACKAGES default`);
   await page2.click('[data-testid="install-update"]');

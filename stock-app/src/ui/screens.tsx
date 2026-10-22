@@ -1073,6 +1073,48 @@ function SpendCard() {
   );
 }
 
+/** 設定頁的「資料」卡：兩個按鈕按下去要看得到進度與結果（之前只在別的分頁更新，設定頁看起來沒反應） */
+function DataRefreshCard() {
+  const st = useStore((s) => ({ tw: s.tw, us: s.us, macro: s.macro }));
+  const [running, setRunning] = useState(false);
+  const [doneAt, setDoneAt] = useState<number | undefined>();
+  const busy = running || !!st.tw.progress || !!st.us.progress;
+  const hhmm = (ms?: number) => (ms ? new Date(ms).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false }) : "");
+  const refreshAll = async () => {
+    setRunning(true); setDoneAt(undefined);
+    await Promise.allSettled([refreshTw(), refreshEsb(), refreshUs(), refreshMacro()]);
+    setRunning(false); setDoneAt(Date.now());
+  };
+  const clear = async () => {
+    if (!window.confirm("清除快取會把台股、美股資料全部重新下載，台股約需 1～3 分鐘，這段時間選股頁會暫時沒有資料。確定要清除嗎？")) return;
+    setRunning(true); setDoneAt(undefined);
+    await clearCache();
+    setRunning(false); setDoneAt(Date.now());
+  };
+  const line = (name: string, m: { progress?: { done: number; total: number; label: string }; error?: string; asOf?: string; fetchedAt?: number }) =>
+    m.progress ? `${name}：更新中（${m.progress.label} ${m.progress.done}/${m.progress.total}）`
+      : m.error ? `${name}：${m.error}`
+      : m.asOf ? `${name}：資料日 ${pretty(m.asOf)}・${hhmm(m.fetchedAt)} 已檢查` : `${name}：尚無資料`;
+  const lines = [line("台股", st.tw), line("美股", st.us),
+    st.macro.status === "loading" ? "國際指標：更新中" : st.macro.error ? `國際指標：${st.macro.error}` : st.macro.at ? `國際指標：${hhmm(st.macro.at)} 已更新` : "國際指標：尚無資料"];
+  const bad = lines.some((l) => /失敗|錯誤/.test(l));
+  return (
+    <div class="card stack" data-testid="data-card">
+      <div class="row">
+        <button class="btn secondary" disabled={busy} onClick={refreshAll} data-testid="refresh-all">{busy ? "更新中…" : "立即更新全部資料"}</button>
+        <button class="btn danger" disabled={busy} onClick={clear}>清除快取重新下載</button>
+      </div>
+      <div class={bad ? "error" : "notice"} style={{ fontSize: "13px", lineHeight: 1.7 }} data-testid="data-status">
+        {lines.map((l) => <div>{l}</div>)}
+        {!busy && doneAt && !bad && <div style={{ marginTop: "4px" }}>已在 {hhmm(doneAt)} 檢查完畢。若資料日沒變，代表證交所還沒公布新資料。</div>}
+      </div>
+      <div class="muted" style={{ fontSize: "13px", lineHeight: 1.7 }}>
+        資料來源：臺灣證券交易所、證券櫃檯買賣中心（行情、三大法人、產業別）、Nasdaq（美股日K）、CNBC（國際指標）。證交所約下午 2 點後公布當日收盤行情，下午 3~5 點公布當日法人資料。
+      </div>
+    </div>
+  );
+}
+
 export function SettingsScreen() {
   const settings = useStore((s) => s.settings);
   const [key, setKey] = useState(settings.apiKey);
@@ -1111,15 +1153,7 @@ export function SettingsScreen() {
       <div class="section-title"><span>App 更新</span></div>
       <UpdateCard />
       <div class="section-title"><span>資料</span></div>
-      <div class="card stack">
-        <div class="row">
-          <button class="btn secondary" onClick={() => { refreshTw(); refreshEsb(); refreshUs(); refreshMacro(); }}>立即更新全部資料</button>
-          <button class="btn danger" onClick={clearCache}>清除快取重新下載</button>
-        </div>
-        <div class="muted" style={{ fontSize: "13px", lineHeight: 1.7 }}>
-          資料來源：臺灣證券交易所、證券櫃檯買賣中心（行情、三大法人、產業別）、Nasdaq（美股日K）、CNBC（國際指標）。證交所約下午 3~5 點公布當日法人資料。
-        </div>
-      </div>
+      <DataRefreshCard />
       <div class="notice">本 App 為個人研究工具，評等由公開數據依固定規則計算，AI 解析可能有誤，不構成投資建議。投資前請自行判斷。</div>
     </div>
   );

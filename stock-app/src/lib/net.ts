@@ -12,6 +12,7 @@ const GAP_MS: Record<string, number> = {
   "www.twse.com.tw": 2000,
   "openapi.twse.com.tw": 800,
   "mis.twse.com.tw": 1000,
+  "mis.taifex.com.tw": 1000,
   "www.tpex.org.tw": 1000,
   "api.nasdaq.com": 250,
   "quote.cnbc.com": 0,
@@ -63,3 +64,26 @@ export const fetchJson: Fetcher = async (url) => {
     }
   }
 };
+
+/** 期交所 MIS 這類要用 POST（JSON）才拿得到的即時報價 */
+export async function postJson(url: string, body: unknown): Promise<any> {
+  const host = new URL(url).host;
+  await throttle(host);
+  const headers = { Accept: "application/json, text/plain, */*", "Content-Type": "application/json;charset=UTF-8", "User-Agent": UA, Origin: `https://${host}`, Referer: `https://${host}/futures/` };
+  for (let attempt = 0; ; attempt++) {
+    try {
+      if (Capacitor.isNativePlatform()) {
+        const r = await withTimeout(CapacitorHttp.post({ url, headers, data: body, responseType: "json", connectTimeout: 20000, readTimeout: 60000 }), url);
+        if (r.status >= 400) throw new HttpError(r.status, url, `HTTP ${r.status}`);
+        return typeof r.data === "string" ? JSON.parse(r.data) : r.data;
+      }
+      const r = await withTimeout(fetch(devUrl(url), { method: "POST", headers: { Accept: headers.Accept, "Content-Type": headers["Content-Type"] }, body: JSON.stringify(body) }), url);
+      if (!r.ok) throw new HttpError(r.status, url, `HTTP ${r.status}`);
+      return await r.json();
+    } catch (e) {
+      const retryable = !(e instanceof HttpError) || e.status === 429 || e.status >= 500;
+      if (attempt >= 1 || !retryable) throw e;
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
+}

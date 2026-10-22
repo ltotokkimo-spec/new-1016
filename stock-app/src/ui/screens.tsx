@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import {
   findScored, getFetcher, getKv, getState, holdingViews, refreshEsb, refreshMacro, refreshTw, refreshUs, saveHoldings, saveReport,
   saveSettings, clearCache, useStore, usBars, recordSpend, estimatedBalance, checkForUpdate, installUpdate,
-  addUsSymbol, removeUsSymbol, refreshLive, refreshUsLive, refreshTwIndex, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
+  addUsSymbol, removeUsSymbol, refreshLive, refreshUsLive, refreshTwIndex, refreshFutures, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
 } from "../store";
 import type { Holding, Rating, Scored, SectorStat } from "../engine/score";
 import { type AiReport, analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, parseUrls, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
@@ -706,11 +706,11 @@ function ImportReview({ data, onDone }: { data: { rows: ImportedHolding[]; note:
 
 // ---------------- 數據（國內外指標＋AI 解讀） ----------------
 export function MacroScreen() {
-  const st = useStore((s) => ({ macro: s.macro, tw: s.tw, us: s.us, idx: s.twIndices, breadth: s.twBreadth, idxLive: s.twIndexLive, etfs: s.usSectorEtfs, apiKey: s.settings.apiKey, reports: s.reports }));
+  const st = useStore((s) => ({ macro: s.macro, tw: s.tw, us: s.us, idx: s.twIndices, breadth: s.twBreadth, idxLive: s.twIndexLive, fut: s.futures, etfs: s.usSectorEtfs, apiKey: s.settings.apiKey, reports: s.reports }));
   // 台股指數盤中每 30 秒更新（收盤後 MIS 回傳收盤價，仍會顯示）
   useEffect(() => {
-    refreshTwIndex();
-    const t = setInterval(() => { if (marketOpen()) refreshTwIndex(); }, 30_000);
+    refreshTwIndex(); refreshFutures();
+    const t = setInterval(() => { if (marketOpen()) refreshTwIndex(); refreshFutures(); }, 30_000);
     return () => clearInterval(t);
   }, []);
   // 盤中即時優先，沒有再用快照的收盤
@@ -757,6 +757,18 @@ export function MacroScreen() {
           <div class="grid2">
             {st.idx.map((i) => <Metric k={i.name.replace("發行量加權股價指數", "加權指數")} v={i.close.toLocaleString("zh-TW")} c={cls(i.change)} d={`${i.change > 0 ? "+" : ""}${i.change.toFixed(2)}（${i.changePct > 0 ? "+" : ""}${i.changePct}%）`} />)}
           </div>
+        </>
+      )}
+      {(st.fut.day || st.fut.night) && (
+        <>
+          <div class="section-title" data-testid="fut-title"><span>台指期（近月）</span></div>
+          <div class="grid2" data-testid="fut-grid">
+            {([["日盤", st.fut.day], ["夜盤", st.fut.night]] as const).map(([name, q]) => q && (
+              <Metric k={`台指期 ${name}`} v={q.last.toLocaleString("zh-TW", { maximumFractionDigits: 0 })} c={cls(q.change)}
+                d={`${q.change > 0 ? "+" : ""}${q.change.toFixed(0)}（${q.changePct > 0 ? "+" : ""}${q.changePct.toFixed(2)}%）${q.time ? `・${q.time}` : ""}${q.high !== undefined && q.low !== undefined ? `・高 ${q.high.toLocaleString("zh-TW")} 低 ${q.low.toLocaleString("zh-TW")}` : ""}`} />
+            ))}
+          </div>
+          <div class="muted" style={{ fontSize: "11px", marginTop: "4px", lineHeight: 1.5 }}>夜盤是昨晚 15:00 到今天清晨 05:00 的交易，漲跌是對前一個交易日的結算價；開盤前可以先看夜盤預判今天開盤方向。</div>
         </>
       )}
       {st.breadth && (

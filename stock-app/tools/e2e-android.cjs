@@ -233,6 +233,12 @@ function check(ok, name, detail = "") {
   // 開盤前（台灣時間 09:00 前）證交所即時資料全是 0，沒有量能可顯示：四大指數漲跌都是 0.00 就略過
   const preOpen = ["加權指數", "臺灣50指數", "半導體類指數", "金融保險類指數"].every((n) => macro.some((m) => m.startsWith(n) && /0\.00（0\.00%）/.test(m)));
   check(preOpen || (macro.some((m) => /成交量 [\d.]+ 億股/.test(m)) && macro.some((m) => /成交筆數 \d+ 萬筆/.test(m))), "顯示大盤成交量與成交筆數", preOpen ? "尚未開盤，略過" : JSON.stringify(macro.filter((m) => /成交/.test(m))));
+  // 台指期近月：夜盤（昨晚到清晨）一定有；日盤要開盤後才有，開盤前（四大指數漲跌都是 0.00）略過
+  const futCards = macro.filter((m) => /^台指期 (日盤|夜盤)/.test(m));
+  log("台指期", JSON.stringify(futCards));
+  const futOk = (name) => futCards.some((m) => new RegExp(`^台指期 ${name} [\\d,]{5,} [+-]?\\d+（[+-]?\\d+\\.\\d\\d%）`).test(m));
+  check(futOk("夜盤"), "數據頁顯示台指期夜盤（價格、漲跌、漲跌幅）", JSON.stringify(futCards));
+  check(preOpen || futOk("日盤"), "數據頁顯示台指期日盤（價格、漲跌、漲跌幅）", preOpen ? "尚未開盤，略過" : JSON.stringify(futCards));
   // 收盤漲跌家數：上市、上櫃都要有「漲 N／跌 N」，且上市家數合理（普通股約 1000 檔以上）
   check(macro.some((m) => /^上市 漲 \d+／跌 \d+ 持平 \d+/.test(m)) && macro.some((m) => /^上櫃 漲 \d+／跌 \d+ 持平 \d+/.test(m)), "顯示收盤漲跌家數（上市、上櫃）", JSON.stringify(macro.filter((m) => /漲 \d+／跌/.test(m))));
   const bsum = macro.find((m) => /^上市 漲 \d+／跌/.test(m))?.match(/漲 (\d+)／跌 (\d+) 持平 (\d+)/);

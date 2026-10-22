@@ -20,7 +20,9 @@ function devProxy(): Plugin {
             res.setHeader("content-type", "application/json");
             return res.end(fs.readFileSync(file));
           }
-          const r = await fetch(target, { headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" } });
+          let body: Buffer | undefined;
+          if (req.method === "POST") { const chunks: Buffer[] = []; for await (const c of req) chunks.push(c as Buffer); body = Buffer.concat(chunks); }
+          const r = await fetch(target, { method: req.method, body, headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json", ...(body ? { "Content-Type": "application/json;charset=UTF-8", Origin: `https://${rest.split("/")[0]}`, Referer: `https://${rest.split("/")[0]}/futures/` } : {}) } });
           res.statusCode = r.status;
           res.setHeader("content-type", r.headers.get("content-type") ?? "application/json");
           res.end(Buffer.from(await r.arrayBuffer()));

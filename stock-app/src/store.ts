@@ -1,12 +1,13 @@
 // App 狀態：資料快照、評分結果、持股、設定。全部存在手機的 IndexedDB。
 import { useEffect, useState } from "preact/hooks";
 import { indexedKV, type KV } from "./lib/kv";
-import { fetchJson, type Fetcher } from "./lib/net";
+import { fetchJson, postJson, type Fetcher } from "./lib/net";
 import { TwLoader, TW_SNAPSHOT_VERSION, type TwSnapshot } from "./data/twLoader";
 import { isEtf, parseEsbLatest, twUrls, type EsbQuote } from "./data/tw";
 import { UsLoader, type UsSnapshot } from "./data/usLoader";
 import { cnbcUrl, isUsSymbol, MACRO_SYMBOLS, parseCnbcQuotes, US_UNIVERSE, type MacroQuote, type UsExtra } from "./data/us";
 import { indexLiveUrl, parseIndexLive, type IndexLive } from "./data/twIndexLive";
+import { TAIFEX_URL, parseTaifex, taifexBody, type FutQuote } from "./data/taifexLive";
 import { scoreStocks, reviewHolding, type Holding, type HoldingView, type Scored, type SectorStat } from "./engine/score";
 import { aiEtfAdvice, explainError, type AiProgress, type EtfAdviceInput, type AiReport, type OnProgress } from "./ai/claude";
 import { orderDay, prettyW, taipeiToday, twNeedsRefresh, usNeedsRefresh } from "./lib/dates";
@@ -57,6 +58,7 @@ export interface State {
   usSectorEtfs: UsSnapshot["sectorEtfs"];
   macro: { status: "idle" | "loading" | "ready" | "error"; quotes: MacroQuote[]; error?: string; at?: number };
   twIndexLive: Record<string, IndexLive>; // 台股指數盤中即時（證交所 MIS）
+  futures: { day?: FutQuote; night?: FutQuote; at?: number }; // 台指期近月日盤與夜盤（期交所 MIS）
   holdings: Holding[];
   settings: Settings;
   reports: Record<string, AiReport>; // key: "stock:2330:20261016" / "brief:20261016"
@@ -84,7 +86,7 @@ const starting = (): MarketState => ({ status: "loading", scored: [], sectors: [
 
 let state: State = {
   tw: starting(), etf: starting(), us: starting(), esb: {}, twIndices: [], usSectorEtfs: [],
-  macro: { status: "idle", quotes: [] }, twIndexLive: {}, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], update: { status: "idle" }, usExtra: [], usPending: [], usNotFound: [], aiJobs: {}, aiEtf: emptyEtf(), live: {}, loaded: false,
+  macro: { status: "idle", quotes: [] }, twIndexLive: {}, futures: {}, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], update: { status: "idle" }, usExtra: [], usPending: [], usNotFound: [], aiJobs: {}, aiEtf: emptyEtf(), live: {}, loaded: false,
 };
 const listeners = new Set<() => void>();
 
@@ -151,7 +153,7 @@ export function autoRefresh() {
   if (usNeedsRefresh(state.us.fetchedAt, Date.now(), state.us.asOf)) refreshUs();
   else ensureUsHoldings(); // 今天的美股已下載過，但持股裡可能有還沒下載的代號
   if (twNeedsRefresh(esbFetchedAt)) refreshEsb();
-  refreshMacro(); refreshTwIndex();
+  refreshMacro(); refreshTwIndex(); refreshFutures();
   if (!state.virtual || Date.now() - state.virtual.fetchedAt > 10 * 60_000) refreshVirtual();
   if (!state.backtest || Date.now() - state.backtest.fetchedAt > 6 * 3600_000) refreshBacktest();
 }
@@ -268,6 +270,14 @@ export async function refreshTwIndex() {
     const got = parseIndexLive(await fetcher(indexLiveUrl()));
     if (Object.keys(got).length) set({ twIndexLive: { ...state.twIndexLive, ...got } });
   } catch { /* 盤中即時只是輔助 */ }
+}
+
+/** 台指期近月：日盤與夜盤各抓一次，其中一個失敗不影響另一個 */
+export async function refreshFutures() {
+  const [day, night] = await Promise.all((["day", "night"] as const).map(async (k) => {
+    try { return parseTaifex(await postJson(TAIFEX_URL, taifexBody(k)), k); } catch { return undefined; }
+  }));
+  if (day || night) set({ futures: { day: day ?? state.futures.day, night: night ?? state.futures.night, at: Date.now() } });
 }
 
 export async function refreshMacro() {

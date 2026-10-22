@@ -240,6 +240,8 @@ function check(ok, name, detail = "") {
   check(["加權指數", "臺灣50指數", "半導體類指數", "金融保險類指數"].every((n) => macro.some((m) => m.includes(n))), "四大台股指數都顯示", JSON.stringify(macro.slice(0, 6)));
   // 量能：只顯示最新交易日成交金額（億元，證交所統計）；不再顯示成交股數與成交筆數
   check(macro.some((m) => /^成交金額 [\d,]{3,} 億元/.test(m)) && !macro.some((m) => /成交筆數|成交股數/.test(m)), "顯示大盤成交金額（億元），沒有成交筆數與成交股數", JSON.stringify(macro.filter((m) => /成交/.test(m))));
+  // 還沒開盤（台灣 09:00 前）：證交所即時資料四大指數漲跌都是 0.00
+  const preOpen = ["加權指數", "臺灣50指數", "半導體類指數", "金融保險類指數"].every((n) => macro.some((m) => m.startsWith(n) && /0\.00（0\.00%）/.test(m)));
   // 台指期近月：日盤要開盤後才有（開盤前略過）；夜盤是「昨晚到清晨」的場次，但日盤收盤（13:45）到夜盤開盤（15:00）之間，
   // 期交所已切到今晚的新場次、還沒有成交價，這段空檔夜盤沒有資料是正常的。任何時間至少要有日盤或夜盤其中一個。
   const tpeNow = new Date(Date.now() + 8 * 3600_000), tpeMin = tpeNow.getUTCHours() * 60 + tpeNow.getUTCMinutes();

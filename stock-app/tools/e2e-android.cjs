@@ -195,8 +195,8 @@ function check(ok, name, detail = "") {
   await page.waitForFunction(() => /折溢價（即時）/.test(document.querySelector(".sheet")?.innerText || ""), null, { timeout: 30000 }).catch(() => {});
   const etfDetail = await page.evaluate(() => ({ note: document.querySelector('[data-testid="detail-price-note"]')?.innerText.replace(/\s+/g, " ") || "", sheet: (document.querySelector(".sheet")?.innerText || "").replace(/\s+/g, " ") }));
   log("ETF 詳情", JSON.stringify({ note: etfDetail.note, prem: /折溢價（即時）[^]{0,80}/.exec(etfDetail.sheet)?.[0] }));
-  check(/(現價 \d\d:\d\d|收盤價 \d+\/\d+)/.test(etfDetail.note), "ETF 詳情頁大字旁標明是現價時間或收盤價日期", etfDetail.note);
-  check(/折溢價（即時） [+-]?\d+\.\d\d% 預估淨值 [\d.]+・\d\d:\d\d/.test(etfDetail.sheet), "ETF 詳情頁有即時折溢價（預估淨值、時間；市價已在最上方現價）", /折溢價（即時）[^]{0,80}/.exec(etfDetail.sheet)?.[0] || "沒有折溢價");
+  check(/^(現價(（收盤）)? 昨收|收盤價 \d+\/\d+)/.test(etfDetail.note), "ETF 詳情頁大字旁標明是現價（不顯示時間）或收盤價日期", etfDetail.note);
+  check(/折溢價（即時） [+-]?\d+\.\d\d% 預估淨值 [\d.]+(?!・\d\d:\d\d)/.test(etfDetail.sheet), "ETF 詳情頁有即時折溢價（預估淨值，不顯示時間；市價已在最上方現價）", /折溢價（即時）[^]{0,80}/.exec(etfDetail.sheet)?.[0] || "沒有折溢價");
   await page.click('button[aria-label="返回"]');
   await page.click(".seg button:nth-child(1)");
 

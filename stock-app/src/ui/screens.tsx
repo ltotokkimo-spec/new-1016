@@ -393,7 +393,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
           <div class="price num" data-testid="detail-price">{fmtPrice(price, s.market)}</div>
           <div class="num" style={{ marginTop: "4px", fontSize: "13px" }} data-testid="detail-price-note">
             {lq
-              ? <><div class="muted">現價 {lq.time.slice(0, 5)}{lq.final ? "（收盤）" : ""}</div><div><span class="muted">昨收 {fmtPrice(lq.prevClose, s.market)}　</span><span class={cls(dayChg)}>{fmtPct(dayChg)}</span></div></>
+              ? <><div class="muted">現價{isEtf(s.code) ? "" : ` ${lq.time.slice(0, 5)}`}{lq.final ? "（收盤）" : ""}</div><div><span class="muted">昨收 {fmtPrice(lq.prevClose, s.market)}　</span><span class={cls(dayChg)}>{fmtPct(dayChg)}</span></div></>
               : <span class="muted">收盤價 {snapAsOf ? pretty(snapAsOf) : ""}（還沒抓到即時價）</span>}
           </div>
           <div class="muted" style={{ marginTop: "6px", fontSize: "13px" }}>{s.sector}・{s.market === "US" ? "美股" : `${s.market === "TPEX" ? "上櫃" : "上市"}${isEtf(s.code) ? " ETF" : ""}`}</div>
@@ -415,7 +415,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
         {s.market !== "US" && <Metric k="外資近 10 日" v={lots(s.foreign10)} c={cls(s.foreign10)} />}
         {etf && etfNav && Number.isFinite(etfNav.premium) && (
           <Metric k="折溢價（即時）" v={`${etfNav.premium > 0 ? "+" : ""}${etfNav.premium.toFixed(2)}%`}
-            d={`預估淨值 ${fmtPrice(etfNav.nav)}・${etfNav.time.slice(0, 5)}${Math.abs(etfNav.premium) >= 1 ? (etfNav.premium > 0 ? "・溢價偏高" : "・折價偏深") : ""}`} />
+            d={`預估淨值 ${fmtPrice(etfNav.nav)}${Math.abs(etfNav.premium) >= 1 ? (etfNav.premium > 0 ? "・溢價偏高" : "・折價偏深") : ""}`} />
         )}
       </div>
 

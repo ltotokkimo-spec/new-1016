@@ -189,6 +189,15 @@ function check(ok, name, detail = "") {
   check(nEtf >= 30, "ETF 分頁有評分的 ETF", `全部 ${nEtf} 檔`);
   check(etf.rows.every((r) => /\b00\d{2,4}[A-Z]?\b/.test(r) && /參考/.test(r) && /分數 \d+/.test(r) && !/(買入|觀望|離場)/.test(r)), "ETF 每列都是 00 開頭代號，只給分數參考、不給買賣評等", etf.rows[0]);
   await shot("02b-選股-ETF");
+  // ETF 詳情頁：大字是現價（或明確標示的收盤價），並有即時折溢價（證交所 ETF 預估淨值）
+  await page.click(".item");
+  await page.waitForSelector('[data-testid="detail-price-note"]', { timeout: 15000 });
+  await page.waitForFunction(() => /折溢價（即時）/.test(document.querySelector(".sheet")?.innerText || ""), null, { timeout: 30000 }).catch(() => {});
+  const etfDetail = await page.evaluate(() => ({ note: document.querySelector('[data-testid="detail-price-note"]')?.innerText.replace(/\s+/g, " ") || "", sheet: (document.querySelector(".sheet")?.innerText || "").replace(/\s+/g, " ") }));
+  log("ETF 詳情", JSON.stringify({ note: etfDetail.note, prem: /折溢價（即時）[^]{0,80}/.exec(etfDetail.sheet)?.[0] }));
+  check(/(現價 \d\d:\d\d|收盤價 \d+\/\d+)/.test(etfDetail.note), "ETF 詳情頁大字旁標明是現價時間或收盤價日期", etfDetail.note);
+  check(/折溢價（即時） [+-]?\d+\.\d\d% 市價 [\d.]+・預估淨值 [\d.]+・\d\d:\d\d/.test(etfDetail.sheet), "ETF 詳情頁有即時折溢價（市價、預估淨值、時間）", /折溢價（即時）[^]{0,80}/.exec(etfDetail.sheet)?.[0] || "沒有折溢價");
+  await page.click('button[aria-label="返回"]');
   await page.click(".seg button:nth-child(1)");
 
   // 族群

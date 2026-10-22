@@ -8,6 +8,7 @@ import { UsLoader, type UsSnapshot } from "./data/usLoader";
 import { cnbcUrl, isUsSymbol, MACRO_SYMBOLS, parseCnbcQuotes, US_UNIVERSE, type MacroQuote, type UsExtra } from "./data/us";
 import { indexLiveUrl, parseIndexLive, type IndexLive } from "./data/twIndexLive";
 import { twTurnoverUrl, parseTurnover } from "./data/twTurnover";
+import { ETF_NAV_URL, parseEtfNav, type EtfNav } from "./data/etfNav";
 import { TAIFEX_URL, parseTaifex, taifexBody, type FutQuote } from "./data/taifexLive";
 import { scoreStocks, reviewHolding, type Holding, type HoldingView, type Scored, type SectorStat } from "./engine/score";
 import { aiEtfAdvice, explainError, type AiProgress, type EtfAdviceInput, type AiReport, type OnProgress } from "./ai/claude";
@@ -59,6 +60,8 @@ export interface State {
   usSectorEtfs: UsSnapshot["sectorEtfs"];
   macro: { status: "idle" | "loading" | "ready" | "error"; quotes: MacroQuote[]; error?: string; at?: number };
   twIndexLive: Record<string, IndexLive>; // 台股指數盤中即時（證交所 MIS）
+  etfNav: Record<string, EtfNav>; // ETF 即時預估淨值與折溢價（證交所，詳情頁用）
+  etfNavAt?: number;
   twTurnover?: { date: string; value: number; at: number }; // 最新交易日大盤成交金額（元，證交所「每日市場成交資訊」官方數字）
   futures: { day?: FutQuote; night?: FutQuote; at?: number }; // 台指期近月日盤與夜盤（期交所 MIS）
   holdings: Holding[];
@@ -88,7 +91,7 @@ const starting = (): MarketState => ({ status: "loading", scored: [], sectors: [
 
 let state: State = {
   tw: starting(), etf: starting(), us: starting(), esb: {}, twIndices: [], usSectorEtfs: [],
-  macro: { status: "idle", quotes: [] }, twIndexLive: {}, futures: {}, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], update: { status: "idle" }, usExtra: [], usPending: [], usNotFound: [], aiJobs: {}, aiEtf: emptyEtf(), live: {}, loaded: false,
+  macro: { status: "idle", quotes: [] }, twIndexLive: {}, futures: {}, etfNav: {}, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], update: { status: "idle" }, usExtra: [], usPending: [], usNotFound: [], aiJobs: {}, aiEtf: emptyEtf(), live: {}, loaded: false,
 };
 const listeners = new Set<() => void>();
 
@@ -272,6 +275,15 @@ export async function refreshTwIndex() {
     const got = parseIndexLive(await fetcher(indexLiveUrl()));
     if (Object.keys(got).length) set({ twIndexLive: { ...state.twIndexLive, ...got } });
   } catch { /* 盤中即時只是輔助 */ }
+}
+
+/** ETF 即時預估淨值與折溢價：全部 ETF 一次下載；20 秒內不重複抓，失敗就沿用上次的 */
+export async function refreshEtfNav() {
+  if (state.etfNavAt && Date.now() - state.etfNavAt < 20_000) return;
+  try {
+    const got = parseEtfNav(await fetcher(ETF_NAV_URL));
+    if (Object.keys(got).length) set({ etfNav: got, etfNavAt: Date.now() });
+  } catch { /* 折溢價只是輔助 */ }
 }
 
 /** 大盤成交金額：證交所每日市場成交資訊（本月，月初還沒有資料就看上個月）；5 分鐘內不重複抓 */

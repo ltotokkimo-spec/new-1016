@@ -40,8 +40,9 @@ async function fetcher(url: string): Promise<any> {
       if (!r.ok) throw new Error(`HTTP ${r.status} ${url}`);
       return await r.json();
     } catch (e) {
-      if (a >= 3) throw e;
-      await new Promise((r) => setTimeout(r, 5000 * (a + 1)));
+      if (a >= 5) throw e;
+      // 證交所連續請求太多會暫時重置連線：等久一點再試（10、20、40、60、60 秒）
+      await new Promise((r) => setTimeout(r, Math.min(60_000, 10_000 * 2 ** a)));
     }
   }
 }
@@ -63,9 +64,17 @@ let k = 0;
 for (const d of weekdays) {
   k++;
   if (Date.now() - t0 > budgetMs) { log(`超過下載時間預算，先用已下載的 ${days.length} 個交易日（其餘下次接著下載）`); break; }
-  const [qa, qb] = await Promise.all([loader.twseQuotes(d), loader.tpexQuotes(d)]);
-  if (!qa) continue; // 休市或今天還沒公布
-  const [fa, fb] = await Promise.all([loader.twseFlows(d), loader.tpexFlows(d)]);
+  let qa, qb, fa, fb;
+  try {
+    [qa, qb] = await Promise.all([loader.twseQuotes(d), loader.tpexQuotes(d)]);
+    if (!qa) continue; // 休市或今天還沒公布
+    [fa, fb] = await Promise.all([loader.twseFlows(d), loader.tpexFlows(d)]);
+  } catch (e) {
+    // 單日下載失敗（證交所連線被重置）：最新的日子一定要成功，更舊的就先用已下載的（新到舊連續），進度已存快取，下次接著下載
+    if (days.length < 60) throw e;
+    log(`${d} 下載失敗，先用已下載的 ${days.length} 個交易日（其餘下次接著下載）：`, e);
+    break;
+  }
   days.push({ date: d, quotes: [...qa.rows, ...(qb?.rows ?? [])], tpexCodes: new Set((qb?.rows ?? []).map((r) => r[0])), flows: [...(fa ?? []), ...(fb ?? [])] });
   if (k % 10 === 0) log(`已處理 ${k}/${weekdays.length} 個平日，交易日 ${days.length}，網路請求 ${requests}`);
 }

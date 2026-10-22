@@ -364,6 +364,27 @@ function check(ok, name, detail = "") {
   check(/元大台灣50/.test(row("0050")) && /參考/.test(row("0050")) && !/(買入|觀望|離場)/.test(row("0050")) && hasPrice(row("0050")), "0050 顯示現價、損益，只當參考不給買賣評等", row("0050"));
   check(hasPrice(row("00406A")) && !/無資料/.test(row("00406A")), "00406A 顯示現價與損益", row("00406A"));
   check(/貝爾威勒/.test(row("7861")) && /無評等/.test(row("7861")) && /興櫃/.test(row("7861")) && hasPrice(row("7861")), "興櫃 7861 顯示現價與損益、不評等", row("7861"));
+  // 美股持股：美金損益有 $ 符號，下一行台幣損益有 NT$ 符號；市值卡片也一樣
+  await page.click("text=手動新增");
+  await page.fill("#h-code", "AAPL");
+  await page.fill("#h-shares", "10");
+  await page.fill("#h-cost", "100");
+  await page.click("text=儲存");
+  await page.waitForFunction(() => [...document.querySelectorAll(".list .item")].some((e) => /AAPL/.test(e.innerText) && e.querySelector('[data-testid="hold-ntd"]')), null, { timeout: 120000 }).catch(() => {});
+  const usHold = await page.evaluate(() => {
+    const it = [...document.querySelectorAll(".list .item")].find((e) => /AAPL/.test(e.innerText));
+    const t = (el) => (el ? el.innerText.replace(/\s+/g, " ").trim() : "");
+    return { pnl: t(it?.querySelector('[data-testid="hold-pnl"]')), ntd: t(it?.querySelector('[data-testid="hold-ntd"]')), cardNtd: t(document.querySelector('[data-testid="us-ntd"]')), cardText: t([...document.querySelectorAll(".card")].find((c) => /美股市值/.test(c.innerText))), note: document.body.innerText.replace(/\s+/g, " ") };
+  });
+  log("美股持股", JSON.stringify(usHold));
+  check(/損益 [+-]\$[\d,]+（[+-]?\d+(\.\d)?%）/.test(usHold.pnl), "美股持股損益用美金符號 $", usHold.pnl);
+  check(/^[+-]NT\$[\d,]+$/.test(usHold.ntd), "美股持股另外顯示台幣損益（NT$）", usHold.ntd);
+  check(/^[+-]NT\$[\d,]+$/.test(usHold.cardNtd) && /\$[\d,]+/.test(usHold.cardText) && /今日匯率 [\d.]+/.test(usHold.note), "美股市值卡片顯示美金、台幣損益，並註明匯率", usHold.cardText);
+  // 台幣金額要等於美金損益 × 匯率（四捨五入到元）
+  const usd = Number((usHold.pnl.match(/([+-])\$([\d,]+)/) || []).slice(1).join("").replace(/,/g, ""));
+  const twd = Number(usHold.ntd.replace(/NT\$|,/g, ""));
+  const rate = Number((usHold.note.match(/今日匯率 ([\d.]+)/) || [])[1]);
+  check(Number.isFinite(usd) && Number.isFinite(twd) && Number.isFinite(rate) && Math.abs(twd - usd * rate) <= rate, "台幣損益 ≈ 美金損益 × 匯率", `${usd} × ${rate} ≈ ${twd}`);
   await shot("06-持股健檢");
 
   // 重開 App：持股仍在（存在手機裡）
@@ -478,7 +499,7 @@ function check(ok, name, detail = "") {
     await page2.click("text=/加入 \\d 檔持股/");
     await page2.waitForTimeout(1000);
     const nHold = await page2.$$eval(".list .item", (x) => x.length);
-    check(nHold === 7, "匯入後共有 7 檔持股", `${nHold} 檔`);
+    check(nHold === 8, "匯入後共有 8 檔持股（含美股 AAPL）", `${nHold} 檔`);
     await shot("09-匯入後持股");
 
     // 個股 AI 深度解析（含網路搜尋）

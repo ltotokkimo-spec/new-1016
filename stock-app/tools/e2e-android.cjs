@@ -230,7 +230,9 @@ function check(ok, name, detail = "") {
   check(/台股(盤中 \d\d:\d\d|收盤)/.test(idxTitle), "台股指數改成盤中即時（或收盤）", idxTitle);
   check(["加權指數", "臺灣50指數", "半導體類指數", "金融保險類指數"].every((n) => macro.some((m) => m.includes(n))), "四大台股指數都顯示", JSON.stringify(macro.slice(0, 6)));
   // 盤中量能：成交量（億股）與成交筆數（萬筆）
-  check(macro.some((m) => /成交量 [\d.]+ 億股/.test(m)) && macro.some((m) => /成交筆數 \d+ 萬筆/.test(m)), "顯示大盤成交量與成交筆數", JSON.stringify(macro.filter((m) => /成交/.test(m))));
+  // 開盤前（台灣時間 09:00 前）證交所即時資料全是 0，沒有量能可顯示：四大指數漲跌都是 0.00 就略過
+  const preOpen = ["加權指數", "臺灣50指數", "半導體類指數", "金融保險類指數"].every((n) => macro.some((m) => m.startsWith(n) && /0\.00（0\.00%）/.test(m)));
+  check(preOpen || (macro.some((m) => /成交量 [\d.]+ 億股/.test(m)) && macro.some((m) => /成交筆數 \d+ 萬筆/.test(m))), "顯示大盤成交量與成交筆數", preOpen ? "尚未開盤，略過" : JSON.stringify(macro.filter((m) => /成交/.test(m))));
   // 收盤漲跌家數：上市、上櫃都要有「漲 N／跌 N」，且上市家數合理（普通股約 1000 檔以上）
   check(macro.some((m) => /^上市 漲 \d+／跌 \d+ 持平 \d+/.test(m)) && macro.some((m) => /^上櫃 漲 \d+／跌 \d+ 持平 \d+/.test(m)), "顯示收盤漲跌家數（上市、上櫃）", JSON.stringify(macro.filter((m) => /漲 \d+／跌/.test(m))));
   const bsum = macro.find((m) => /^上市 漲 \d+／跌/.test(m))?.match(/漲 (\d+)／跌 (\d+) 持平 (\d+)/);

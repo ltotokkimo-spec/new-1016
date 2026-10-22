@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import {
   findScored, getFetcher, getKv, getState, holdingViews, refreshEsb, refreshMacro, refreshTw, refreshUs, saveHoldings, saveReport,
   saveSettings, clearCache, useStore, usBars, recordSpend, estimatedBalance, checkForUpdate, installUpdate,
-  addUsSymbol, removeUsSymbol, refreshLive, refreshUsLive, refreshTwIndex, refreshFutures, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
+  addUsSymbol, removeUsSymbol, refreshLive, refreshUsLive, refreshTwIndex, refreshFutures, refreshTurnover, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
 } from "../store";
 import type { Holding, Rating, Scored, SectorStat } from "../engine/score";
 import { type AiReport, analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, parseUrls, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
@@ -709,8 +709,8 @@ export function MacroScreen() {
   const st = useStore((s) => ({ macro: s.macro, tw: s.tw, us: s.us, idx: s.twIndices, breadth: s.twBreadth, idxLive: s.twIndexLive, fut: s.futures, turnover: s.twTurnover, etfs: s.usSectorEtfs, apiKey: s.settings.apiKey, reports: s.reports }));
   // 台股指數盤中每 30 秒更新（收盤後 MIS 回傳收盤價，仍會顯示）
   useEffect(() => {
-    refreshTwIndex(); refreshFutures();
-    const t = setInterval(() => { if (marketOpen()) refreshTwIndex(); refreshFutures(); }, 30_000);
+    refreshTwIndex(); refreshFutures(); refreshTurnover();
+    const t = setInterval(() => { if (marketOpen()) refreshTwIndex(); refreshFutures(); refreshTurnover(); }, 30_000);
     return () => clearInterval(t);
   }, []);
   // 盤中即時優先，沒有再用快照的收盤
@@ -744,7 +744,7 @@ export function MacroScreen() {
               const w = st.idxLive["加權指數"];
               if (!w) return null;
               return <>
-                {st.turnover && <Metric k="成交金額" v={`${Math.round(st.turnover.value / 1e8).toLocaleString("zh-TW")} 億元`} c="" d={`${pretty(st.turnover.date)} 收盤・證交所統計（上市）`} />}
+                {st.turnover && <Metric k="成交金額" v={`${Math.round(st.turnover.value / 1e8).toLocaleString("zh-TW")} 億元`} c="" d={`${pretty(st.turnover.date)} 收盤・證交所公布的全市場合計`} />}
                 {w.high !== undefined && w.low !== undefined && <Metric k="加權今日高低" v={`${w.high.toLocaleString("zh-TW", { maximumFractionDigits: 0 })} / ${w.low.toLocaleString("zh-TW", { maximumFractionDigits: 0 })}`} c="" d="最高 / 最低" />}
               </>;
             })()}

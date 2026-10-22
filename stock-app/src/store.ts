@@ -7,10 +7,11 @@ import { isEtf, parseEsbLatest, twUrls, type EsbQuote } from "./data/tw";
 import { UsLoader, type UsSnapshot } from "./data/usLoader";
 import { cnbcUrl, isUsSymbol, MACRO_SYMBOLS, parseCnbcQuotes, US_UNIVERSE, type MacroQuote, type UsExtra } from "./data/us";
 import { indexLiveUrl, parseIndexLive, type IndexLive } from "./data/twIndexLive";
+import { twTurnoverUrl, parseTurnover } from "./data/twTurnover";
 import { TAIFEX_URL, parseTaifex, taifexBody, type FutQuote } from "./data/taifexLive";
 import { scoreStocks, reviewHolding, type Holding, type HoldingView, type Scored, type SectorStat } from "./engine/score";
 import { aiEtfAdvice, explainError, type AiProgress, type EtfAdviceInput, type AiReport, type OnProgress } from "./ai/claude";
-import { orderDay, prettyW, taipeiToday, twNeedsRefresh, usNeedsRefresh } from "./lib/dates";
+import { addDays, orderDay, prettyW, taipeiToday, twNeedsRefresh, usNeedsRefresh } from "./lib/dates";
 import { parseUsLive, usLiveUrl } from "./data/usLive";
 import * as upd from "./lib/update";
 import type { BacktestResult } from "./engine/backtest";
@@ -58,7 +59,7 @@ export interface State {
   usSectorEtfs: UsSnapshot["sectorEtfs"];
   macro: { status: "idle" | "loading" | "ready" | "error"; quotes: MacroQuote[]; error?: string; at?: number };
   twIndexLive: Record<string, IndexLive>; // 台股指數盤中即時（證交所 MIS）
-  twTurnover?: { date: string; value: number }; // 最新交易日上市成交金額（元，證交所每日行情加總）
+  twTurnover?: { date: string; value: number; at: number }; // 最新交易日大盤成交金額（元，證交所「每日市場成交資訊」官方數字）
   futures: { day?: FutQuote; night?: FutQuote; at?: number }; // 台指期近月日盤與夜盤（期交所 MIS）
   holdings: Holding[];
   settings: Settings;
@@ -154,7 +155,7 @@ export function autoRefresh() {
   if (usNeedsRefresh(state.us.fetchedAt, Date.now(), state.us.asOf)) refreshUs();
   else ensureUsHoldings(); // 今天的美股已下載過，但持股裡可能有還沒下載的代號
   if (twNeedsRefresh(esbFetchedAt)) refreshEsb();
-  refreshMacro(); refreshTwIndex(); refreshFutures();
+  refreshMacro(); refreshTwIndex(); refreshFutures(); refreshTurnover();
   if (!state.virtual || Date.now() - state.virtual.fetchedAt > 10 * 60_000) refreshVirtual();
   if (!state.backtest || Date.now() - state.backtest.fetchedAt > 6 * 3600_000) refreshBacktest();
 }
@@ -173,7 +174,7 @@ function applyTw(snap: TwSnapshot) {
   set({ prices: pricesOf(snap.stocks) });
   // ETF 回測顯示規則分辨不出好壞，只給分數當參考，不給買入／觀望／離場
   const etfScored = b.scored.map((x) => ({ ...x, refOnly: true }));
-  set({ tw: { ...meta, scored: a.scored, sectors: a.sectors }, etf: { ...meta, scored: etfScored, sectors: b.sectors }, twIndices: snap.indices, twBreadth: snap.breadth, twTurnover: snap.turnover ? { date: snap.asOf, value: snap.turnover } : undefined });
+  set({ tw: { ...meta, scored: a.scored, sectors: a.sectors }, etf: { ...meta, scored: etfScored, sectors: b.sectors }, twIndices: snap.indices, twBreadth: snap.breadth });
   void snapshotEtfNav(snap.asOf);
 }
 
@@ -271,6 +272,17 @@ export async function refreshTwIndex() {
     const got = parseIndexLive(await fetcher(indexLiveUrl()));
     if (Object.keys(got).length) set({ twIndexLive: { ...state.twIndexLive, ...got } });
   } catch { /* 盤中即時只是輔助 */ }
+}
+
+/** 大盤成交金額：證交所每日市場成交資訊（本月，月初還沒有資料就看上個月）；5 分鐘內不重複抓 */
+export async function refreshTurnover() {
+  if (state.twTurnover && Date.now() - state.twTurnover.at < 5 * 60_000) return;
+  try {
+    const today = taipeiToday();
+    let t = parseTurnover(await fetcher(twTurnoverUrl(today)));
+    if (!t) t = parseTurnover(await fetcher(twTurnoverUrl(addDays(`${today.slice(0, 6)}01`, -1))));
+    if (t) set({ twTurnover: { ...t, at: Date.now() } });
+  } catch { /* 成交金額只是輔助，抓不到就不顯示或沿用舊的 */ }
 }
 
 /** 台指期近月：日盤與夜盤各抓一次，其中一個失敗不影響另一個 */

@@ -415,7 +415,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
         {s.market !== "US" && <Metric k="外資近 10 日" v={lots(s.foreign10)} c={cls(s.foreign10)} />}
         {etf && etfNav && Number.isFinite(etfNav.premium) && (
           <Metric k="折溢價（即時）" v={`${etfNav.premium > 0 ? "+" : ""}${etfNav.premium.toFixed(2)}%`}
-            d={`市價 ${fmtPrice(etfNav.price)}・預估淨值 ${fmtPrice(etfNav.nav)}・${etfNav.time.slice(0, 5)}${Math.abs(etfNav.premium) >= 1 ? (etfNav.premium > 0 ? "・溢價偏高" : "・折價偏深") : ""}`} />
+            d={`預估淨值 ${fmtPrice(etfNav.nav)}・${etfNav.time.slice(0, 5)}${Math.abs(etfNav.premium) >= 1 ? (etfNav.premium > 0 ? "・溢價偏高" : "・折價偏深") : ""}`} />
         )}
       </div>
 

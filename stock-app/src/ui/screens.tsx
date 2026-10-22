@@ -8,6 +8,7 @@ import type { Holding, Rating, Scored, SectorStat } from "../engine/score";
 import { type AiReport, analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, parseUrls, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
 import { twHistory } from "../data/history";
 import { CandleChart, type CandleBar } from "./candles";
+import { FlowsPanel } from "./flows";
 import { isEtf } from "../data/tw";
 import { freeReport } from "../engine/freeReport";
 import { isUsSymbol, MACRO_SYMBOLS } from "../data/us";
@@ -327,6 +328,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
   const { holdings, apiKey, reports } = useStore((st) => ({ holdings: st.holdings, apiKey: st.settings.apiKey, reports: st.reports }));
   const [bars, setBars] = useState<CandleBar[] | null>(null);
   const [barsErr, setBarsErr] = useState("");
+  const [chartTab, setChartTab] = useState<"k" | "flow">("k");
   const [adding, setAdding] = useState(false);
   const holding = holdings.find((h) => h.code === s.code);
   const isExtra = useStore((st) => st.usExtra.some((x) => x.symbol === s.code)) && !holding;
@@ -420,9 +422,18 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
         )}
       </div>
 
-      <div class="section-title"><span>K 線圖（日）</span></div>
+      <div class="section-title">
+        {s.market === "US"
+          ? <span>K 線圖（日）</span>
+          : <div class="seg" role="group" aria-label="圖表" data-testid="chart-tabs">
+              <button aria-pressed={chartTab === "k"} onClick={() => setChartTab("k")} data-testid="tab-k">K 線圖</button>
+              <button aria-pressed={chartTab === "flow"} onClick={() => setChartTab("flow")} data-testid="tab-flow">法人</button>
+            </div>}
+      </div>
       <div class="card">
-        {bars ? (bars.length > 1 ? <CandleChart bars={bars} /> : <div class="empty">沒有走勢資料</div>) : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>}
+        {chartTab === "flow" && s.market !== "US"
+          ? (bars ? <FlowsPanel code={s.code} market={s.market === "TPEX" ? "TPEX" : "TWSE"} bars={bars} livePrice={lq?.price} /> : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>)
+          : bars ? (bars.length > 1 ? <CandleChart bars={bars} /> : <div class="empty">沒有走勢資料</div>) : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>}
       </div>
 
       <div class="section-title"><span>{s.refOnly ? "分數說明（ETF 只供參考）" : "評等理由"}</span><span>動能 {Math.round(s.momentum * 100)}・{s.market === "US" ? "趨勢" : "籌碼"} {Math.round(s.flow * 100)}・族群 {Math.round(s.sectorScore * 100)}</span></div>

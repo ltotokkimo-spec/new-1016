@@ -166,6 +166,22 @@ function check(ok, name, detail = "") {
   const cdT = await cd();
   check(/^\d+\/\d+ 開 /.test(cdT.info), "點一下 K 線圖顯示當天的開高低收", cdT.info);
   await page.click('[data-testid="ind-KD"]');
+  // 法人分頁：最近一個月每天的三大法人買賣超（張）與股價
+  await page.click('[data-testid="tab-flow"]');
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid="flow-table"] tbody tr').length >= 15 || /法人資料下載失敗|這段期間沒有法人資料/.test(document.body.innerText), null, { timeout: 180000 });
+  const flowRows = await page.$$eval('[data-testid="flow-table"] tbody tr', (rs) => rs.map((r) => [...r.children].map((c) => c.innerText.trim())));
+  const flowSum = await page.$eval('[data-testid="flow-sum"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
+  log("法人", JSON.stringify(flowRows.slice(0, 3)) + " | " + flowSum);
+  const nums = (r) => r.slice(1).map((t) => +t.replace(/,/g, "").replace(/^\+/, ""));
+  check(flowRows.length >= 15, "法人分頁列出最近一個月（至少 15 個交易日）的逐日資料", `${flowRows.length} 天`);
+  check(flowRows.every((r) => r.length === 5 && /^\d+\/\d+$/.test(r[0]) && nums(r).every(Number.isFinite)), "法人逐日表每列有日期與三大法人、外資、投信、自營商買賣超（張）", JSON.stringify(flowRows[0]));
+  check(flowRows.every((r) => { const [t, f, x, d] = nums(r); return Math.abs(t - (f + x + d)) <= 2; }), "三大法人 = 外資 + 投信 + 自營商", JSON.stringify(flowRows.slice(0, 2)));
+  check(/^近 \d+ 個交易日累計（張）： 三大法人 [+-]?[\d,]+ 外資 [+-]?[\d,]+ 投信 [+-]?[\d,]+ 自營商 [+-]?[\d,]+$/.test(flowSum), "法人分頁顯示一個月累計買賣超", flowSum);
+  check((await page.$$('[data-testid="flow-chart"] rect')).length >= 15 && (await page.$$('[data-testid="flow-chart"] path')).length >= 1, "法人分頁畫出每日買賣超柱狀圖與股價線");
+  await page.click('[data-testid="flow-foreign"]');
+  check((await page.$$('[data-testid="flow-chart"] rect')).length >= 15, "切到外資後圖仍有柱狀");
+  await page.click('[data-testid="tab-k"]');
+  check(!!(await page.$("canvas.candle")), "切回 K 線圖");
   check(/外資近 5 日/.test(detail.text) && /評等理由/.test(detail.text), "個股顯示外資籌碼與評等理由");
   await sleep(600);
   await shot("03-個股詳細");

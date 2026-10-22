@@ -396,7 +396,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
           <div class="price num" data-testid="detail-price">{fmtPrice(price, s.market)}</div>
           <div class="num" style={{ marginTop: "4px", fontSize: "13px" }} data-testid="detail-price-note">
             {lq
-              ? <><div class="muted">{s.market === "US" ? (lq.session ?? "收盤") : <>現價{isEtf(s.code) ? "" : ` ${lq.time.slice(0, 5)}`}{lq.final ? "（收盤）" : ""}</>}</div><div><span class="muted">昨收 {fmtPrice(lq.prevClose, s.market)}　</span><span class={cls(dayChg)}>{fmtPct(dayChg)}</span></div></>
+              ? <><div class="muted">{s.market === "US" ? (lq.session ?? "收盤") : lq.final || !marketOpen() ? "收盤" : "盤中"}</div><div><span class="muted">昨收 {fmtPrice(lq.prevClose, s.market)}　</span><span class={cls(dayChg)}>{fmtPct(dayChg)}</span></div></>
               : <span class="muted">收盤價 {snapAsOf ? pretty(snapAsOf) : ""}（還沒抓到即時價）</span>}
           </div>
           <div class="muted" style={{ marginTop: "6px", fontSize: "13px" }}>{s.sector}・{s.market === "US" ? "美股" : `${s.market === "TPEX" ? "上櫃" : "上市"}${isEtf(s.code) ? " ETF" : ""}`}</div>
@@ -549,9 +549,9 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
     if (q && q.date && q.date >= ((isUs ? usAsOf : twAsOf) ?? "")) {
       const price = q.price;
       return { ...v, price, pnl: (price - v.cost) * v.shares, pnlPct: v.cost > 0 ? price / v.cost - 1 : NaN,
-        chg: Number.isFinite(q.prevClose) ? price / q.prevClose - 1 : NaN, liveTime: !isUs && !q.final && q.date === today ? q.time.slice(0, 5) : "", liveLabel: isUs ? (q.session ?? "收盤") : "", ext: q.ext };
+        chg: Number.isFinite(q.prevClose) ? price / q.prevClose - 1 : NaN, liveLabel: isUs ? (q.session ?? "收盤") : !q.final && q.date === today && marketOpen() ? "盤中" : "收盤", ext: q.ext };
     }
-    return { ...v, chg: v.scored?.chg1d ?? NaN, liveTime: "", liveLabel: isUs ? "收盤" : "" };
+    return { ...v, chg: v.scored?.chg1d ?? NaN, liveLabel: "收盤" };
   });
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState<{ rows: ImportedHolding[]; note: string } | null>(null);
@@ -637,11 +637,11 @@ function HoldingRow({ v, open, fx }: { v: any; open: (s: Scored) => void; fx?: n
       <div style={{ minWidth: 0 }}>
         <div class="name">{v.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{v.code}</span></div>
         <div class={`num ${cls(v.pnl)}`} style={{ fontSize: "13px", fontWeight: 600, marginTop: "2px" }} data-testid="hold-pnl"><span class="lbl" style={{ fontFamily: "var(--font)", fontSize: "11px", fontWeight: 400, color: "var(--muted)", marginRight: "4px" }}>損益</span>{fmtSigned(v.pnl, v.market)}<span style={{ whiteSpace: "nowrap" }}>（{fmtPct(v.pnlPct)}）</span>{v.market === "US" && fx && Number.isFinite(v.pnl) && <span style={{ display: "block", whiteSpace: "nowrap" }} data-testid="hold-ntd">{fmtNtd(v.pnl, fx)}</span>}</div>
-        {v.market === "US" && <div class="muted num" style={{ fontSize: "12px", marginTop: "2px" }} data-testid="hold-avg">{v.shares.toLocaleString()} 股・均價 ${fmtPrice(v.cost, "US")}</div>}
+        <div class="muted num" style={{ fontSize: "12px", marginTop: "2px" }} data-testid="hold-avg">{v.shares.toLocaleString()} 股・均價 {v.market === "US" ? "$" : ""}{fmtPrice(v.cost, v.market === "US" ? "US" : undefined)}</div>
         <div class="sub">{v.advice.join("；")}</div>
       </div>
       <div class="px">
-        <div class="p num"><span class="lbl" data-testid="hold-label">{v.liveLabel || (v.liveTime ? `現價 ${v.liveTime}` : "現價")}</span>{fmtPrice(v.price, v.market)}</div>
+        <div class="p num"><span class="lbl" data-testid="hold-label">{v.liveLabel}</span>{fmtPrice(v.price, v.market)}</div>
         {Number.isFinite(v.chg) && <div class={`c num ${cls(v.chg)}`} data-testid="hold-day"><span class="lbl">今日</span>{fmtPct(v.chg)}</div>}
         {"ext" in v && v.ext && <div class={`c num ${cls(v.ext.chg)}`} data-testid="hold-ext"><span class="lbl">{v.ext.label}</span>{fmtPrice(v.ext.price, v.market)} {fmtPct(v.ext.chg)}</div>}
       </div>

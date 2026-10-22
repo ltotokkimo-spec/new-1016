@@ -235,7 +235,7 @@ function check(ok, name, detail = "") {
   await page.waitForFunction(() => /折溢價（即時）/.test(document.querySelector(".sheet")?.innerText || ""), null, { timeout: 30000 }).catch(() => {});
   const etfDetail = await page.evaluate(() => ({ note: document.querySelector('[data-testid="detail-price-note"]')?.innerText.replace(/\s+/g, " ") || "", sheet: (document.querySelector(".sheet")?.innerText || "").replace(/\s+/g, " ") }));
   log("ETF 詳情", JSON.stringify({ note: etfDetail.note, prem: /折溢價（即時）[^]{0,80}/.exec(etfDetail.sheet)?.[0] }));
-  check(/^(現價(（收盤）)? 昨收|收盤價 \d+\/\d+)/.test(etfDetail.note), "ETF 詳情頁大字旁標明是現價（不顯示時間）或收盤價日期", etfDetail.note);
+  check(/^(盤中|收盤) 昨收|^收盤價 \d+\/\d+/.test(etfDetail.note), "詳情頁大字旁標明盤中／收盤（不顯示時間）或收盤價日期", etfDetail.note);
   check(/折溢價（即時） [+-]?\d+\.\d\d% 預估淨值 [\d.]+(?!・\d\d:\d\d)/.test(etfDetail.sheet), "ETF 詳情頁有即時折溢價（預估淨值，不顯示時間；市價已在最上方現價）", /折溢價（即時）[^]{0,80}/.exec(etfDetail.sheet)?.[0] || "沒有折溢價");
   await page.click('button[aria-label="返回"]');
   await page.click(".seg button:nth-child(1)");
@@ -323,7 +323,7 @@ function check(ok, name, detail = "") {
   check(/從 \d+\/\d+ 起累積 [+-]?[\d.]+%（[+-]?[\d,]+ 元）；\s*同樣的錢買 0050 是 [+-]?[\d.]+%，(比 0050 (多|少)賺 [\d.]+ 個百分點|和 0050 差不多)/.test(navHead), "報酬走勢用一句話說明累積報酬、損益金額與和 0050 的差", navHead);
   check(/累積報酬/.test(navTxt) && /最大回檔 -?[\d.]+%/.test(navTxt) && /贏過 0050 的天數 \d+ \/ \d+ 天/.test(navTxt) && /最好的一天/.test(navTxt) && /最差的一天/.test(navTxt), "報酬走勢列出累積報酬、最大回檔、贏過 0050 的天數、最好與最差的一天", navTxt.slice(0, 300));
   check(navRows.length >= 2 && navRows.every((r) => /^\d+\/\d+ [+-]?[\d.]+% [+-]?[\d.]+% [+-]?[\d.]+% [+-]?[\d.]+%$/.test(r)), "報酬走勢逐日表每天有組合與 0050 的當天與累積報酬", navRows.slice(0, 2).join(" ; "));
-  // 即時報價（證交所 mis）：每檔持股要顯示「現價 HH:MM」或「收盤」＋今日漲跌
+  // 即時報價（證交所 mis）：每檔持股要顯示「盤中」或「收盤」＋今日漲跌
   const livePx = await page.waitForFunction(() => {
     const els = [...document.querySelectorAll('[data-testid="virtual-price"]')];
     return els.length && document.querySelector('[data-testid="virtual-view"]').innerText.includes("今日") ? els.map((e) => e.innerText.replace(/\s+/g, " ")) : null;
@@ -423,6 +423,9 @@ function check(ok, name, detail = "") {
   const hold = await page.$eval(".list .item", (e) => e.innerText.replace(/\s+/g, " "));
   log("持股", hold);
   check(/台積電/.test(hold) && /(買入|觀望|離場)/.test(hold) && /%/.test(hold), "持股顯示現價、損益與評等", hold);
+  const twHold = await page.$eval(".list .item", (e) => ({ label: e.querySelector('[data-testid="hold-label"]')?.innerText.trim() || "", avg: e.querySelector('[data-testid="hold-avg"]')?.innerText.replace(/\s+/g, " ").trim() || "", px: e.querySelector(".px")?.innerText.replace(/\s+/g, " ") || "" }));
+  check(/^(盤中|收盤)$/.test(twHold.label) && !/\d\d:\d\d/.test(twHold.px), "台股持股現價標盤中／收盤（不顯示時間）", `${twHold.label} | ${twHold.px}`);
+  check(/^[\d,]+ 股・均價 2,000$/.test(twHold.avg), "台股持股顯示股數與均價（輸入成本 2,000）", twHold.avg);
   const dayTxt = await page.waitForFunction(() => document.querySelector('[data-testid="hold-day"]')?.innerText, null, { timeout: 20000 }).then((h) => h.jsonValue()).catch(() => "");
   log("持股今日漲跌", dayTxt);
   check(/今日\s*[+-]?\d/.test(dayTxt), "持股顯示今日漲跌", dayTxt);
@@ -442,7 +445,7 @@ function check(ok, name, detail = "") {
   const holds = await page.$$eval(".list .item", (xs) => xs.map((e) => e.innerText.replace(/\s+/g, " ")));
   log("持股（含 ETF／興櫃）", JSON.stringify(holds));
   const row = (c) => holds.find((h) => h.includes(c)) || "";
-  const hasPrice = (r) => /現價(\s*\d\d:\d\d)?\s*\d[\d,]*(\.\d+)?/.test(r) && /損益\s*[+-]?\$?[\d,]+（[+-]?\d+(\.\d)?%）/.test(r) && !/—/.test(r);
+  const hasPrice = (r) => /(盤中|收盤)\s*\d[\d,]*(\.\d+)?/.test(r) && /損益\s*[+-]?\$?[\d,]+（[+-]?\d+(\.\d)?%）/.test(r) && !/—/.test(r);
   check(/元大台灣50/.test(row("0050")) && /參考/.test(row("0050")) && !/(買入|觀望|離場)/.test(row("0050")) && hasPrice(row("0050")), "0050 顯示現價、損益，只當參考不給買賣評等", row("0050"));
   check(hasPrice(row("00406A")) && !/無資料/.test(row("00406A")), "00406A 顯示現價與損益", row("00406A"));
   check(/貝爾威勒/.test(row("7861")) && /無評等/.test(row("7861")) && /興櫃/.test(row("7861")) && hasPrice(row("7861")), "興櫃 7861 顯示現價與損益、不評等", row("7861"));

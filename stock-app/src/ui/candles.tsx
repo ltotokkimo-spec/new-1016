@@ -159,6 +159,19 @@ export function CandleChart({ bars }: { bars: CandleBar[] }) {
     if (sel !== null && sel >= i0 && sel < i1) {
       g.strokeStyle = muted; g.setLineDash([4, 3]); g.lineWidth = 1;
       g.beginPath(); g.moveTo(cx(sel), padT); g.lineTo(cx(sel), iTop + indH); g.stroke(); g.setLineDash([]);
+      // 橫線＋右邊標籤：收盤價（價格區）與成交量（量區）
+      const tag = (yy: number, text: string, bg: string) => {
+        g.setLineDash([4, 3]); g.strokeStyle = bg; g.beginPath(); g.moveTo(padL, yy); g.lineTo(w - padR, yy); g.stroke(); g.setLineDash([]);
+        g.font = "bold 11px sans-serif"; g.textAlign = "left"; g.textBaseline = "middle";
+        const tw = Math.min(padR - 2, g.measureText(text).width + 6);
+        const ty = Math.min(Math.max(yy, 8), h - 8);
+        g.fillStyle = bg; g.fillRect(w - padR + 1, ty - 8, tw, 16);
+        g.fillStyle = "#fff"; g.fillText(text, w - padR + 4, ty);
+      };
+      const sb = bars[sel];
+      tag(py(sb.close), fmtP(sb.close), sb.close >= sb.open ? up : down);
+      const lots = sb.volume / 1000;
+      tag(vTop + volH - (sb.volume / vmax) * volH, lots >= 10000 ? `${(lots / 10000).toFixed(1)}萬` : Math.round(lots).toLocaleString(), sb.close >= sb.open ? up : down);
     }
   }, [bars, view, tab, sel, ind]);
 

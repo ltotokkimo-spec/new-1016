@@ -105,4 +105,20 @@ describe("countBreadth 收盤漲跌家數", () => {
     expect(b.twse).toEqual({ up: 1, down: 1, flat: 1 });
     expect(b.tpex).toEqual({ up: 2, down: 1, flat: 0 });
   });
+
+  it("今天的三大法人下午還沒公布、證交所一直不回應或出錯時，用前一個交易日，不讓整個更新失敗", async () => {
+    const AFTERNOON = Date.UTC(2026, 9, 16, 6, 30, 0); // 2026/10/16 台北 14:30
+    for (const mode of ["hang", "error"] as const) {
+      const base = fakeFetch([]);
+      const f = (url: string) => (url.includes("/fund/T86") && url.includes("20261016"))
+        ? (mode === "hang" ? new Promise(() => {}) : Promise.reject(new Error("HTTP 500")))
+        : base(url);
+      const loader = new TwLoader(f as any, memoryKV(), () => AFTERNOON);
+      loader.todayWaitMs = 50;
+      const snap = await loader.load();
+      expect(snap.asOf).toBe("20261015"); // 10/16 還沒公布，最新是 10/15
+      expect(snap.dates).toHaveLength(10);
+      expect(snap.dates).not.toContain("20261016");
+    }
+  });
 });

@@ -52,6 +52,8 @@ export const TW_SNAPSHOT_VERSION = 2;
 
 export class TwLoader {
   requests = 0;
+  /** 今天的三大法人下午還沒公布時，證交所有時候不回「無資料」而是一直不回應；最多等這麼久，逾時就當作還沒公布，改用前一個交易日 */
+  todayWaitMs = 20_000;
   constructor(private fetch: Fetcher, private kv: KV, private now = () => Date.now()) {}
 
   private async cached<T>(key: string, isFinal: boolean, load: () => Promise<T | null>): Promise<T | null> {
@@ -134,7 +136,10 @@ export class TwLoader {
     for (const d of candidates) {
       if (dates.length >= 10) break;
       progress(dates.length, total, `三大法人 ${d.slice(4, 6)}/${d.slice(6)}`);
-      const f = await this.twseFlows(d);
+      // 今天的資料可能還沒公布：無回應或出錯都當作「還沒公布」，不要讓整個更新失敗（下午 2～3 點常遇到）
+      const f = d === today
+        ? await Promise.race([this.twseFlows(d).catch(() => null), new Promise<null>((r) => setTimeout(() => r(null), this.todayWaitMs))])
+        : await this.twseFlows(d);
       if (f) {
         dates.push(d); flowsTwse.set(d, f);
         tpexJobs.push(this.tpexFlows(d).then((x) => { if (x) flowsTpex.set(d, x); }));

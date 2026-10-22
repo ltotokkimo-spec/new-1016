@@ -379,12 +379,12 @@ function check(ok, name, detail = "") {
   log("美股持股", JSON.stringify(usHold));
   check(/損益 [+-]\$[\d,]+（[+-]?\d+(\.\d)?%）/.test(usHold.pnl), "美股持股損益用美金符號 $", usHold.pnl);
   check(/^[+-]NT\$[\d,]+$/.test(usHold.ntd), "美股持股另外顯示台幣損益（NT$）", usHold.ntd);
-  check(/^[+-]NT\$[\d,]+$/.test(usHold.cardNtd) && /\$[\d,]+/.test(usHold.cardText) && /今日匯率 [\d.]+/.test(usHold.note), "美股市值卡片顯示美金、台幣損益，並註明匯率", usHold.cardText);
-  // 台幣金額要等於美金損益 × 匯率（四捨五入到元）
+  check(/^[+-]NT\$[\d,]+$/.test(usHold.cardNtd) && /\$[\d,]+/.test(usHold.cardText), "美股市值卡片顯示美金與台幣損益", usHold.cardText);
+  // 只有一檔美股：卡片與持股列的台幣損益要一樣，且換算出的匯率合理（不顯示匯率，從金額反推）；也確認畫面上不再出現匯率說明
   const usd = Number((usHold.pnl.match(/([+-])\$([\d,]+)/) || []).slice(1).join("").replace(/,/g, ""));
   const twd = Number(usHold.ntd.replace(/NT\$|,/g, ""));
-  const rate = Number((usHold.note.match(/今日匯率 ([\d.]+)/) || [])[1]);
-  check(Number.isFinite(usd) && Number.isFinite(twd) && Number.isFinite(rate) && Math.abs(twd - usd * rate) <= rate, "台幣損益 ≈ 美金損益 × 匯率", `${usd} × ${rate} ≈ ${twd}`);
+  const impliedRate = Math.abs(twd / usd);
+  check(usHold.cardNtd === usHold.ntd && impliedRate > 20 && impliedRate < 50 && !/今日匯率/.test(usHold.note), "台幣損益由美金損益換算（匯率合理），畫面不顯示匯率", `${usd} → ${twd}（約 ${impliedRate.toFixed(1)}）`);
   await shot("06-持股健檢");
 
   // 重開 App：持股仍在（存在手機裡）

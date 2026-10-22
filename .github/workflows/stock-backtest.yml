@@ -1,6 +1,6 @@
 name: Stock Backtest
 
-# 用 App 的評分規則回測過去約 6 個月，結果發布到 Releases 的 stock-radar-data，App 會自動下載。
+# 用 App 的評分規則回測過去約 2 年，結果發布到 Releases 的 stock-radar-data，App 會自動下載。
 on:
   push:
     branches: [ main, 'claude/**' ]
@@ -17,7 +17,7 @@ concurrency:
 jobs:
   backtest:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 100
     defaults:
       run:
         working-directory: stock-app

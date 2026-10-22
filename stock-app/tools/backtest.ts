@@ -1,4 +1,4 @@
-// GitHub Actions 每天跑：下載約 9 個月的證交所／櫃買資料（有快取，之後只補新的一天），
+// GitHub Actions 每天跑：下載約 2 年的證交所／櫃買資料（有快取，之後只補新的一天），
 // 用 App 的評分規則做回測，輸出 backtest.json 給 App 下載。
 // 執行：npx vite build --ssr tools/backtest.ts --outDir .bt-build && node .bt-build/backtest.js <快取資料夾> <輸出檔>
 import fs from "node:fs";
@@ -55,11 +55,14 @@ const companies = await loader.companies();
 log("公司產業別", companies.length);
 
 const today = taipeiToday();
-const weekdays = weekdaysBack(today, 200); // 約 9 個月
+const weekdays = weekdaysBack(today, 520); // 約 2 年；從最新往回下載，已下載的有快取
+// 第一次要下載很多天：超過時間預算就先用已有的天數算（新到舊連續），進度已存在快取，下一次接著下載
+const budgetMs = Number(process.env.BT_BUDGET_MIN ?? 80) * 60_000;
 const days: BtDay[] = [];
 let k = 0;
 for (const d of weekdays) {
   k++;
+  if (Date.now() - t0 > budgetMs) { log(`超過下載時間預算，先用已下載的 ${days.length} 個交易日（其餘下次接著下載）`); break; }
   const [qa, qb] = await Promise.all([loader.twseQuotes(d), loader.tpexQuotes(d)]);
   if (!qa) continue; // 休市或今天還沒公布
   const [fa, fb] = await Promise.all([loader.twseFlows(d), loader.tpexFlows(d)]);

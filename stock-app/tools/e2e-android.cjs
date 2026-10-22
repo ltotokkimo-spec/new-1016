@@ -313,6 +313,8 @@ function check(ok, name, detail = "") {
   check(afterHide.rows === 0 && afterHide.pos === posBefore && afterHide.pos > 0 && afterHide.nav, "刪除成交紀錄那一列時，持股不會跟著消失", JSON.stringify({ posBefore, ...afterHide }));
   // 買不在選股「買入」清單的股票（興櫃 7861 沒有評等）：只警告不阻擋，成交紀錄那列標「非選股清單」
   await page.click("text=手動新增一筆成交");
+  const sideOnOpen = await page.$eval('[data-testid="etf-trade-form"] .seg button[aria-pressed="true"]', (b) => b.innerText).catch(() => "");
+  check(sideOnOpen === "買進", "取消賣出後重新打開手動新增，預設回到「買進」", sideOnOpen);
   await page.fill("#etf-code", "7861");
   await page.fill("#etf-shares", "1");
   await page.waitForFunction(() => Number(document.querySelector("#etf-price").value) > 0, null, { timeout: 5000 }).catch(() => page.fill("#etf-price", "900"));

@@ -501,7 +501,7 @@ function ManualTrade({ draft }: { draft?: SellDraft }) {
     setOpen(true); setSide("sell"); setCode(draft.code); setShares(String(draft.shares)); setPrice(draft.price ? String(draft.price) : ""); setErr("");
     setTimeout(() => document.querySelector('[data-testid="etf-trade-form"]')?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
   }, [draft?.n]);
-  if (!open) return <button class="btn secondary block" onClick={() => setOpen(true)}>手動新增一筆成交</button>;
+  if (!open) return <button class="btn secondary block" onClick={() => { setSide("buy"); setErr(""); setOpen(true); }}>手動新增一筆成交</button>;
   const save = async () => {
     const c = code.trim().toUpperCase();
     if (!c || !(Number(shares) > 0) || !(Number(price) > 0)) return setErr("請填代號、股數與成交價");

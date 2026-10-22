@@ -58,6 +58,7 @@ export interface State {
   usSectorEtfs: UsSnapshot["sectorEtfs"];
   macro: { status: "idle" | "loading" | "ready" | "error"; quotes: MacroQuote[]; error?: string; at?: number };
   twIndexLive: Record<string, IndexLive>; // 台股指數盤中即時（證交所 MIS）
+  twTurnover?: { date: string; value: number }; // 最新交易日上市成交金額（元，證交所每日行情加總）
   futures: { day?: FutQuote; night?: FutQuote; at?: number }; // 台指期近月日盤與夜盤（期交所 MIS）
   holdings: Holding[];
   settings: Settings;
@@ -172,7 +173,7 @@ function applyTw(snap: TwSnapshot) {
   set({ prices: pricesOf(snap.stocks) });
   // ETF 回測顯示規則分辨不出好壞，只給分數當參考，不給買入／觀望／離場
   const etfScored = b.scored.map((x) => ({ ...x, refOnly: true }));
-  set({ tw: { ...meta, scored: a.scored, sectors: a.sectors }, etf: { ...meta, scored: etfScored, sectors: b.sectors }, twIndices: snap.indices, twBreadth: snap.breadth });
+  set({ tw: { ...meta, scored: a.scored, sectors: a.sectors }, etf: { ...meta, scored: etfScored, sectors: b.sectors }, twIndices: snap.indices, twBreadth: snap.breadth, twTurnover: snap.turnover ? { date: snap.asOf, value: snap.turnover } : undefined });
   void snapshotEtfNav(snap.asOf);
 }
 

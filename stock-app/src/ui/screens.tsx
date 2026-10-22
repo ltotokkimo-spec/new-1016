@@ -706,7 +706,7 @@ function ImportReview({ data, onDone }: { data: { rows: ImportedHolding[]; note:
 
 // ---------------- 數據（國內外指標＋AI 解讀） ----------------
 export function MacroScreen() {
-  const st = useStore((s) => ({ macro: s.macro, tw: s.tw, us: s.us, idx: s.twIndices, breadth: s.twBreadth, idxLive: s.twIndexLive, fut: s.futures, etfs: s.usSectorEtfs, apiKey: s.settings.apiKey, reports: s.reports }));
+  const st = useStore((s) => ({ macro: s.macro, tw: s.tw, us: s.us, idx: s.twIndices, breadth: s.twBreadth, idxLive: s.twIndexLive, fut: s.futures, turnover: s.twTurnover, etfs: s.usSectorEtfs, apiKey: s.settings.apiKey, reports: s.reports }));
   // 台股指數盤中每 30 秒更新（收盤後 MIS 回傳收盤價，仍會顯示）
   useEffect(() => {
     refreshTwIndex(); refreshFutures();
@@ -744,8 +744,8 @@ export function MacroScreen() {
               const w = st.idxLive["加權指數"];
               if (!w) return null;
               return <>
-                {w.volShares !== undefined && <Metric k="成交量" v={`${(w.volShares / 1e8).toFixed(1)} 億股`} c="" d={idxFinal ? "收盤累計" : "盤中累計"} />}
-                {w.trades !== undefined && <Metric k="成交筆數" v={`${(w.trades / 1e4).toFixed(0)} 萬筆`} c="" d={idxFinal ? "收盤累計" : "盤中累計"} />}
+                {w.volShares !== undefined && <Metric k="成交股數" v={`${(w.volShares / 1e8).toFixed(1)} 億股`} c="" d={`${idxFinal ? "收盤累計" : "盤中累計"}（是股數，不是金額）`} />}
+                {st.turnover && <Metric k="成交金額" v={`${Math.round(st.turnover.value / 1e8).toLocaleString("zh-TW")} 億元`} c="" d={`${pretty(st.turnover.date)} 收盤・證交所統計（上市）`} />}
                 {w.high !== undefined && w.low !== undefined && <Metric k="加權今日高低" v={`${w.high.toLocaleString("zh-TW", { maximumFractionDigits: 0 })} / ${w.low.toLocaleString("zh-TW", { maximumFractionDigits: 0 })}`} c="" d="最高 / 最低" />}
               </>;
             })()}

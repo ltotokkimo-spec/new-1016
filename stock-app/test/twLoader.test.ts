@@ -44,6 +44,10 @@ describe("TwLoader", () => {
     expect(tsmc.foreign5).toBe(-34111365 * 5);
     expect(tsmc.foreignStreak).toBe(-10);
     expect(snap.indices.find((i) => i.name === "發行量加權股價指數")!.close).toBe(46969.87);
+    // 上市成交金額合計（元）：只加總上市（不含上櫃）、股票與 ETF 的當日成交金額，用來顯示「成交金額」
+    const twseValue = snap.stocks.filter((x) => x.market === "TWSE").reduce((a, x) => a + x.value, 0);
+    expect(snap.turnover!).toBeGreaterThan(0);
+    expect(snap.turnover!).toBeGreaterThanOrEqual(twseValue);
 
     const first = log.length;
     const again = new TwLoader(fakeFetch(log), kv, () => NOW);

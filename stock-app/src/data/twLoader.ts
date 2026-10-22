@@ -44,6 +44,7 @@ export interface TwSnapshot {
   stocks: StockInput[];
   indices: MarketIndex[];
   breadth?: TwBreadth; // 最新交易日的收盤漲跌家數
+  turnover?: number; // 最新交易日上市股票與 ETF 的成交金額合計（元）
   fetchedAt: number;
   version?: number; // 2 = 含 ETF
 }
@@ -172,7 +173,7 @@ export class TwLoader {
     await this.prune(dates[dates.length - 1], m3?.date);
     return {
       asOf: d0, dates, ref: { w1, m1: m1?.date ?? "", m3: m3?.date ?? "" },
-      stocks, indices: q0.a.indices ?? [], breadth: countBreadth(q0.a.rows, q0.b?.rows ?? []), fetchedAt: this.now(), version: TW_SNAPSHOT_VERSION,
+      stocks, indices: q0.a.indices ?? [], breadth: countBreadth(q0.a.rows, q0.b?.rows ?? []), turnover: q0.a.rows.reduce((a, r) => a + (Number.isFinite(r[4]) ? r[4] : 0), 0), fetchedAt: this.now(), version: TW_SNAPSHOT_VERSION,
     };
   }
 

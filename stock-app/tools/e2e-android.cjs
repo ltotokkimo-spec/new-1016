@@ -467,6 +467,8 @@ function check(ok, name, detail = "") {
   check(/^[\d,]+ 股・均價 \$[\d,]+\.\d\d$/.test(usHold.avg), "美股持股顯示股數與均價", usHold.avg);
   check(/^[+-]NT\$[\d,]+$/.test(usHold.ntd), "美股持股另外顯示台幣損益（NT$）", usHold.ntd);
   check(/^[+-]NT\$[\d,]+$/.test(usHold.cardNtd) && /\$[\d,]+/.test(usHold.cardText), "美股市值卡片顯示美金與台幣損益", usHold.cardText);
+  const pnlCards = await page.evaluate(() => ({ tw: document.querySelector('[data-testid="tw-pnl"]')?.innerText.replace(/\s+/g, " ") || "", us: document.querySelector('[data-testid="us-pnl"]')?.innerText.replace(/\s+/g, " ") || "" }));
+  check(/^總損益 [+-]?[\d.,]+( 萬| 億)?（[+-]?\d+\.\d%）$/.test(pnlCards.tw) && /^總損益 [+-]?\$[\d,]+（[+-]?\d+\.\d%）$/.test(pnlCards.us), "台股、美股市值卡片的損益標明「總損益」", JSON.stringify(pnlCards));
   // 只有一檔美股：卡片與持股列的台幣損益要一樣，且換算出的匯率合理（不顯示匯率，從金額反推）；也確認畫面上不再出現匯率說明
   const usd = Number((usHold.pnl.match(/([+-])\$([\d,]+)/) || []).slice(1).join("").replace(/,/g, ""));
   const twd = Number(usHold.ntd.replace(/NT\$|,/g, ""));

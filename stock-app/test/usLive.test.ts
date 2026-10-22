@@ -15,6 +15,7 @@ describe("美股即時報價（CNBC）", () => {
     expect(q.price).toBe(342.94);
     expect(q.prevClose).toBe(343.46);
     expect(q.final).toBe(true);
+    expect(q.session).toBe("收盤"); // 持股頁標「收盤」，盤後成交另標「盤後」
     expect(q.date).toBe("20261019");
     expect(q.time).toBe("04:00"); // 紐約 16:00 EDT = 台北 04:00
     expect(q.ext).toMatchObject({ label: "盤後", price: 343.04, time: "07:59" });
@@ -34,6 +35,7 @@ describe("美股即時報價（CNBC）", () => {
     Object.assign(f.FormattedQuoteResult.FormattedQuote[0], { curmktstatus: "REG_MKT", last: "345.10", last_time: "2026-10-20T10:31:05.000-0400" });
     const q = parseUsLive(f).AAPL;
     expect(q.final).toBe(false);
+    expect(q.session).toBe("盤中");
     expect(q.time).toBe("22:31");
     expect(q.ext).toBeUndefined();
   });

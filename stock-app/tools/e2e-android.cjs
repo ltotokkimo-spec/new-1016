@@ -456,10 +456,12 @@ function check(ok, name, detail = "") {
   const usHold = await page.evaluate(() => {
     const it = [...document.querySelectorAll(".list .item")].find((e) => /AAPL/.test(e.innerText));
     const t = (el) => (el ? el.innerText.replace(/\s+/g, " ").trim() : "");
-    return { pnl: t(it?.querySelector('[data-testid="hold-pnl"]')), ntd: t(it?.querySelector('[data-testid="hold-ntd"]')), cardNtd: t(document.querySelector('[data-testid="us-ntd"]')), cardText: t([...document.querySelectorAll(".card")].find((c) => /美股市值/.test(c.innerText))), note: document.body.innerText.replace(/\s+/g, " ") };
+    return { label: t(it?.querySelector('[data-testid="hold-label"]')), avg: t(it?.querySelector('[data-testid="hold-avg"]')), px: t(it?.querySelector(".px")), pnl: t(it?.querySelector('[data-testid="hold-pnl"]')), ntd: t(it?.querySelector('[data-testid="hold-ntd"]')), cardNtd: t(document.querySelector('[data-testid="us-ntd"]')), cardText: t([...document.querySelectorAll(".card")].find((c) => /美股市值/.test(c.innerText))), note: document.body.innerText.replace(/\s+/g, " ") };
   });
   log("美股持股", JSON.stringify(usHold));
   check(/損益\s*[+-]\$[\d,]+（[+-]?\d+(\.\d)?%）/.test(usHold.pnl), "美股持股損益用美金符號 $", usHold.pnl);
+  check(/^(盤中|收盤)$/.test(usHold.label) && !/\d\d:\d\d/.test(usHold.px), "美股持股現價改標盤中／收盤（不顯示時間）", `${usHold.label} | ${usHold.px}`);
+  check(/^[\d,]+ 股・均價 \$[\d,]+\.\d\d$/.test(usHold.avg), "美股持股顯示股數與均價", usHold.avg);
   check(/^[+-]NT\$[\d,]+$/.test(usHold.ntd), "美股持股另外顯示台幣損益（NT$）", usHold.ntd);
   check(/^[+-]NT\$[\d,]+$/.test(usHold.cardNtd) && /\$[\d,]+/.test(usHold.cardText), "美股市值卡片顯示美金與台幣損益", usHold.cardText);
   // 只有一檔美股：卡片與持股列的台幣損益要一樣，且換算出的匯率合理（不顯示匯率，從金額反推）；也確認畫面上不再出現匯率說明
@@ -522,7 +524,7 @@ function check(ok, name, detail = "") {
   const usTrading = !["Sat", "Sun"].includes(nyWd) && nyH >= 4 && nyH < 20;
   log("美股即時價", `紐約 ${nyH}時 ${nyWd} 交易時段=${usTrading} 有即時=${anyLive}`, JSON.stringify(usLive));
   check(usTrading ? anyLive : true, "美股盤中/盤前盤後有即時報價（紐約半夜顯示收盤）", `紐約 ${nyH}時 交易=${usTrading} 有即時=${anyLive}`);
-  check(usLive.every((r) => /(現價 \d\d:\d\d|收盤)\s*[\d,]+\.\d+ 今日\s*[+-]?\d/.test(r.px)), "美股每列顯示收盤/現價與今日漲跌", JSON.stringify(usLive.map((r) => r.px)));
+  check(usLive.every((r) => /(現價 \d\d:\d\d|盤中|盤前|盤後|收盤)\s*[\d,]+\.\d+ 今日\s*[+-]?\d/.test(r.px)), "美股每列顯示收盤/現價與今日漲跌", JSON.stringify(usLive.map((r) => r.px)));
   const usAsof = await page2.$eval(".asof", (e) => e.innerText);
   // 預期資料日：紐約 17:00 後算當天，往前找平日
   const ny = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23" }).formatToParts(new Date());

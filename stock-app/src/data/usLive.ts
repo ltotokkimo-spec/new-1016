@@ -37,6 +37,7 @@ export function parseUsLive(json: any): Record<string, LiveQuote> {
       open: num(q.open), high: num(q.high), low: num(q.low), date: at.ymd, time: at.dateOnly ? "" : taipeiClock(at.t),
       final: at.dateOnly || status !== "REG_MKT",
     };
+    lq.session = lq.final ? "收盤" : "盤中";
     const vol = num(q.volume);
     if (vol > 0) lq.volume = vol;
     const x = q.ExtendedMktQuote, xt = parseTime(x?.last_time), xp = num(x?.last);

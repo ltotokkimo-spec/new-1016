@@ -313,11 +313,11 @@ function check(ok, name, detail = "") {
   check(afterHide.rows === 0 && afterHide.pos === posBefore && afterHide.pos > 0 && afterHide.nav, "刪除成交紀錄那一列時，持股不會跟著消失", JSON.stringify({ posBefore, ...afterHide }));
   // 買不在選股「買入」清單的股票（興櫃 7861 沒有評等）：只警告不阻擋，成交紀錄那列標「非選股清單」
   await page.click("text=手動新增一筆成交");
-  const sideOnOpen = await page.$eval('[data-testid="etf-trade-form"] .seg button[aria-pressed="true"]', (b) => b.innerText).catch(() => "");
-  check(sideOnOpen === "買進", "取消賣出後重新打開手動新增，預設回到「買進」", sideOnOpen);
+  const reopen = await page.evaluate(() => ({ side: document.querySelector('[data-testid="etf-trade-form"] .seg button[aria-pressed="true"]')?.innerText, code: document.querySelector("#etf-code").value, shares: document.querySelector("#etf-shares").value, price: document.querySelector("#etf-price").value }));
+  check(reopen.side === "買進" && !reopen.code && !reopen.shares && !reopen.price, "取消賣出後重新打開手動新增，預設買進、代號股數成交價都是空白（不沿用上一次的價格）", JSON.stringify(reopen));
   await page.fill("#etf-code", "7861");
   await page.fill("#etf-shares", "1");
-  await page.waitForFunction(() => Number(document.querySelector("#etf-price").value) > 0, null, { timeout: 5000 }).catch(() => page.fill("#etf-price", "900"));
+  await page.fill("#etf-price", "1000"); // 興櫃現價約 980，成本 1000 不會觸發停損提醒
   await page.click('[data-testid="etf-trade-save"]');
   await page.waitForSelector('[data-testid="off-list"]', { timeout: 10000 }).catch(() => {});
   const offRows = await page.$$eval('[data-testid="off-list"]', (xs) => xs.map((x) => x.parentElement.innerText.replace(/\s+/g, " ")));

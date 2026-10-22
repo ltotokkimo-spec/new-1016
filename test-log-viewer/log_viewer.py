@@ -29,7 +29,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
 
-APP_VERSION = "1.14.1"
+APP_VERSION = "1.15.0"
 APP_TITLE = f"測試結果檢視器 v{APP_VERSION}"
 DEFAULT_CSV_NAME = "operator_log.csv"
 DEFAULT_CHANNELS = 6
@@ -264,8 +264,11 @@ def all_columns(n_ch):
 # --------------------------------------------------------------------------
 class GridTable(ttk.Frame):
     def __init__(self, master, on_double_click=None, on_select=None, on_context=None,
-                 on_copy=None):
+                 on_copy=None, on_sort=None):
         super().__init__(master)
+        self.on_sort = on_sort       # 點標題排序
+        self.sort_key = None         # 目前排序的欄位 key
+        self.sort_asc = True
         self.on_double_click = on_double_click   # 開啟詳細資料（Enter / 右鍵選單）
         self.on_copy = on_copy
         self.editor = None         # 雙擊儲存格時出現的可選取文字框
@@ -318,6 +321,8 @@ class GridTable(ttk.Frame):
         self.body.bind("<Control-c>", self._copy_selected)
         self.body.bind("<Control-a>", self._select_all)
         self.body.bind("<Escape>", lambda e: self.clear_selection())
+        self.header.bind("<Button-1>", self._on_header_click)
+        self.header.configure(cursor="hand2")
         for w in (self.body, self.header):
             w.bind("<MouseWheel>", self._on_wheel)
             w.bind("<Shift-MouseWheel>", self._on_shift_wheel)
@@ -364,7 +369,7 @@ class GridTable(ttk.Frame):
         sample = self.rows[-3000:]
         widths = []
         for key, title, _ in self.columns:
-            w = self.font_head.measure(title)
+            w = self.font_head.measure(title + "  ▼")
             f = self.font_big if key == "CH0" else (
                 self.font_bold if key.startswith("CH") else self.font)
             seen = set()
@@ -385,8 +390,20 @@ class GridTable(ttk.Frame):
         for (key, title, _), w in zip(self.columns, self.widths):
             c.create_rectangle(x, 0, x + w, HEADER_HEIGHT, fill=COLORS["header_bg"],
                                outline="#444444")
-            c.create_text(x + w / 2, HEADER_HEIGHT / 2, text=title,
-                          fill=COLORS["header_fg"], font=self.font_head)
+            mark = ("  ▲" if self.sort_asc else "  ▼") if key == self.sort_key else ""
+            c.create_text(x + w / 2, HEADER_HEIGHT / 2, text=title + mark,
+                          fill="#FFD966" if mark else COLORS["header_fg"], font=self.font_head)
+            x += w
+
+    def _on_header_click(self, e):
+        if not self.on_sort:
+            return
+        cx = self.header.canvasx(e.x)
+        x = 0
+        for (key, _, _), w in zip(self.columns, self.widths):
+            if x <= cx < x + w:
+                self.on_sort(key)
+                return
             x += w
 
     def schedule_redraw(self):
@@ -726,6 +743,8 @@ class App(tk.Tk):
         self.var_station = tk.StringVar(value="全部")
         self.var_verdict = tk.StringVar(value="全部")
         self.var_dup_only = tk.BooleanVar(value=False)
+        self.sort_key = None       # 點標題排序
+        self.sort_asc = True
         self.pick_dates = set()    # 多選日期（可不連續）；空 = 不限
         self.var_search = tk.StringVar()
         self.hidden_cols = set(self.settings.get("hidden_cols", []))
@@ -846,6 +865,7 @@ class App(tk.Tk):
 
         self.table = GridTable(self, on_double_click=self.show_detail,
                                on_select=self._on_select, on_context=self._context_menu,
+                               on_sort=self._sort_by,
                                on_copy=lambda t, rec: self._remember_copy(
                                    t, rec, f"已複製：{t}　（可直接 Ctrl+V 貼到 SN/OPID/時間篩選）"))
         self.table.pack(fill="both", expand=True, padx=6, pady=2)
@@ -1358,16 +1378,62 @@ class App(tk.Tk):
             if self.only_lines is not None and r["_line"] not in self.only_lines:
                 continue
             out.append(r)
-        if self.var_newest_first.get():
+        if self.sort_key:
+            out = self._sorted(out)
+        elif self.var_newest_first.get():
             out.reverse()
         return out
+
+    # ---- 點標題排序：第 1 次由小到大 ▲、第 2 次由大到小 ▼、第 3 次還原成時間順序 ----
+    def _sort_by(self, key):
+        if self.sort_key != key:
+            self.sort_key, self.sort_asc = key, True
+        elif self.sort_asc:
+            self.sort_asc = False
+        else:
+            self.sort_key, self.sort_asc = None, True
+        self.table.sort_key, self.table.sort_asc = self.sort_key, self.sort_asc
+        self.refresh_view(scroll="top")
+
+    @staticmethod
+    def _sort_value(rec, key):
+        """排序用的值：回傳 (None=空白, 可比較的值)；空白永遠排最後"""
+        dt = rec["_dt"]
+        if key == "timestamp":
+            return dt
+        if key == "date":
+            return dt.date() if dt else None
+        if key == "time":
+            return dt.time() if dt else None
+        text = cell_text(rec, key)
+        if text == "":
+            return None
+        if key == "test_status":                       # NA < FT < RT1 < RT2 ...
+            return 0 if text == "NA" else (1 if text == "FT" else 1 + int(text[2:] or 0))
+        try:
+            return (0, float(text))                    # 數字依大小，不是依字母
+        except ValueError:
+            return (1, text.lower())
+
+    def _sorted(self, rows):
+        key = self.sort_key
+        have, blank = [], []
+        for r in rows:
+            v = self._sort_value(r, key)
+            (blank if v is None else have).append((v, r))
+        # 數字 (0, x) 和文字 (1, s) 混在同一欄時，分組比較不會出錯
+        have.sort(key=lambda t: t[0], reverse=not self.sort_asc)
+        return [r for _, r in have] + [r for _, r in blank]
 
     def refresh_view(self, scroll=None):
         if getattr(self, "_suspend", False):
             return
         rows = self.filtered()
         if scroll == "end":
-            scroll = "top" if self.var_newest_first.get() else "bottom"
+            if self.sort_key:
+                scroll = "top"
+            else:
+                scroll = "top" if self.var_newest_first.get() else "bottom"
         self.table.set_data(build_columns(self.n_ch, self.hidden_cols), rows, scroll=scroll)
         self._update_stats(rows)
         if self.only_lines is not None:

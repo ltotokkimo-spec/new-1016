@@ -66,7 +66,7 @@
 
 ## 8. 虛擬 ETF（Claude 用虛擬 10 萬操作）
 - 狀態檔 `stock-app/virtual/virtual-etf.json`；App 讀 `https://raw.githubusercontent.com/ltotokkimo-spec/new-1016/claude/ui-calculator-interface-t3x9kh/stock-app/virtual/virtual-etf.json`。程序在 `DAILY.md`，指令 `node --experimental-strip-types tools/virtual-etf.ts <init|fill|close|order|note|show> virtual/virtual-etf.json …`（在 `stock-app/` 執行）。
-- 排程 `trig_01GKTYGpLeqWRS2Nrv75CoTv`：平日 17:40（台北），**綁定舊對話 `session_01UVNmn5S34akG59uVThmBf3`**，不會喚醒新對話。之前試過建立新對話排程，系統**不讓新對話掛「台股官方」連接器**；使用者決定**維持現狀不動**。若舊對話不再可用，要重建排程並先測新對話查得到台股行情。
+- 排程（10/22 起）`trig_01P8toMCwxC8oqAhFiSS27tp`：平日 17:40（台北），**綁定 `session_01ApWNmMJa7iJ1ivpuuMR7hZ`（這個有 repo 與台股官方 MCP 的對話）**。舊排程 `trig_01GKTYGpLeqWRS2Nrv75CoTv` 綁的對話已失效：10/21 17:40 在沒有 repo、沒有 MCP 的空對話裡執行，**當天沒有更新**（狀態停在 10/20），已於 10/22 使用者同意後停用。10/21、10/22 已用證交所真實價格補跑（note 標【補跑】）。CLI 參數順序是 `指令 <state> <日期> <quotes>`。若這個對話不再可用，要重建排程並先測新對話查得到台股行情。
 - 10/20 收盤：淨值 97,733（−2.27%），0050 −0.50%。持有大成鋼、元大金、長榮、儒鴻、潤泰新、中鋼；10/21 開盤的委託是賣元大金 110 股、買宏碁 250 股（限價 32.85、停損 30.9）。
 - **10/21 起資金加碼到 50 萬**（`topup` 指令，加入的錢當作之前閒置的現金；App 另外列加碼前報酬），配置改成**核心＋衛星**（核心約 45%：台積電、鴻海、台達電，分批進場；使用者不要 0050）。細節在 `DAILY.md`。
 - **資金水位**（10/21 使用者指定）：平常 7 成股票、3 成現金；加權指數距 20 日高點跌 5% 起最多 8 成、10% 起最多 9 成。每日排程用 `cash` 指令記錄判斷，App「資金水位」卡片顯示。

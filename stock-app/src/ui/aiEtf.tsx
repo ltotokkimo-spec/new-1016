@@ -73,8 +73,7 @@ function NavChart({ points, budget, mine = "我的自組 ETF" }: { points: { dat
   return (
     <div class="card stack" style={{ padding: "12px" }} data-testid="nav-chart">
       <div style={{ fontSize: "14px", lineHeight: 1.7 }} data-testid="nav-headline">
-        {mine}從 {pretty(st.rows[0].date)} 起累積 <b class={`num ${cls(st.mine)}`}>{fmtPct(st.mine, 2)}</b>（<span class={`num ${cls(st.pnl)}`}>{fmtSigned(st.pnl)} 元</span>）；
-        同樣的錢買 0050 是 <b class={`num ${cls(st.bench)}`}>{fmtPct(st.bench, 2)}</b>，<b>{head}</b>。
+        {mine}從 {pretty(st.rows[0].date)} 起累積 <b class={`num ${cls(st.mine)}`}>{fmtPct(st.mine, 2)}</b>（<span class={`num ${cls(st.pnl)}`}>{fmtSigned(st.pnl)} 元</span>）；{"同樣的錢買 0050 是 "}<b class={`num ${cls(st.bench)}`}>{fmtPct(st.bench, 2)}</b>，<b>{head}</b>。
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="自組 ETF 與 0050 報酬率走勢">
         {ticks.filter((t) => Math.abs(y(t) - y(0)) > 12).map((t) => <g key={t}>

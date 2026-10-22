@@ -1,7 +1,7 @@
 // 「自組ETF」分頁：請 Claude 建議要買什麼、買幾股，照著實際下單後填入成交，追蹤淨值並和 0050 比較。
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
-  addEtfTrades, hideEtfTrade, refreshLive, refreshVirtual, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
+  addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError, holdingsFromImage, shrinkImage } from "../ai/claude";
 import type { Scored } from "../engine/score";
@@ -28,11 +28,16 @@ function TwdPnl({ shares, avgCost, price }: { shares: number; avgCost: number; p
   return <><span class={cls(x)} style={{ whiteSpace: "nowrap" }}>損益 {x < 0 ? "-" : x > 0 ? "+" : ""}{Math.round(Math.abs(x)).toLocaleString("zh-TW")}</span>・</>;
 }
 
+/** 不在選股「買入」清單的提醒（只警告，不阻擋） */
+function OffTag() {
+  return <span class="warn-tag" data-testid="off-list">非選股清單</span>;
+}
+
 /** 成交紀錄一列：日期 買／賣 名稱 股數・成交價・損益（賣出＝已實現，買進＝現價帳面，賺紅賠綠） */
 function TradeLine({ t, pnl }: { t: EtfTrade; pnl?: number }) {
   return (
     <span class="num" style={{ minWidth: 0 }}>
-      {pretty(t.date)} <span class={t.side === "buy" ? "up" : "down"}>{t.side === "buy" ? "買" : "賣"}</span> {t.name} {t.shares.toLocaleString()} 股・成交價 {fmtPrice(t.price)}
+      {pretty(t.date)} <span class={t.side === "buy" ? "up" : "down"}>{t.side === "buy" ? "買" : "賣"}</span> {t.name}{t.offList && <OffTag />} {t.shares.toLocaleString()} 股・成交價 {fmtPrice(t.price)}
       {pnl !== undefined && Number.isFinite(pnl) && <>・<span class={cls(pnl)} style={{ whiteSpace: "nowrap" }}>損益 {signedMoney(pnl)}</span></>}
     </span>
   );
@@ -394,7 +399,7 @@ function PlanFill({ items, planKey, cash, stops, source, asOf }: { items: PlanIt
       {rows.map((r, i) => (
         <div class="import-row" style={{ padding: "8px 0" }}>
           <label class="check"><input type="checkbox" checked={r.keep} onChange={(e) => upd(i, { keep: (e.target as HTMLInputElement).checked })} />
-            <span class={r.side === "buy" ? "up" : "down"}>{r.side === "buy" ? "買進" : "賣出"}</span> {getState().prices[r.code]?.name ?? r.code} <span class="muted num">{r.code}</span></label>
+            <span class={r.side === "buy" ? "up" : "down"}>{r.side === "buy" ? "買進" : "賣出"}</span> {getState().prices[r.code]?.name ?? r.code} <span class="muted num">{r.code}</span>{r.side === "buy" && offListNow(r.code) && <OffTag />}</label>
           <label class="field">股數<input inputMode="numeric" value={r.shares} onInput={(e) => upd(i, { shares: (e.target as HTMLInputElement).value })} /></label>
           <label class="field">成交價<input inputMode="decimal" value={r.price} onInput={(e) => upd(i, { price: (e.target as HTMLInputElement).value })} /></label>
           {r.side === "buy" && <label class="field" style={{ gridColumn: "1 / -1" }}>停損價（跌破會提醒，空白＝成本 −10%）<input inputMode="decimal" value={r.stopText} onInput={(e) => upd(i, { stopText: (e.target as HTMLInputElement).value })} data-testid="plan-stop" /></label>}

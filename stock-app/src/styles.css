@@ -188,3 +188,6 @@ table.cand th:first-child, table.cand td:first-child { text-align: left; }
 table.cand td { padding: 5px 4px; border-top: 1px solid var(--line); text-align: right; white-space: nowrap; }
 table.cand td:first-child { white-space: normal; }
 table.cand tr.grp td { background: var(--surface-2); color: var(--muted); font-size: 11px; font-weight: 700; text-align: left; padding: 3px 6px; border-top: 0; }
+
+.warn-tag { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 6px; font-size: 11px; font-weight: 600; line-height: 18px; color: #8a5a00; background: #fbefd5; border: 1px solid #e6c98a; white-space: nowrap; vertical-align: middle; }
+@media (prefers-color-scheme: dark) { .warn-tag { color: #f0c36a; background: #3a2c10; border-color: #6b4f1a; } }

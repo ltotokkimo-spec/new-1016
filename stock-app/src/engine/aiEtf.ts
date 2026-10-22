@@ -11,6 +11,7 @@ export interface EtfTrade {
   price: number; // 實際成交價
   benchPrice: number; // 當天 0050 價格（用來模擬「同樣的錢買 0050」）
   hidden?: boolean; // 只從成交紀錄列表隱藏；持股、現金、損益仍照這筆計算
+  offList?: boolean; // 買進當下不在 App 選股「買入」清單裡（只警告，不阻擋）
 }
 export interface NavPoint { date: string; nav: number; bench: number }
 export interface AiEtf {
@@ -201,6 +202,11 @@ export function parsePlan(text: string): { items: PlanItem[]; body: string; stop
 }
 
 /** 給 Claude 的候選股：只取 App「買入」的高分股，每個產業最多 perSector 檔、全部最多 max 檔，已持有的不重複列（持股那邊已有最新價格）。不夠 minCount 檔時用高分的「觀望」補 */
+/** 買進的股票是否不在 App 選股的「買入」清單裡（ETF 只當參考、不評等，不算）；查不到資料也算不在 */
+export function isOffList(s: { rating: string; refOnly?: boolean } | undefined): boolean {
+  return s ? !s.refOnly && s.rating !== "買入" : true;
+}
+
 export function pickCandidates<T extends { code: string; sector: string; rating: string }>(scored: T[], held: Set<string>, max = 12, perSector = 3, minCount = 6): T[] {
   minCount = Math.min(minCount, max);
   const out: T[] = [];

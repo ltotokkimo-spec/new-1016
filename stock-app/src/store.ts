@@ -16,7 +16,7 @@ import type { BacktestResult } from "./engine/backtest";
 import type { VirtualEtf } from "./engine/virtualEtf";
 import { liveUrl, parseLive, type LiveQuote } from "./data/twLive";
 import { parseRevenue, revenueUrls, type Revenue } from "./data/revenue";
-import { emptyEtf, etfAlerts, pickCandidates, positions as etfPositions, recordNav, stopOf, valuate, type AiEtf, type EtfTrade } from "./engine/aiEtf";
+import { emptyEtf, etfAlerts, isOffList, pickCandidates, positions as etfPositions, recordNav, stopOf, valuate, type AiEtf, type EtfTrade } from "./engine/aiEtf";
 
 // Claude 每個交易日收盤後更新的虛擬自組 ETF（存在 GitHub 分支上，App 只讀取顯示）
 export const VIRTUAL_URL = "https://raw.githubusercontent.com/ltotokkimo-spec/new-1016/claude/ui-calculator-interface-t3x9kh/stock-app/virtual/virtual-etf.json";
@@ -538,9 +538,12 @@ export async function snapshotEtfNav(date = state.tw.asOf ?? taipeiToday()) {
   await saveAiEtf(recordNav(etf, date, v));
 }
 
+/** 這檔現在不在 App 選股的「買入」清單裡嗎（只用來警告） */
+export const offListNow = (code: string) => isOffList(findScored(code, "TW"));
+
 export async function addEtfTrades(trades: Omit<EtfTrade, "id" | "benchPrice">[], fromPlan?: string, stops: Record<string, number> = {}) {
   const bench = etfPrice("0050") ?? NaN;
-  const add = trades.map((t, i) => ({ ...t, id: `${Date.now()}-${i}-${t.code}`, benchPrice: bench }));
+  const add = trades.map((t, i) => ({ ...t, id: `${Date.now()}-${i}-${t.code}`, benchPrice: bench, ...(t.side === "buy" ? { offList: offListNow(t.code) } : {}) }));
   const etf = state.aiEtf;
   await saveAiEtf({ ...etf, trades: [...etf.trades, ...add], appliedKey: fromPlan ?? etf.appliedKey, stops: { ...etf.stops, ...stops } });
   await snapshotEtfNav();

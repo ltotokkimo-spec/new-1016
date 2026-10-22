@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cashFlow, comparePlans, reconcilePhoto, emptyEtf, etfAlerts, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, parsePlan, pickCandidates, tradePnls, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
+import { cashFlow, comparePlans, reconcilePhoto, emptyEtf, etfAlerts, fitBudget, groupBySector, isOffList, isOwnPrompt, looksLikePlanReply, parsePlan, pickCandidates, tradePnls, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
 
 const t = (code: string, side: "buy" | "sell", shares: number, price: number, benchPrice = 100, date = "20261017") =>
   ({ id: code + side + date, date, code, name: code, side, shares, price, benchPrice });
@@ -244,3 +244,13 @@ describe("isOwnPrompt／groupBySector", () => {
   });
 });
 
+
+describe("isOffList 非選股清單提醒", () => {
+  it("評等買入的不警告；觀望、離場、查不到資料的警告；ETF 只當參考不警告", () => {
+    expect(isOffList({ rating: "買入" })).toBe(false);
+    expect(isOffList({ rating: "觀望" })).toBe(true);
+    expect(isOffList({ rating: "離場" })).toBe(true);
+    expect(isOffList(undefined)).toBe(true);
+    expect(isOffList({ rating: "觀望", refOnly: true })).toBe(false);
+  });
+});

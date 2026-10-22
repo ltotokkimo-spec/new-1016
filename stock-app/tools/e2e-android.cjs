@@ -311,6 +311,16 @@ function check(ok, name, detail = "") {
   await page.waitForTimeout(600);
   const afterHide = await page.evaluate(() => ({ rows: document.querySelectorAll('[data-testid="etf-trades"] .row').length, pos: document.querySelectorAll('.list .item .name').length, nav: document.querySelector('[data-testid="etf-summary"]').innerText.includes("股票市值") }));
   check(afterHide.rows === 0 && afterHide.pos === posBefore && afterHide.pos > 0 && afterHide.nav, "刪除成交紀錄那一列時，持股不會跟著消失", JSON.stringify({ posBefore, ...afterHide }));
+  // 買不在選股「買入」清單的股票（興櫃 7861 沒有評等）：只警告不阻擋，成交紀錄那列標「非選股清單」
+  await page.click("text=手動新增一筆成交");
+  await page.fill("#etf-code", "7861");
+  await page.fill("#etf-shares", "1");
+  await page.waitForFunction(() => Number(document.querySelector("#etf-price").value) > 0, null, { timeout: 5000 }).catch(() => page.fill("#etf-price", "900"));
+  await page.click('[data-testid="etf-trade-save"]');
+  await page.waitForSelector('[data-testid="off-list"]', { timeout: 10000 }).catch(() => {});
+  const offRows = await page.$$eval('[data-testid="off-list"]', (xs) => xs.map((x) => x.parentElement.innerText.replace(/\s+/g, " ")));
+  check(offRows.length >= 1 && offRows.every((r) => !/台積電/.test(r)) && offRows.some((r) => /7861|貝爾威勒/.test(r)), "買進不在選股清單的股票：成交紀錄標「非選股清單」，但沒有阻擋", JSON.stringify(offRows));
+  await shot("05d-非選股清單提醒");
   const cand = await page.$eval('[data-testid="candidates"]', (e) => ({ rows: e.querySelectorAll("tbody tr:not(.grp)").length, grp: e.querySelectorAll("tbody tr.grp").length, cols: e.querySelectorAll("thead th").length, over: e.querySelector("table").scrollWidth > e.querySelector("table").parentElement.clientWidth + 1 })).catch(() => null);
   check(!!cand && cand.rows >= 3 && cand.rows <= 12 && cand.cols === 5 && !cand.over, "候選股一覽：依產業分組、5 欄、手機寬度不用左右滑", JSON.stringify(cand));
   await shot("05b-自組ETF");

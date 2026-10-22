@@ -1,5 +1,5 @@
 import type { ComponentChildren } from "preact";
-import { useEffect, useRef } from "preact/hooks";
+import { useEffect } from "preact/hooks";
 import type { Rating } from "../engine/score";
 
 export const fmtPct = (x: number | undefined, digits = 1) =>
@@ -127,78 +127,4 @@ export function Markdown({ text }: { text: string }) {
 function inline(t: string) {
   const parts = t.split(/(\*\*[^*]+\*\*)/g);
   return parts.map((p, i) => (p.startsWith("**") && p.endsWith("**") ? <strong key={i}>{p.slice(2, -2)}</strong> : p));
-}
-
-/** 收盤價走勢＋MA20/MA60＋成交量（Canvas） */
-export function PriceChart({ bars }: { bars: { date: string; close: number; volume: number }[] }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const c = ref.current;
-    if (!c || bars.length < 2) return;
-    const dpr = window.devicePixelRatio || 1;
-    const w = c.clientWidth, h = c.clientHeight;
-    c.width = w * dpr; c.height = h * dpr;
-    const g = c.getContext("2d")!;
-    g.scale(dpr, dpr);
-    const css = getComputedStyle(document.documentElement);
-    const col = (n: string) => css.getPropertyValue(n).trim();
-    const padL = 6, padR = 52, padT = 10, volH = 40, gap = 8;
-    const priceH = h - padT - volH - gap - 16;
-    const closes = bars.map((b) => b.close);
-    const ma = (n: number) => closes.map((_, i) => (i + 1 >= n ? closes.slice(i + 1 - n, i + 1).reduce((a, b) => a + b, 0) / n : NaN));
-    const ma20 = ma(20), ma60 = ma(60);
-    const all = [...closes, ...ma20, ...ma60].filter(Number.isFinite);
-    const lo = Math.min(...all), hi = Math.max(...all);
-    const x = (i: number) => padL + (i / (bars.length - 1)) * (w - padL - padR);
-    const y = (v: number) => padT + (1 - (v - lo) / (hi - lo || 1)) * priceH;
-    // 格線與價格刻度
-    g.strokeStyle = col("--line"); g.fillStyle = col("--muted"); g.lineWidth = 1; g.font = "11px sans-serif"; g.textBaseline = "middle";
-    for (let k = 0; k <= 3; k++) {
-      const v = lo + ((hi - lo) * k) / 3, yy = y(v);
-      g.beginPath(); g.moveTo(padL, yy); g.lineTo(w - padR, yy); g.stroke();
-      g.fillText(v >= 1000 ? Math.round(v).toLocaleString() : v.toFixed(v >= 100 ? 0 : 2), w - padR + 6, yy);
-    }
-    const line = (vals: number[], color: string, width: number) => {
-      g.strokeStyle = color; g.lineWidth = width; g.beginPath();
-      let started = false;
-      vals.forEach((v, i) => { if (!Number.isFinite(v)) return; if (!started) { g.moveTo(x(i), y(v)); started = true; } else g.lineTo(x(i), y(v)); });
-      g.stroke();
-    };
-    const upTrend = closes[closes.length - 1] >= closes[0];
-    // 收盤線下方淡色面積
-    g.beginPath(); g.moveTo(x(0), y(closes[0]));
-    closes.forEach((v, i) => g.lineTo(x(i), y(v)));
-    g.lineTo(x(closes.length - 1), padT + priceH); g.lineTo(x(0), padT + priceH); g.closePath();
-    g.fillStyle = col(upTrend ? "--up-bg" : "--down-bg"); g.fill();
-    line(ma60, col("--muted"), 1);
-    line(ma20, col("--accent"), 1.2);
-    line(closes, col(upTrend ? "--up" : "--down"), 1.8);
-    // 最後一點
-    const li = closes.length - 1;
-    g.fillStyle = col(upTrend ? "--up" : "--down"); g.beginPath(); g.arc(x(li), y(closes[li]), 3, 0, Math.PI * 2); g.fill();
-    // 成交量
-    const vmax = Math.max(...bars.map((b) => b.volume).filter(Number.isFinite), 1);
-    const vy = h - 16 - volH;
-    const bw = Math.max(1, (w - padL - padR) / bars.length - 1);
-    bars.forEach((b, i) => {
-      const up = i === 0 || b.close >= bars[i - 1].close;
-      g.fillStyle = col(up ? "--up-bg" : "--down-bg");
-      const hh = (b.volume / vmax) * volH;
-      g.fillRect(x(i) - bw / 2, vy + volH - hh, bw, hh);
-    });
-    // 日期
-    g.fillStyle = col("--muted"); g.textBaseline = "alphabetic";
-    const d = (s: string) => `${+s.slice(4, 6)}/${+s.slice(6, 8)}`;
-    g.textAlign = "left"; g.fillText(d(bars[0].date), padL, h - 2);
-    g.textAlign = "right"; g.fillText(d(bars[li].date), w - padR, h - 2);
-    g.textAlign = "left";
-  }, [bars]);
-  return (
-    <div>
-      <canvas ref={ref} class="chart" aria-label="股價走勢圖" />
-      <div class="row muted" style={{ fontSize: "12px", gap: "14px" }}>
-        <span>— 收盤</span><span style={{ color: "var(--accent)" }}>— 20 日均線</span><span>— 60 日均線</span>
-      </div>
-    </div>
-  );
 }

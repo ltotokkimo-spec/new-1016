@@ -126,6 +126,7 @@ table.sectors tr { cursor: pointer; }
 .hero .price { font-size: 34px; font-weight: 800; line-height: 1; }
 .reasons { margin: 0; padding-left: 18px; line-height: 1.7; font-size: 14px; }
 canvas.chart { width: 100%; height: 220px; display: block; }
+canvas.chart.candle { height: 360px; touch-action: pan-y; user-select: none; }
 
 .field { display: grid; gap: 5px; font-size: 13px; color: var(--muted); }
 .field input, .field select { border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 10px; padding: 10px 12px; font-size: 15px; }

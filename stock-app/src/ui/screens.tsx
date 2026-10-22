@@ -7,6 +7,7 @@ import {
 import type { Holding, Rating, Scored, SectorStat } from "../engine/score";
 import { type AiReport, analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, parseUrls, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
 import { twHistory } from "../data/history";
+import { CandleChart, type CandleBar } from "./candles";
 import { isEtf } from "../data/tw";
 import { freeReport } from "../engine/freeReport";
 import { isUsSymbol, MACRO_SYMBOLS } from "../data/us";
@@ -17,7 +18,7 @@ import { latestNotes } from "../lib/notes";
 import { fmtNtd, usdTwdRate } from "../lib/fx";
 import type { BacktestResult } from "../engine/backtest";
 import type { TurnPick } from "../engine/turning";
-import { cls, fmtMoney, fmtPct, fmtPrice, fmtSigned, lots, Markdown, PriceChart, Progress, RatingPill, Sheet } from "./common";
+import { cls, fmtMoney, fmtPct, fmtPrice, fmtSigned, lots, Markdown, Progress, RatingPill, Sheet } from "./common";
 
 // ---------------- 選股 ----------------
 export function PicksScreen({ market, setMarket, sector, setSector, open }: {
@@ -324,7 +325,7 @@ export function SectorsScreen({ market, setMarket, pick }: { market: Market; set
 // ---------------- 個股詳細 ----------------
 export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) {
   const { holdings, apiKey, reports } = useStore((st) => ({ holdings: st.holdings, apiKey: st.settings.apiKey, reports: st.reports }));
-  const [bars, setBars] = useState<{ date: string; close: number; volume: number }[] | null>(null);
+  const [bars, setBars] = useState<CandleBar[] | null>(null);
   const [barsErr, setBarsErr] = useState("");
   const [adding, setAdding] = useState(false);
   const holding = holdings.find((h) => h.code === s.code);
@@ -354,8 +355,8 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
     let alive = true;
     (async () => {
       try {
-        const b = s.market === "US" ? await usBars(s.code) : await twHistory(getFetcher(), getKv(), s.code, s.market, 6);
-        if (alive) setBars(b.slice(-130));
+        const b = s.market === "US" ? await usBars(s.code) : await twHistory(getFetcher(), getKv(), s.code, s.market, 9);
+        if (alive) setBars(b.slice(-200));
       } catch (e: any) { if (alive) setBarsErr(`走勢圖下載失敗：${e?.message ?? e}`); }
     })();
     return () => { alive = false; };
@@ -419,9 +420,9 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
         )}
       </div>
 
-      <div class="section-title"><span>近 6 個月走勢</span></div>
+      <div class="section-title"><span>K 線圖（日）</span></div>
       <div class="card">
-        {bars ? (bars.length > 1 ? <PriceChart bars={bars} /> : <div class="empty">沒有走勢資料</div>) : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>}
+        {bars ? (bars.length > 1 ? <CandleChart bars={bars} /> : <div class="empty">沒有走勢資料</div>) : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>}
       </div>
 
       <div class="section-title"><span>{s.refOnly ? "分數說明（ETF 只供參考）" : "評等理由"}</span><span>動能 {Math.round(s.momentum * 100)}・{s.market === "US" ? "趨勢" : "籌碼"} {Math.round(s.flow * 100)}・族群 {Math.round(s.sectorScore * 100)}</span></div>

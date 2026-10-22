@@ -744,7 +744,6 @@ export function MacroScreen() {
               const w = st.idxLive["加權指數"];
               if (!w) return null;
               return <>
-                {w.volShares !== undefined && <Metric k="成交股數" v={`${(w.volShares / 1e8).toFixed(1)} 億股`} c="" d={`${idxFinal ? "收盤累計" : "盤中累計"}（是股數，不是金額）`} />}
                 {st.turnover && <Metric k="成交金額" v={`${Math.round(st.turnover.value / 1e8).toLocaleString("zh-TW")} 億元`} c="" d={`${pretty(st.turnover.date)} 收盤・證交所統計（上市）`} />}
                 {w.high !== undefined && w.low !== undefined && <Metric k="加權今日高低" v={`${w.high.toLocaleString("zh-TW", { maximumFractionDigits: 0 })} / ${w.low.toLocaleString("zh-TW", { maximumFractionDigits: 0 })}`} c="" d="最高 / 最低" />}
               </>;

@@ -229,9 +229,8 @@ function check(ok, name, detail = "") {
   log("台股指數區", idxTitle);
   check(/台股(盤中 \d\d:\d\d|收盤)/.test(idxTitle), "台股指數改成盤中即時（或收盤）", idxTitle);
   check(["加權指數", "臺灣50指數", "半導體類指數", "金融保險類指數"].every((n) => macro.some((m) => m.includes(n))), "四大台股指數都顯示", JSON.stringify(macro.slice(0, 6)));
-  // 量能：盤中累計成交股數（億股，標明是股數）與最新交易日成交金額（億元，證交所統計）；不再顯示成交筆數
-  check(preOpen || macro.some((m) => /^成交股數 [\d.]+ 億股/.test(m)), "顯示大盤成交股數（億股，標明是股數）", preOpen ? "尚未開盤，略過" : JSON.stringify(macro.filter((m) => /成交/.test(m))));
-  check(macro.some((m) => /^成交金額 [\d,]{3,} 億元/.test(m)) && !macro.some((m) => /成交筆數/.test(m)), "顯示大盤成交金額（億元），沒有成交筆數", JSON.stringify(macro.filter((m) => /成交/.test(m))));
+  // 量能：只顯示最新交易日成交金額（億元，證交所統計）；不再顯示成交股數與成交筆數
+  check(macro.some((m) => /^成交金額 [\d,]{3,} 億元/.test(m)) && !macro.some((m) => /成交筆數|成交股數/.test(m)), "顯示大盤成交金額（億元），沒有成交筆數與成交股數", JSON.stringify(macro.filter((m) => /成交/.test(m))));
   // 台指期近月：夜盤（昨晚到清晨）一定有；日盤要開盤後才有，開盤前（四大指數漲跌都是 0.00）略過
   const futCards = macro.filter((m) => /^台指期 (日盤|夜盤)/.test(m));
   log("台指期", JSON.stringify(futCards));

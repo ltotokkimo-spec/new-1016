@@ -16,6 +16,16 @@ export const VARIANTS: { key: string; label: string; w: ScoreWeights }[] = [
   { key: "D", label: "D 只看外資與流動性（籌碼60 流動40）", w: { momentum: 0, flow: 0.6, sector: 0, liquidity: 0.4, foreign: 0.7, streak: 0.3, trust: 0 } },
 ];
 
+/**
+ * 影子追蹤：C 的權重在 2026/10/22 凍結（之後不改），只算「凍結之後」的評等日，這些日子的報酬在凍結時還沒發生，
+ * 所以是真正的樣本外驗證。凍結前的 2 年資料已經被拿來挑 C，不算。
+ * 通過標準也事先訂在這裡：20 日報酬已經算得出來的評等日 ≥ 40 天後，C 的 IC、前 5%、買入組超額都不輸現有，
+ * 大盤下跌日（≥ 10 天）的 IC 也不輸，且買入檔數在現有的 ±30% 內，才算通過；否則維持現有評分。
+ */
+export const SHADOW_START = "20261015"; // 第一個還沒有任何報酬資料的評等日（因子分析最後一個評等日是 20261014）
+export const SHADOW_KEY = "C";
+export const SHADOW_MIN_DAYS = 40;
+
 export const CMP_HORIZONS = [5, 20] as const;
 type H = (typeof CMP_HORIZONS)[number];
 
@@ -29,9 +39,20 @@ export interface CmpSlice {
   buyBeat: number; // 「買入」股票贏過當天全部中位數的比例
 }
 export interface CmpStat extends CmpSlice { first?: CmpSlice; second?: CmpSlice; up?: CmpSlice; down?: CmpSlice }
+export interface ShadowPick { code: string; name: string; score: number; close: number }
+export interface ShadowResult {
+  start: string; // 影子追蹤開始日（含）
+  matured: Partial<Record<H, number>>; // 已經算得出報酬的評等日數
+  old: Partial<Record<H, CmpSlice>>; shadow: Partial<Record<H, CmpSlice>>; // 現有評分 vs 影子評分（C），只算影子期間
+  oldDown: Partial<Record<H, CmpSlice>>; shadowDown: Partial<Record<H, CmpSlice>>; // 其中大盤下跌的日子
+  liqSpread: Partial<Record<H, number>>; // 影子期間「成交金額最大五分之一 − 最小五分之一」的平均報酬差（負的＝大型股效應反轉）
+  verdict: { status: "資料不足" | "通過" | "未通過"; reasons: string[] };
+  latest?: { date: string; old: ShadowPick[]; shadow: ShadowPick[] }; // 最新一個資料日兩種評分各自的買入名單（依分數前 15 檔）
+}
 export interface CmpResult {
   version: 1; generatedAt: number; from: string; to: string; days: number; split: string; // split：前半期／後半期的分界日
   variants: { key: string; label: string; h: Partial<Record<H, CmpStat>> }[];
+  shadow?: ShadowResult;
 }
 
 interface Row { date: string; up: boolean; ic: number; spread: number; top: number; buy: number; buyN: number; buyWin: number; buyCnt: number }
@@ -51,7 +72,8 @@ function slice(rows: Row[]): CmpSlice {
 }
 
 /** days：新到舊、連續的交易日。每個交易日都當評等日（和 runFactors 相同的取樣方式）。 */
-export function runScoreCompare(days: BtDay[], companies: Company[], opts: { now?: number } = {}): CmpResult {
+export function runScoreCompare(days: BtDay[], companies: Company[], opts: { now?: number; shadowStart?: string } = {}): CmpResult {
+  const shadowStart = opts.shadowStart ?? SHADOW_START;
   const byDay = days.map((d) => new Map(d.quotes.map((r) => [r[0], r])));
   const dateIdx = new Map(days.map((d, i) => [d.date, i]));
   const idxOnOrBefore = (ymd: string) => {
@@ -73,6 +95,7 @@ export function runScoreCompare(days: BtDay[], companies: Company[], opts: { now
 
   const acc = new Map<string, Partial<Record<H, Row[]>>>(VARIANTS.map((v) => [v.key, {}]));
   const dates: string[] = [];
+  const liq: Partial<Record<H, { date: string; v: number }[]>> = {};
   for (let i = CMP_HORIZONS[0]; i < days.length; i++) {
     const s = days[i].date;
     const w = i + 5;
@@ -89,6 +112,11 @@ export function runScoreCompare(days: BtDay[], companies: Company[], opts: { now
     dates.push(s);
     for (const h of CMP_HORIZONS) {
       if (i - h < 0) continue;
+      {
+        const rs0 = base.map((x) => fwd(x.code, i, h));
+        const q0 = quintileExcess(base.map((x) => x.value), rs0);
+        (liq[h] ??= []).push({ date: s, v: q0[4] - q0[0] });
+      }
       for (const v of VARIANTS) {
         const { scored } = scoreStocks(inputs, undefined, v.w);
         const rs = scored.map((x) => fwd(x.code, i, h));
@@ -108,7 +136,29 @@ export function runScoreCompare(days: BtDay[], companies: Company[], opts: { now
   }
   const sorted = [...dates].sort();
   const split = sorted[sorted.length >> 1] ?? "";
+  // 影子追蹤（只看 shadowStart 之後的評等日）
+  const sw = VARIANTS.find((v) => v.key === SHADOW_KEY)!.w;
+  const shadow: ShadowResult = { start: shadowStart, matured: {}, old: {}, shadow: {}, oldDown: {}, shadowDown: {}, liqSpread: {}, verdict: { status: "資料不足", reasons: [] } };
+  for (const h of CMP_HORIZONS) {
+    const o = (acc.get("old")![h] ?? []).filter((r) => r.date >= shadowStart);
+    const c = (acc.get(SHADOW_KEY)![h] ?? []).filter((r) => r.date >= shadowStart);
+    shadow.matured[h] = o.length;
+    if (o.length) { shadow.old[h] = slice(o); shadow.shadow[h] = slice(c); }
+    if (o.filter((r) => !r.up).length >= 3) { shadow.oldDown[h] = slice(o.filter((r) => !r.up)); shadow.shadowDown[h] = slice(c.filter((r) => !r.up)); }
+    const lq = (liq[h] ?? []).filter((x) => x.date >= shadowStart).map((x) => x.v);
+    if (lq.length) shadow.liqSpread[h] = mean(fin(lq));
+  }
+  shadow.verdict = shadowVerdict(shadow);
+  if (days.length > 15) {
+    const w5 = 5, m1 = idxOnOrBefore(addDays(days[0].date, -28)), m3 = idxOnOrBefore(addDays(days[0].date, -88));
+    if (m1 !== undefined && m3 !== undefined) {
+      const inputs = buildTwInputs({ latest: days[0].quotes, week: days[w5].quotes, month: days[m1].quotes, quarter: days[m3].quotes, flows: days.slice(0, 10).map((d) => d.flows), companies, tpexCodes: days[0].tpexCodes }).filter((x) => !isEtf(x.code));
+      const top = (w: ScoreWeights): ShadowPick[] => scoreStocks(inputs, undefined, w).scored.filter((x) => x.rating === "買入").slice(0, 15).map((x) => ({ code: x.code, name: x.name, score: x.score, close: x.close }));
+      shadow.latest = { date: days[0].date, old: top(DEFAULT_WEIGHTS), shadow: top(sw) };
+    }
+  }
   return {
+    shadow,
     version: 1, generatedAt: opts.now ?? Date.now(), from: sorted[0] ?? "", to: sorted[sorted.length - 1] ?? "", days: dates.length, split,
     variants: VARIANTS.map((v) => {
       const out: CmpResult["variants"][number] = { key: v.key, label: v.label, h: {} };
@@ -126,6 +176,21 @@ export function runScoreCompare(days: BtDay[], companies: Company[], opts: { now
 const pc = (x: number, d = 2) => (Number.isFinite(x) ? `${x >= 0 ? "+" : ""}${(x * 100).toFixed(d)}%` : "—");
 const nn = (x: number) => (Number.isFinite(x) ? `${x >= 0 ? "+" : ""}${x.toFixed(3)}` : "—");
 
+/** 事先訂好的通過標準（見 SHADOW_START 的說明）；20 日已成熟的評等日不到 SHADOW_MIN_DAYS 就是資料不足 */
+export function shadowVerdict(sh: ShadowResult): ShadowResult["verdict"] {
+  const n = sh.matured[20] ?? 0;
+  const o = sh.old[20], c = sh.shadow[20];
+  if (n < SHADOW_MIN_DAYS || !o || !c) return { status: "資料不足", reasons: [`20 日報酬已經算得出來的評等日 ${n}/${SHADOW_MIN_DAYS} 天`] };
+  const bad: string[] = [];
+  if (!(c.ic > o.ic)) bad.push(`IC 沒有比現有好（${nn(c.ic)} vs ${nn(o.ic)}）`);
+  if (!(c.top >= o.top)) bad.push(`前 5% 超額輸現有（${pc(c.top)} vs ${pc(o.top)}）`);
+  if (!(c.buy >= o.buy)) bad.push(`買入組超額輸現有（${pc(c.buy)} vs ${pc(o.buy)}）`);
+  const od = sh.oldDown[20], cd = sh.shadowDown[20];
+  if (od && cd && od.days >= 10 && !(cd.ic >= od.ic)) bad.push(`大盤下跌日 IC 輸現有（${nn(cd.ic)} vs ${nn(od.ic)}）`);
+  if (Number.isFinite(o.buyN) && Number.isFinite(c.buyN) && o.buyN > 0 && Math.abs(c.buyN / o.buyN - 1) > 0.3) bad.push(`買入檔數差太多（${c.buyN.toFixed(1)} vs ${o.buyN.toFixed(1)} 檔/日）`);
+  return bad.length ? { status: "未通過", reasons: bad } : { status: "通過", reasons: [`${n} 天樣本外評等日全部條件都不輸現有`] };
+}
+
 /** 給 Actions 紀錄看的文字表：每組評分、每個期間（全部／前半／後半／大盤漲／大盤跌）一行 */
 export function formatCompare(r: CmpResult): string[] {
   const out = [`新舊評分對照：${r.from} ~ ${r.to}，${r.days} 個評等日，前後半分界 ${r.split}`];
@@ -138,6 +203,20 @@ export function formatCompare(r: CmpResult): string[] {
         if (!s) continue;
         out.push(`${v.key}｜${name}（${s.days}天）｜IC ${nn(s.ic)}｜多空差 ${pc(s.spread)}｜前5% ${pc(s.top)}｜買入 ${pc(s.buy)}（${Number.isFinite(s.buyN) ? s.buyN.toFixed(1) : "—"} 檔/日、贏過中位數 ${Number.isFinite(s.buyBeat) ? Math.round(s.buyBeat * 100) : "—"}%）`);
       }
+    }
+  }
+  const sh = r.shadow;
+  if (sh) {
+    out.push(`== 影子追蹤（C 權重 ${sh.start} 凍結，只算之後的評等日）：${sh.verdict.status}`);
+    for (const x of sh.verdict.reasons) out.push(`   ${x}`);
+    for (const h of CMP_HORIZONS) {
+      const o = sh.old[h], c = sh.shadow[h];
+      out.push(`   ${h} 日：已成熟評等日 ${sh.matured[h] ?? 0} 天${o && c ? `｜現有 IC ${nn(o.ic)} 前5% ${pc(o.top)} 買入 ${pc(o.buy)}｜影子 IC ${nn(c.ic)} 前5% ${pc(c.top)} 買入 ${pc(c.buy)}` : ""}｜成交金額大減小的報酬差 ${pc(sh.liqSpread[h] ?? NaN)}`);
+    }
+    if (sh.latest) {
+      const f = (xs: ShadowPick[]) => xs.map((p) => `${p.code}${p.name}(${p.score})`).join("、");
+      out.push(`   最新資料日 ${sh.latest.date} 買入名單（前 15）｜現有：${f(sh.latest.old)}`);
+      out.push(`   最新資料日 ${sh.latest.date} 買入名單（前 15）｜影子：${f(sh.latest.shadow)}`);
     }
   }
   return out;

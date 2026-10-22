@@ -11,7 +11,7 @@ import { twTurnoverUrl, parseTurnover } from "./data/twTurnover";
 import { ETF_NAV_URL, parseEtfNav, type EtfNav } from "./data/etfNav";
 import { TAIFEX_URL, parseTaifex, taifexBody, type FutQuote } from "./data/taifexLive";
 import { scoreStocks, reviewHolding, type Holding, type HoldingView, type Scored, type SectorStat } from "./engine/score";
-import { aiEtfAdvice, explainError, type AiProgress, type EtfAdviceInput, type AiReport, type OnProgress } from "./ai/claude";
+import { AiError, aiEtfAdvice, explainError, type AiProgress, type EtfAdviceInput, type AiReport, type OnProgress } from "./ai/claude";
 import { addDays, orderDay, prettyW, taipeiToday, twNeedsRefresh, usNeedsRefresh } from "./lib/dates";
 import { parseUsLive, usLiveUrl } from "./data/usLive";
 import * as upd from "./lib/update";
@@ -120,6 +120,16 @@ const timings: Record<string, number> = ((globalThis as any).__srTimings = {});
 const mark = (k: string) => { timings[k] = Math.round(performance.now()); };
 
 export async function init() {
+  try { await initInner(); }
+  catch (e) {
+    // 手機的儲存空間讀不出來也要讓 App 能用（空資料），不能永遠停在「讀取手機裡的資料」
+    console.error("init 失敗", e);
+    set({ loaded: true });
+    autoRefresh();
+  }
+}
+
+async function initInner() {
   mark("init");
   const [holdings, settings, reports, twSnap0, usSnap, spend, esbSnap] = await Promise.all([
     kv.get<Holding[]>("holdings"), kv.get<Settings>("settings"), kv.get<Record<string, AiReport>>("reports"),
@@ -358,6 +368,8 @@ export async function saveSettings(settings: Settings) {
   await kv.set("settings", settings);
 }
 
+const spendKind = (key: string) => (key.startsWith("brief") ? "數據解讀" : key.startsWith("aietfpro") ? "Claude App" : key.startsWith("aietf") ? "自組ETF建議" : "個股解析");
+
 export async function recordSpend(usd: number | undefined, kind: string) {
   if (usd === undefined || !Number.isFinite(usd)) return;
   const spend = [...state.spend, { at: Date.now(), usd, kind }].slice(-2000);
@@ -366,7 +378,7 @@ export async function recordSpend(usd: number | undefined, kind: string) {
 }
 
 export async function saveReport(key: string, report: AiReport) {
-  await recordSpend(report.costUsd, key.startsWith("brief") ? "數據解讀" : key.startsWith("aietfpro") ? "Claude App" : key.startsWith("aietf") ? "自組ETF建議" : "個股解析");
+  await recordSpend(report.costUsd, spendKind(key));
   const reports = { ...state.reports, [key]: report };
   // 只留最近 40 份
   const keys = Object.keys(reports).sort((a, b) => reports[b].at - reports[a].at);
@@ -494,7 +506,11 @@ export async function addUsSymbol(raw: string) {
 export async function removeUsSymbol(symbol: string) {
   await saveUsExtra(state.usExtra.filter((x) => x.symbol !== symbol));
   const snap = await kv.get<UsSnapshot>("snap:us");
-  if (snap) applyUs({ ...snap, stocks: snap.stocks.filter((x) => x.code !== symbol) });
+  if (snap) {
+    const next = { ...snap, stocks: snap.stocks.filter((x) => x.code !== symbol) };
+    await kv.set("snap:us", next); // 也要寫回，不然重開 App 後被移除的美股又出現
+    applyUs(next);
+  }
 }
 
 // ---------- 每月營收（免費解析用，每天下載一次） ----------
@@ -545,6 +561,7 @@ export async function startAiJob(job: Pick<AiJob, "key" | "kind" | "title" | "co
     await saveReport(job.key, report);
     patchJob(job.key, { status: "done", finishedAt: Date.now() });
   } catch (e) {
+    if (e instanceof AiError && e.costUsd) await recordSpend(e.costUsd, spendKind(job.key)).catch(() => {});
     patchJob(job.key, { status: "error", error: explainError(e), finishedAt: Date.now() });
   }
 }
@@ -638,9 +655,17 @@ export function etfAdviceInput(): EtfAdviceInput {
 export async function startEtfAdvice() {
   const input = etfAdviceInput();
   const key = `aietf:${Date.now()}`;
-  await saveAiEtf({ ...state.aiEtf, planKey: key, fillFrom: "api", planAsOf: state.tw.asOf });
+  const prev = state.aiEtf;
+  await saveAiEtf({ ...prev, planKey: key, fillFrom: "api", planAsOf: state.tw.asOf });
   await startAiJob({ key, kind: "aietf", title: input.holdings.length ? "自組 ETF 檢視調整" : "自組 ETF 建倉建議" },
-    (onProgress) => aiEtfAdvice(state.settings.apiKey, input, onProgress));
+    async (onProgress) => {
+      try { return await aiEtfAdvice(state.settings.apiKey, input, onProgress); }
+      catch (e) {
+        // 這次失敗：還沒套用的上一份建議要留著，不能被指向一份不存在的報告
+        await saveAiEtf({ ...state.aiEtf, planKey: prev.planKey, fillFrom: prev.fillFrom, planAsOf: prev.planAsOf });
+        throw e;
+      }
+    });
 }
 
 /** 貼回 Claude App（Pro 訂閱）的回覆，存起來和付費 API 版比較 */

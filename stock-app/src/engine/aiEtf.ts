@@ -28,15 +28,17 @@ export interface AiEtf {
 }
 
 export const FEE = 0.001425; // 券商手續費（未打折）
-export const TAX = 0.003; // 證交稅（賣出）
+export const TAX = 0.003; // 證交稅（賣出，一般股票）
+export const TAX_ETF = 0.001; // 證交稅（賣出，ETF）
+const isEtfCode = (code?: string) => !!code && /^00\d{2,4}[A-Z]?$/.test(code.trim());
 export const BENCH = "0050";
 
 export const emptyEtf = (budget = 100_000): AiEtf => ({ budget, trades: [], nav: [] });
 
 /** 一筆交易的現金流（買入為負、賣出為正，已扣手續費與稅） */
-export function cashFlow(t: Pick<EtfTrade, "side" | "shares" | "price">): number {
+export function cashFlow(t: Pick<EtfTrade, "side" | "shares" | "price"> & { code?: string }): number {
   const amt = t.shares * t.price;
-  return t.side === "buy" ? -(amt + amt * FEE) : amt - amt * FEE - amt * TAX;
+  return t.side === "buy" ? -(amt + amt * FEE) : amt - amt * FEE - amt * (isEtfCode(t.code) ? TAX_ETF : TAX);
 }
 
 export interface Position { code: string; name: string; shares: number; avgCost: number; realized: number }
@@ -52,7 +54,7 @@ export function positions(trades: EtfTrade[]): Position[] {
       p.avgCost = p.shares ? cost / p.shares : 0;
     } else {
       const n = Math.min(t.shares, p.shares);
-      p.realized += cashFlow({ side: "sell", shares: n, price: t.price }) - n * p.avgCost;
+      p.realized += cashFlow({ side: "sell", shares: n, price: t.price, code: t.code }) - n * p.avgCost;
       p.shares -= n;
     }
     p.name = t.name || p.name;
@@ -77,7 +79,7 @@ export function tradePnls(trades: EtfTrade[], price: (code: string) => number | 
       p.avgCost = p.shares ? cost / p.shares : 0;
     } else {
       const n = Math.min(t.shares, p.shares);
-      out[t.id] = cashFlow({ side: "sell", shares: n, price: t.price }) - n * p.avgCost;
+      out[t.id] = cashFlow({ side: "sell", shares: n, price: t.price, code: t.code }) - n * p.avgCost;
       p.shares -= n;
     }
     held.set(t.code, p);
@@ -110,7 +112,7 @@ export function valuate(etf: AiEtf, price: (code: string) => number | undefined)
       lastBench = t.benchPrice;
       const units = (t.shares * t.price) / t.benchPrice;
       if (t.side === "buy") { bUnits += units; bCash += cf; }
-      else { const u = Math.min(units, bUnits); bUnits -= u; bCash += cashFlow({ side: "sell", shares: u, price: t.benchPrice }); }
+      else { const u = Math.min(units, bUnits); bUnits -= u; bCash += cashFlow({ side: "sell", shares: u, price: t.benchPrice, code: BENCH }); }
     }
   }
   const missing: string[] = [];
@@ -185,9 +187,10 @@ export function parsePlan(text: string): { items: PlanItem[]; body: string; stop
     const j = JSON.parse(last.json);
     const arr = Array.isArray(j) ? j : j.trades ?? j.picks ?? [];
     items = arr
+      .filter((x: any) => /^(buy|sell|買|賣|買進|賣出)$/i.test(String(x?.side ?? "buy").trim())) // 「hold／不動」等不是委託，不能被當成買進
       .map((x: any) => ({
         code: String(x.code ?? "").trim().toUpperCase(),
-        side: x.side === "sell" ? "sell" : "buy",
+        side: /^(sell|賣|賣出)$/i.test(String(x.side ?? "").trim()) ? "sell" : "buy",
         shares: Math.max(0, Math.round(Number(x.shares))),
         reason: String(x.reason ?? ""),
         stop: Number(x.stop) > 0 ? Number(x.stop) : undefined,
@@ -257,7 +260,7 @@ export function looksLikePlanReply(text: string): { ok: boolean; items: number }
 
 /** 依預算檢查：買進總額（含手續費）超過可用現金時，等比例縮小股數 */
 export function fitBudget(items: PlanItem[], price: (code: string) => number | undefined, cash: number): PlanItem[] {
-  const sells = items.filter((x) => x.side === "sell").reduce((a, x) => a + cashFlow({ side: "sell", shares: x.shares, price: price(x.code) ?? 0 }), 0);
+  const sells = items.filter((x) => x.side === "sell").reduce((a, x) => a + cashFlow({ side: "sell", shares: x.shares, price: price(x.code) ?? 0, code: x.code }), 0);
   const buys = items.filter((x) => x.side === "buy");
   const need = buys.reduce((a, x) => a + -cashFlow({ side: "buy", shares: x.shares, price: price(x.code) ?? 0 }), 0);
   const avail = cash + sells;

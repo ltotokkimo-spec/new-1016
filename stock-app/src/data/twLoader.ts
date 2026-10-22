@@ -81,7 +81,8 @@ export class TwLoader {
   }
 
   async tpexFlows(d: string): Promise<FRow[] | null> {
-    return this.cached(`tw2:f:tpex:${d}`, this.isFinal(d), async () => {
+    // 櫃買只會在上市已確認有交易的日子才被問到，空結果多半是還沒公布或暫時失敗，不當成休市存起來
+    return this.cached(`tw2:f:tpex:${d}`, false, async () => {
       const f = parseTpexFlows(await this.fetch(twUrls.tpexFlows(localDate(d))));
       return f && f.length ? f.map((x): FRow => [x.code, x.foreign, x.trust, x.dealer]) : null;
     });
@@ -95,7 +96,7 @@ export class TwLoader {
   }
 
   async tpexQuotes(d: string): Promise<DayQuotes | null> {
-    return this.cached(`tw2:q:tpex:${d}`, this.isFinal(d), async () => {
+    return this.cached(`tw2:q:tpex:${d}`, false, async () => {
       const r = parseTpexQuotes(await this.fetch(twUrls.tpexQuotes(localDate(d))));
       return r && r.quotes.length ? { rows: r.quotes.map(toRow) } : null;
     });
@@ -107,8 +108,9 @@ export class TwLoader {
     if (hit) return hit;
     this.requests += 2;
     const [a, b] = await Promise.all([this.fetch(twUrls.twseCompanies()), this.fetch(twUrls.tpexCompanies())]);
-    const list = [...parseTwseCompanies(a), ...parseTpexCompanies(b)];
-    if (list.length) await this.kv.set(key, list);
+    const [twse, tpex] = [parseTwseCompanies(a), parseTpexCompanies(b)];
+    const list = [...twse, ...tpex];
+    if (twse.length && tpex.length) await this.kv.set(key, list); // 只有一邊有資料（另一邊暫時下載失敗）不存，免得整個月上櫃股的產業都是「其他」
     return list;
   }
 

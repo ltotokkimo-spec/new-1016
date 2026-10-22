@@ -265,3 +265,24 @@ describe("isOffList 非選股清單提醒", () => {
     expect(isOffList({ rating: "觀望", refOnly: true })).toBe(false);
   });
 });
+
+describe("證交稅：ETF 0.1%、一般股票 0.3%", () => {
+  it("賣出 ETF 只扣 0.1%", () => {
+    expect(cashFlow({ side: "sell", shares: 1000, price: 100, code: "0050" })).toBeCloseTo(100000 * (1 - FEE - 0.001));
+    expect(cashFlow({ side: "sell", shares: 1000, price: 100, code: "00406A" })).toBeCloseTo(100000 * (1 - FEE - 0.001));
+    expect(cashFlow({ side: "sell", shares: 1000, price: 100, code: "2330" })).toBeCloseTo(100000 * (1 - FEE - TAX));
+    expect(cashFlow({ side: "sell", shares: 1000, price: 100 })).toBeCloseTo(100000 * (1 - FEE - TAX));
+  });
+});
+
+describe("parsePlan：買賣方向（審查修正）", () => {
+  const wrap = (arr: any[]) => "建議如下\n```json\n" + JSON.stringify(arr) + "\n```";
+  it("side 寫 SELL／賣 都算賣出；hold／不動 不是委託，不能被當成買進", () => {
+    const { items } = parsePlan(wrap([
+      { code: "2330", side: "SELL", shares: 100 }, { code: "2317", side: "賣", shares: 100 },
+      { code: "2308", side: "hold", shares: 100 }, { code: "2454", side: "不動", shares: 100 },
+      { code: "2412", side: "buy", shares: 100 }, { code: "2603", shares: 100 },
+    ]));
+    expect(items.map((x) => [x.code, x.side])).toEqual([["2330", "sell"], ["2317", "sell"], ["2412", "buy"], ["2603", "buy"]]);
+  });
+});

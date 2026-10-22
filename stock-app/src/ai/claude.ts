@@ -8,7 +8,10 @@ import { isEtf } from "../data/tw";
 export const MODEL = "claude-opus-5-5";
 const BETAS = ["server-side-fallback-2026-07-01"];
 
-export class AiError extends Error {}
+export class AiError extends Error {
+  /** 這次呼叫已經被收的費用（失敗也要記帳） */
+  costUsd?: number;
+}
 
 export function client(apiKey: string) {
   if (!apiKey) throw new AiError("尚未設定 Claude API 金鑰，請到「設定」貼上金鑰");
@@ -55,7 +58,9 @@ export function collect(msg: Anthropic.Beta.BetaMessage): AiReport {
       for (const r of b.content) if (r.type === "web_search_result" && !sources.has(r.url)) sources.set(r.url, { title: r.title, url: r.url });
     }
   }
-  if (!text.trim()) throw new AiError("Claude 沒有產生內容，請再試一次");
+  if (!text.trim()) { const err = new AiError("Claude 沒有產生內容，請再試一次"); err.costUsd = costOf(msg.usage); throw err; }
+  // 回覆被截斷或搜尋次數用完而中斷：照存，但要明講內容可能不完整
+  if (msg.stop_reason === "max_tokens" || (msg.stop_reason as string) === "pause_turn") text += "\n\n⚠️ 這份回覆在中途被截斷（超過長度或搜尋次數上限），內容可能不完整，建議重新產生一次。";
   return { text: text.trim(), sources: [...sources.values()].slice(0, 12), model: msg.model, at: Date.now(), costUsd: costOf(msg.usage), queries, fetched };
 }
 

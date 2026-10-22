@@ -75,3 +75,27 @@ describe("虛擬自組 ETF", () => {
     expect(() => setCashPlan(v, "20261021", 0.05, "x")).toThrow();
   });
 });
+
+describe("虛擬自組 ETF：審查修正", () => {
+  const buy = (v: any, date: string, code: string, shares: number, limit: number, stop?: number) =>
+    placeOrders(v, date, [{ code, name: code, side: "buy", shares, limit, stop, reason: "t" }]);
+  const sell = (v: any, date: string, code: string, shares: number) => placeOrders(v, date, [{ code, name: code, side: "sell", shares, reason: "t" }]);
+
+  it("賣光後停損價要清掉；之後空手重新買進沒給停損，不會沿用舊停損被隔天賣出", () => {
+    let v = fillPending(buy(newVirtual("20261019"), "20261018", "2000", 100, 100, 90), "20261019", { "2000": q(100), "0050": q(100) });
+    expect(v.stops).toEqual({ "2000": 90 });
+    v = fillPending(sell(v, "20261019", "2000", 100), "20261020", { "2000": q(95), "0050": q(100) });
+    expect(positions(v.trades).find((p) => p.code === "2000")?.shares ?? 0).toBe(0);
+    expect(v.stops?.["2000"]).toBeUndefined();
+    v = fillPending(buy(v, "20261020", "2000", 100, 100), "20261021", { "2000": q(86), "0050": q(100) }); // 沒給 stop
+    v = closeDay(v, "20261021", { "2000": q(86, 86, 88), "0050": q(100) });
+    expect(v.pending).toEqual([]); // 收盤 88 > 舊停損 90 的情況也不會被誤判
+  });
+
+  it("買進時價格有多位小數：現金檢查與記帳用同一個四捨五入後的價格", () => {
+    const v = fillPending(buy(newVirtual("20261019", 10_000), "20261018", "2000", 200, 50.126, 45), "20261019", { "2000": q(50.126, 50.126), "0050": q(100) });
+    expect(v.trades[0].price).toBe(50.13);
+    const cash = valuate(v, () => undefined).cash;
+    expect(cash).toBeGreaterThanOrEqual(0);
+  });
+});

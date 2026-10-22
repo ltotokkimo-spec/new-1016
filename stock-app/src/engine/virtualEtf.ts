@@ -82,18 +82,22 @@ export function fillPending(v: VirtualEtf, date: string, q: Record<string, Quote
     else if (!o.limit || k.open <= o.limit) price = k.open;
     else if (k.low <= o.limit) price = o.limit;
     if (price === undefined) { cancelled.push({ date, code: o.code, name: o.name, reason: `沒買到：最低 ${k.low} 高於限價 ${o.limit}` }); continue; }
+    const px = r2(price); // 記帳用的成交價；檢查現金也要用同一個價格
     let shares = o.shares;
     if (o.side === "sell") shares = Math.min(shares, held.get(o.code) ?? 0);
     else {
-      const need = -cashFlow({ side: "buy", shares, price });
-      if (need > cash) shares = Math.floor(cash / (price * 1.001425));
+      const need = -cashFlow({ side: "buy", shares, price: px });
+      if (need > cash) shares = Math.floor(cash / (px * 1.001425));
     }
     if (shares <= 0) { cancelled.push({ date, code: o.code, name: o.name, reason: o.side === "sell" ? "沒有持股可賣" : "現金不足" }); continue; }
-    const t: EtfTrade = { id: `${date}-${o.code}-${o.side}`, date, code: o.code, name: k.name || o.name, side: o.side, shares, price: r2(price), benchPrice: bench };
+    const t: EtfTrade = { id: `${date}-${o.code}-${o.side}`, date, code: o.code, name: k.name || o.name, side: o.side, shares, price: px, benchPrice: bench };
     trades.push(t);
     cash += cashFlow(t);
-    held.set(o.code, (held.get(o.code) ?? 0) + (o.side === "buy" ? shares : -shares));
+    const before = held.get(o.code) ?? 0, after = before + (o.side === "buy" ? shares : -shares);
+    held.set(o.code, after);
     if (o.side === "buy" && o.stop) stops[o.code] = o.stop;
+    // 賣光了、或空手重新買進卻沒給新的停損價：舊停損價不能留著（否則一買進隔天就被自動賣出）
+    else if (after <= 0 || (o.side === "buy" && before <= 0)) delete stops[o.code];
   }
   return { ...v, trades, cancelled: cancelled.slice(-100), stops, pending: v.pending.filter((o) => o.placed >= date) };
 }

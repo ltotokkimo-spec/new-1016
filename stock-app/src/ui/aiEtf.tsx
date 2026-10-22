@@ -233,7 +233,7 @@ function DateHint({ asOf, latest, what = "這份建議" }: { asOf?: string; late
   return (
     <div class="date-hint" data-testid="date-hint">
       📅 {what}根據 <b>{prettyW(asOf)}</b> 收盤資料，建議 <b>{prettyW(orderDay(asOf))}</b> 盤中下單（9:00～13:30，用限價單；遇國定假日順延）
-      {latest && latest > asOf && <div class="down" style={{ marginTop: "4px" }}>之後已經有 {prettyW(latest)} 的新資料，價格可能變了，下單前可以再檢視一次。</div>}
+      {latest && latest > asOf && <div class="warn" style={{ marginTop: "4px" }}>之後已經有 {prettyW(latest)} 的新資料，價格可能變了，下單前可以再檢視一次。</div>}
     </div>
   );
 }
@@ -413,7 +413,7 @@ function CompareCard({ api, pro, fillFrom, apiAt, proAt }: { api: PlanItem[]; pr
     <div class="card stack" data-testid="plan-compare">
       <b>付費 API vs Claude Pro：{rows.length} 檔中 {same} 檔一致、{rows.length - same} 檔不同</b>
       <div class="muted" style={{ fontSize: "12px" }}>付費版 {fmtAt(apiAt)}・Pro 版 {fmtAt(proAt)}{Math.abs(apiAt - proAt) > 6 * 3600_000 ? "（兩份時間差很多，持股可能已經變了，比較時要注意）" : ""}</div>
-      <table class="cmp">
+      <div class="scroll-x"><table class="cmp">
         <thead><tr><th>股票</th><th>付費 API</th><th>Claude Pro</th></tr></thead>
         <tbody>
           {rows.map((r) => (
@@ -424,7 +424,7 @@ function CompareCard({ api, pro, fillFrom, apiAt, proAt }: { api: PlanItem[]; pr
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
       <div class="muted" style={{ fontSize: "12px" }}>底色標示的是兩邊不同的。「—」表示那一份沒有建議這檔。下面可以切換看兩份報告的理由。</div>
       <div class="seg" role="group">
         <button aria-pressed={fillFrom === "api"} onClick={() => setEtfFillFrom("api")}>照付費版下單</button>

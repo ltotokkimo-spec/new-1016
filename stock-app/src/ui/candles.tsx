@@ -17,7 +17,13 @@ const DEFAULT_BARS = 90;
 const fmtP = (v: number) => (Number.isFinite(v) ? (v >= 1000 ? Math.round(v).toLocaleString() : v.toFixed(v >= 100 ? 1 : 2)) : "—");
 const fmtN = (v: number, d = 1) => (Number.isFinite(v) ? v.toFixed(d) : "—");
 const dstr = (s: string) => `${+s.slice(4, 6)}/${+s.slice(6, 8)}`;
-const fmtVol = (v: number) => (v >= 1e8 ? `${(v / 1e8).toFixed(2)} 億股` : v >= 1e4 ? `${Math.round(v / 1e3).toLocaleString()} 張` : `${v} 股`);
+// 台股成交量用「張」（1 張 = 1,000 股）；美股沒有張的概念，直接用股（萬股、億股）
+const fmtVol = (v: number, us: boolean) => (v >= 1e8 ? `${(v / 1e8).toFixed(2)} 億股` : us ? (v >= 1e4 ? `${Math.round(v / 1e4).toLocaleString()} 萬股` : `${v.toLocaleString()} 股`) : v >= 1e4 ? `${Math.round(v / 1e3).toLocaleString()} 張` : `${v} 股`);
+const volTag = (v: number, us: boolean) => {
+  if (us) return v >= 1e8 ? `${(v / 1e8).toFixed(1)}億` : v >= 1e4 ? `${Math.round(v / 1e4).toLocaleString()}萬` : String(Math.round(v));
+  const lots = v / 1000;
+  return lots >= 10000 ? `${(lots / 10000).toFixed(1)}萬` : Math.round(lots).toLocaleString();
+};
 
 interface View { start: number; count: number }
 const clampView = (v: View, n: number): View => {
@@ -26,12 +32,13 @@ const clampView = (v: View, n: number): View => {
   return { start, count };
 };
 
-export function CandleChart({ bars }: { bars: CandleBar[] }) {
+export function CandleChart({ bars, us = false }: { bars: CandleBar[]; us?: boolean }) {
   const n = bars.length;
   const ref = useRef<HTMLCanvasElement>(null);
   const [tab, setTab] = useState<Tab>("KD");
   const [view, setViewState] = useState<View>(() => clampView({ start: n, count: DEFAULT_BARS }, n));
   const [sel, setSel] = useState<number | null>(null);
+  const [wpx, setWpx] = useState(0); // 畫布寬度：旋轉螢幕、分割視窗時要重畫
   const viewRef = useRef(view);
   const setView = (v: View) => { const c = clampView(v, n); viewRef.current = c; setViewState(c); };
   useEffect(() => { setView({ start: n, count: viewRef.current.count }); setSel(null); }, [bars]);
@@ -170,10 +177,17 @@ export function CandleChart({ bars }: { bars: CandleBar[] }) {
       };
       const sb = bars[sel];
       tag(py(sb.close), fmtP(sb.close), sb.close >= sb.open ? up : down);
-      const lots = sb.volume / 1000;
-      tag(vTop + volH - (sb.volume / vmax) * volH, lots >= 10000 ? `${(lots / 10000).toFixed(1)}萬` : Math.round(lots).toLocaleString(), sb.close >= sb.open ? up : down);
+      tag(vTop + volH - (sb.volume / vmax) * volH, volTag(sb.volume, us), sb.close >= sb.open ? up : down);
     }
-  }, [bars, view, tab, sel, ind]);
+  }, [bars, view, tab, sel, ind, wpx]);
+
+  useEffect(() => {
+    const c = ref.current;
+    if (!c || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setWpx(Math.round(c.clientWidth)));
+    ro.observe(c);
+    return () => ro.disconnect();
+  }, []);
 
   // ---------- 手勢 ----------
   const pts = useRef(new Map<number, { x: number; y: number }>());
@@ -219,6 +233,12 @@ export function CandleChart({ bars }: { bars: CandleBar[] }) {
     pts.current.delete(e.pointerId);
     if (pts.current.size === 1) { const p = [...pts.current.values()][0]; gs.startX = p.x; gs.startView = viewRef.current; gs.moved = 99; }
   };
+  // 瀏覽器接手（例如垂直捲頁面）時送來的 cancel：只收掉手指，不能當成「點一下」
+  const onCancel = (e: PointerEvent) => {
+    pts.current.delete(e.pointerId);
+    const gs = gesture.current;
+    if (pts.current.size === 1) { const p = [...pts.current.values()][0]; gs.startX = p.x; gs.startView = viewRef.current; gs.moved = 99; }
+  };
   const zoom = (f: number, anchorFrac = 1) => {
     const v = viewRef.current; const count = Math.min(n, Math.max(MIN_BARS, v.count * f));
     const anchor = v.start + v.count * anchorFrac;
@@ -248,13 +268,13 @@ export function CandleChart({ bars }: { bars: CandleBar[] }) {
       <div class="muted num" style={{ fontSize: "12px", lineHeight: 1.6 }} data-testid="candle-info">
         <span>{sel !== null ? dstr(b.date) : "最新"}　開 {fmtP(b.open)}　高 {fmtP(b.high)}　低 {fmtP(b.low)}　收 {fmtP(b.close)}　</span>
         <span class={chg >= 0 ? "up" : "down"}>{chg >= 0 ? "+" : ""}{(chg * 100).toFixed(2)}%</span>
-        <span>　量 {fmtVol(b.volume)}</span>
+        <span>　量 {fmtVol(b.volume, us)}</span>
       </div>
       <div class="row num" style={{ fontSize: "12px", gap: "10px", flexWrap: "wrap" }} data-testid="candle-ma">
         {MA_DEFS.map((m, k) => <span key={m.n} style={{ color: m.color || "var(--accent)" }}>{m.label} {fmtP(ind.ma[k][idx])}</span>)}
       </div>
       <canvas ref={ref} class="chart candle" aria-label="K 線圖"
-        onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} />
+        onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onCancel} />
       <div class="row" style={{ justifyContent: "space-between", marginTop: "6px", gap: "8px" }}>
         <div class="seg" role="group" aria-label="技術指標">
           {(["KD", "MACD", "RSI"] as Tab[]).map((t) => <button key={t} aria-pressed={tab === t} onClick={() => setTab(t)} data-testid={`ind-${t}`}>{t}</button>)}

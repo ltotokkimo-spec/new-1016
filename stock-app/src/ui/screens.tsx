@@ -31,7 +31,7 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
   const turn = useStore((s) => (market === "TW" ? s.backtest?.data.turning : undefined));
   const turnMap = useMemo(() => new Map((turn?.picks ?? []).map((p) => [p.code, p])), [turn]);
   const refOnly = market === "ETF";
-  const filter = refOnly ? "全部" : filter0; // ETF 不分評等
+  const filter = refOnly ? "全部" : filter0 === "剛轉強" && !turn ? "買入" : filter0; // ETF 不分評等；美股沒有「剛轉強」，從台股切過來時改回「買入」
   const [q, setQ] = useState("");
   const live = useStore((s) => s.live);
   // 清單前 60 檔用即時價（台股：證交所；美股：CNBC，盤中每 30 秒更新），其餘顯示最近收盤的漲跌
@@ -433,7 +433,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
       <div class="card">
         {chartTab === "flow" && s.market !== "US"
           ? (bars ? <FlowsPanel code={s.code} market={s.market === "TPEX" ? "TPEX" : "TWSE"} bars={bars} livePrice={lq?.price} /> : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>)
-          : bars ? (bars.length > 1 ? <CandleChart bars={bars} /> : <div class="empty">沒有走勢資料</div>) : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>}
+          : bars ? (bars.length > 1 ? <CandleChart bars={bars} us={s.market === "US"} /> : <div class="empty">沒有走勢資料</div>) : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>}
       </div>
 
       <div class="section-title"><span>{s.refOnly ? "分數說明（ETF 只供參考）" : "評等理由"}</span><span>動能 {Math.round(s.momentum * 100)}・{s.market === "US" ? "趨勢" : "籌碼"} {Math.round(s.flow * 100)}・族群 {Math.round(s.sectorScore * 100)}</span></div>
@@ -442,7 +442,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
       {holding && (
         <>
           <div class="section-title"><span>我的持股</span></div>
-          <div class="card num">{holding.shares.toLocaleString()} 股・成本 {fmtPrice(holding.cost, s.market)}・損益 <span class={cls(s.close - holding.cost)}>{fmtMoney((s.close - holding.cost) * holding.shares, s.market)}（{fmtPct(s.close / holding.cost - 1)}）</span></div>
+          <div class="card num">{holding.shares.toLocaleString()} 股・成本 {fmtPrice(holding.cost, s.market)}・損益 <span class={cls(price - holding.cost)}>{fmtMoney((price - holding.cost) * holding.shares, s.market)}（{fmtPct(price / holding.cost - 1)}）</span></div>
         </>
       )}
 
@@ -710,13 +710,19 @@ function HoldingForm({ initial, onDone }: { initial?: Partial<Holding>; onDone: 
 
 function ImportReview({ data, onDone }: { data: { rows: ImportedHolding[]; note: string }; onDone: () => void }) {
   const holdings = useStore((s) => s.holdings);
-  const [rows, setRows] = useState(data.rows.map((r) => ({ ...r, keep: !!r.code && r.shares > 0 })));
+  // 股數、成本用字串存（打小數點時 "25." 不能被轉成數字吃掉），存檔時才轉成數字檢查
+  const [rows, setRows] = useState(data.rows.map((r) => ({ ...r, sharesText: String(r.shares ?? ""), costText: String(r.cost ?? ""), keep: !!r.code && r.shares > 0 })));
+  const [err, setErr] = useState("");
   const upd = (i: number, patch: Partial<(typeof rows)[number]>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const save = async () => {
-    const add: Holding[] = rows.filter((r) => r.keep && r.code && r.shares > 0).map((r) => {
+    const picked = rows.filter((r) => r.keep && r.code).map((r) => ({ r, shares: Number(r.sharesText), cost: Number(r.costText) }));
+    const bad = picked.find((x) => !(x.shares > 0) || !(x.cost > 0));
+    if (bad) return setErr(`「${bad.r.name || bad.r.code}」的股數或每股成本不正確（要大於 0），請改好再加入，或取消勾選這一檔`);
+    setErr("");
+    const add: Holding[] = picked.map(({ r, shares, cost }) => {
       const code = r.code.trim().toUpperCase();
       const market = marketOf(code, r.market);
-      return { id: `${Date.now()}-${code}`, code, name: findScored(code, market === "US" ? "US" : "TW")?.name ?? getState().prices[code]?.name ?? r.name, market, shares: r.shares, cost: r.cost };
+      return { id: `${Date.now()}-${code}`, code, name: findScored(code, market === "US" ? "US" : "TW")?.name ?? getState().prices[code]?.name ?? r.name, market, shares, cost };
     });
     const codes = new Set(add.map((h) => h.code));
     await saveHoldings([...holdings.filter((h) => !codes.has(h.code)), ...add]);
@@ -733,11 +739,12 @@ function ImportReview({ data, onDone }: { data: { rows: ImportedHolding[]; note:
               <b>{r.name || "（未辨識名稱）"}</b>
             </label>
             <label class="field">代號<input value={r.code} onInput={(e) => upd(i, { code: (e.target as HTMLInputElement).value })} /></label>
-            <label class="field">股數<input inputMode="numeric" value={r.shares} onInput={(e) => upd(i, { shares: Number((e.target as HTMLInputElement).value) })} /></label>
-            <label class="field" style={{ gridColumn: "1 / -1" }}>每股成本<input inputMode="decimal" value={r.cost} onInput={(e) => upd(i, { cost: Number((e.target as HTMLInputElement).value) })} /></label>
+            <label class="field">股數<input inputMode="numeric" value={r.sharesText} onInput={(e) => upd(i, { sharesText: (e.target as HTMLInputElement).value })} /></label>
+            <label class="field" style={{ gridColumn: "1 / -1" }}>每股成本<input inputMode="decimal" value={r.costText} onInput={(e) => upd(i, { costText: (e.target as HTMLInputElement).value })} /></label>
           </div>
         ))}
       </div>
+      {err && <div class="error" style={{ marginTop: "12px" }}>{err}</div>}
       <button class="btn block" style={{ marginTop: "14px" }} onClick={save}>加入 {rows.filter((r) => r.keep).length} 檔持股</button>
     </Sheet>
   );
@@ -1025,7 +1032,7 @@ export function AiJobBanner({ open }: { open: (job: AiJob) => void }) {
   return (
     <div class="stack" style={{ marginBottom: "12px" }}>
       {jobs.map((j) => (
-        <div class="card row" style={{ padding: "10px 12px", gap: "10px", flexWrap: "nowrap", borderColor: j.status === "done" ? "var(--up)" : j.status === "error" ? "var(--down)" : "var(--accent)" }} data-testid="ai-banner">
+        <div class="card row" style={{ padding: "10px 12px", gap: "10px", flexWrap: "nowrap", borderColor: j.status === "done" ? "var(--up)" : j.status === "error" ? "var(--hold)" : "var(--accent)" }} data-testid="ai-banner">
           <button style={{ flex: 1, minWidth: 0, textAlign: "left", background: "none", border: 0, padding: 0, cursor: "pointer" }} onClick={() => open(j)}>
             <div style={{ fontWeight: 700, fontSize: "14px" }}>
               {j.status === "running" ? <>Claude 分析中：{j.title}<span class="muted num" style={{ fontWeight: 400 }}>・{mmss(Date.now() - j.startedAt)}</span></>
@@ -1053,7 +1060,7 @@ function confirmRerun(usd: number) {
 export function BalanceHint() {
   const left = useStore((s) => estimatedBalance(s));
   if (left === undefined) return null;
-  return <div class={`num ${left < 1 ? "down" : "muted"}`} style={{ fontSize: "13px", textAlign: "center" }}>估計剩餘額度 US${left.toFixed(2)}{left < 1 ? "，快用完了" : ""}</div>;
+  return <div class={`num ${left < 1 ? "warn" : "muted"}`} style={{ fontSize: "13px", textAlign: "center" }}>估計剩餘額度 US${left.toFixed(2)}{left < 1 ? "，快用完了" : ""}</div>;
 }
 
 function SpendCard() {
@@ -1074,8 +1081,9 @@ function SpendCard() {
   const [val, setVal] = useState("");
   const [err, setErr] = useState("");
   const saveBal = async () => {
-    const v = Number(val.replace(/[^\d.]/g, ""));
-    if (!val.trim() || !Number.isFinite(v)) return setErr("請輸入官網顯示的金額，例如 2.05");
+    const cleaned = val.replace(/[^\d.]/g, "");
+    const v = cleaned ? Number(cleaned) : NaN;
+    if (!Number.isFinite(v) || v <= 0) return setErr("請輸入官網顯示的金額（要大於 0），例如 2.05");
     await saveSettings({ ...settings, balance: { usd: v, at: Date.now() } });
     setEditing(false); setErr("");
   };
@@ -1086,9 +1094,9 @@ function SpendCard() {
         <div class="k">估計剩餘額度</div>
         {left === undefined
           ? <div class="v muted" style={{ fontSize: "15px" }}>尚未填入</div>
-          : <><div class={`v num ${left < 1 ? "down" : ""}`}>US${left.toFixed(2)}</div>
+          : <><div class={`v num ${left < 1 ? "warn" : ""}`}>US${left.toFixed(2)}</div>
             <div class="d muted">{twd(Math.max(left, 0))}・{new Date(b!.at).toLocaleDateString("zh-TW")} 填入 US${b!.usd.toFixed(2)}，之後花了 US${(b!.usd - left).toFixed(2)}</div></>}
-        {left !== undefined && left < 1 && <div class="d down">額度快用完了，請到官網儲值，儲值後再更新這裡的金額</div>}
+        {left !== undefined && left < 1 && <div class="d warn">額度快用完了，請到官網儲值，儲值後再更新這裡的金額</div>}
       </div>
       {editing ? (
         <div class="stack">

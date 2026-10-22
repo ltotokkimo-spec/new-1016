@@ -11,9 +11,10 @@ const WHO: { k: Who; label: string }[] = [
   { k: "total", label: "三大法人" }, { k: "foreign", label: "外資" }, { k: "trust", label: "投信" }, { k: "dealer", label: "自營商" },
 ];
 const POLL_MS = 120_000;
+const MAX_POLLS = 15; // 最多重試 15 次（約 30 分鐘）；國定假日沒有資料，不能一直試
 const TODAY_WAIT_MS = 20_000;
 
-const sgn = (v: number) => (v > 0 ? "up" : v < 0 ? "down" : "muted");
+const sgn = (v: number) => (Math.round(v) > 0 ? "up" : Math.round(v) < 0 ? "down" : "muted"); // 和顯示的整數張數一致：0.3 張顯示 0，就用灰色
 const fmtLots = (v: number) => (Math.round(v) === 0 ? "0" : `${v > 0 ? "+" : "-"}${Math.abs(Math.round(v)).toLocaleString()}`);
 const fmtAxis = (v: number) => (Math.abs(v) >= 1000 ? `${(v / 1000).toFixed(Math.abs(v) >= 10000 ? 0 : 1)}k` : String(Math.round(v)));
 
@@ -35,6 +36,7 @@ export function FlowsPanel({ code, market, bars, livePrice }: { code: string; ma
   useEffect(() => {
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let polls = 0;
     const today = taipeiToday();
     const pass = async (all: boolean) => {
       let bad = 0;
@@ -52,7 +54,7 @@ export function FlowsPanel({ code, market, bars, livePrice }: { code: string; ma
       if (alive) { setFailed(bad); setDone(true); }
       // 今天的資料還沒出來：每 2 分鐘再試（只重抓今天）
       const todayPending = dates.includes(today) && !flowsRef.current.has(today);
-      if (alive && todayPending) timer = setTimeout(() => pass(false), POLL_MS);
+      if (alive && todayPending && ++polls <= MAX_POLLS) timer = setTimeout(() => pass(false), POLL_MS);
     };
     flowsRef.current = new Map(); setFlows(flowsRef.current); setDone(false);
     pass(true);

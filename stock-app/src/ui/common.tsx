@@ -109,7 +109,7 @@ export function Markdown({ text }: { text: string }) {
       if (!list || list.ordered) { flush(); list = { ordered: false, items: [] }; }
       list.items.push(m[1]); continue;
     }
-    if ((m = /^\d+[.)、]\s*(.*)$/.exec(line))) {
+    if ((m = /^\d+(?:[)、]\s*|\.(?!\d)\s*)(.*)$/.exec(line))) { // 「3.2% 的年增率」這種小數不是編號
       // 「1. **評等與結論**」這類短的編號行當段落標題，長的當清單
       const body = m[1];
       if (/^\*\*[^*]+\*\*[:：]?$/.test(body) || body.length <= 24) { flush(); out.push(<h3 key={out.length}>{inline(line)}</h3>); continue; }

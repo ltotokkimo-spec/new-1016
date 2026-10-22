@@ -9,7 +9,8 @@ import { type EtfTrade, comparePlans, DEFAULT_STOP, fitBudget, groupBySector, is
 import { orderDay, pretty, prettyW, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
 import { marketOpen, type LiveQuote } from "../data/twLive";
-import { cls, fmtMoney, fmtPct, fmtPrice } from "./common";
+import { cls, fmtMoney, fmtPct, fmtPrice, fmtSigned } from "./common";
+import { navStats } from "../engine/navStats";
 import { AiProgressView, AiReportView, BalanceHint, copyText } from "./screens";
 
 /** 帶正負號的台幣金額：+1,234／-567／0 */
@@ -45,29 +46,89 @@ function TradeLine({ t, pnl }: { t: EtfTrade; pnl?: number }) {
 
 const TRADE_HINT = "賣出的損益是這筆已實現的賺賠（已扣手續費與證交稅）；買進的損益用現價計算，這檔賣光後就不顯示。";
 
-/** 兩條線：我的組合 vs 0050（報酬率 %） */
+/** 報酬走勢：兩條線（我的組合 vs 0050，報酬率 %）＋重點數字＋逐日表，看得出「到底賺賠多少、贏不贏 0050」 */
 function NavChart({ points, budget, mine = "我的自組 ETF" }: { points: { date: string; nav: number; bench: number }[]; budget: number; mine?: string }) {
+  const [all, setAll] = useState(false);
   if (points.length < 2) return null;
-  const W = 340, H = 150, pad = 28;
-  const a = points.map((p) => p.nav / budget - 1), b = points.map((p) => p.bench / budget - 1);
-  const lo = Math.min(...a, ...b, 0), hi = Math.max(...a, ...b, 0), span = hi - lo || 0.01;
-  const x = (i: number) => pad + (i / (points.length - 1)) * (W - pad - 6);
-  const y = (v: number) => 8 + (1 - (v - lo) / span) * (H - 28);
+  const st = navStats(points, budget)!;
+  const W = 340, H = 190, padL = 40, padR = 46, padT = 10, padB = 20;
+  const a = st.rows.map((r) => r.mineCum), b = st.rows.map((r) => r.benchCum);
+  let lo = Math.min(...a, ...b, 0), hi = Math.max(...a, ...b, 0);
+  const m = (hi - lo) * 0.12 || 0.005; lo -= m; hi += m;
+  const n = points.length;
+  const x = (i: number) => padL + (i / (n - 1)) * (W - padL - padR);
+  const y = (v: number) => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
   const line = (vs: number[]) => vs.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+  const ticks = [0, 1, 2, 3].map((k) => lo + ((hi - lo) * k) / 3);
+  const dateIdx = [...new Set([0, 1, 2, 3].map((k) => Math.round(((n - 1) * k) / 3)))];
+  // 兩線之間的色塊：我的組合在上＝贏（紅），在下＝輸（綠）
+  const gaps = [];
+  for (let i = 0; i < n - 1; i++) {
+    const win = a[i] + a[i + 1] >= b[i] + b[i + 1];
+    gaps.push(<path key={i} d={`M${x(i)},${y(a[i])}L${x(i + 1)},${y(a[i + 1])}L${x(i + 1)},${y(b[i + 1])}L${x(i)},${y(b[i])}Z`} fill={win ? "var(--up-bg)" : "var(--down-bg)"} />);
+  }
+  const rows = all ? [...st.rows].reverse() : [...st.rows].reverse().slice(0, 8);
+  const cell = { textAlign: "right" as const, padding: "3px 0" };
+  const head = st.diff > 0.00005 ? `比 0050 多賺 ${(st.diff * 100).toFixed(2)} 個百分點` : st.diff < -0.00005 ? `比 0050 少賺 ${(-st.diff * 100).toFixed(2)} 個百分點` : "和 0050 差不多";
   return (
-    <div class="card" style={{ padding: "10px" }}>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="自組 ETF 與 0050 報酬率走勢">
-        <line x1={pad} x2={W - 6} y1={y(0)} y2={y(0)} stroke="var(--line)" stroke-dasharray="3 3" />
-        <text x={2} y={y(hi) + 4} font-size="10" fill="var(--muted)">{fmtPct(hi)}</text>
-        <text x={2} y={y(lo) + 4} font-size="10" fill="var(--muted)">{fmtPct(lo)}</text>
-        <path d={line(b)} fill="none" stroke="var(--muted)" stroke-width="1.5" />
-        <path d={line(a)} fill="none" stroke="var(--accent)" stroke-width="2.2" />
-        <text x={pad} y={H - 4} font-size="10" fill="var(--muted)">{pretty(points[0].date)}</text>
-        <text x={W - 6} y={H - 4} font-size="10" fill="var(--muted)" text-anchor="end">{pretty(points[points.length - 1].date)}</text>
-      </svg>
-      <div class="row" style={{ fontSize: "12px", gap: "14px" }}>
-        <span><b style={{ color: "var(--accent)" }}>━</b> {mine}</span><span class="muted">━ 同樣的錢買 0050</span>
+    <div class="card stack" style={{ padding: "12px" }} data-testid="nav-chart">
+      <div style={{ fontSize: "14px", lineHeight: 1.7 }} data-testid="nav-headline">
+        {mine}從 {pretty(st.rows[0].date)} 起累積 <b class={`num ${cls(st.mine)}`}>{fmtPct(st.mine, 2)}</b>（<span class={`num ${cls(st.pnl)}`}>{fmtSigned(st.pnl)} 元</span>）；
+        同樣的錢買 0050 是 <b class={`num ${cls(st.bench)}`}>{fmtPct(st.bench, 2)}</b>，<b>{head}</b>。
       </div>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="自組 ETF 與 0050 報酬率走勢">
+        {ticks.filter((t) => Math.abs(y(t) - y(0)) > 12).map((t) => <g key={t}>
+          <line x1={padL} x2={W - padR} y1={y(t)} y2={y(t)} stroke="var(--line)" />
+          <text x={padL - 4} y={y(t) + 3} font-size="10" fill="var(--muted)" text-anchor="end">{fmtPct(t, 1)}</text>
+        </g>)}
+        <line x1={padL} x2={W - padR} y1={y(0)} y2={y(0)} stroke="var(--fg)" stroke-opacity="0.5" stroke-dasharray="3 3" />
+        <text x={padL - 4} y={y(0) + 3} font-size="10" font-weight="700" fill="var(--fg)" text-anchor="end">0%</text>
+        {gaps}
+        <path d={line(b)} fill="none" stroke="var(--muted)" stroke-width="1.6" />
+        <path d={line(a)} fill="none" stroke="var(--accent)" stroke-width="2.4" />
+        {a.map((v, i) => <circle key={`a${i}`} cx={x(i)} cy={y(v)} r={n > 20 ? 0 : 2.8} fill="var(--accent)" />)}
+        {b.map((v, i) => <circle key={`b${i}`} cx={x(i)} cy={y(v)} r={n > 20 ? 0 : 2.2} fill="var(--muted)" />)}
+        {/* 最新一天兩條線的數字，兩個太近時錯開 */}
+        {(() => {
+          const ya = y(a[n - 1]), yb = y(b[n - 1]), gap = Math.abs(ya - yb) < 11;
+          const aY = gap ? (ya <= yb ? ya - 6 : ya + 8) : ya + 3, bY = gap ? (ya <= yb ? yb + 8 : yb - 6) : yb + 3;
+          return <>
+            <text x={x(n - 1) + 5} y={aY} font-size="10.5" font-weight="700" fill="var(--accent)">{fmtPct(a[n - 1], 2)}</text>
+            <text x={x(n - 1) + 5} y={bY} font-size="10.5" fill="var(--muted)">{fmtPct(b[n - 1], 2)}</text>
+          </>;
+        })()}
+        {dateIdx.map((i) => <text key={i} x={Math.min(W - padR, Math.max(padL + 6, x(i)))} y={H - 4} font-size="10" fill="var(--muted)" text-anchor="middle">{pretty(points[i].date)}</text>)}
+      </svg>
+      <div class="row" style={{ fontSize: "12px", gap: "14px", flexWrap: "wrap" }}>
+        <span><b style={{ color: "var(--accent)" }}>━</b> {mine}</span><span class="muted">━ 同樣的錢買 0050</span>
+        <span class="up">▮ 領先 0050</span><span class="down">▮ 落後 0050</span>
+      </div>
+      <div class="grid2">
+        <div class="metric"><div class="k">累積報酬</div><div class={`v num ${cls(st.mine)}`}>{fmtPct(st.mine, 2)}</div><div class="d muted">相對起始資金 {fmtMoney(budget)}</div></div>
+        <div class="metric"><div class="k">比 0050</div><div class={`v num ${cls(st.diff)}`}>{st.diff >= 0 ? "+" : ""}{(st.diff * 100).toFixed(2)} 點</div><div class="d muted">我的組合減 0050 的累積報酬</div></div>
+        <div class="metric"><div class="k">最大回檔</div><div class={`v num ${cls(st.maxDd)}`}>{fmtPct(st.maxDd, 2)}</div><div class="d muted">從最高點往下最多跌多少；0050 是 {fmtPct(st.benchMaxDd, 2)}</div></div>
+        <div class="metric"><div class="k">贏過 0050 的天數</div><div class="v num">{st.winDays} / {st.days} 天</div><div class="d muted">當天報酬比 0050 好才算</div></div>
+        <div class="metric"><div class="k">最好的一天</div><div class={`v num ${cls(st.best!.mineDay)}`}>{fmtPct(st.best!.mineDay, 2)}</div><div class="d muted">{pretty(st.best!.date)}</div></div>
+        <div class="metric"><div class="k">最差的一天</div><div class={`v num ${cls(st.worst!.mineDay)}`}>{fmtPct(st.worst!.mineDay, 2)}</div><div class="d muted">{pretty(st.worst!.date)}</div></div>
+      </div>
+      <table class="num" style={{ width: "100%", fontSize: "12.5px", borderCollapse: "collapse" }} data-testid="nav-table">
+        <thead><tr class="muted">
+          <th style={{ ...cell, textAlign: "left", fontWeight: 400 }}>日期</th><th style={{ ...cell, fontWeight: 400 }}>組合當天</th><th style={{ ...cell, fontWeight: 400 }}>0050 當天</th><th style={{ ...cell, fontWeight: 400 }}>組合累積</th><th style={{ ...cell, fontWeight: 400 }}>0050 累積</th>
+        </tr></thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.date} style={{ borderTop: "1px solid var(--line)" }}>
+              <td style={{ ...cell, textAlign: "left" }}>{pretty(r.date)}</td>
+              <td class={cls(r.mineDay)} style={cell}>{fmtPct(r.mineDay, 2)}</td>
+              <td class={cls(r.benchDay)} style={cell}>{fmtPct(r.benchDay, 2)}</td>
+              <td class={cls(r.mineCum)} style={cell}>{fmtPct(r.mineCum, 2)}</td>
+              <td class={cls(r.benchCum)} style={cell}>{fmtPct(r.benchCum, 2)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {st.rows.length > 8 && <button class="chip" onClick={() => setAll(!all)} style={{ justifySelf: "start" }}>{all ? "只看最近 8 天" : `展開全部 ${st.rows.length} 天`}</button>}
+      <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>報酬＝（當天淨值 ÷ 起始資金）− 1，淨值是現金加持股市值，已扣手續費與證交稅。虛線 0% 就是本金，不賺不賠。灰線是「每次買賣都拿同樣金額買賣 0050」的對照；「點」是百分點，例如 −1.6% 比 −1.0% 少 0.6 點。</div>
     </div>
   );
 }

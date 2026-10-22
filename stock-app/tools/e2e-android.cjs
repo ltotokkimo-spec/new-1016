@@ -300,6 +300,13 @@ function check(ok, name, detail = "") {
   const noteN = await page.$$eval('[data-testid="virtual-notes"] > div', (d) => d.length).catch(() => -1);
   check(noteN === 1, "每日操作說明只顯示最新一天", `${noteN} 則`);
   check(/股票 \d+%・現金 \d+%/.test(gauge) && /目標股票 \d+%/.test(gauge) && /7 成股票・3 成現金/.test(gauge), "虛擬操作顯示資金水位（股票／現金比重、目標、規劃）", gauge.slice(0, 160));
+  const navTxt = await page.$eval('[data-testid="nav-chart"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
+  const navHead = await page.$eval('[data-testid="nav-headline"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
+  const navRows = await page.$$eval('[data-testid="nav-table"] tbody tr', (rs) => rs.map((r) => r.innerText.replace(/\s+/g, " ")));
+  log("報酬走勢", navHead + " | " + navRows.slice(0, 2).join(" ; "));
+  check(/從 \d+\/\d+ 起累積 [+-]?[\d.]+%（[+-]?[\d,]+ 元）；同樣的錢買 0050 是 [+-]?[\d.]+%，(比 0050 (多|少)賺 [\d.]+ 個百分點|和 0050 差不多)/.test(navHead), "報酬走勢用一句話說明累積報酬、損益金額與和 0050 的差", navHead);
+  check(/累積報酬/.test(navTxt) && /最大回檔 -?[\d.]+%/.test(navTxt) && /贏過 0050 的天數 \d+ \/ \d+ 天/.test(navTxt) && /最好的一天/.test(navTxt) && /最差的一天/.test(navTxt), "報酬走勢列出累積報酬、最大回檔、贏過 0050 的天數、最好與最差的一天", navTxt.slice(0, 300));
+  check(navRows.length >= 2 && navRows.every((r) => /^\d+\/\d+ [+-]?[\d.]+% [+-]?[\d.]+% [+-]?[\d.]+% [+-]?[\d.]+%$/.test(r)), "報酬走勢逐日表每天有組合與 0050 的當天與累積報酬", navRows.slice(0, 2).join(" ; "));
   // 即時報價（證交所 mis）：每檔持股要顯示「現價 HH:MM」或「收盤」＋今日漲跌
   const livePx = await page.waitForFunction(() => {
     const els = [...document.querySelectorAll('[data-testid="virtual-price"]')];

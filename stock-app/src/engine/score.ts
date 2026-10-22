@@ -121,8 +121,15 @@ export function sectorStats(stocks: StockInput[]): SectorStat[] {
     .sort((a, b) => b.strength - a.strength);
 }
 
+/** 評分權重。App 用的是 DEFAULT_WEIGHTS；其他組合只給回測比較用（tools/backtest.ts 的新舊評分對照） */
+export interface ScoreWeights {
+  momentum: number; flow: number; sector: number; liquidity: number; // 總分：動能、籌碼、族群、流動性（成交金額百分位）
+  foreign: number; streak: number; trust: number; // 台股籌碼分數：外資買超佔比、外資連買天數、投信買超佔比
+}
+export const DEFAULT_WEIGHTS: ScoreWeights = { momentum: 0.4, flow: 0.4, sector: 0.2, liquidity: 0, foreign: 0.6, streak: 0.2, trust: 0.2 };
+
 /** keep：一定要評分的代號（使用者自己加的股票），不受成交金額門檻限制 */
-export function scoreStocks(stocks: StockInput[], keep?: Set<string>): { scored: Scored[]; sectors: SectorStat[] } {
+export function scoreStocks(stocks: StockInput[], keep?: Set<string>, w: ScoreWeights = DEFAULT_WEIGHTS): { scored: Scored[]; sectors: SectorStat[] } {
   const isUS = stocks[0]?.market === "US";
   const liquid = stocks.filter(
     (s) => Number.isFinite(s.close) && Number.isFinite(s.ret1m) && (s.value >= (isUS ? MIN_VALUE.US : MIN_VALUE.TW) || !!keep?.has(s.code)),
@@ -139,6 +146,7 @@ export function scoreStocks(stocks: StockInput[], keep?: Set<string>): { scored:
   const pF = percentiles(fRatio);
   const pT = percentiles(tRatio);
   const pRS = percentiles(liquid.map((s) => s.rsVsIndex1m ?? NaN));
+  const pL = w.liquidity > 0 ? percentiles(liquid.map((s) => s.value)) : [];
 
   const scored = liquid.map((s, i): Scored => {
     const momentum = 0.5 * p1m[i] + 0.3 * p3m[i] + 0.2 * p1w[i];
@@ -147,11 +155,11 @@ export function scoreStocks(stocks: StockInput[], keep?: Set<string>): { scored:
       flow = 0.4 * (s.aboveMa50 ? 1 : 0) + 0.3 * (s.ma20AboveMa50 ? 1 : 0) + 0.3 * pRS[i];
     } else {
       const streak = Math.max(0, Math.min(s.foreignStreak ?? 0, 5)) / 5;
-      flow = 0.6 * pF[i] + 0.2 * streak + 0.2 * pT[i];
+      flow = w.foreign * pF[i] + w.streak * streak + w.trust * pT[i];
     }
     const sec = secMap.get(s.sector);
     const sectorScore = sec ? sec.strength : 0.5;
-    const score = Math.round(100 * (0.4 * momentum + 0.4 * flow + 0.2 * sectorScore));
+    const score = Math.round(100 * (w.momentum * momentum + w.flow * flow + w.sector * sectorScore + (w.liquidity > 0 ? w.liquidity * pL[i] : 0)));
 
     const reasons: string[] = [];
     reasons.push(`近1週 ${pct(s.ret1w)}、近1月 ${pct(s.ret1m)}、近3月 ${pct(s.ret3m)}（動能贏過 ${Math.round(momentum * 100)}% 的股票）`);

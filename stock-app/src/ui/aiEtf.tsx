@@ -335,7 +335,7 @@ function CandidateCard() {
       </div>
       {open && (
         <>
-          <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>App 篩出的「買入」高分股，依產業分組、每產業最多 3 檔，已持有的不列；請 Claude 建議時就是用這份清單。</div>
+          <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>App 篩出的「買入」高分股，依產業分組、每產業最多 3 檔，已持有的不列；{input.minValue ? `只留當日成交金額 ≥ ${(input.minValue / 1e8).toFixed(1)} 億的大型股（全市場前一半）；` : ""}請 Claude 建議時就是用這份清單。</div>
           <CandidateTable candidates={input.candidates} />
         </>
       )}

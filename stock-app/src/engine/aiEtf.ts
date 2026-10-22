@@ -201,14 +201,23 @@ export function parsePlan(text: string): { items: PlanItem[]; body: string; stop
   return { items, body: (text.slice(0, last.start) + text.slice(last.end)).trim(), stops };
 }
 
-/** 給 Claude 的候選股：只取 App「買入」的高分股，每個產業最多 perSector 檔、全部最多 max 檔，已持有的不重複列（持股那邊已有最新價格）。不夠 minCount 檔時用高分的「觀望」補 */
+/** 給 Claude 的候選股：只取 App「買入」且成交金額在前一半的高分股，每個產業最多 perSector 檔、全部最多 max 檔，已持有的不重複列（持股那邊已有最新價格）。不夠 minCount 檔時用高分的「觀望」補 */
 /** 買進的股票是否不在 App 選股的「買入」清單裡（ETF 只當參考、不評等，不算）；查不到資料也算不在 */
 export function isOffList(s: { rating: string; refOnly?: boolean } | undefined): boolean {
   return s ? !s.refOnly && s.rating !== "買入" : true;
 }
 
-export function pickCandidates<T extends { code: string; sector: string; rating: string }>(scored: T[], held: Set<string>, max = 12, perSector = 3, minCount = 6): T[] {
+/** 候選股的成交金額門檻＝全部評分股票當日成交金額的中位數（只留成交金額在前一半的大型股；2 年回測：成交金額大的股票之後 20 日平均多賺約 2.5%、最穩定的因子） */
+export const CANDIDATE_LIQUIDITY_PCT = 0.5;
+export function liquidityCut(scored: { value?: number }[], pct = CANDIDATE_LIQUIDITY_PCT): number {
+  const v = scored.map((x) => x.value).filter((x): x is number => Number.isFinite(x) && x! > 0).sort((a, b) => a - b);
+  return v.length ? v[Math.min(v.length - 1, Math.floor(v.length * pct))] : 0;
+}
+
+export function pickCandidates<T extends { code: string; sector: string; rating: string; value?: number }>(scored: T[], held: Set<string>, max = 12, perSector = 3, minCount = 6, cut = liquidityCut(scored)): T[] {
   minCount = Math.min(minCount, max);
+  // 成交金額沒有資料的（測試或少數情況）不擋；有資料的要達到門檻
+  scored = scored.filter((x) => !(Number.isFinite(x.value) && (x.value as number) < cut));
   const out: T[] = [];
   const per = new Map<string, number>();
   const take = (list: T[], limit: number) => {

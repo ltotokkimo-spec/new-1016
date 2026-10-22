@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cashFlow, comparePlans, reconcilePhoto, emptyEtf, etfAlerts, fitBudget, groupBySector, isOffList, isOwnPrompt, looksLikePlanReply, parsePlan, pickCandidates, tradePnls, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
+import { cashFlow, comparePlans, reconcilePhoto, emptyEtf, etfAlerts, fitBudget, groupBySector, isOffList, isOwnPrompt, looksLikePlanReply, parsePlan, liquidityCut, pickCandidates, tradePnls, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
 
 const t = (code: string, side: "buy" | "sell", shares: number, price: number, benchPrice = 100, date = "20261017") =>
   ({ id: code + side + date, date, code, name: code, side, shares, price, benchPrice });
@@ -221,6 +221,17 @@ describe("pickCandidates 候選股精簡", () => {
     expect(out).toHaveLength(10);
     expect(out.map((x) => x.code)).not.toContain("999");
     expect(pickCandidates(scored, new Set(), 5)).toHaveLength(5);
+  });
+  it("成交金額沒達門檻（全部股票的中位數）的不進候選，觀望補位也一樣；沒有成交金額資料的不擋", () => {
+    const mv = (code: string, sector: string, value: number | undefined, rating = "買入") => ({ code, sector, rating, value });
+    const all = [mv("1", "A", 9e8), mv("2", "B", 8e8), mv("3", "C", 1e8), mv("4", "D", 7e8), mv("5", "E", 2e8), mv("6", "F", 3e8), mv("7", "G", 6e8, "觀望"), mv("8", "H", 1e8, "觀望")];
+    const cut = liquidityCut(all);
+    expect(cut).toBe(6e8); // 8 檔由小到大排序後的第 5 檔（index 4）
+    const out = pickCandidates(all, new Set()).map((x) => x.code);
+    expect(out).toEqual(["1", "2", "4", "7"]);
+    for (const low of ["3", "5", "6", "8"]) expect(out).not.toContain(low);
+    expect(pickCandidates([mv("9", "A", undefined)], new Set()).map((x) => x.code)).toEqual(["9"]);
+    expect(liquidityCut([])).toBe(0);
   });
   it("買入不夠 6 檔時用觀望補", () => {
     const out = pickCandidates([mk("1", "A"), mk("2", "B"), mk("3", "C", "觀望"), mk("4", "D", "觀望"), mk("5", "E", "觀望"), mk("6", "F", "觀望"), mk("7", "G", "觀望")], new Set());

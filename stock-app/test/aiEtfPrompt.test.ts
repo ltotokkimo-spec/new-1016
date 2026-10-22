@@ -32,5 +32,9 @@ describe("aiEtfPrompt 精簡版", () => {
     expect(p).toMatch(/不超過 400 字/);
     expect(p.length).toBeLessThan(1250);
   });
+  it("候選股標題寫明成交金額門檻；沒有門檻就不寫", () => {
+    const base = { today: "2026/10/22", budget: 500000, cash: 400000, nav: 497000, holdings: [], candidates: [] };
+    expect(aiEtfPrompt({ ...base, minValue: 3.4e8 })).toContain("只留當日成交金額 ≥ 3.4 億的大型股");
+    expect(aiEtfPrompt(base)).not.toContain("成交金額 ≥");
+  });
 });
-

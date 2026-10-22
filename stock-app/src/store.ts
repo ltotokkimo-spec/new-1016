@@ -17,7 +17,7 @@ import type { BacktestResult } from "./engine/backtest";
 import type { VirtualEtf } from "./engine/virtualEtf";
 import { liveUrl, parseLive, type LiveQuote } from "./data/twLive";
 import { parseRevenue, revenueUrls, type Revenue } from "./data/revenue";
-import { emptyEtf, etfAlerts, isOffList, pickCandidates, positions as etfPositions, recordNav, stopOf, valuate, type AiEtf, type EtfTrade } from "./engine/aiEtf";
+import { emptyEtf, etfAlerts, isOffList, liquidityCut, pickCandidates, positions as etfPositions, recordNav, stopOf, valuate, type AiEtf, type EtfTrade } from "./engine/aiEtf";
 
 // Claude 每個交易日收盤後更新的虛擬自組 ETF（存在 GitHub 分支上，App 只讀取顯示）
 export const VIRTUAL_URL = "https://raw.githubusercontent.com/ltotokkimo-spec/new-1016/claude/ui-calculator-interface-t3x9kh/stock-app/virtual/virtual-etf.json";
@@ -600,11 +600,12 @@ export function etfAdviceInput(): EtfAdviceInput {
     .map((p) => ({ ...p, price: etfPrice(p.code), stop: stopOf(p, etf.stops).stop, rating: etfRating(p.code) }));
   const held = new Set(holdings.map((h) => h.code));
   // 候選：App「買入」的高分股，每個產業最多 3 檔、全部最多 12 檔，已持有的不重複（持股那邊有最新價格）
-  const candidates = pickCandidates(state.tw.scored, held);
+  const minValue = liquidityCut(state.tw.scored);
+  const candidates = pickCandidates(state.tw.scored, held, 12, 3, 6, minValue);
   const today = taipeiToday();
   const asOf = state.tw.asOf;
   return {
-    today: `${today.slice(0, 4)}/${today.slice(4, 6)}/${today.slice(6)}`, budget: etf.budget, cash: v.cash, nav: v.nav, holdings, candidates,
+    today: `${today.slice(0, 4)}/${today.slice(4, 6)}/${today.slice(6)}`, budget: etf.budget, cash: v.cash, nav: v.nav, holdings, candidates, minValue,
     dataDate: asOf ? prettyW(asOf) : undefined, orderDate: asOf ? prettyW(orderDay(asOf)) : undefined,
   };
 }

@@ -339,6 +339,7 @@ export interface EtfAdviceInput {
   today: string; budget: number; cash: number; nav: number;
   dataDate?: string; orderDate?: string; // 例如「10/16（五）」：收盤資料日、建議下單日
   holdings: EtfHoldingBrief[]; candidates: Scored[];
+  minValue?: number; // 候選股的成交金額門檻（台幣，當日）
 }
 
 export function aiEtfAdvice(apiKey: string, p: EtfAdviceInput, onProgress?: OnProgress) {
@@ -363,7 +364,7 @@ ${hold}
 
 請檢視這個組合，建議賣出、減碼或加碼哪些（沒必要就說維持不變）。` : `可用現金 ${Math.round(p.cash).toLocaleString()}，目前沒有持股。請建議第一次建倉的組合。`}
 
-【候選股（App 已篩過，共 ${p.candidates.length} 檔，依分數排序）】
+【候選股（App 已篩過，共 ${p.candidates.length} 檔，依分數排序${p.minValue ? `；只留當日成交金額 ≥ ${(p.minValue / 1e8).toFixed(1)} 億的大型股` : ""}）】
 ${cand}
 
 規則：

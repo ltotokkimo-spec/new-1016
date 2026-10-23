@@ -1,7 +1,7 @@
 // 「自組ETF」分頁：請 Claude 建議要買什麼、買幾股，照著實際下單後填入成交，追蹤淨值並和 0050 比較。
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
-  addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
+  addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError, holdingsFromImage, shrinkImage } from "../ai/claude";
 import type { Scored } from "../engine/score";
@@ -588,25 +588,28 @@ function ManualTrade({ draft }: { draft?: SellDraft }) {
 
 /** 自組 ETF 分頁：Claude 虛擬操作（預設）／我的實單紀錄 */
 export function AiEtfScreen() {
-  const [mode, setMode] = useState<"virtual" | "real">(() => { try { return (localStorage.getItem("aietfMode") as "real") || "virtual"; } catch { return "virtual"; } });
-  const pick = (m: "virtual" | "real") => { setMode(m); try { localStorage.setItem("aietfMode", m); } catch { /* 不重要 */ } };
+  type Mode = "virtual" | "watch" | "real";
+  const [mode, setMode] = useState<Mode>(() => { try { const m = localStorage.getItem("aietfMode"); return m === "real" || m === "watch" ? m : "virtual"; } catch { return "virtual"; } });
+  const pick = (m: Mode) => { setMode(m); try { localStorage.setItem("aietfMode", m); } catch { /* 不重要 */ } };
   return (
     <div>
-      <div class="seg" role="group" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", marginBottom: "10px" }}>
-        <button aria-pressed={mode === "virtual"} onClick={() => pick("virtual")} data-testid="mode-virtual">Claude 虛擬操作</button>
-        <button aria-pressed={mode === "real"} onClick={() => pick("real")} data-testid="mode-real">我的實單紀錄</button>
+      <div class="seg" role="group" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", marginBottom: "10px" }}>
+        <button aria-pressed={mode === "virtual"} onClick={() => pick("virtual")} data-testid="mode-virtual">Claude 虛擬</button>
+        <button aria-pressed={mode === "watch"} onClick={() => pick("watch")} data-testid="mode-watch">N5 觀察</button>
+        <button aria-pressed={mode === "real"} onClick={() => pick("real")} data-testid="mode-real">我的實單</button>
       </div>
-      {mode === "virtual" ? <VirtualView /> : <RealEtfScreen />}
+      {mode === "real" ? <RealEtfScreen /> : <VirtualView key={mode} kind={mode} />}
     </div>
   );
 }
 
 /** Claude 每個交易日自動操作的虛擬資金（唯讀） */
-function VirtualView() {
-  const vt = useStore((s) => s.virtual);
+function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" }) {
+  const isWatch = kind === "watch";
+  const vt = useStore((s) => (isWatch ? s.watch : s.virtual));
   const live = useStore((s) => s.live);
   const [busy, setBusy] = useState(false);
-  const reload = async () => { setBusy(true); await refreshVirtual(); setBusy(false); };
+  const reload = async () => { setBusy(true); await (isWatch ? refreshWatch() : refreshVirtual()); setBusy(false); };
   useEffect(() => { if (!vt || Date.now() - vt.fetchedAt > 10 * 60_000) reload(); }, []);
   // 即時價：打開時抓一次，交易時段每 30 秒更新
   const codes = vt ? [...positions(vt.data.trades).filter((p) => p.shares > 0).map((p) => p.code), ...vt.data.pending.map((o) => o.code), "0050"] : [];
@@ -617,7 +620,8 @@ function VirtualView() {
     const t = setInterval(() => { if (marketOpen()) refreshLive(codes); }, 30_000);
     return () => clearInterval(t);
   }, [codeKey]);
-  if (!vt) return <div class="empty">{busy ? "下載 Claude 的虛擬操作紀錄中…" : "還沒有下載到 Claude 的虛擬操作紀錄，請確認網路後按右上角重新整理。"}</div>;
+  const who = isWatch ? "N5 觀察組合" : "Claude 的虛擬操作";
+  if (!vt) return <div class="empty">{busy ? `下載${who}紀錄中…` : `還沒有下載到${who}紀錄，請確認網路後再試一次。`}<div><button class="btn secondary" onClick={reload} disabled={busy} style={{ marginTop: "8px" }}>重新下載</button></div></div>;
   const v = vt.data;
   // 即時報價比 Claude 最後一次收盤更新還新，就用即時價（盤中＝現價，收盤後＝當天收盤）
   const fresh = (c: string): LiveQuote | undefined => { const q = live[c]; return q && q.date && q.date >= (v.asOf || v.start) ? q : undefined; };
@@ -632,7 +636,7 @@ function VirtualView() {
     <div data-testid="virtual-view">
       <div class="card stack" data-testid="virtual-summary">
         <div class="row" style={{ justifyContent: "space-between" }}>
-          <b>Claude 虛擬自組 ETF</b>
+          <b>{isWatch ? "N5 觀察組合（0050 五成＋方案 A 五成）" : "Claude 虛擬自組 ETF"}</b>
           <span class="muted" style={{ fontSize: "12px" }}>虛擬資金 {fmtMoney(v.budget)}・{pretty(v.start)} 開始</span>
         </div>
         <div class="grid2">
@@ -651,15 +655,17 @@ function VirtualView() {
         })()}
         {intraday && <div class="date-hint" data-testid="virtual-live">⏱ 盤中即時估算（{intraday.time.slice(0, 5)}），每 30 秒更新；收盤後改用收盤價</div>}
         <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
-          {v.asOf ? <>資料日 {prettyW(v.asOf)} 收盤・</> : <>今天收盤後第一次更新・</>}Claude 每個交易日收盤後自動更新（約 18:00）。虛擬成交規則：前一天收盤後下單，隔天買進以開盤價成交（開盤高於限價就等盤中碰到限價，沒碰到就不買），賣出以開盤價成交；已計手續費與證交稅。
+          {v.asOf ? <>資料日 {prettyW(v.asOf)} 收盤・</> : <>今天收盤後第一次更新・</>}{isWatch
+            ? "由規則自動計算（不需要 Claude），每個交易日收盤後更新（約 19:00）。一半買 0050；另一半是方案 A：波動最小的一半股票裡，挑站上且上彎 60 日線、年化趨勢 0～100%、走勢最像直線的 10 檔（每產業最多 2 檔、越穩買越多），每 5 個交易日調整一次。成交規則：選股當天收盤後決定，下一個交易日收盤價成交；已計手續費與證交稅。2 年回測：年化 +78%、最大回檔 −10.6%（0050 為 +91%、−18.6%）。"
+            : "Claude 每個交易日收盤後自動更新（約 18:00）。虛擬成交規則：前一天收盤後下單，隔天買進以開盤價成交（開盤高於限價就等盤中碰到限價，沒碰到就不買），賣出以開盤價成交；已計手續費與證交稅。"}
         </div>
         {vt.error && <div class="muted" style={{ fontSize: "12px" }}>{vt.error}</div>}
         <button class="btn secondary" onClick={reload} disabled={busy} data-testid="virtual-reload">{busy ? "更新中…" : "重新下載最新紀錄"}</button>
       </div>
 
-      <CashGauge plan={v.cashPlan} nav={val.nav} marketValue={val.marketValue} pendingNet={v.pending.reduce((t, o) => t + (o.side === "buy" ? 1 : -1) * o.shares * (o.limit ?? px(o.code) ?? 0), 0)} />
+      {!isWatch && <CashGauge plan={v.cashPlan} nav={val.nav} marketValue={val.marketValue} pendingNet={v.pending.reduce((t, o) => t + (o.side === "buy" ? 1 : -1) * o.shares * (o.limit ?? px(o.code) ?? 0), 0)} />}
 
-      {v.nav.length >= 2 && <><div class="section-title"><span>報酬走勢</span><span>{v.nav.length} 天</span></div><NavChart points={v.nav} budget={v.budget} mine="Claude 虛擬組合" /></>}
+      {v.nav.length >= 2 && <><div class="section-title"><span>報酬走勢</span><span>{v.nav.length} 天</span></div><NavChart points={v.nav} budget={v.budget} mine={isWatch ? "N5 觀察組合" : "Claude 虛擬組合"} /></>}
 
       {v.pending.length > 0 && (
         <div class="card stack" style={{ marginTop: "12px" }} data-testid="virtual-pending">
@@ -703,9 +709,9 @@ function VirtualView() {
 
       {notes.length > 0 && (
         <>
-          <div class="section-title"><span>Claude 每日操作說明</span><span>{prettyW(notes[0].date)}</span></div>
+          <div class="section-title"><span>{isWatch ? "每次選股說明" : "Claude 每日操作說明"}</span><span>{prettyW(notes[0].date)}</span></div>
           <div class="card stack" data-testid="virtual-notes">
-            <div style={{ fontSize: "14px", lineHeight: 1.7 }}>{notes[0].text}</div>
+            <div style={{ fontSize: "14px", lineHeight: 1.7, whiteSpace: "pre-line" }}>{notes[0].text}</div>
           </div>
         </>
       )}
@@ -726,7 +732,7 @@ function VirtualView() {
           <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, marginTop: "6px" }}>{TRADE_HINT}</div>
         </>
       )}
-      <div class="muted" style={{ fontSize: "11px", lineHeight: 1.6, marginTop: "12px" }}>這是 Claude 用虛擬資金的模擬操作，用來觀察建議的效果；不是真的下單，也不是投資建議。</div>
+      <div class="muted" style={{ fontSize: "11px", lineHeight: 1.6, marginTop: "12px" }}>{isWatch ? "這是用虛擬資金照固定規則的模擬，用來觀察規則的效果；回測只有約 1.5 年且多頭，不保證未來；不是真的下單，也不是投資建議。" : "這是 Claude 用虛擬資金的模擬操作，用來觀察建議的效果；不是真的下單，也不是投資建議。"}</div>
     </div>
   );
 }

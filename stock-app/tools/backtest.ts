@@ -8,11 +8,12 @@ import { runBacktest, type BtDay } from "../src/engine/backtest";
 import { formatFactors, runFactors } from "../src/engine/factors";
 import { formatCompare, runScoreCompare } from "../src/engine/scoreCompare";
 import { formatSteady, runSteady } from "../src/engine/steady";
+import { runWatch, WATCH } from "../src/engine/watch";
 import { adjustedSeries, indicators } from "../src/engine/turning";
 import { taipeiToday, weekdaysBack } from "../src/lib/dates";
 import type { KV } from "../src/lib/kv";
 
-const [cacheDir = ".bt-cache", outFile = "backtest.json", factorsFile = "factors.json", compareFile = "scorecompare.json", steadyFile = "steady.json"] = process.argv.slice(2);
+const [cacheDir = ".bt-cache", outFile = "backtest.json", factorsFile = "factors.json", compareFile = "scorecompare.json", steadyFile = "steady.json", watchFile = "n5.json"] = process.argv.slice(2);
 fs.mkdirSync(cacheDir, { recursive: true });
 
 const fileKV = (dir: string): KV => {
@@ -103,6 +104,17 @@ try {
   fs.writeFileSync(steadyFile, JSON.stringify(sr));
   for (const line of formatSteady(sr)) log(line);
 } catch (e) { log("穩健選股回測失敗（不影響回測）：", e); }
+// N5 觀察組合（0050 五成＋方案 A 五成）：從 WATCH.start 起每天重算，輸出給 App 顯示；失敗也不能讓回測失敗
+try {
+  const w = runWatch(days, companies);
+  fs.writeFileSync(watchFile, JSON.stringify(w));
+  log(`N5 觀察組合：${w.start} 起，資料日 ${w.asOf || "（尚未開始）"}，成交 ${w.trades.length} 筆，淨值 ${w.nav.at(-1)?.nav ?? WATCH.budget}（0050 對照 ${w.nav.at(-1)?.bench ?? WATCH.budget}）`);
+  // 試跑（不發布）：從 30 個交易日前開始，確認規則在真實資料上跑得動
+  const trial = runWatch(days, companies, { start: days[Math.min(days.length - 1, 30)].date });
+  const tv = trial.nav.at(-1);
+  log(`N5 試跑（${trial.start} 起）：成交 ${trial.trades.length} 筆，淨值 ${tv?.nav}（${tv ? ((tv.nav / trial.budget - 1) * 100).toFixed(2) : "—"}%）0050 對照 ${tv?.bench}（${tv ? ((tv.bench / trial.budget - 1) * 100).toFixed(2) : "—"}%）`);
+  log("N5 試跑最後說明：", trial.notes.at(-1)?.text);
+} catch (e) { log("N5 觀察組合失敗（不影響回測）：", e); }
 const pct = (x?: number) => (x === undefined || !Number.isFinite(x) ? "—" : `${(x * 100).toFixed(2)}%`);
 for (const u of ["stocks", "etf"] as const) {
   log(`== ${u}：${r[u].signals} 個評等日（${r.from} ~ ${r.to}）`);

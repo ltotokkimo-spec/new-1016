@@ -47,7 +47,7 @@ export interface SteadyResult {
 }
 
 type Series = { start: number; adj: number[] };
-interface Ctx {
+export interface Ctx {
   N: number; dates: string[]; // 舊到新
   series: Map<string, Series>;
   rows: Map<string, [string, string, number, number, number, number]>[]; // 舊到新：代號 → 當日行情
@@ -118,6 +118,52 @@ export function inverseVolWeights(vols: number[], maxW: number): number[] {
     left = 1 - w.reduce((a, x, i) => a + (capped[i] ? x : 0), 0);
   }
   return w;
+}
+
+
+export function buildCtx(days: BtDay[], companies: Company[]): Ctx {
+  const old = [...days].reverse();
+  return {
+    N: days.length, dates: old.map((d) => d.date), series: adjustedSeries(days),
+    rows: old.map((d) => new Map(d.quotes.map((r) => [r[0], r]))),
+    sector: new Map(companies.map((x) => [x.code, x.industry || "其他"])),
+  };
+}
+
+/**
+ * 方案 A（低波動為主、趨勢為輔）：波動最低的一半裡，站上且上彎 60 日線、年化趨勢 0～100% 的，
+ * 依「趨勢 × R²」排序取前 10 檔（每產業最多 2 檔），依波動配置（單檔上限 12%）。回傳代號 → 權重（合計 ≤ 1）。
+ */
+export function aPicks(c: Ctx, j: number): Map<string, number> {
+  const vol60 = (code: string) => { const r60 = rets(c.series.get(code), j, 60); return r60 ? std(r60) : NaN; };
+  const pool: { code: string; vol: number }[] = [];
+  for (const [code, row] of c.rows[j]) {
+    if (!isCommonStock(code) || !(row[4] >= STEADY.minValue)) continue;
+    const v = vol60(code);
+    if (Number.isFinite(v)) pool.push({ code, vol: v });
+  }
+  pool.sort((a, b) => a.vol - b.vol);
+  const cands: { code: string; vol: number; sector: string; score: number }[] = [];
+  for (const { code, vol } of pool.slice(0, Math.ceil(pool.length * STEADY.lowVolHalf))) {
+    const s = c.series.get(code), p = px(s, j);
+    const m60 = ma(s, j, 60), m60b = ma(s, j - 20, 60);
+    if (!(p > m60) || !(m60 > m60b)) continue;
+    const prices: number[] = [];
+    for (let k = j - STEADY.lookback + 1; k <= j; k++) prices.push(px(s, k));
+    const { slope, r2 } = trendFit(prices);
+    const annual = Math.exp(slope * 250) - 1;
+    if (!(annual > 0) || annual > STEADY.trendCap) continue;
+    cands.push({ code, vol, sector: c.sector.get(code) ?? "其他", score: annual * r2 });
+  }
+  cands.sort((a, b) => b.score - a.score || a.vol - b.vol);
+  const per = new Map<string, number>(), chosen: typeof cands = [];
+  for (const x of cands) {
+    if (chosen.length >= STEADY.top) break;
+    if ((per.get(x.sector) ?? 0) >= STEADY.maxPerSector) continue;
+    per.set(x.sector, (per.get(x.sector) ?? 0) + 1); chosen.push(x);
+  }
+  const w = inverseVolWeights(chosen.map((x) => x.vol), STEADY.maxWeight);
+  return new Map(chosen.map((x, i) => [x.code, w[i]]));
 }
 
 type Picker = (j: number) => Map<string, number>; // 目標權重（合計 ≤ 1，其餘現金）
@@ -210,13 +256,7 @@ function stats(key: string, label: string, c: Ctx, j0: number, sim: ReturnType<t
 
 /** days：新到舊、連續的交易日（和 runBacktest 一樣） */
 export function runSteady(days: BtDay[], companies: Company[], opts: { now?: number } = {}): SteadyResult {
-  const N = days.length;
-  const old = [...days].reverse();
-  const c: Ctx = {
-    N, dates: old.map((d) => d.date), series: adjustedSeries(days),
-    rows: old.map((d) => new Map(d.quotes.map((r) => [r[0], r]))),
-    sector: new Map(companies.map((x) => [x.code, x.industry || "其他"])),
-  };
+  const c = buildCtx(days, companies), N = c.N;
   const j0 = Math.max(STEADY.lookback + 25, 100);
   if (N < j0 + 30) throw new Error(`交易日太少（${N}），至少要 ${j0 + 30} 天`);
   const benchS = c.series.get(BENCH);
@@ -273,37 +313,8 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
   };
   const hold0050: Picker = () => new Map([[BENCH, 1]]);
   const vol60 = (code: string, j: number) => { const r60 = rets(c.series.get(code), j, 60); return r60 ? std(r60) : NaN; };
-  // 方案 A：波動最低的一半裡，挑站上且上彎的 60 日線、年化趨勢 0～100% 的，依「趨勢 × R²」排序；依波動配置、不停損
-  const lowVolTrendPicks = (j: number) => {
-    const pool: { code: string; vol: number }[] = [];
-    for (const [code, row] of c.rows[j]) {
-      if (!isCommonStock(code) || !(row[4] >= STEADY.minValue)) continue;
-      const v = vol60(code, j);
-      if (Number.isFinite(v)) pool.push({ code, vol: v });
-    }
-    pool.sort((a, b) => a.vol - b.vol);
-    const cands: { code: string; vol: number; sector: string; score: number }[] = [];
-    for (const { code, vol } of pool.slice(0, Math.ceil(pool.length * STEADY.lowVolHalf))) {
-      const s = c.series.get(code), p = px(s, j);
-      const m60 = ma(s, j, 60), m60b = ma(s, j - 20, 60);
-      if (!(p > m60) || !(m60 > m60b)) continue;
-      const prices: number[] = [];
-      for (let k = j - STEADY.lookback + 1; k <= j; k++) prices.push(px(s, k));
-      const { slope, r2 } = trendFit(prices);
-      const annual = Math.exp(slope * 250) - 1;
-      if (!(annual > 0) || annual > STEADY.trendCap) continue;
-      cands.push({ code, vol, sector: c.sector.get(code) ?? "其他", score: annual * r2 });
-    }
-    cands.sort((a, b) => b.score - a.score || a.vol - b.vol);
-    const per = new Map<string, number>(), chosen: typeof cands = [];
-    for (const x of cands) {
-      if (chosen.length >= STEADY.top) break;
-      if ((per.get(x.sector) ?? 0) >= STEADY.maxPerSector) continue;
-      per.set(x.sector, (per.get(x.sector) ?? 0) + 1); chosen.push(x);
-    }
-    const w = inverseVolWeights(chosen.map((x) => x.vol), STEADY.maxWeight);
-    return new Map(chosen.map((x, i) => [x.code, w[i]]));
-  };
+  // 方案 A（見 aPicks）
+  const lowVolTrendPicks = (j: number) => aPicks(c, j);
   const lowVolTrend: Picker = (j) => lowVolTrendPicks(j);
   const lowVolTrendRegime: Picker = (j) => { const k = regimeOk(j) ? 1 : STEADY.regimeExposure; return new Map([...lowVolTrendPicks(j)].map(([code, w]) => [code, w * k])); };
   // 方案 B：同一份「買入」前 10 檔，改成依波動配置（單檔上限 maxWeight）

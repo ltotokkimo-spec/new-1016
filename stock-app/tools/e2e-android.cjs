@@ -333,6 +333,14 @@ function check(ok, name, detail = "") {
   const vTrades = await page.$eval('[data-testid="virtual-trades"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   check(/成交價 [\d.,]+/.test(vTrades) && !vTrades.includes("@"), "虛擬成交紀錄寫「成交價」、不再用 @ 符號", vTrades.slice(0, 120));
   await shot("05a-Claude虛擬操作");
+  // N5 觀察組合（0050 五成＋方案 A 五成）：由 Release 的 n5.json 顯示
+  await page.click('[data-testid="mode-watch"]');
+  await page.waitForSelector('[data-testid="virtual-summary"]', { timeout: 30000 });
+  const watchTxt = await page.$eval('[data-testid="virtual-view"]', (e) => e.innerText.replace(/\s+/g, " "));
+  log("N5 觀察組合", watchTxt.slice(0, 220));
+  check(/N5 觀察組合/.test(watchTxt) && /虛擬資金 50\.0 萬/.test(watchTxt) && /同樣的錢買 0050/.test(watchTxt) && /方案 A/.test(watchTxt), "N5 觀察組合顯示（虛擬 50 萬、0050 對照、規則說明）", watchTxt.slice(0, 120));
+  check(!/Claude 每日操作說明/.test(watchTxt) && !/資金水位/.test(watchTxt), "N5 觀察組合不顯示 Claude 專用的區塊");
+  await shot("05b-N5觀察組合");
   await page.click('[data-testid="mode-real"]');
   await page.waitForSelector('[data-testid="etf-summary"]', { timeout: 10000 });
   check(/起始資金 10\.0 萬/.test(await page.$eval('[data-testid="etf-summary"]', (e) => e.innerText)), "自組ETF 起始資金 10 萬");

@@ -46,7 +46,7 @@ describe("穩健選股回測", () => {
 
   const r = runSteady(makeDays(), companies, { now: 0 });
   it("每個策略都有結果；穩健只挑平滑上漲的，不挑亂跳和下跌的，且每產業最多 2 檔", () => {
-    expect(r.strategies.map((s) => s.key)).toEqual(["steady", "steadyNoRegime", "steadyNoStop", "lowVol", "buyList", "A_lowVolTrend", "A_lowVolTrendRegime", "B_buyListVol", "C_coreBuy", "C_coreA", "T60_off", "T60_half", "T120_off", "W1_wideDaily", "W2_wideWeekly", "N1_bigMomWk", "N1_bigMomMo", "N2_relStrength", "N3_etfRotation", "N4_half0050_bigMo", "N5_half0050_A", "N6_half0050_etf", "N7_half0050_rs", "0050"]);
+    expect(r.strategies.map((s) => s.key)).toEqual(["steady", "steadyNoRegime", "steadyNoStop", "lowVol", "buyList", "A_lowVolTrend", "A_lowVolTrendRegime", "B_buyListVol", "C_coreBuy", "C_coreA", "T60_off", "T60_half", "T120_off", "R1_regime", "W1_wideDaily", "W2_wideWeekly", "N1_bigMomWk", "N1_bigMomMo", "N2_relStrength", "N3_etfRotation", "N4_half0050_bigMo", "N5_half0050_A", "N6_half0050_etf", "N7_half0050_rs", "0050"]);
     const picks = r.latest.picks.map((p) => +p.code);
     expect(picks.length).toBeGreaterThan(0);
     expect(picks.every((c) => c >= 2001 && c <= 2010)).toBe(true);

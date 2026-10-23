@@ -97,4 +97,22 @@ describe("N5 觀察組合", () => {
       expect(w.notes.at(-1)!.text).toContain("本日判斷");
     });
   });
+
+  describe("攻守輪動 R1", () => {
+    const r = runWatch(days, companies, { start: startAt, now: 0, mode: "regime" });
+    it("有 0050 也有個股；多頭（0050 站上 60 日線）時 0050 約七成；現金不為負", () => {
+      expect(r.trades.length).toBeGreaterThan(0);
+      const val = valuate(r, (c) => r.last[c]?.close);
+      expect(val.cash).toBeGreaterThanOrEqual(0);
+      const b = r.trades.filter((t) => t.code === "0050" && t.side === "buy").reduce((s, t) => s + t.shares * t.price, 0);
+      expect(b / val.nav).toBeGreaterThan(0.55);
+      expect(b / val.nav).toBeLessThan(0.85);
+      expect(r.trades.some((t) => t.code !== "0050")).toBe(true);
+    });
+    it("說明寫出市場狀態；結果穩定", () => {
+      expect(r.notes.some((n) => n.text.includes("市場狀態：進攻"))).toBe(true);
+      const again = runWatch(days, companies, { start: startAt, now: 0, mode: "regime" });
+      expect(again.trades).toEqual(r.trades);
+    });
+  });
 });

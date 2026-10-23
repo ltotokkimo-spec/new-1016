@@ -348,6 +348,13 @@ function check(ok, name, detail = "") {
   log("全個股觀察組合", wideTxt.slice(0, 220));
   check(/全個股觀察組合/.test(wideTxt) && /虛擬資金 50\.0 萬/.test(wideTxt) && /不限檔數/.test(wideTxt), "全個股觀察組合顯示（虛擬 50 萬、不限檔數規則說明）", wideTxt.slice(0, 120));
   await shot("05c-全個股觀察組合");
+  // 攻守輪動（Claude 自訂規則）：由 Release 的 regime.json 顯示
+  await page.click('[data-testid="mode-regime"]');
+  await page.waitForSelector('[data-testid="virtual-summary"]', { timeout: 30000 });
+  const regTxt = await page.$eval('[data-testid="virtual-view"]', (e) => e.innerText.replace(/\s+/g, " "));
+  log("攻守輪動觀察組合", regTxt.slice(0, 220));
+  check(/攻守輪動觀察組合/.test(regTxt) && /虛擬資金 50\.0 萬/.test(regTxt) && /進攻/.test(regTxt) && /防守/.test(regTxt), "攻守輪動觀察組合顯示（虛擬 50 萬、進攻／防守規則說明）", regTxt.slice(0, 120));
+  await shot("05d-攻守輪動觀察組合");
   await page.click('[data-testid="mode-real"]');
   await page.waitForSelector('[data-testid="etf-summary"]', { timeout: 10000 });
   check(/起始資金 10\.0 萬/.test(await page.$eval('[data-testid="etf-summary"]', (e) => e.innerText)), "自組ETF 起始資金 10 萬");

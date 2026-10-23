@@ -33,6 +33,15 @@ export const STEADY = {
   wideMinCap: 0.05, // 單檔上限至少 5%（檔數少時放寬到 1.5/檔數）
   wideBand: 0.005, // 與目標差距小於淨值 0.5% 就不動，只做局部修正
 } as const;
+
+/**
+ * 攻守輪動（Claude 自訂規則 R1，使用者 10/23 授權「你決定規則」）：
+ * 進攻（0050 站上 60 日線）：0050 七成＋方案 A 三成；防守（0050 跌破 60 日線）：0050 四成＋方案 A 四成，其餘現金。
+ * 理由：方案 A 挑的是波動小、已站上 60 日線的股票，大盤轉弱時比 0050 抗跌，所以轉弱時把一部分從 0050 換到 A，
+ * 並保留 2 成現金；為了不在 60 日線附近來回切換，加 ±2% 緩衝區（要跌破 98% 才轉防守、站回 102% 才轉進攻）。
+ */
+export const REGIME = { onCore: 0.7, onSat: 0.3, offCore: 0.4, offSat: 0.4, band: 0.02 } as const;
+
 const FEE = 0.001425, TAX = 0.003, TAX_ETF = 0.001;
 const BENCH = "0050";
 
@@ -214,6 +223,17 @@ export function wideTargets(c: Ctx, j: number, held: ReadonlySet<string>): Map<s
   }));
 }
 
+
+/** 攻守輪動：prevOn 是上一次的狀態（進攻 true／防守 false），回傳新狀態與目標權重 */
+export function regimeStep(c: Ctx, j: number, prevOn: boolean | undefined): { on: boolean; targets: Map<string, number> } {
+  const bs = c.series.get("0050"), p = px(bs, j), m = ma(bs, j, 60);
+  const on = !(p > 0 && m > 0) ? prevOn ?? true : prevOn === undefined ? p >= m : prevOn ? !(p < m * (1 - REGIME.band)) : p > m * (1 + REGIME.band);
+  const core = on ? REGIME.onCore : REGIME.offCore, sat = on ? REGIME.onSat : REGIME.offSat;
+  const targets = new Map<string, number>([["0050", core]]);
+  for (const [code, w] of aPicks(c, j)) targets.set(code, (targets.get(code) ?? 0) + w * sat);
+  return { on, targets };
+}
+
 type Picker = (j: number) => Map<string, number>; // 目標權重（合計 ≤ 1，其餘現金）
 interface SimOpts { stops?: boolean; every?: number; band?: number }
 
@@ -365,6 +385,8 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
   const hold0050: Picker = () => new Map([[BENCH, 1]]);
   // 全個股（不限檔數）：每天或每週重算，已持有的用寬鬆條件，差距小於 0.5% 淨值就不動
   const widePicker = (): Picker => { let held = new Set<string>(); return (j) => { const t = wideTargets(c, j, held); held = new Set(t.keys()); return t; }; };
+  // 攻守輪動 R1（見 regimeStep）：每週判斷一次
+  const regimePicker = (): Picker => { let on: boolean | undefined; return (j) => { const r = regimeStep(c, j, on); on = r.on; return r.targets; }; };
   const vol60 = (code: string, j: number) => { const r60 = rets(c.series.get(code), j, 60); return r60 ? std(r60) : NaN; };
   // 方案 A（見 aPicks）
   const lowVolTrendPicks = (j: number) => aPicks(c, j);
@@ -455,6 +477,7 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
     add("L_half", "1 0050 五成＋00631L 五成", half);
     add("L_T60", "1＋2 00631L，0050 跌破 60 日線全賣", levTiming(60));
   }
+  add("R1_regime", "R1 攻守輪動（進攻 0050 七成＋A 三成，防守 0050 四成＋A 四成）", regimePicker());
   add("W1_wideDaily", "W1 全個股不限檔數（每天局部修正）", widePicker(), { every: 1, band: STEADY.wideBand });
   add("W2_wideWeekly", "W2 全個股不限檔數（每週修正）", widePicker(), { every: 5, band: STEADY.wideBand });
   add("N1_bigMomWk", "N1 大型股動能（成交金額前 100，近 90 日最強 10 檔，每週換）", bigWk);

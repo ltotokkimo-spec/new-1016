@@ -3,7 +3,7 @@
 // 成交規則和 2 年回測一致：第 j 天收盤後決定，第 j+1 天收盤價成交，已計手續費與證交稅。
 import { cashFlow, recordNav, valuate, type EtfTrade } from "./aiEtf";
 import type { BtDay } from "./backtest";
-import { aPicks, buildCtx, STEADY, wideTargets } from "./steady";
+import { aPicks, buildCtx, regimeStep, STEADY, wideTargets } from "./steady";
 import { addNote, newVirtual, type VirtualEtf } from "./virtualEtf";
 import type { Company } from "../data/tw";
 
@@ -22,8 +22,9 @@ const pc = (x: number, d = 1) => `${x >= 0 ? "+" : ""}${(x * 100).toFixed(d)}%`;
  * mode "n5"：0050 五成＋方案 A 五成，每 5 個交易日調整。
  * mode "wide"：全個股（不放 0050）、不限檔數，條件同 A（見 wideTargets），每天重新判斷，只做局部修正。
  */
-export function runWatch(days: BtDay[], companies: Company[], opts: { start?: string; budget?: number; now?: number; mode?: "n5" | "wide" } = {}): VirtualEtf {
-  const wide = opts.mode === "wide";
+export function runWatch(days: BtDay[], companies: Company[], opts: { start?: string; budget?: number; now?: number; mode?: "n5" | "wide" | "regime" } = {}): VirtualEtf {
+  const wide = opts.mode === "wide", regime = opts.mode === "regime";
+  let regimeOn: boolean | undefined; // 攻守輪動目前的狀態
   const start = opts.start ?? WATCH.start, budget = opts.budget ?? WATCH.budget;
   let v: VirtualEtf = { ...newVirtual(start, budget), updatedAt: opts.now ?? Date.now(), stops: {} };
   const c = buildCtx(days, companies);
@@ -84,6 +85,13 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
       const adds = [...t.keys()].filter((code) => !hold.has(code)), drops = [...hold.keys()].filter((code) => !t.has(code));
       const nm = (list: string[]) => (list.length ? list.slice(0, 8).map((code) => `${name(code, j)}${code}`).join("、") + (list.length > 8 ? `…共 ${list.length} 檔` : "") : "無");
       text += `\n本日判斷：符合條件 ${t.size} 檔（不限檔數）。下一個交易日收盤價調整，新增：${nm(adds)}；剔除：${nm(drops)}；其餘差距小於淨值 ${(STEADY.wideBand * 100).toFixed(1)}% 的不動。`;
+    } else if (decide && regime) {
+      const r = regimeStep(c, j, regimeOn);
+      regimeOn = r.on;
+      if (j < c.N - 1) target = r.targets;
+      const sat = [...r.targets].filter(([code]) => code !== BENCH).sort((a, b) => b[1] - a[1]);
+      const list = sat.map(([code, w]) => `${name(code, j)}${code} ${(w * 100).toFixed(1)}%`).join("、");
+      text += `\n市場狀態：${r.on ? "進攻（0050 站上 60 日線）" : "防守（0050 跌破 60 日線）"}；目標 0050 ${Math.round((r.targets.get(BENCH) ?? 0) * 100)}%，方案 A ${sat.length} 檔：${list || "目前沒有符合的，先放現金"}。下一個交易日收盤價調整。`;
     } else if (decide) {
       const a = aPicks(c, j);
       if (j < c.N - 1) { // 最後一天的決定還沒成交，下次有新資料時會重算並執行

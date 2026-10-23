@@ -78,3 +78,4 @@ jobs:
           if [ -f steady.json ]; then gh release upload stock-radar-data steady.json --clobber; fi
           if [ -f n5.json ]; then gh release upload stock-radar-data n5.json --clobber; fi
           if [ -f wide.json ]; then gh release upload stock-radar-data wide.json --clobber; fi
+          if [ -f regime.json ]; then gh release upload stock-radar-data regime.json --clobber; fi

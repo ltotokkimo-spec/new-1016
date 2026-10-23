@@ -321,6 +321,13 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
     return m;
   };
 
+  // 想贏 0050 的做法（研究）：1 槓桿 ETF 00631L（正 2）；2 0050 跌破均線就減碼
+  const LEV = "00631L";
+  const aboveMa = (n: number) => (j: number) => { const p = px(benchS, j), m = ma(benchS, j, n); return !(p < m); };
+  const timing = (n: number, off: number): Picker => (j) => new Map([[BENCH, aboveMa(n)(j) ? 1 : off]]);
+  const levTiming = (n: number): Picker => (j) => (aboveMa(n)(j) ? new Map([[LEV, 1]]) : new Map());
+  const half: Picker = () => new Map([[BENCH, 0.5], [LEV, 0.5]]);
+
   const benchSim = simulate(c, j0, hold0050);
   const out: StrategyStats[] = [];
   const add = (key: string, label: string, p: Picker, o?: SimOpts) => out.push(stats(key, label, c, j0, simulate(c, j0, p, o), benchSim.eq));
@@ -334,6 +341,14 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
   add("B_buyListVol", "B 現行買入＋依波動配置", buyListVol);
   add("C_coreBuy", "C 0050 七成＋買入三成", core(buyList));
   add("C_coreA", "C 0050 七成＋A 三成", core(lowVolTrend));
+  add("T60_off", "2 0050 跌破 60 日線全賣（站回再買）", timing(60, 0));
+  add("T60_half", "2 0050 跌破 60 日線減半", timing(60, 0.5));
+  add("T120_off", "2 0050 跌破 120 日線全賣", timing(120, 0));
+  if (c.series.has(LEV)) {
+    add("L_hold", "1 抱 00631L（正 2）", (() => new Map([[LEV, 1]])) as Picker);
+    add("L_half", "1 0050 五成＋00631L 五成", half);
+    add("L_T60", "1＋2 00631L，0050 跌破 60 日線全賣", levTiming(60));
+  }
   out.push(stats("0050", "買進持有 0050", c, j0, benchSim, benchSim.eq));
 
   const last = N - 1;

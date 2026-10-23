@@ -90,7 +90,7 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
       if (j < c.N - 1) target = r.targets;
       const top = [...r.targets].sort((a, b) => b[1] - a[1]);
       const list = top.slice(0, 10).map(([code, w]) => `${name(code, j)}${code} ${(w * 100).toFixed(1)}%`).join("、");
-      text += `\n本日判斷：${r.byCap ? "市值" : "成交金額"}前 ${LEAD.universe} 大個股，依規模配置再依趨勢、外資、投信、走勢品質微調；目標持股 ${Math.round(r.exposure * 100)}%（其餘現金）、${top.length} 檔，前 10 大：${list || "無"}。下一個交易日收盤價調整。`;
+      text += `\n本日判斷：${r.byCap ? "市值" : "成交金額"}前 ${LEAD.universe} 大個股，依市值配置再依趨勢、外資、投信、走勢品質調整（滿倉）；目標持股 ${Math.round(r.exposure * 100)}%、${top.length} 檔，前 10 大：${list || "無"}。下一個交易日收盤價調整。`;
     } else if (decide && regime) {
       const r = regimeStep(c, j, regimeOn);
       regimeOn = r.on;

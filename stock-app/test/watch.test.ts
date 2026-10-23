@@ -128,6 +128,10 @@ describe("N5 觀察組合", () => {
       for (let k = 20; k < 30; k++) expect(held.get(String(2001 + k)) ?? 0).toBe(0); // 2021～2030 一路下跌
       expect([...held.values()].filter((x) => x > 0).length).toBeGreaterThan(5);
     });
+    it("永遠滿倉：股票市值約佔淨值 9 成以上", () => {
+      const val = valuate(r, (c) => r.last[c]?.close);
+      expect(val.marketValue / val.nav).toBeGreaterThan(0.9);
+    });
     it("說明寫出目標持股；結果穩定", () => {
       expect(r.notes.some((n) => n.text.includes("目標持股"))).toBe(true);
       const again = runWatch(days, companies, { start: startAt, now: 0, mode: "lead" });

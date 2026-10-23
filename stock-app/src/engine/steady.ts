@@ -45,12 +45,12 @@ export const REGIME = { onCore: 0.7, onSat: 0.3, offCore: 0.4, offSat: 0.4, band
 /**
  * 權值強化（Claude 設計，使用者 10/23 指定：不放 0050、要往贏 0050 的方向、和之前的組合不要太像）：
  * 0050 會贏是因為「依市值配置、大的買最多」，所以核心照市值買市值最大的 50 檔個股（自己組，不買 0050），
- * 再依三個因子微調：
- * 1. 趨勢（決定持股比重）：站上且上彎 60 日線全拿；站上但 60 日線下彎打 7 折；跌破 60 日線打 3 折；60、120 日線都跌破就不持有。
- *    被打折的部分變現金，所以大型股普遍轉弱時持股自然下降（最低 5 成），這是防守，和攻守輪動只看 0050 不同。
- * 2. 外資：近 20 日外資買超佔成交量，前 1/3 加 3 成、後 1/3 打 8 折（2 年因子分析中微弱正向）。
- * 3. 投信：近 20 日投信買超佔成交量最高的 1/10 打 8 折（因子分析中穩定反向，常是作帳後回落）。
- * 4. 走勢品質：近 90 日「年化趨勢 × R²」前 1/3 加 2 成。
+ * 再依四個因子調整權重（永遠滿倉，不留現金）：
+ * 1. 趨勢：站上且上彎 60 日線 ×1；站上但 60 日線下彎 ×0.7；跌破 60 日線 ×0.3；60、120 日線都跌破 ×0。
+ *    減掉的權重轉給其他權值股。第一版（Q2）把減掉的留現金，2 年回測年化少 2 成多、回檔沒變小，所以改成轉給其他股票。
+ * 2. 外資：近 20 日外資買超佔成交量，前 1/3 ×1.3、後 1/3 ×0.8（2 年因子分析中微弱正向）。
+ * 3. 投信：近 20 日投信買超佔成交量最高的 1/10 ×0.8（因子分析中穩定反向）。
+ * 4. 走勢品質：近 90 日「年化趨勢 × R²」前 1/3 ×1.2。
  * 單檔上限 6 成（台積電權重和 0050 差不多，才有機會跟上），每 5 個交易日調整，差距小於淨值 0.5% 不動。
  */
 export const LEAD = {
@@ -246,7 +246,7 @@ export function wideTargets(c: Ctx, j: number, held: ReadonlySet<string>): Map<s
 }
 
 
-export interface LeadOpts { universe?: number; tilts?: boolean; trend?: boolean }
+export interface LeadOpts { universe?: number; tilts?: boolean; trend?: "cash" | "shift" | "off" }
 /** 單檔上限：超過的部分依比例分給其他檔（總和不變） */
 function capWeights(w: number[], maxW: number): number[] {
   const out = [...w], tot = w.reduce((a, x) => a + x, 0);
@@ -264,7 +264,7 @@ function capWeights(w: number[], maxW: number): number[] {
  * 沒有實收資本額時（資料缺欄位）改用近 20 日平均成交金額當規模。
  */
 export function leadTargets(c: Ctx, j: number, o: LeadOpts = {}): { targets: Map<string, number>; exposure: number; byCap: boolean } {
-  const tilts = o.tilts ?? true, useTrend = o.trend ?? tilts, n = o.universe ?? LEAD.universe;
+  const tilts = o.tilts ?? true, trend = o.trend ?? (tilts ? "shift" : "off"), useTrend = trend !== "off", n = o.universe ?? LEAD.universe;
   const pool: { code: string; size: number; value: number }[] = [];
   for (const [code, row] of c.rows[j]) {
     if (!isCommonStock(code) || !(row[2] > 0)) continue;
@@ -289,7 +289,7 @@ export function leadTargets(c: Ctx, j: number, o: LeadOpts = {}): { targets: Map
     if (p < m60) return LEAD.below60;
     return m60 > ma(s, j - 20, 60) ? 1 : LEAD.slowTrend;
   });
-  const exposure = useTrend ? Math.min(1, Math.max(LEAD.minExposure, base.reduce((a, b, i) => a + b * trendM[i], 0))) : 1;
+  const exposure = trend === "cash" ? Math.min(1, Math.max(LEAD.minExposure, base.reduce((a, b, i) => a + b * trendM[i], 0))) : 1;
   const mult = [...trendM];
   if (tilts) {
     const ratio = (code: string, col: 1 | 2) => {
@@ -574,9 +574,12 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
   add("W1_wideDaily", "W1 全個股不限檔數（每天局部修正）", widePicker(), { every: 1, band: STEADY.wideBand });
   add("W2_wideWeekly", "W2 全個股不限檔數（每週修正）", widePicker(), { every: 5, band: STEADY.wideBand });
   add("Q0_capTop50", "Q0 市值前 50 檔依市值配置（自組權值股，不調整）", (j) => leadTargets(c, j, { tilts: false }).targets, { band: LEAD.band });
-  add("Q1_capTrend", "Q1 同上＋只看趨勢打折", (j) => leadTargets(c, j, { tilts: false, trend: true }).targets, { band: LEAD.band });
-  add("Q2_lead", "Q2 權值強化（市值前 50＋趨勢、外資、投信、走勢品質微調）", (j) => leadTargets(c, j).targets, { band: LEAD.band });
-  add("Q3_lead30", "Q3 權值強化，只取市值前 30", (j) => leadTargets(c, j, { universe: 30 }).targets, { band: LEAD.band });
+  add("Q1_capTrend", "Q1 同上＋趨勢打折留現金", (j) => leadTargets(c, j, { tilts: false, trend: "cash" }).targets, { band: LEAD.band });
+  add("Q2_lead", "Q2 第一版：市值前 50＋趨勢打折留現金＋外資、投信、走勢品質", (j) => leadTargets(c, j, { trend: "cash" }).targets, { band: LEAD.band });
+  add("Q3_lead30", "Q3 第一版，只取市值前 30", (j) => leadTargets(c, j, { universe: 30, trend: "cash" }).targets, { band: LEAD.band });
+  add("Q4_tiltsOnly", "Q4 市值前 50＋外資、投信、走勢品質（不看趨勢）", (j) => leadTargets(c, j, { trend: "off" }).targets, { band: LEAD.band });
+  add("Q5_lead", "Q5 權值強化（市值前 50＋趨勢轉移權重、外資、投信、走勢品質，永遠滿倉）", (j) => leadTargets(c, j).targets, { band: LEAD.band });
+  add("Q6_lead30", "Q6 Q5 只取市值前 30", (j) => leadTargets(c, j, { universe: 30 }).targets, { band: LEAD.band });
   add("N1_bigMomWk", "N1 大型股動能（成交金額前 100，近 90 日最強 10 檔，每週換）", bigWk);
   add("N1_bigMomMo", "N1 同上，每月換（約 20 個交易日）", bigWk, { every: 20 });
   add("N2_relStrength", "N2 相對強度（前 150 大，需贏過 0050，每月換）", bigRs, { every: 20 });

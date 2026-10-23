@@ -341,6 +341,13 @@ function check(ok, name, detail = "") {
   check(/N5 觀察組合/.test(watchTxt) && /虛擬資金 50\.0 萬/.test(watchTxt) && /同樣的錢買 0050/.test(watchTxt) && /方案 A/.test(watchTxt), "N5 觀察組合顯示（虛擬 50 萬、0050 對照、規則說明）", watchTxt.slice(0, 120));
   check(!/Claude 每日操作說明/.test(watchTxt) && !/資金水位/.test(watchTxt), "N5 觀察組合不顯示 Claude 專用的區塊");
   await shot("05b-N5觀察組合");
+  // 全個股觀察組合（不放 0050、不限檔數）：由 Release 的 wide.json 顯示
+  await page.click('[data-testid="mode-wide"]');
+  await page.waitForSelector('[data-testid="virtual-summary"]', { timeout: 30000 });
+  const wideTxt = await page.$eval('[data-testid="virtual-view"]', (e) => e.innerText.replace(/\s+/g, " "));
+  log("全個股觀察組合", wideTxt.slice(0, 220));
+  check(/全個股觀察組合/.test(wideTxt) && /虛擬資金 50\.0 萬/.test(wideTxt) && /不限檔數/.test(wideTxt), "全個股觀察組合顯示（虛擬 50 萬、不限檔數規則說明）", wideTxt.slice(0, 120));
+  await shot("05c-全個股觀察組合");
   await page.click('[data-testid="mode-real"]');
   await page.waitForSelector('[data-testid="etf-summary"]', { timeout: 10000 });
   check(/起始資金 10\.0 萬/.test(await page.$eval('[data-testid="etf-summary"]', (e) => e.innerText)), "自組ETF 起始資金 10 萬");

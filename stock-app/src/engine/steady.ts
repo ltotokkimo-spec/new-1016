@@ -25,6 +25,13 @@ export const STEADY = {
   trendCap: 1, // 年化趨勢超過 100% 視為暴漲股，排除
   // 方案 C（0050 為核心）
   coreWeight: 0.7, // 0050 占 7 成，其餘給選股
+  // 全個股（不限檔數、每天局部修正）：沿用方案 A 的條件，但所有通過的都持有
+  wideR2: 0.6, // 新買進要求走勢夠像直線（R² ≥ 0.6）
+  wideHoldVol: 0.67, // 已持有的，波動排名放寬到前 2/3 才賣（避免在邊界來回買賣）
+  wideTrendHold: 1.5, // 已持有的，年化趨勢放寬到 150% 才賣
+  wideMaxSector: 0.25, // 單一產業合計不超過淨值 25%
+  wideMinCap: 0.05, // 單檔上限至少 5%（檔數少時放寬到 1.5/檔數）
+  wideBand: 0.005, // 與目標差距小於淨值 0.5% 就不動，只做局部修正
 } as const;
 const FEE = 0.001425, TAX = 0.003, TAX_ETF = 0.001;
 const BENCH = "0050";
@@ -166,8 +173,49 @@ export function aPicks(c: Ctx, j: number): Map<string, number> {
   return new Map(chosen.map((x, i) => [x.code, w[i]]));
 }
 
+
+/**
+ * 全個股（使用者 10/23 指定：不限檔數、只要是好的都參考、每天修正，檔數多所以局部修正或不動）：
+ * 條件同方案 A（波動最小的一半、站上且上彎 60 日線、年化趨勢 0～100%），再加走勢要夠像直線（R² ≥ 0.6），
+ * 通過的全部持有，依波動反比配置，單一產業合計 ≤ 25%。已持有的用較寬的條件（賣出門檻比買進門檻鬆），
+ * 避免每天在邊界來回買賣。回傳代號 → 目標權重（合計 ≤ 1，其餘現金）。
+ */
+export function wideTargets(c: Ctx, j: number, held: ReadonlySet<string>): Map<string, number> {
+  const pool: { code: string; vol: number }[] = [];
+  for (const [code, row] of c.rows[j]) {
+    if (!isCommonStock(code) || !(row[4] >= STEADY.minValue)) continue;
+    const r60 = rets(c.series.get(code), j, 60);
+    if (r60) { const v = std(r60); if (Number.isFinite(v)) pool.push({ code, vol: v }); }
+  }
+  pool.sort((a, b) => a.vol - b.vol);
+  const enterN = Math.ceil(pool.length * STEADY.lowVolHalf), holdN = Math.ceil(pool.length * STEADY.wideHoldVol);
+  const chosen: { code: string; vol: number; sector: string }[] = [];
+  pool.forEach((x, i) => {
+    const isHeld = held.has(x.code);
+    if (i >= (isHeld ? holdN : enterN)) return;
+    const s = c.series.get(x.code), p = px(s, j), m60 = ma(s, j, 60);
+    if (!(p > m60)) return;
+    if (!isHeld && !(m60 > ma(s, j - 20, 60))) return;
+    const prices: number[] = [];
+    for (let k = j - STEADY.lookback + 1; k <= j; k++) prices.push(px(s, k));
+    const { slope, r2 } = trendFit(prices);
+    const annual = Math.exp(slope * 250) - 1;
+    if (!(annual > 0) || annual > (isHeld ? STEADY.wideTrendHold : STEADY.trendCap)) return;
+    if (!isHeld && !(r2 >= STEADY.wideR2)) return;
+    chosen.push({ code: x.code, vol: x.vol, sector: c.sector.get(x.code) ?? "其他" });
+  });
+  if (!chosen.length) return new Map();
+  const w = inverseVolWeights(chosen.map((x) => x.vol), Math.max(STEADY.wideMinCap, 1.5 / chosen.length));
+  const bySector = new Map<string, number>();
+  chosen.forEach((x, i) => bySector.set(x.sector, (bySector.get(x.sector) ?? 0) + w[i]));
+  return new Map(chosen.map((x, i) => {
+    const tot = bySector.get(x.sector) ?? 0;
+    return [x.code, tot > STEADY.wideMaxSector ? w[i] * (STEADY.wideMaxSector / tot) : w[i]];
+  }));
+}
+
 type Picker = (j: number) => Map<string, number>; // 目標權重（合計 ≤ 1，其餘現金）
-interface SimOpts { stops?: boolean; every?: number }
+interface SimOpts { stops?: boolean; every?: number; band?: number }
 
 /** 逐日模擬：第 j 天收盤決定，第 j+1 天收盤成交（從 j+2 起承擔漲跌），含手續費與證交稅 */
 function simulate(c: Ctx, j0: number, pick: Picker, opts: SimOpts = {}) {
@@ -195,11 +243,14 @@ function simulate(c: Ctx, j0: number, pick: Picker, opts: SimOpts = {}) {
       total = cash + [...hold.values()].reduce((a, h) => a + h.v, 0);
       for (const [code, h] of [...hold]) {
         const want = (pending.get(code) ?? 0) * total;
-        if (want < h.v) { const sell = h.v - want; cash += sell * (1 - FEE - tax(code)); traded += sell; h.v = want; if (want <= 1e-12) hold.delete(code); }
+        if (want < h.v) {
+          if (opts.band && want > 1e-12 && h.v - want < opts.band * total) continue; // 差距太小：不動
+          const sell = h.v - want; cash += sell * (1 - FEE - tax(code)); traded += sell; h.v = want; if (want <= 1e-12) hold.delete(code); }
       }
       for (const [code, w] of pending) {
         const want = w * total, have = hold.get(code)?.v ?? 0;
         if (want > have + 1e-12) {
+          if (opts.band && want - have < opts.band * total) continue;
           const buy = Math.min(want - have, cash / (1 + FEE));
           if (buy <= 0) continue;
           cash -= buy * (1 + FEE); traded += buy;
@@ -312,6 +363,8 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
     return new Map(buys.map((x) => [x.code, 1 / STEADY.top]));
   };
   const hold0050: Picker = () => new Map([[BENCH, 1]]);
+  // 全個股（不限檔數）：每天或每週重算，已持有的用寬鬆條件，差距小於 0.5% 淨值就不動
+  const widePicker = (): Picker => { let held = new Set<string>(); return (j) => { const t = wideTargets(c, j, held); held = new Set(t.keys()); return t; }; };
   const vol60 = (code: string, j: number) => { const r60 = rets(c.series.get(code), j, 60); return r60 ? std(r60) : NaN; };
   // 方案 A（見 aPicks）
   const lowVolTrendPicks = (j: number) => aPicks(c, j);
@@ -402,6 +455,8 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
     add("L_half", "1 0050 五成＋00631L 五成", half);
     add("L_T60", "1＋2 00631L，0050 跌破 60 日線全賣", levTiming(60));
   }
+  add("W1_wideDaily", "W1 全個股不限檔數（每天局部修正）", widePicker(), { every: 1, band: STEADY.wideBand });
+  add("W2_wideWeekly", "W2 全個股不限檔數（每週修正）", widePicker(), { every: 5, band: STEADY.wideBand });
   add("N1_bigMomWk", "N1 大型股動能（成交金額前 100，近 90 日最強 10 檔，每週換）", bigWk);
   add("N1_bigMomMo", "N1 同上，每月換（約 20 個交易日）", bigWk, { every: 20 });
   add("N2_relStrength", "N2 相對強度（前 150 大，需贏過 0050，每月換）", bigRs, { every: 20 });

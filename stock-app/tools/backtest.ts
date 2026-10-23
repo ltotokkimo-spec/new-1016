@@ -13,7 +13,7 @@ import { adjustedSeries, indicators } from "../src/engine/turning";
 import { taipeiToday, weekdaysBack } from "../src/lib/dates";
 import type { KV } from "../src/lib/kv";
 
-const [cacheDir = ".bt-cache", outFile = "backtest.json", factorsFile = "factors.json", compareFile = "scorecompare.json", steadyFile = "steady.json", watchFile = "n5.json"] = process.argv.slice(2);
+const [cacheDir = ".bt-cache", outFile = "backtest.json", factorsFile = "factors.json", compareFile = "scorecompare.json", steadyFile = "steady.json", watchFile = "n5.json", wideFile = "wide.json"] = process.argv.slice(2);
 fs.mkdirSync(cacheDir, { recursive: true });
 
 const fileKV = (dir: string): KV => {
@@ -115,6 +115,16 @@ try {
   log(`N5 試跑（${trial.start} 起）：成交 ${trial.trades.length} 筆，淨值 ${tv?.nav}（${tv ? ((tv.nav / trial.budget - 1) * 100).toFixed(2) : "—"}%）0050 對照 ${tv?.bench}（${tv ? ((tv.bench / trial.budget - 1) * 100).toFixed(2) : "—"}%）`);
   log("N5 試跑最後說明：", trial.notes.at(-1)?.text);
 } catch (e) { log("N5 觀察組合失敗（不影響回測）：", e); }
+// 全個股觀察組合（不限檔數、每天局部修正）
+try {
+  const w = runWatch(days, companies, { mode: "wide" });
+  fs.writeFileSync(wideFile, JSON.stringify(w));
+  log(`全個股觀察組合：${w.start} 起，資料日 ${w.asOf || "（尚未開始）"}，成交 ${w.trades.length} 筆，淨值 ${w.nav.at(-1)?.nav ?? WATCH.budget}（0050 對照 ${w.nav.at(-1)?.bench ?? WATCH.budget}）`);
+  const trial = runWatch(days, companies, { mode: "wide", start: days[Math.min(days.length - 1, 30)].date });
+  const tv = trial.nav.at(-1);
+  log(`全個股試跑（${trial.start} 起）：成交 ${trial.trades.length} 筆，淨值 ${tv?.nav}（${tv ? ((tv.nav / trial.budget - 1) * 100).toFixed(2) : "—"}%）0050 對照 ${tv?.bench}（${tv ? ((tv.bench / trial.budget - 1) * 100).toFixed(2) : "—"}%）`);
+  log("全個股試跑最後說明：", trial.notes.at(-1)?.text);
+} catch (e) { log("全個股觀察組合失敗（不影響回測）：", e); }
 const pct = (x?: number) => (x === undefined || !Number.isFinite(x) ? "—" : `${(x * 100).toFixed(2)}%`);
 for (const u of ["stocks", "etf"] as const) {
   log(`== ${u}：${r[u].signals} 個評等日（${r.from} ~ ${r.to}）`);

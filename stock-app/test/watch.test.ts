@@ -67,4 +67,34 @@ describe("N5 觀察組合", () => {
     expect(again.trades).toEqual(v.trades);
     expect(again.nav).toEqual(v.nav);
   });
+
+  describe("全個股（不限檔數、每天局部修正）", () => {
+    const w = runWatch(days, companies, { start: startAt, now: 0, mode: "wide" });
+    it("沒有 0050 部位；只持有平滑上漲的個股，不挑亂跳與下跌的；現金不為負", () => {
+      expect(w.trades.length).toBeGreaterThan(0);
+      expect(w.trades.some((t) => t.code === "0050")).toBe(false);
+      const codes = new Set(w.trades.map((t) => +t.code));
+      expect([...codes].every((c) => c >= 2001 && c <= 2010)).toBe(true);
+      const val = valuate(w, (c) => w.last[c]?.close);
+      expect(val.cash).toBeGreaterThanOrEqual(0);
+      expect(val.marketValue / val.nav).toBeGreaterThan(0.5);
+    });
+    it("檔數不設上限：所有通過的都持有（合成資料裡 10 檔都在）", () => {
+      const held = new Set<string>();
+      for (const t of w.trades) { if (t.side === "buy") held.add(t.code); }
+      expect(held.size).toBeGreaterThanOrEqual(8);
+    });
+    it("每天重新判斷、只做局部修正：不是每天都換一堆（交易日數遠少於每檔每天都交易）", () => {
+      const days = new Set(w.trades.map((t) => t.date)).size;
+      const perDay = w.trades.length / Math.max(1, days);
+      expect(w.nav.length).toBeGreaterThan(10);
+      expect(w.trades.length).toBeLessThan(w.nav.length * 3);
+      expect(perDay).toBeLessThan(10);
+    });
+    it("結果穩定：同樣資料重算一樣；說明有寫本日判斷", () => {
+      const again = runWatch(days, companies, { start: startAt, now: 0, mode: "wide" });
+      expect(again.trades).toEqual(w.trades);
+      expect(w.notes.at(-1)!.text).toContain("本日判斷");
+    });
+  });
 });

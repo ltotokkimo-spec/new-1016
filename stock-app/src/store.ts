@@ -25,6 +25,7 @@ import { emptyEtf, etfAlerts, isOffList, liquidityCut, pickCandidates, positions
 export const VIRTUAL_URL = "https://raw.githubusercontent.com/ltotokkimo-spec/new-1016/claude/ui-calculator-interface-t3x9kh/stock-app/virtual/virtual-etf.json";
 // N5 觀察組合（0050 五成＋方案 A 五成）：每天回測工作流程跑完後發布，同樣的格式
 export const WATCH_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/n5.json";
+export const WIDE_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/wide.json"; // 全個股觀察組合
 export const BACKTEST_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/backtest.json";
 
 export type Market = "TW" | "ETF" | "US";
@@ -78,6 +79,7 @@ export interface State {
   backtest?: { data: BacktestResult; fetchedAt: number };
   virtual?: { data: VirtualEtf; fetchedAt: number; error?: string };
   watch?: { data: VirtualEtf; fetchedAt: number; error?: string };
+  wide?: { data: VirtualEtf; fetchedAt: number; error?: string };
   live: Record<string, LiveQuote>; // 證交所即時報價（盤中每 30 秒更新）
   liveAt?: number;
   usExtra: UsExtra[]; // 使用者自己加的美股
@@ -144,6 +146,8 @@ async function initInner() {
   if (vt) set({ virtual: vt });
   const wt = await kv.get<State["watch"]>("watch");
   if (wt) set({ watch: wt });
+  const wd = await kv.get<State["wide"]>("wide");
+  if (wd) set({ wide: wd });
   const bt = await kv.get<State["backtest"]>("backtest");
   if (bt) set({ backtest: bt });
   // 舊版快照沒有 ETF，直接當作沒有資料重抓
@@ -485,6 +489,20 @@ export async function refreshWatch() {
   } catch {
     if (state.watch) set({ watch: { ...state.watch, error: "這次沒下載到最新資料，顯示上次的內容" } });
     else set({ watch: undefined });
+  }
+}
+
+/** 下載全個股觀察組合；失敗就沿用上次下載的 */
+export async function refreshWide() {
+  try {
+    const data = (await fetcher(`${WIDE_URL}?t=${Date.now()}`)) as VirtualEtf;
+    if (data?.version !== 1 || !Array.isArray(data.trades)) throw new Error("格式不對");
+    const v = { data, fetchedAt: Date.now() };
+    await kv.set("wide", v);
+    set({ wide: v });
+  } catch {
+    if (state.wide) set({ wide: { ...state.wide, error: "這次沒下載到最新資料，顯示上次的內容" } });
+    else set({ wide: undefined });
   }
 }
 

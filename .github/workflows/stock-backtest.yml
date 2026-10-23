@@ -77,3 +77,4 @@ jobs:
           if [ -f scorecompare.json ]; then gh release upload stock-radar-data scorecompare.json --clobber; fi
           if [ -f steady.json ]; then gh release upload stock-radar-data steady.json --clobber; fi
           if [ -f n5.json ]; then gh release upload stock-radar-data n5.json --clobber; fi
+          if [ -f wide.json ]; then gh release upload stock-radar-data wide.json --clobber; fi

@@ -20,6 +20,11 @@ export const STEADY = {
   rebalanceEvery: 5, // 每 5 個交易日（約每週）換股一次
   stopAtr: 2.5, // 從買進後最高點回落超過「2.5 × 平均日波動」就停損
   regimeExposure: 0.5, // 0050 跌破 60 日線時，持股降到 5 成
+  // 方案 A（低波動為主、趨勢為輔）
+  lowVolHalf: 0.5, // 只看波動最低的這個比例
+  trendCap: 1, // 年化趨勢超過 100% 視為暴漲股，排除
+  // 方案 C（0050 為核心）
+  coreWeight: 0.7, // 0050 占 7 成，其餘給選股
 } as const;
 const FEE = 0.001425, TAX = 0.003, TAX_ETF = 0.001;
 const BENCH = "0050";
@@ -267,6 +272,54 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
     return new Map(buys.map((x) => [x.code, 1 / STEADY.top]));
   };
   const hold0050: Picker = () => new Map([[BENCH, 1]]);
+  const vol60 = (code: string, j: number) => { const r60 = rets(c.series.get(code), j, 60); return r60 ? std(r60) : NaN; };
+  // 方案 A：波動最低的一半裡，挑站上且上彎的 60 日線、年化趨勢 0～100% 的，依「趨勢 × R²」排序；依波動配置、不停損
+  const lowVolTrendPicks = (j: number) => {
+    const pool: { code: string; vol: number }[] = [];
+    for (const [code, row] of c.rows[j]) {
+      if (!isCommonStock(code) || !(row[4] >= STEADY.minValue)) continue;
+      const v = vol60(code, j);
+      if (Number.isFinite(v)) pool.push({ code, vol: v });
+    }
+    pool.sort((a, b) => a.vol - b.vol);
+    const cands: { code: string; vol: number; sector: string; score: number }[] = [];
+    for (const { code, vol } of pool.slice(0, Math.ceil(pool.length * STEADY.lowVolHalf))) {
+      const s = c.series.get(code), p = px(s, j);
+      const m60 = ma(s, j, 60), m60b = ma(s, j - 20, 60);
+      if (!(p > m60) || !(m60 > m60b)) continue;
+      const prices: number[] = [];
+      for (let k = j - STEADY.lookback + 1; k <= j; k++) prices.push(px(s, k));
+      const { slope, r2 } = trendFit(prices);
+      const annual = Math.exp(slope * 250) - 1;
+      if (!(annual > 0) || annual > STEADY.trendCap) continue;
+      cands.push({ code, vol, sector: c.sector.get(code) ?? "其他", score: annual * r2 });
+    }
+    cands.sort((a, b) => b.score - a.score || a.vol - b.vol);
+    const per = new Map<string, number>(), chosen: typeof cands = [];
+    for (const x of cands) {
+      if (chosen.length >= STEADY.top) break;
+      if ((per.get(x.sector) ?? 0) >= STEADY.maxPerSector) continue;
+      per.set(x.sector, (per.get(x.sector) ?? 0) + 1); chosen.push(x);
+    }
+    const w = inverseVolWeights(chosen.map((x) => x.vol), STEADY.maxWeight);
+    return new Map(chosen.map((x, i) => [x.code, w[i]]));
+  };
+  const lowVolTrend: Picker = (j) => lowVolTrendPicks(j);
+  const lowVolTrendRegime: Picker = (j) => { const k = regimeOk(j) ? 1 : STEADY.regimeExposure; return new Map([...lowVolTrendPicks(j)].map(([code, w]) => [code, w * k])); };
+  // 方案 B：同一份「買入」前 10 檔，改成依波動配置（單檔上限 maxWeight）
+  const buyListVol: Picker = (j) => {
+    const codes = [...buyList(j).keys()];
+    const vols = codes.map((code) => vol60(code, j));
+    const ok = codes.filter((_, i) => Number.isFinite(vols[i]));
+    const w = inverseVolWeights(ok.map((code) => vol60(code, j)), STEADY.maxWeight);
+    return new Map(ok.map((code, i) => [code, w[i]]));
+  };
+  // 方案 C：0050 占 coreWeight，其餘給選股
+  const core = (sat: Picker): Picker => (j) => {
+    const m = new Map<string, number>([[BENCH, STEADY.coreWeight]]);
+    for (const [code, w] of sat(j)) m.set(code, (m.get(code) ?? 0) + w * (1 - STEADY.coreWeight));
+    return m;
+  };
 
   const benchSim = simulate(c, j0, hold0050);
   const out: StrategyStats[] = [];
@@ -276,6 +329,11 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
   add("steadyNoStop", "穩健但不停損", steady(true));
   add("lowVol", "純低波動（不看趨勢、不停損）", lowVol);
   add("buyList", "現行 App「買入」前 10 檔（等權）", buyList);
+  add("A_lowVolTrend", "A 低波動為主＋趨勢為輔（排除年化趨勢 >100%）", lowVolTrend);
+  add("A_lowVolTrendRegime", "A＋大盤濾網", lowVolTrendRegime);
+  add("B_buyListVol", "B 現行買入＋依波動配置", buyListVol);
+  add("C_coreBuy", "C 0050 七成＋買入三成", core(buyList));
+  add("C_coreA", "C 0050 七成＋A 三成", core(lowVolTrend));
   out.push(stats("0050", "買進持有 0050", c, j0, benchSim, benchSim.eq));
 
   const last = N - 1;

@@ -362,6 +362,9 @@ function check(ok, name, detail = "") {
   log("權值強化觀察組合", leadTxt.slice(0, 220));
   check(/權值強化觀察組合/.test(leadTxt) && /虛擬資金 50\.0 萬/.test(leadTxt) && /市值/.test(leadTxt) && /外資/.test(leadTxt), "權值強化觀察組合顯示（虛擬 50 萬、市值＋外資等規則說明）", leadTxt.slice(0, 120));
   await shot("05d2-權值強化觀察組合");
+  // 7 個模式按鈕要排成兩列（每列 4 個），文字不能被擠成直排
+  const segRows = await page.$$eval('[data-testid^="mode-"]', (bs) => ({ tops: [...new Set(bs.map((b) => Math.round(b.getBoundingClientRect().top)))].length, maxH: Math.max(...bs.map((b) => b.getBoundingClientRect().height)) }));
+  check(segRows.tops === 2 && segRows.maxH < 60, "自組ETF 模式按鈕排成兩列、文字不擠成直排", JSON.stringify(segRows));
   // 總評比：第一組（Claude 虛擬）和三個規則組合放在一起
   await page.click('[data-testid="mode-compare"]');
   await page.waitForSelector('[data-testid="compare-all"]', { timeout: 30000 });

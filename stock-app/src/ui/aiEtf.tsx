@@ -594,7 +594,7 @@ export function AiEtfScreen() {
   const pick = (m: Mode) => { setMode(m); try { localStorage.setItem("aietfMode", m); } catch { /* 不重要 */ } };
   return (
     <div>
-      <div class="seg" role="group" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", marginBottom: "10px" }}>
+      <div class="seg tight" role="group" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gridAutoFlow: "row", marginBottom: "10px" }}>
         <button aria-pressed={mode === "compare"} onClick={() => pick("compare")} data-testid="mode-compare">總評比</button>
         <button aria-pressed={mode === "virtual"} onClick={() => pick("virtual")} data-testid="mode-virtual">Claude 虛擬</button>
         <button aria-pressed={mode === "watch"} onClick={() => pick("watch")} data-testid="mode-watch">N5 觀察</button>

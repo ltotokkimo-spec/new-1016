@@ -1,7 +1,7 @@
 // 「自組ETF」分頁：請 Claude 建議要買什麼、買幾股，照著實際下單後填入成交，追蹤淨值並和 0050 比較。
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
-  addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
+  addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError, holdingsFromImage, shrinkImage } from "../ai/claude";
 import type { Scored } from "../engine/score";
@@ -11,6 +11,7 @@ import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan 
 import { marketOpen, type LiveQuote } from "../data/twLive";
 import { cls, fmtMoney, fmtPct, fmtPrice, fmtSigned } from "./common";
 import { navStats } from "../engine/navStats";
+import { compareGroups, type GroupRow } from "../engine/compare";
 import { AiProgressView, AiReportView, BalanceHint, copyText } from "./screens";
 
 /** 帶正負號的台幣金額：+1,234／-567／0 */
@@ -588,19 +589,112 @@ function ManualTrade({ draft }: { draft?: SellDraft }) {
 
 /** 自組 ETF 分頁：Claude 虛擬操作（預設）／我的實單紀錄 */
 export function AiEtfScreen() {
-  type Mode = "virtual" | "watch" | "wide" | "regime" | "real";
-  const [mode, setMode] = useState<Mode>(() => { try { const m = localStorage.getItem("aietfMode"); return m === "real" || m === "watch" || m === "wide" || m === "regime" ? m : "virtual"; } catch { return "virtual"; } });
+  type Mode = "compare" | "virtual" | "watch" | "wide" | "regime" | "real";
+  const [mode, setMode] = useState<Mode>(() => { try { const m = localStorage.getItem("aietfMode"); return m === "real" || m === "watch" || m === "wide" || m === "regime" || m === "compare" ? m : "virtual"; } catch { return "virtual"; } });
   const pick = (m: Mode) => { setMode(m); try { localStorage.setItem("aietfMode", m); } catch { /* 不重要 */ } };
   return (
     <div>
       <div class="seg" role="group" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", marginBottom: "10px" }}>
+        <button aria-pressed={mode === "compare"} onClick={() => pick("compare")} data-testid="mode-compare">總評比</button>
         <button aria-pressed={mode === "virtual"} onClick={() => pick("virtual")} data-testid="mode-virtual">Claude 虛擬</button>
         <button aria-pressed={mode === "watch"} onClick={() => pick("watch")} data-testid="mode-watch">N5 觀察</button>
         <button aria-pressed={mode === "wide"} onClick={() => pick("wide")} data-testid="mode-wide">全個股</button>
         <button aria-pressed={mode === "regime"} onClick={() => pick("regime")} data-testid="mode-regime">攻守輪動</button>
         <button aria-pressed={mode === "real"} onClick={() => pick("real")} data-testid="mode-real">我的實單</button>
       </div>
-      {mode === "real" ? <RealEtfScreen /> : <VirtualView key={mode} kind={mode} />}
+      {mode === "real" ? <RealEtfScreen /> : mode === "compare" ? <CompareView /> : <VirtualView key={mode} kind={mode} />}
+    </div>
+  );
+}
+
+
+/** 總評比：Claude 虛擬操作（第一組）和三個規則自動計算的觀察組合放在一起看，也和 0050 比 */
+function CompareView() {
+  const virtual = useStore((s) => s.virtual), watch = useStore((s) => s.watch), wide = useStore((s) => s.wide), regime = useStore((s) => s.regime), steady = useStore((s) => s.steady);
+  const [busy, setBusy] = useState(false);
+  const reload = async () => { setBusy(true); await Promise.all([refreshVirtual(), refreshWatch(), refreshWide(), refreshRegime(), refreshSteady()]); setBusy(false); };
+  useEffect(() => { const old = (x?: { fetchedAt: number }) => !x || Date.now() - x.fetchedAt > 10 * 60_000; if (old(virtual) || old(watch) || old(wide) || old(regime) || !steady) reload(); }, []);
+  const groups = [
+    { key: "virtual", label: "Claude 虛擬操作（第一組，Claude 每天判斷）", short: "Claude 虛擬", v: virtual?.data, bt: undefined as string | undefined },
+    { key: "watch", label: "N5（0050 五成＋方案 A 五成）", short: "N5 觀察", v: watch?.data, bt: "N5_half0050_A" },
+    { key: "wide", label: "全個股（不限檔數、每天修正）", short: "全個股", v: wide?.data, bt: "W1_wideDaily" },
+    { key: "regime", label: "攻守輪動（Claude 自訂規則）", short: "攻守輪動", v: regime?.data, bt: "R1_regime" },
+  ];
+  const cmp = compareGroups(groups.map((g) => ({ key: g.key, label: g.short, v: g.v })));
+  const asOf = [...cmp.rows].map((r) => r.asOf ?? "").sort().at(-1);
+  const bt = (key?: string) => steady?.data.strategies.find((x) => x.key === key);
+  const th = { padding: "4px 6px", textAlign: "right" as const, fontWeight: 600, whiteSpace: "nowrap" as const };
+  const td = { padding: "6px", textAlign: "right" as const, whiteSpace: "nowrap" as const };
+  const Row = ({ r, same }: { r: GroupRow; same: boolean }) => {
+    const p = same ? r.same : r.all;
+    return (
+      <tr style={{ borderTop: "1px solid var(--line)" }}>
+        <td style={{ ...td, textAlign: "left", whiteSpace: "normal", fontWeight: 600 }}>{r.label}</td>
+        {r.ready && p ? <>
+          <td class={`num ${cls(p.ret)}`} style={td}>{fmtPct(p.ret, 2)}</td>
+          <td class={`num ${cls(p.bench)}`} style={td}>{fmtPct(p.bench, 2)}</td>
+          <td class={`num ${cls(p.diff)}`} style={td}>{fmtPct(p.diff, 2)}</td>
+          <td class={`num ${cls(p.maxDd)}`} style={td}>{fmtPct(p.maxDd, 2)}</td>
+          <td class="num muted" style={td}>{p.days}</td>
+        </> : <td colSpan={5} class="muted" style={{ ...td, textAlign: "left" }}>{r.ready ? "同期還沒有資料" : r.start ? `${prettyW(r.start)} 起算，第一批成交後開始累積` : "尚未下載"}</td>}
+      </tr>
+    );
+  };
+  const readyAll = cmp.rows.filter((r) => r.ready && r.all);
+  const lead = [...readyAll].sort((a, b) => (b.all!.diff) - (a.all!.diff))[0];
+  return (
+    <div data-testid="compare-view">
+      <div class="card stack" data-testid="compare-summary">
+        <b>虛擬 ETF 總評比</b>
+        <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
+          四組各用虛擬 50 萬，每組也和「同樣的錢買 0050」比。{asOf ? <>資料日 {prettyW(asOf)} 收盤。</> : null}
+          {lead && readyAll.length > 1 ? <> 目前比 0050 領先最多的是 <b>{lead.label}</b>（{fmtPct(lead.all!.diff, 2)}）。</> : null}
+          起算日不同（Claude 虛擬 10/19、其他三組 10/23 起、第一批成交約 10/26），累積天數少時差距主要是雜訊，不要當結論。
+        </div>
+        <button class="btn secondary" onClick={reload} disabled={busy} data-testid="compare-reload">{busy ? "更新中…" : "重新下載全部"}</button>
+      </div>
+
+      <div class="section-title"><span>各組從自己的起始日算起</span><span>報酬為相對起始資金</span></div>
+      <div class="card" style={{ padding: "6px 8px", overflowX: "auto" }} data-testid="compare-all">
+        <table style={{ width: "100%", fontSize: "13px", borderCollapse: "collapse" }}>
+          <thead><tr class="muted"><th style={{ ...th, textAlign: "left" }}>組合</th><th style={th}>報酬</th><th style={th}>0050</th><th style={th}>贏/輸</th><th style={th}>最大回檔</th><th style={th}>天數</th></tr></thead>
+          <tbody>{cmp.rows.map((r) => <Row r={r} same={false} />)}</tbody>
+        </table>
+      </div>
+
+      {cmp.commonFrom && cmp.rows.filter((r) => r.same).length >= 2 && <>
+        <div class="section-title"><span>同期比較</span><span>{prettyW(cmp.commonFrom)} 起</span></div>
+        <div class="card" style={{ padding: "6px 8px", overflowX: "auto" }} data-testid="compare-same">
+          <table style={{ width: "100%", fontSize: "13px", borderCollapse: "collapse" }}>
+            <thead><tr class="muted"><th style={{ ...th, textAlign: "left" }}>組合</th><th style={th}>報酬</th><th style={th}>0050</th><th style={th}>贏/輸</th><th style={th}>最大回檔</th><th style={th}>天數</th></tr></thead>
+            <tbody>{cmp.rows.map((r) => <Row r={r} same />)}</tbody>
+          </table>
+        </div>
+      </>}
+
+      <div class="section-title"><span>規則的 2 年回測（參考）</span><span>{steady ? `${pretty(steady.data.from)}～${pretty(steady.data.to)}` : "下載中…"}</span></div>
+      <div class="card" style={{ padding: "6px 8px", overflowX: "auto" }} data-testid="compare-bt">
+        <table style={{ width: "100%", fontSize: "13px", borderCollapse: "collapse" }}>
+          <thead><tr class="muted"><th style={{ ...th, textAlign: "left" }}>組合</th><th style={th}>年化</th><th style={th}>最大回檔</th><th style={th}>夏普</th></tr></thead>
+          <tbody>
+            {groups.map((g) => { const b = bt(g.bt); return (
+              <tr style={{ borderTop: "1px solid var(--line)" }}>
+                <td style={{ ...td, textAlign: "left", whiteSpace: "normal", fontWeight: 600 }}>{g.short}</td>
+                {g.bt ? (b ? <>
+                  <td class={`num ${cls(b.cagr)}`} style={td}>{fmtPct(b.cagr, 1)}</td><td class={`num ${cls(b.maxDd)}`} style={td}>{fmtPct(b.maxDd, 1)}</td><td class="num" style={td}>{b.sharpe.toFixed(2)}</td>
+                </> : <td colSpan={3} class="muted" style={{ ...td, textAlign: "left" }}>下載中…</td>) : <td colSpan={3} class="muted" style={{ ...td, textAlign: "left" }}>沒有回測：由 Claude 每天判斷，不是固定規則</td>}
+              </tr>
+            ); })}
+            {(() => { const b = bt("0050"); return b && (
+              <tr style={{ borderTop: "1px solid var(--line)" }}>
+                <td style={{ ...td, textAlign: "left", fontWeight: 600 }}>只抱 0050</td>
+                <td class={`num ${cls(b.cagr)}`} style={td}>{fmtPct(b.cagr, 1)}</td><td class={`num ${cls(b.maxDd)}`} style={td}>{fmtPct(b.maxDd, 1)}</td><td class="num" style={td}>{b.sharpe.toFixed(2)}</td>
+              </tr>
+            ); })()}
+          </tbody>
+        </table>
+      </div>
+      <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, marginTop: "6px" }}>回測是用過去約 2 年的實際行情模擬（含手續費與證交稅），規則是看過回測後才定的，而且這段時間大多是多頭，不保證未來。Claude 虛擬操作每天依消息與判斷調整，沒有固定規則，所以沒有回測。上面「實際觀察」才是之後真正的成績。</div>
     </div>
   );
 }

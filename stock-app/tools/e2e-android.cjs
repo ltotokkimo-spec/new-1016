@@ -355,6 +355,19 @@ function check(ok, name, detail = "") {
   log("攻守輪動觀察組合", regTxt.slice(0, 220));
   check(/攻守輪動觀察組合/.test(regTxt) && /虛擬資金 50\.0 萬/.test(regTxt) && /進攻/.test(regTxt) && /防守/.test(regTxt), "攻守輪動觀察組合顯示（虛擬 50 萬、進攻／防守規則說明）", regTxt.slice(0, 120));
   await shot("05d-攻守輪動觀察組合");
+  // 總評比：第一組（Claude 虛擬）和三個規則組合放在一起
+  await page.click('[data-testid="mode-compare"]');
+  await page.waitForSelector('[data-testid="compare-all"]', { timeout: 30000 });
+  await page.waitForFunction(() => /Claude 虛擬/.test(document.querySelector('[data-testid="compare-all"]')?.innerText || "") && /%/.test(document.querySelector('[data-testid="compare-all"]')?.innerText || ""), null, { timeout: 30000 });
+  const cmpTxt = await page.$eval('[data-testid="compare-view"]', (e) => e.innerText.replace(/\s+/g, " "));
+  log("總評比", cmpTxt.slice(0, 400));
+  check(["Claude 虛擬", "N5 觀察", "全個股", "攻守輪動"].every((n) => cmpTxt.includes(n)) && /各組從自己的起始日算起/.test(cmpTxt), "總評比列出四組", cmpTxt.slice(0, 160));
+  const allRow = await page.$eval('[data-testid="compare-all"] tbody tr', (e) => e.innerText.replace(/\s+/g, " "));
+  check(/Claude 虛擬.*[+-]?\d+\.\d+%/.test(allRow), "總評比第一組（Claude 虛擬）顯示實際報酬", allRow);
+  await page.waitForFunction(() => /年化/.test(document.querySelector('[data-testid="compare-bt"]')?.innerText || "") && /\d+\.\d+%/.test(document.querySelector('[data-testid="compare-bt"]')?.innerText || ""), null, { timeout: 30000 });
+  const btTxt = await page.$eval('[data-testid="compare-bt"]', (e) => e.innerText.replace(/\s+/g, " "));
+  check(/只抱 0050/.test(btTxt) && /N5 觀察/.test(btTxt) && (btTxt.match(/[+-]\d+\.\d%/g) || []).length >= 6, "總評比附上規則的 2 年回測（年化、最大回檔、夏普）", btTxt.slice(0, 200));
+  await shot("05e-總評比");
   await page.click('[data-testid="mode-real"]');
   await page.waitForSelector('[data-testid="etf-summary"]', { timeout: 10000 });
   check(/起始資金 10\.0 萬/.test(await page.$eval('[data-testid="etf-summary"]', (e) => e.innerText)), "自組ETF 起始資金 10 萬");

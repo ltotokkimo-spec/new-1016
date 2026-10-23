@@ -27,7 +27,11 @@ export const VIRTUAL_URL = "https://raw.githubusercontent.com/ltotokkimo-spec/ne
 export const WATCH_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/n5.json";
 export const WIDE_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/wide.json"; // 全個股觀察組合
 export const REGIME_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/regime.json"; // 攻守輪動觀察組合
+export const STEADY_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/steady.json"; // 觀察組合規則的 2 年回測結果
 export const BACKTEST_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/backtest.json";
+
+/** steady.json 裡總評比用到的欄位 */
+export interface SteadyLite { from: string; to: string; strategies: { key: string; label: string; cagr: number; maxDd: number; sharpe: number; vol: number }[] }
 
 export type Market = "TW" | "ETF" | "US";
 
@@ -82,6 +86,7 @@ export interface State {
   watch?: { data: VirtualEtf; fetchedAt: number; error?: string };
   wide?: { data: VirtualEtf; fetchedAt: number; error?: string };
   regime?: { data: VirtualEtf; fetchedAt: number; error?: string };
+  steady?: { data: SteadyLite; fetchedAt: number };
   live: Record<string, LiveQuote>; // 證交所即時報價（盤中每 30 秒更新）
   liveAt?: number;
   usExtra: UsExtra[]; // 使用者自己加的美股
@@ -152,6 +157,8 @@ async function initInner() {
   if (wd) set({ wide: wd });
   const rg = await kv.get<State["regime"]>("regime");
   if (rg) set({ regime: rg });
+  const sd = await kv.get<State["steady"]>("steady");
+  if (sd) set({ steady: sd });
   const bt = await kv.get<State["backtest"]>("backtest");
   if (bt) set({ backtest: bt });
   // 舊版快照沒有 ETF，直接當作沒有資料重抓
@@ -522,6 +529,17 @@ export async function refreshRegime() {
     if (state.regime) set({ regime: { ...state.regime, error: "這次沒下載到最新資料，顯示上次的內容" } });
     else set({ regime: undefined });
   }
+}
+
+/** 下載觀察組合規則的 2 年回測結果（總評比用）；失敗就沿用上次的 */
+export async function refreshSteady() {
+  try {
+    const data = (await fetcher(`${STEADY_URL}?t=${Date.now()}`)) as SteadyLite;
+    if (!Array.isArray(data?.strategies)) throw new Error("格式不對");
+    const v = { data: { from: data.from, to: data.to, strategies: data.strategies.map((x) => ({ key: x.key, label: x.label, cagr: x.cagr, maxDd: x.maxDd, sharpe: x.sharpe, vol: x.vol })) }, fetchedAt: Date.now() };
+    await kv.set("steady", v);
+    set({ steady: v });
+  } catch { /* 沒下載到就沿用上次的 */ }
 }
 
 export async function refreshBacktest() {

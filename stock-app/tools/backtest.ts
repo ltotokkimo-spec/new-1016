@@ -7,11 +7,12 @@ import { TwLoader } from "../src/data/twLoader";
 import { runBacktest, type BtDay } from "../src/engine/backtest";
 import { formatFactors, runFactors } from "../src/engine/factors";
 import { formatCompare, runScoreCompare } from "../src/engine/scoreCompare";
+import { formatSteady, runSteady } from "../src/engine/steady";
 import { adjustedSeries, indicators } from "../src/engine/turning";
 import { taipeiToday, weekdaysBack } from "../src/lib/dates";
 import type { KV } from "../src/lib/kv";
 
-const [cacheDir = ".bt-cache", outFile = "backtest.json", factorsFile = "factors.json", compareFile = "scorecompare.json"] = process.argv.slice(2);
+const [cacheDir = ".bt-cache", outFile = "backtest.json", factorsFile = "factors.json", compareFile = "scorecompare.json", steadyFile = "steady.json"] = process.argv.slice(2);
 fs.mkdirSync(cacheDir, { recursive: true });
 
 const fileKV = (dir: string): KV => {
@@ -96,6 +97,12 @@ try {
   fs.writeFileSync(compareFile, JSON.stringify(cr));
   for (const line of formatCompare(cr)) log(line);
 } catch (e) { log("評分對照失敗（不影響回測）：", e); }
+// 穩健選股（研究用）：逐日模擬組合，和現行買入、0050 比較；失敗也不能讓回測失敗
+try {
+  const sr = runSteady(days, companies);
+  fs.writeFileSync(steadyFile, JSON.stringify(sr));
+  for (const line of formatSteady(sr)) log(line);
+} catch (e) { log("穩健選股回測失敗（不影響回測）：", e); }
 const pct = (x?: number) => (x === undefined || !Number.isFinite(x) ? "—" : `${(x * 100).toFixed(2)}%`);
 for (const u of ["stocks", "etf"] as const) {
   log(`== ${u}：${r[u].signals} 個評等日（${r.from} ~ ${r.to}）`);

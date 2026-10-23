@@ -121,7 +121,7 @@ export function inverseVolWeights(vols: number[], maxW: number): number[] {
 }
 
 type Picker = (j: number) => Map<string, number>; // 目標權重（合計 ≤ 1，其餘現金）
-interface SimOpts { stops?: boolean }
+interface SimOpts { stops?: boolean; every?: number }
 
 /** 逐日模擬：第 j 天收盤決定，第 j+1 天收盤成交（從 j+2 起承擔漲跌），含手續費與證交稅 */
 function simulate(c: Ctx, j0: number, pick: Picker, opts: SimOpts = {}) {
@@ -173,7 +173,7 @@ function simulate(c: Ctx, j0: number, pick: Picker, opts: SimOpts = {}) {
       const s = c.series.get(code), p = px(s, j);
       if (p < ma(s, j, 60) || p < h.peak * (1 - STEADY.stopAtr * h.atr)) stopOut.add(code);
     }
-    if ((j - j0) % STEADY.rebalanceEvery === 0 && j < c.N - 1) pending = pick(j);
+    if ((j - j0) % (opts.every ?? STEADY.rebalanceEvery) === 0 && j < c.N - 1) pending = pick(j);
   }
   return { eq, traded, avgHold: holdN / eq.length, exposure: expo / eq.length };
 }
@@ -328,6 +328,48 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
   const levTiming = (n: number): Picker => (j) => (aboveMa(n)(j) ? new Map([[LEV, 1]]) : new Map());
   const half: Picker = () => new Map([[BENCH, 0.5], [LEV, 0.5]]);
 
+  // 不用槓桿的做法（研究）：大型股動能、相對強度、ETF 輪動，以及和 0050 搭配
+  const momRet = (code: string, j: number) => { const s = c.series.get(code); return px(s, j) / px(s, j - STEADY.lookback) - 1; };
+  const largeCapMom = (pool: number, top: number, needAbove0050: boolean): Picker => (j) => {
+    const rows = [...c.rows[j]].filter(([code, r]) => isCommonStock(code) && r[4] >= STEADY.minValue).sort((a, b) => b[1][4] - a[1][4]).slice(0, pool);
+    const b = momRet(BENCH, j);
+    const cands: { code: string; m: number; sector: string }[] = [];
+    for (const [code] of rows) {
+      const sr = c.series.get(code), p = px(sr, j);
+      const m = momRet(code, j);
+      if (!Number.isFinite(m) || m <= 0 || !(p > ma(sr, j, 60))) continue;
+      if (needAbove0050 && !(m > b)) continue;
+      cands.push({ code, m, sector: c.sector.get(code) ?? "其他" });
+    }
+    cands.sort((x, y) => y.m - x.m);
+    const per = new Map<string, number>(), chosen: typeof cands = [];
+    for (const x of cands) {
+      if (chosen.length >= top) break;
+      if ((per.get(x.sector) ?? 0) >= STEADY.maxPerSector) continue;
+      per.set(x.sector, (per.get(x.sector) ?? 0) + 1); chosen.push(x);
+    }
+    return new Map(chosen.map((x) => [x.code, 1 / top]));
+  };
+  // ETF 輪動：排除槓桿與反向（代號結尾 L／R），近 90 日報酬最強的 3 檔，要站上 60 日線
+  const etfRotation: Picker = (j) => {
+    const cands: { code: string; m: number }[] = [];
+    for (const [code, r] of c.rows[j]) {
+      if (!isEtf(code) || /[LR]$/.test(code) || !(r[4] >= 1e8)) continue;
+      const sr = c.series.get(code), m = momRet(code, j);
+      if (Number.isFinite(m) && m > 0 && px(sr, j) > ma(sr, j, 60)) cands.push({ code, m });
+    }
+    cands.sort((x, y) => y.m - x.m);
+    const top = cands.slice(0, 3);
+    return new Map(top.map((x) => [x.code, 1 / 3]));
+  };
+  const mix = (a: Picker, wa: number, b: Picker): Picker => (j) => {
+    const m = new Map<string, number>();
+    for (const [code, w] of a(j)) m.set(code, (m.get(code) ?? 0) + w * wa);
+    for (const [code, w] of b(j)) m.set(code, (m.get(code) ?? 0) + w * (1 - wa));
+    return m;
+  };
+  const bigWk = largeCapMom(100, 10, false), bigRs = largeCapMom(150, 10, true);
+
   const benchSim = simulate(c, j0, hold0050);
   const out: StrategyStats[] = [];
   const add = (key: string, label: string, p: Picker, o?: SimOpts) => out.push(stats(key, label, c, j0, simulate(c, j0, p, o), benchSim.eq));
@@ -349,6 +391,14 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
     add("L_half", "1 0050 五成＋00631L 五成", half);
     add("L_T60", "1＋2 00631L，0050 跌破 60 日線全賣", levTiming(60));
   }
+  add("N1_bigMomWk", "N1 大型股動能（成交金額前 100，近 90 日最強 10 檔，每週換）", bigWk);
+  add("N1_bigMomMo", "N1 同上，每月換（約 20 個交易日）", bigWk, { every: 20 });
+  add("N2_relStrength", "N2 相對強度（前 150 大，需贏過 0050，每月換）", bigRs, { every: 20 });
+  add("N3_etfRotation", "N3 ETF 輪動（近 90 日最強 3 檔，不含槓桿反向，每月換）", etfRotation, { every: 20 });
+  add("N4_half0050_bigMo", "N4 0050 五成＋大型股動能五成（月換）", mix(hold0050, 0.5, bigWk), { every: 20 });
+  add("N5_half0050_A", "N5 0050 五成＋A 五成", mix(hold0050, 0.5, lowVolTrend));
+  add("N6_half0050_etf", "N6 0050 五成＋ETF 輪動五成（月換）", mix(hold0050, 0.5, etfRotation), { every: 20 });
+  add("N7_half0050_rs", "N7 0050 五成＋相對強度五成（月換）", mix(hold0050, 0.5, bigRs), { every: 20 });
   out.push(stats("0050", "買進持有 0050", c, j0, benchSim, benchSim.eq));
 
   const last = N - 1;

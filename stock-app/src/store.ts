@@ -27,6 +27,7 @@ export const VIRTUAL_URL = "https://raw.githubusercontent.com/ltotokkimo-spec/ne
 export const WATCH_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/n5.json";
 export const WIDE_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/wide.json"; // 全個股觀察組合
 export const REGIME_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/regime.json"; // 攻守輪動觀察組合
+export const LEAD_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/lead.json"; // 權值強化觀察組合
 export const STEADY_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/steady.json"; // 觀察組合規則的 2 年回測結果
 export const BACKTEST_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/backtest.json";
 
@@ -86,6 +87,7 @@ export interface State {
   watch?: { data: VirtualEtf; fetchedAt: number; error?: string };
   wide?: { data: VirtualEtf; fetchedAt: number; error?: string };
   regime?: { data: VirtualEtf; fetchedAt: number; error?: string };
+  lead?: { data: VirtualEtf; fetchedAt: number; error?: string };
   steady?: { data: SteadyLite; fetchedAt: number };
   live: Record<string, LiveQuote>; // 證交所即時報價（盤中每 30 秒更新）
   liveAt?: number;
@@ -157,6 +159,8 @@ async function initInner() {
   if (wd) set({ wide: wd });
   const rg = await kv.get<State["regime"]>("regime");
   if (rg) set({ regime: rg });
+  const ld = await kv.get<State["lead"]>("lead");
+  if (ld) set({ lead: ld });
   const sd = await kv.get<State["steady"]>("steady");
   if (sd) set({ steady: sd });
   const bt = await kv.get<State["backtest"]>("backtest");
@@ -528,6 +532,20 @@ export async function refreshRegime() {
   } catch {
     if (state.regime) set({ regime: { ...state.regime, error: "這次沒下載到最新資料，顯示上次的內容" } });
     else set({ regime: undefined });
+  }
+}
+
+/** 下載權值強化觀察組合；失敗就沿用上次下載的 */
+export async function refreshLead() {
+  try {
+    const data = (await fetcher(`${LEAD_URL}?t=${Date.now()}`)) as VirtualEtf;
+    if (data?.version !== 1 || !Array.isArray(data.trades)) throw new Error("格式不對");
+    const v = { data, fetchedAt: Date.now() };
+    await kv.set("lead", v);
+    set({ lead: v });
+  } catch {
+    if (state.lead) set({ lead: { ...state.lead, error: "這次沒下載到最新資料，顯示上次的內容" } });
+    else set({ lead: undefined });
   }
 }
 

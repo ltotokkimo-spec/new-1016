@@ -87,6 +87,10 @@ describe("產業別", () => {
     expect(parseTwseCompanies(fx("twse_companies.json")).find((c) => c.code === "2330")?.industry).toBe("半導體");
     expect(parseTwseCompanies(fx("twse_companies.json")).find((c) => c.code === "2603")?.industry).toBe("航運");
     expect(parseTpexCompanies(fx("tpex_companies.json")).find((c) => c.code === "6488")?.industry).toBe("半導體");
+    // 實收資本額（權值強化估市值用）：有就讀，沒有就留空
+    expect(parseTwseCompanies([{ 公司代號: "2330", 公司簡稱: "台積電", 產業別: "24", 實收資本額: "259325245210" }])[0].capital).toBe(259325245210);
+    expect(parseTpexCompanies([{ SecuritiesCompanyCode: "6488", CompanyAbbreviation: "環球晶", SecuritiesIndustryCode: "24", "Paidin.Capital.NTDollars": "4781466950" }])[0].capital).toBe(4781466950);
+    expect(parseTwseCompanies(fx("twse_companies.json"))[0].capital).toBeUndefined();
   });
 });
 

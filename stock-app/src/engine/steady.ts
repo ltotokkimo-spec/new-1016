@@ -42,6 +42,24 @@ export const STEADY = {
  */
 export const REGIME = { onCore: 0.7, onSat: 0.3, offCore: 0.4, offSat: 0.4, band: 0.02 } as const;
 
+/**
+ * 權值強化（Claude 設計，使用者 10/23 指定：不放 0050、要往贏 0050 的方向、和之前的組合不要太像）：
+ * 0050 會贏是因為「依市值配置、大的買最多」，所以核心照市值買市值最大的 50 檔個股（自己組，不買 0050），
+ * 再依三個因子微調：
+ * 1. 趨勢（決定持股比重）：站上且上彎 60 日線全拿；站上但 60 日線下彎打 7 折；跌破 60 日線打 3 折；60、120 日線都跌破就不持有。
+ *    被打折的部分變現金，所以大型股普遍轉弱時持股自然下降（最低 5 成），這是防守，和攻守輪動只看 0050 不同。
+ * 2. 外資：近 20 日外資買超佔成交量，前 1/3 加 3 成、後 1/3 打 8 折（2 年因子分析中微弱正向）。
+ * 3. 投信：近 20 日投信買超佔成交量最高的 1/10 打 8 折（因子分析中穩定反向，常是作帳後回落）。
+ * 4. 走勢品質：近 90 日「年化趨勢 × R²」前 1/3 加 2 成。
+ * 單檔上限 6 成（台積電權重和 0050 差不多，才有機會跟上），每 5 個交易日調整，差距小於淨值 0.5% 不動。
+ */
+export const LEAD = {
+  universe: 50, minValue: 3e8, flowDays: 20,
+  slowTrend: 0.7, below60: 0.3, // 趨勢打折
+  flowUp: 1.3, flowDown: 0.8, trustCut: 0.8, trustTop: 0.1, qualityUp: 1.2,
+  minExposure: 0.5, maxWeight: 0.6, band: 0.005,
+} as const;
+
 const FEE = 0.001425, TAX = 0.003, TAX_ETF = 0.001;
 const BENCH = "0050";
 
@@ -68,6 +86,8 @@ export interface Ctx {
   series: Map<string, Series>;
   rows: Map<string, [string, string, number, number, number, number]>[]; // 舊到新：代號 → 當日行情
   sector: Map<string, string>;
+  capital: Map<string, number>; // 實收資本額（元）
+  flows: Map<string, [string, number, number, number]>[]; // 舊到新：代號 → [代號, 外資, 投信, 自營]（股）
 }
 
 const px = (s: Series | undefined, j: number) => (s && j >= s.start && j - s.start < s.adj.length ? s.adj[j - s.start] : NaN);
@@ -143,6 +163,8 @@ export function buildCtx(days: BtDay[], companies: Company[]): Ctx {
     N: days.length, dates: old.map((d) => d.date), series: adjustedSeries(days),
     rows: old.map((d) => new Map(d.quotes.map((r) => [r[0], r]))),
     sector: new Map(companies.map((x) => [x.code, x.industry || "其他"])),
+    capital: new Map(companies.filter((x) => (x.capital ?? 0) > 0).map((x) => [x.code, x.capital!])),
+    flows: old.map((d) => new Map((d.flows ?? []).map((r) => [r[0], r]))),
   };
 }
 
@@ -223,6 +245,77 @@ export function wideTargets(c: Ctx, j: number, held: ReadonlySet<string>): Map<s
   }));
 }
 
+
+export interface LeadOpts { universe?: number; tilts?: boolean; trend?: boolean }
+/** 單檔上限：超過的部分依比例分給其他檔（總和不變） */
+function capWeights(w: number[], maxW: number): number[] {
+  const out = [...w], tot = w.reduce((a, x) => a + x, 0);
+  for (let it = 0; it < out.length; it++) {
+    const over = out.reduce((a, x) => a + Math.max(0, x - maxW * tot), 0);
+    if (over <= 1e-12) break;
+    const free = out.reduce((a, x) => a + (x < maxW * tot ? x : 0), 0);
+    for (let i = 0; i < out.length; i++) out[i] = out[i] >= maxW * tot ? maxW * tot : out[i] + (free > 0 ? (over * out[i]) / free : 0);
+  }
+  return out;
+}
+
+/**
+ * 權值強化（見 LEAD）：回傳代號 → 目標權重（合計 ≤ 1，其餘現金）與說明用的數字。
+ * 沒有實收資本額時（資料缺欄位）改用近 20 日平均成交金額當規模。
+ */
+export function leadTargets(c: Ctx, j: number, o: LeadOpts = {}): { targets: Map<string, number>; exposure: number; byCap: boolean } {
+  const tilts = o.tilts ?? true, useTrend = o.trend ?? tilts, n = o.universe ?? LEAD.universe;
+  const pool: { code: string; size: number; value: number }[] = [];
+  for (const [code, row] of c.rows[j]) {
+    if (!isCommonStock(code) || !(row[2] > 0)) continue;
+    let v = 0, k = 0;
+    for (let i = Math.max(0, j - 19); i <= j; i++) { const r = c.rows[i].get(code); if (r) { v += r[4]; k++; } }
+    if (k < 15 || !(v / k >= LEAD.minValue)) continue;
+    if (!(ma(c.series.get(code), j, 60) > 0)) continue;
+    pool.push({ code, size: 0, value: v / k });
+  }
+  // 規模：市值（收盤 × 實收資本額 ÷ 10）；前 100 大成交金額裡有 8 成以上查得到資本額才用，否則全部改用成交金額
+  const top = [...pool].sort((a, b) => b.value - a.value).slice(0, 100);
+  const byCap = top.length > 0 && top.filter((x) => c.capital.has(x.code)).length >= top.length * 0.8;
+  for (const x of pool) x.size = byCap ? (c.capital.has(x.code) ? (c.rows[j].get(x.code)![2] * c.capital.get(x.code)!) / 10 : 0) : x.value;
+  const uni = pool.filter((x) => x.size > 0).sort((a, b) => b.size - a.size).slice(0, n);
+  if (!uni.length) return { targets: new Map(), exposure: 0, byCap };
+  const tot = uni.reduce((a, x) => a + x.size, 0);
+  const base = uni.map((x) => x.size / tot);
+  const trendM = uni.map(({ code }) => {
+    if (!useTrend) return 1;
+    const s = c.series.get(code), p = px(s, j), m60 = ma(s, j, 60), m120 = ma(s, j, 120);
+    if (p < m60 && p < m120) return 0;
+    if (p < m60) return LEAD.below60;
+    return m60 > ma(s, j - 20, 60) ? 1 : LEAD.slowTrend;
+  });
+  const exposure = useTrend ? Math.min(1, Math.max(LEAD.minExposure, base.reduce((a, b, i) => a + b * trendM[i], 0))) : 1;
+  const mult = [...trendM];
+  if (tilts) {
+    const ratio = (code: string, col: 1 | 2) => {
+      let f = 0, vol = 0;
+      for (let i = Math.max(0, j - LEAD.flowDays + 1); i <= j; i++) { f += c.flows[i]?.get(code)?.[col] ?? 0; vol += c.rows[i].get(code)?.[5] ?? 0; }
+      return vol > 0 ? f / vol : 0;
+    };
+    const rankOf = (xs: number[]) => { const idx = xs.map((_, i) => i).sort((a, b) => xs[b] - xs[a]); const r = new Array(xs.length); idx.forEach((i, k) => (r[i] = k / xs.length)); return r as number[]; };
+    const fr = rankOf(uni.map((x) => ratio(x.code, 1))), tv = uni.map((x) => ratio(x.code, 2)), tr = rankOf(tv);
+    const q = rankOf(uni.map(({ code }) => {
+      const s = c.series.get(code), prices: number[] = [];
+      for (let k = j - STEADY.lookback + 1; k <= j; k++) prices.push(px(s, k));
+      const { slope, r2 } = trendFit(prices);
+      return Number.isFinite(slope) ? (Math.exp(slope * 250) - 1) * r2 : -Infinity;
+    }));
+    uni.forEach((_, i) => {
+      if (fr[i] < 1 / 3) mult[i] *= LEAD.flowUp; else if (fr[i] >= 2 / 3) mult[i] *= LEAD.flowDown;
+      if (tr[i] < LEAD.trustTop && tv[i] > 0) mult[i] *= LEAD.trustCut;
+      if (q[i] < 1 / 3) mult[i] *= LEAD.qualityUp;
+    });
+  }
+  const raw = base.map((b, i) => b * mult[i]), sum = raw.reduce((a, x) => a + x, 0);
+  if (!(sum > 0)) return { targets: new Map(), exposure: 0, byCap };
+  const w = capWeights(raw.map((x) => (x / sum) * exposure), LEAD.maxWeight / exposure > 1 ? 1 : LEAD.maxWeight / exposure);
+  return { targets: new Map(uni.map((x, i) => [x.code, w[i]] as [string, number]).filter(([, x]) => x > 1e-4)), exposure, byCap };
+}
 
 /** 攻守輪動：prevOn 是上一次的狀態（進攻 true／防守 false），回傳新狀態與目標權重 */
 export function regimeStep(c: Ctx, j: number, prevOn: boolean | undefined): { on: boolean; targets: Map<string, number> } {
@@ -480,6 +573,10 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
   add("R1_regime", "R1 攻守輪動（進攻 0050 七成＋A 三成，防守 0050 四成＋A 四成）", regimePicker());
   add("W1_wideDaily", "W1 全個股不限檔數（每天局部修正）", widePicker(), { every: 1, band: STEADY.wideBand });
   add("W2_wideWeekly", "W2 全個股不限檔數（每週修正）", widePicker(), { every: 5, band: STEADY.wideBand });
+  add("Q0_capTop50", "Q0 市值前 50 檔依市值配置（自組權值股，不調整）", (j) => leadTargets(c, j, { tilts: false }).targets, { band: LEAD.band });
+  add("Q1_capTrend", "Q1 同上＋只看趨勢打折", (j) => leadTargets(c, j, { tilts: false, trend: true }).targets, { band: LEAD.band });
+  add("Q2_lead", "Q2 權值強化（市值前 50＋趨勢、外資、投信、走勢品質微調）", (j) => leadTargets(c, j).targets, { band: LEAD.band });
+  add("Q3_lead30", "Q3 權值強化，只取市值前 30", (j) => leadTargets(c, j, { universe: 30 }).targets, { band: LEAD.band });
   add("N1_bigMomWk", "N1 大型股動能（成交金額前 100，近 90 日最強 10 檔，每週換）", bigWk);
   add("N1_bigMomMo", "N1 同上，每月換（約 20 個交易日）", bigWk, { every: 20 });
   add("N2_relStrength", "N2 相對強度（前 150 大，需贏過 0050，每月換）", bigRs, { every: 20 });

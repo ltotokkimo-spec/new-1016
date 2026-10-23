@@ -115,4 +115,23 @@ describe("N5 觀察組合", () => {
       expect(again.trades).toEqual(r.trades);
     });
   });
+
+  describe("權值強化", () => {
+    const r = runWatch(days, companies, { start: startAt, now: 0, mode: "lead" });
+    it("全部是個股、不買 0050；下跌的股票不持有；現金不為負", () => {
+      expect(r.trades.length).toBeGreaterThan(0);
+      expect(r.trades.some((t) => t.code === "0050")).toBe(false);
+      const val = valuate(r, (c) => r.last[c]?.close);
+      expect(val.cash).toBeGreaterThanOrEqual(0);
+      const held = new Map<string, number>();
+      for (const t of r.trades) held.set(t.code, (held.get(t.code) ?? 0) + (t.side === "buy" ? t.shares : -t.shares));
+      for (let k = 20; k < 30; k++) expect(held.get(String(2001 + k)) ?? 0).toBe(0); // 2021～2030 一路下跌
+      expect([...held.values()].filter((x) => x > 0).length).toBeGreaterThan(5);
+    });
+    it("說明寫出目標持股；結果穩定", () => {
+      expect(r.notes.some((n) => n.text.includes("目標持股"))).toBe(true);
+      const again = runWatch(days, companies, { start: startAt, now: 0, mode: "lead" });
+      expect(again.trades).toEqual(r.trades);
+    });
+  });
 });

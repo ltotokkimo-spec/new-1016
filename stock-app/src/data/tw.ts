@@ -190,6 +190,14 @@ export interface Company {
   code: string;
   name: string;
   industry: string; // 產業名稱
+  capital?: number; // 實收資本額（元）；÷ 面額 10 元 ≈ 發行股數，用來估市值（權值強化組合用）
+}
+
+/** 公司基本資料裡的實收資本額（上市「實收資本額」、上櫃 Paidin.Capital.NTDollars；欄位名稱不確定，用關鍵字找） */
+function capitalOf(x: any): number | undefined {
+  const k = Object.keys(x).find((key) => /實收資本|paid.?in.?capital/i.test(key));
+  const v = k ? Number(String(x[k]).replace(/,/g, "")) : NaN;
+  return v > 0 ? v : undefined;
 }
 
 /** 證交所 t187ap03_L 上市公司基本資料 */
@@ -201,6 +209,7 @@ export function parseTwseCompanies(json: any): Company[] {
       code: String(x["公司代號"]).trim(),
       name: String(x["公司簡稱"] ?? "").trim(),
       industry: INDUSTRY_NAMES[String(x["產業別"]).trim()] ?? "其他",
+      capital: capitalOf(x),
     }));
 }
 
@@ -213,6 +222,7 @@ export function parseTpexCompanies(json: any): Company[] {
       code: String(x.SecuritiesCompanyCode).trim(),
       name: String(x.CompanyAbbreviation ?? "").trim(),
       industry: INDUSTRY_NAMES[String(x.SecuritiesIndustryCode).trim()] ?? "其他",
+      capital: capitalOf(x),
     }));
 }
 

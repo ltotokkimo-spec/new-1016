@@ -103,7 +103,7 @@ export class TwLoader {
   }
 
   async companies(): Promise<Company[]> {
-    const key = `tw:companies:${taipeiToday(this.now()).slice(0, 6)}`; // 每月更新一次
+    const key = `tw:companies2:${taipeiToday(this.now()).slice(0, 6)}`; // 每月更新一次
     const hit = await this.kv.get<Company[]>(key);
     if (hit) return hit;
     this.requests += 2;

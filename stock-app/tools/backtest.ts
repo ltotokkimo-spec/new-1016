@@ -7,7 +7,7 @@ import { TwLoader } from "../src/data/twLoader";
 import { runBacktest, type BtDay } from "../src/engine/backtest";
 import { formatFactors, runFactors } from "../src/engine/factors";
 import { formatCompare, runScoreCompare } from "../src/engine/scoreCompare";
-import { formatSteady, runSteady } from "../src/engine/steady";
+import { AI_CODES, aiTargets, buildCtx, formatSteady, runSteady } from "../src/engine/steady";
 import { runWatch, WATCH } from "../src/engine/watch";
 import { adjustedSeries, indicators } from "../src/engine/turning";
 import { taipeiToday, weekdaysBack } from "../src/lib/dates";
@@ -103,6 +103,12 @@ try {
   const sr = runSteady(days, companies);
   fs.writeFileSync(steadyFile, JSON.stringify(sr));
   for (const line of formatSteady(sr)) log(line);
+  // AI 清單檢查：最新資料日有行情的檔數，與依市值配置的權重（確認代號都對得上）
+  const cx = buildCtx(days, companies), jl = cx.N - 1;
+  const have = AI_CODES.filter((k) => cx.rows[jl].has(k));
+  log(`AI 清單 ${AI_CODES.length} 檔，最新資料日有行情 ${have.length} 檔；沒有的：${AI_CODES.filter((k) => !cx.rows[jl].has(k)).join("、") || "無"}`);
+  const aw = [...aiTargets(cx, jl, { weight: "cap" })].sort((a, b) => b[1] - a[1]);
+  log("AI2 最新權重：" + aw.slice(0, 12).map(([k, w]) => `${cx.rows[jl].get(k)?.[1]}${k} ${(w * 100).toFixed(1)}%`).join("、") + `（共 ${aw.length} 檔）`);
 } catch (e) { log("穩健選股回測失敗（不影響回測）：", e); }
 // N5 觀察組合（0050 五成＋方案 A 五成）：從 WATCH.start 起每天重算，輸出給 App 顯示；失敗也不能讓回測失敗
 try {

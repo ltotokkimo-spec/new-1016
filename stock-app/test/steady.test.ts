@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BtDay } from "../src/engine/backtest";
-import { formatSteady, inverseVolWeights, runSteady, STEADY, trendFit } from "../src/engine/steady";
+import { AI_CODES, aiTargets, buildCtx, formatSteady, inverseVolWeights, runSteady, STEADY, trendFit } from "../src/engine/steady";
 import { weekdaysBack } from "../src/lib/dates";
 import type { FRow, QRow } from "../src/data/twLoader";
 
@@ -46,7 +46,7 @@ describe("穩健選股回測", () => {
 
   const r = runSteady(makeDays(), companies, { now: 0 });
   it("每個策略都有結果；穩健只挑平滑上漲的，不挑亂跳和下跌的，且每產業最多 2 檔", () => {
-    expect(r.strategies.map((s) => s.key)).toEqual(["steady", "steadyNoRegime", "steadyNoStop", "lowVol", "buyList", "A_lowVolTrend", "A_lowVolTrendRegime", "B_buyListVol", "C_coreBuy", "C_coreA", "T60_off", "T60_half", "T120_off", "R1_regime", "W1_wideDaily", "W2_wideWeekly", "Q0_capTop50", "Q1_capTrend", "Q2_lead", "Q3_lead30", "Q4_tiltsOnly", "Q5_lead", "Q6_lead30", "N1_bigMomWk", "N1_bigMomMo", "N2_relStrength", "N3_etfRotation", "N4_half0050_bigMo", "N5_half0050_A", "N6_half0050_etf", "N7_half0050_rs", "0050"]);
+    expect(r.strategies.map((s) => s.key)).toEqual(["steady", "steadyNoRegime", "steadyNoStop", "lowVol", "buyList", "A_lowVolTrend", "A_lowVolTrendRegime", "B_buyListVol", "C_coreBuy", "C_coreA", "T60_off", "T60_half", "T120_off", "R1_regime", "W1_wideDaily", "W2_wideWeekly", "Q0_capTop50", "Q1_capTrend", "Q2_lead", "Q3_lead30", "Q4_tiltsOnly", "Q5_lead", "Q6_lead30", "AI1_equal", "AI2_cap", "AI3_capTrend", "AI4_top20", "E1_elecCap", "E2_elecEqual", "N1_bigMomWk", "N1_bigMomMo", "N2_relStrength", "N3_etfRotation", "N4_half0050_bigMo", "N5_half0050_A", "N6_half0050_etf", "N7_half0050_rs", "0050"]);
     const picks = r.latest.picks.map((p) => +p.code);
     expect(picks.length).toBeGreaterThan(0);
     expect(picks.every((c) => c >= 2001 && c <= 2010)).toBe(true);
@@ -65,5 +65,39 @@ describe("穩健選股回測", () => {
     const b = r.strategies.find((x) => x.key === "0050")!;
     expect(b.total).toBeGreaterThan(0);
     expect(formatSteady(r).length).toBe(r.strategies.length + 2);
+  });
+});
+
+describe("AI 供應鏈權重", () => {
+  // 3 檔 AI 清單內的股票：台積電、鴻海、聯發科；股本不同，台積電最大；2330 之外一檔不在清單內的 2001
+  const dates = weekdaysBack("20261016", 130);
+  const days: BtDay[] = dates.map((d, i) => ({
+    date: d, tpexCodes: new Set<string>(), flows: [],
+    quotes: ["2330", "2317", "2454", "2001"].map((code, k): QRow => [code, `股${code}`, 100 + (k === 2 ? i * 0.1 : 0.2 * (dates.length - i)), 0, 1e9, 1e6]),
+  })).reverse();
+  const companies = [
+    { code: "2330", name: "台積電", industry: "半導體", capital: 2.6e11 }, { code: "2317", name: "鴻海", industry: "其他電子", capital: 1.4e11 },
+    { code: "2454", name: "聯發科", industry: "半導體", capital: 1.6e10 }, { code: "2001", name: "非AI", industry: "鋼鐵", capital: 1e10 },
+  ];
+  const c = buildCtx(days, companies);
+  const j = c.N - 1;
+  it("只含 AI 清單內的股票，加總為 1，單檔不超過上限", () => {
+    expect(AI_CODES).toContain("2330");
+    const t = aiTargets(c, j, { weight: "cap", maxWeight: 0.6 });
+    expect([...t.keys()].sort()).toEqual(["2317", "2330", "2454"]);
+    expect([...t.values()].reduce((a, b) => a + b, 0)).toBeCloseTo(1, 6);
+    expect(Math.max(...t.values())).toBeLessThanOrEqual(0.6 + 1e-9);
+    expect(t.get("2330")!).toBeGreaterThan(t.get("2454")!); // 市值大的多
+  });
+  it("等權時三檔各 1/3；沒有股本資料的股票在市值配置時被略過", () => {
+    const eq = aiTargets(c, j, { weight: "equal", maxWeight: 1 });
+    for (const v of eq.values()) expect(v).toBeCloseTo(1 / 3, 6);
+    const c2 = buildCtx(days, companies.filter((x) => x.code !== "2454"));
+    expect([...aiTargets(c2, j, { weight: "cap" }).keys()].sort()).toEqual(["2317", "2330"]);
+  });
+  it("趨勢轉移：下跌（跌破 60 日線）的聯發科權重比不看趨勢時小，仍然滿倉", () => {
+    const plain = aiTargets(c, j, { weight: "cap", maxWeight: 1 }), tr = aiTargets(c, j, { weight: "cap", trend: true, maxWeight: 1 });
+    expect(tr.get("2454") ?? 0).toBeLessThan(plain.get("2454")!);
+    expect([...tr.values()].reduce((a, b) => a + b, 0)).toBeCloseTo(1, 6);
   });
 });

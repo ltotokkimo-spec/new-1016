@@ -317,6 +317,57 @@ export function leadTargets(c: Ctx, j: number, o: LeadOpts = {}): { targets: Map
   return { targets: new Map(uni.map((x, i) => [x.code, w[i]] as [string, number]).filter(([, x]) => x > 1e-4)), exposure, byCap };
 }
 
+/**
+ * AI 相關股清單（使用者 10/26 指定做回測；代號與名稱已用證交所即時報價核對）。
+ * ⚠️ 這份清單是 2026-10 用「現在的眼光」依供應鏈分類挑的，沒有看過這段期間誰漲誰跌，但仍有事後諸葛的偏誤：
+ * 今天看起來是 AI 供應鏈的公司，本來就比較可能是這兩年漲上來的。所以回測結果只能當作上限的參考，
+ * 並加一組「一般電子股」對照，看 AI 清單是否比電子股整體更好。
+ */
+export const AI_GROUPS: Record<string, string[]> = {
+  "AI 伺服器／代工": ["2317", "2382", "3231", "6669", "2356", "2376", "2377", "3706"], // 鴻海 廣達 緯創 緯穎 英業達 技嘉 微星 神達
+  "晶圓代工／IC 設計／IP": ["2330", "2454", "2379", "3443", "3661", "3035", "3529", "4966", "5274"], // 台積電 聯發科 瑞昱 創意 世芯-KY 智原 力旺 譜瑞-KY 信驊
+  "封測／設備／測試": ["3711", "6515", "6223", "6510", "3131", "3583", "6187", "3680"], // 日月光投控 穎崴 旺矽 精測 弘塑 辛耘 萬潤 家登
+  "載板／PCB／CCL": ["3037", "8046", "3189", "4958", "2368", "2383", "6213", "6274"], // 欣興 南電 景碩 臻鼎-KY 金像電 台光電 聯茂 台燿
+  "散熱／電源／連接": ["2308", "2301", "3017", "3324", "3653", "2059", "3533", "3665"], // 台達電 光寶科 奇鋐 雙鴻 健策 川湖 嘉澤 貿聯-KY
+  "記憶體": ["2408", "2344", "2337", "8299"], // 南亞科 華邦電 旺宏 群聯
+  "網通／光通訊": ["2345", "6285", "3163", "4979", "3081", "6442"], // 智邦 啟碁 波若威 華星光 聯亞 光聖
+};
+export const AI_CODES = Object.values(AI_GROUPS).flat();
+const ELEC_INDUSTRIES = new Set(["半導體", "電腦週邊", "光電", "通信網路", "電子零組件", "其他電子", "電子通路", "資訊服務"]);
+
+export interface AiOpts { weight?: "equal" | "cap"; trend?: boolean; pool?: "ai" | "elec"; topN?: number; maxWeight?: number }
+/**
+ * AI 供應鏈／一般電子股（對照）的目標權重：成交金額夠大才納入（單日 ≥ 5000 萬，電子股對照 ≥ 1 億），
+ * weight=cap 依市值配置（市值＝收盤×實收資本額÷10）、equal 等權；trend=true 時站上且上彎 60 日線 ×1、下彎 ×0.7、跌破 60 日線 ×0.3、
+ * 60 與 120 日線都破 ×0，扣掉的轉給其他股（滿倉）。單檔上限 maxWeight（預設 35%）。
+ */
+export function aiTargets(c: Ctx, j: number, o: AiOpts = {}): Map<string, number> {
+  const elec = o.pool === "elec", wt = o.weight ?? "cap", maxW = o.maxWeight ?? 0.35;
+  const codes = elec ? [...c.rows[j].keys()].filter((code) => isCommonStock(code) && ELEC_INDUSTRIES.has(c.sector.get(code) ?? "")) : AI_CODES;
+  let items: { code: string; size: number }[] = [];
+  for (const code of codes) {
+    const row = c.rows[j].get(code);
+    if (!row || !(row[2] > 0) || !(row[4] >= (elec ? 1e8 : 5e7))) continue;
+    if (!(ma(c.series.get(code), j, 60) > 0)) continue; // 資料不到 60 天（剛上市）不納入
+    const cap = c.capital.get(code);
+    if (wt === "cap" && !(cap && cap > 0)) continue;
+    items.push({ code, size: wt === "cap" ? (row[2] * cap!) / 10 : 1 });
+  }
+  if (elec || o.topN) items = items.sort((a, b) => b.size - a.size).slice(0, o.topN ?? 50);
+  if (!items.length) return new Map();
+  const mult = items.map(({ code }) => {
+    if (!o.trend) return 1;
+    const s = c.series.get(code), p = px(s, j), m60 = ma(s, j, 60), m120 = ma(s, j, 120);
+    if (p < m60 && p < m120) return 0;
+    if (p < m60) return LEAD.below60;
+    return m60 > ma(s, j - 20, 60) ? 1 : LEAD.slowTrend;
+  });
+  const raw = items.map((x, i) => x.size * mult[i]), sum = raw.reduce((a, x) => a + x, 0);
+  if (!(sum > 0)) return new Map();
+  const w = capWeights(raw.map((x) => x / sum), maxW);
+  return new Map(items.map((x, i) => [x.code, w[i]] as [string, number]).filter(([, x]) => x > 1e-4));
+}
+
 /** 攻守輪動：prevOn 是上一次的狀態（進攻 true／防守 false），回傳新狀態與目標權重 */
 export function regimeStep(c: Ctx, j: number, prevOn: boolean | undefined): { on: boolean; targets: Map<string, number> } {
   const bs = c.series.get("0050"), p = px(bs, j), m = ma(bs, j, 60);
@@ -580,6 +631,14 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
   add("Q4_tiltsOnly", "Q4 市值前 50＋外資、投信、走勢品質（不看趨勢）", (j) => leadTargets(c, j, { trend: "off" }).targets, { band: LEAD.band });
   add("Q5_lead", "Q5 權值強化（市值前 50＋趨勢轉移權重、外資、投信、走勢品質，永遠滿倉）", (j) => leadTargets(c, j).targets, { band: LEAD.band });
   add("Q6_lead30", "Q6 Q5 只取市值前 30", (j) => leadTargets(c, j, { universe: 30 }).targets, { band: LEAD.band });
+  // AI 供應鏈回測（使用者 10/26 指定）：AI 清單（偏事後諸葛，見 AI_GROUPS）對照一般電子股與 0050。每月（20 個交易日）調整，差距 0.5% 內不動
+  const aiOpt = { every: 20, band: LEAD.band };
+  add("AI1_equal", "AI1 AI 供應鏈 51 檔等權（月調）", (j) => aiTargets(c, j, { weight: "equal" }), aiOpt);
+  add("AI2_cap", "AI2 AI 供應鏈依市值配置（單檔上限 35%，月調）", (j) => aiTargets(c, j, { weight: "cap" }), aiOpt);
+  add("AI3_capTrend", "AI3 AI 供應鏈依市值＋趨勢轉移（月調）", (j) => aiTargets(c, j, { weight: "cap", trend: true }), aiOpt);
+  add("AI4_top20", "AI4 AI 供應鏈市值前 20 檔依市值配置（月調）", (j) => aiTargets(c, j, { weight: "cap", topN: 20 }), aiOpt);
+  add("E1_elecCap", "E1 對照：電子相關產業市值前 50 檔依市值配置（月調）", (j) => aiTargets(c, j, { pool: "elec", weight: "cap" }), aiOpt);
+  add("E2_elecEqual", "E2 對照：電子相關產業成交金額夠大者前 50 檔等權（月調）", (j) => aiTargets(c, j, { pool: "elec", weight: "equal" }), aiOpt);
   add("N1_bigMomWk", "N1 大型股動能（成交金額前 100，近 90 日最強 10 檔，每週換）", bigWk);
   add("N1_bigMomMo", "N1 同上，每月換（約 20 個交易日）", bigWk, { every: 20 });
   add("N2_relStrength", "N2 相對強度（前 150 大，需贏過 0050，每月換）", bigRs, { every: 20 });

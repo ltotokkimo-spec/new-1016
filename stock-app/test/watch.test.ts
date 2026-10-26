@@ -138,4 +138,33 @@ describe("N5 觀察組合", () => {
       expect(again.trades).toEqual(r.trades);
     });
   });
+
+  describe("AI 供應鏈", () => {
+    // 合成資料裡沒有 AI 清單的代號：改用一份含 2330、2317、2454 的資料
+    const dates = weekdaysBack("20261023", 200);
+    const codes = ["2330", "2317", "2454", "2001", "0050"];
+    const px = (i: number, k: number) => +(100 * (1 + 0.002 * (dates.length - i) * (k === 4 ? 0.5 : 1))).toFixed(4);
+    const aiDays: BtDay[] = dates.map((d, i) => ({
+      date: d, tpexCodes: new Set<string>(), flows: [],
+      quotes: codes.map((code, k): QRow => [code, `股${code}`, px(i, k), i + 1 < dates.length ? +(px(i, k) - px(i + 1, k)).toFixed(4) : 0, 5e8, 1e6]),
+    })); // weekdaysBack 是新到舊，和 BtDay[] 的順序相同
+    const aiCompanies = [
+      { code: "2330", name: "台積電", industry: "半導體", capital: 2.6e11 }, { code: "2317", name: "鴻海", industry: "其他電子", capital: 1.4e11 },
+      { code: "2454", name: "聯發科", industry: "半導體", capital: 1.6e10 }, { code: "2001", name: "非AI", industry: "鋼鐵", capital: 1e10 },
+    ];
+    const start = aiDays[60].date;
+    const r = runWatch(aiDays, aiCompanies, { start, now: 0, mode: "ai" });
+    it("只買 AI 清單內的股票（不買 0050、不買清單外的），台積電不超過上限、現金不為負", () => {
+      expect(r.trades.length).toBeGreaterThan(0);
+      expect(r.trades.every((t) => ["2330", "2317", "2454"].includes(t.code))).toBe(true);
+      const val = valuate(r, (c) => r.last[c]?.close);
+      expect(val.cash).toBeGreaterThanOrEqual(0);
+      const tsmc = r.trades.filter((t) => t.code === "2330" && t.side === "buy").reduce((a, t) => a + t.shares * t.price, 0);
+      expect(tsmc / val.nav).toBeLessThan(0.4);
+    });
+    it("說明寫出配置；結果穩定", () => {
+      expect(r.notes.some((n) => n.text.includes("AI 供應鏈清單依市值配置"))).toBe(true);
+      expect(runWatch(aiDays, aiCompanies, { start, now: 0, mode: "ai" }).trades).toEqual(r.trades);
+    });
+  });
 });

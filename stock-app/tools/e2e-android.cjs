@@ -362,6 +362,13 @@ function check(ok, name, detail = "") {
   log("權值強化觀察組合", leadTxt.slice(0, 220));
   check(/權值強化觀察組合/.test(leadTxt) && /虛擬資金 50\.0 萬/.test(leadTxt) && /市值/.test(leadTxt) && /外資/.test(leadTxt), "權值強化觀察組合顯示（虛擬 50 萬、市值＋外資等規則說明）", leadTxt.slice(0, 120));
   await shot("05d2-權值強化觀察組合");
+  // AI 供應鏈（Claude 設計，不放 0050）：由 Release 的 ai.json 顯示
+  await page.click('[data-testid="mode-ai"]');
+  await page.waitForSelector('[data-testid="virtual-summary"]', { timeout: 30000 });
+  const aiTxt = await page.$eval('[data-testid="virtual-view"]', (e) => e.innerText.replace(/\s+/g, " "));
+  log("AI 供應鏈觀察組合", aiTxt.slice(0, 220));
+  check(/AI 供應鏈觀察組合/.test(aiTxt) && /虛擬資金 50\.0 萬/.test(aiTxt) && /51 檔/.test(aiTxt) && /事後|今天的眼光/.test(aiTxt), "AI 供應鏈觀察組合顯示（虛擬 50 萬、51 檔清單、回測偏樂觀的提醒）", aiTxt.slice(0, 120));
+  await shot("05d3-AI供應鏈觀察組合");
   // 7 個模式按鈕要排成兩列（每列 4 個），文字不能被擠成直排
   const segRows = await page.$$eval('[data-testid^="mode-"]', (bs) => ({ tops: [...new Set(bs.map((b) => Math.round(b.getBoundingClientRect().top)))].length, maxH: Math.max(...bs.map((b) => b.getBoundingClientRect().height)) }));
   check(segRows.tops === 2 && segRows.maxH < 60, "自組ETF 模式按鈕排成兩列、文字不擠成直排", JSON.stringify(segRows));
@@ -371,7 +378,7 @@ function check(ok, name, detail = "") {
   await page.waitForFunction(() => /Claude 虛擬/.test(document.querySelector('[data-testid="compare-all"]')?.innerText || "") && /%/.test(document.querySelector('[data-testid="compare-all"]')?.innerText || ""), null, { timeout: 30000 });
   const cmpTxt = await page.$eval('[data-testid="compare-view"]', (e) => e.innerText.replace(/\s+/g, " "));
   log("總評比", cmpTxt.slice(0, 400));
-  check(["Claude 虛擬", "N5 觀察", "全個股", "攻守輪動", "權值強化"].every((n) => cmpTxt.includes(n)) && /各組從自己的起始日算起/.test(cmpTxt), "總評比列出五組", cmpTxt.slice(0, 160));
+  check(["Claude 虛擬", "N5 觀察", "全個股", "攻守輪動", "權值強化", "AI 供應鏈"].every((n) => cmpTxt.includes(n)) && /各組從自己的起始日算起/.test(cmpTxt), "總評比列出六組", cmpTxt.slice(0, 160));
   const allRow = await page.$eval('[data-testid="compare-all"] tbody tr', (e) => e.innerText.replace(/\s+/g, " "));
   check(/Claude 虛擬.*[+-]?\d+\.\d+%/.test(allRow), "總評比第一組（Claude 虛擬）顯示實際報酬", allRow);
   await page.waitForFunction(() => /年化/.test(document.querySelector('[data-testid="compare-bt"]')?.innerText || "") && /\d+\.\d+%/.test(document.querySelector('[data-testid="compare-bt"]')?.innerText || ""), null, { timeout: 30000 });

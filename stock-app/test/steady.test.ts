@@ -71,10 +71,12 @@ describe("穩健選股回測", () => {
 describe("AI 供應鏈權重", () => {
   // 3 檔 AI 清單內的股票：台積電、鴻海、聯發科；股本不同，台積電最大；2330 之外一檔不在清單內的 2001
   const dates = weekdaysBack("20261016", 130);
+  // 漲跌必須是「今天收盤減前一天收盤」，還原價序列才會有走勢（index 0 是最新一天）
+  const px = (i: number, k: number) => +(100 + (k === 2 ? i * 0.1 : 0.2 * (dates.length - i))).toFixed(4);
   const days: BtDay[] = dates.map((d, i) => ({
     date: d, tpexCodes: new Set<string>(), flows: [],
-    quotes: ["2330", "2317", "2454", "2001"].map((code, k): QRow => [code, `股${code}`, 100 + (k === 2 ? i * 0.1 : 0.2 * (dates.length - i)), 0, 1e9, 1e6]),
-  })).reverse();
+    quotes: ["2330", "2317", "2454", "2001"].map((code, k): QRow => [code, `股${code}`, px(i, k), i + 1 < dates.length ? +(px(i, k) - px(i + 1, k)).toFixed(4) : 0, 1e9, 1e6]),
+  })); // weekdaysBack 是新到舊，和 BtDay[] 的順序相同
   const companies = [
     { code: "2330", name: "台積電", industry: "半導體", capital: 2.6e11 }, { code: "2317", name: "鴻海", industry: "其他電子", capital: 1.4e11 },
     { code: "2454", name: "聯發科", industry: "半導體", capital: 1.6e10 }, { code: "2001", name: "非AI", industry: "鋼鐵", capital: 1e10 },

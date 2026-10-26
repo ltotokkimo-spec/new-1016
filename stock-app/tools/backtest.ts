@@ -13,7 +13,7 @@ import { adjustedSeries, indicators } from "../src/engine/turning";
 import { taipeiToday, weekdaysBack } from "../src/lib/dates";
 import type { KV } from "../src/lib/kv";
 
-const [cacheDir = ".bt-cache", outFile = "backtest.json", factorsFile = "factors.json", compareFile = "scorecompare.json", steadyFile = "steady.json", watchFile = "n5.json", wideFile = "wide.json", regimeFile = "regime.json", leadFile = "lead.json"] = process.argv.slice(2);
+const [cacheDir = ".bt-cache", outFile = "backtest.json", factorsFile = "factors.json", compareFile = "scorecompare.json", steadyFile = "steady.json", watchFile = "n5.json", wideFile = "wide.json", regimeFile = "regime.json", leadFile = "lead.json", aiFile = "ai.json"] = process.argv.slice(2);
 fs.mkdirSync(cacheDir, { recursive: true });
 
 const fileKV = (dir: string): KV => {
@@ -142,6 +142,16 @@ try {
   log(`權值強化試跑（${trial.start} 起）：成交 ${trial.trades.length} 筆，淨值 ${tv?.nav}（${tv ? ((tv.nav / trial.budget - 1) * 100).toFixed(2) : "—"}%）0050 對照 ${tv?.bench}（${tv ? ((tv.bench / trial.budget - 1) * 100).toFixed(2) : "—"}%）`);
   log("權值強化試跑最後說明：", trial.notes.at(-1)?.text);
 } catch (e) { log("權值強化觀察組合失敗（不影響回測）：", e); }
+// AI 供應鏈觀察組合（Claude 設計；使用者 10/26 指定，2 年回測 AI2 通過事先訂的標準）
+try {
+  const w = runWatch(days, companies, { mode: "ai" });
+  fs.writeFileSync(aiFile, JSON.stringify(w));
+  log(`AI 供應鏈觀察組合：${w.start} 起，資料日 ${w.asOf || "（尚未開始）"}，成交 ${w.trades.length} 筆，淨值 ${w.nav.at(-1)?.nav ?? WATCH.budget}（0050 對照 ${w.nav.at(-1)?.bench ?? WATCH.budget}）`);
+  const trial = runWatch(days, companies, { mode: "ai", start: days[Math.min(days.length - 1, 30)].date });
+  const tv = trial.nav.at(-1);
+  log(`AI 供應鏈試跑（${trial.start} 起）：成交 ${trial.trades.length} 筆，淨值 ${tv?.nav}（${tv ? ((tv.nav / trial.budget - 1) * 100).toFixed(2) : "—"}%）0050 對照 ${tv?.bench}（${tv ? ((tv.bench / trial.budget - 1) * 100).toFixed(2) : "—"}%）`);
+  log("AI 供應鏈試跑最後說明：", trial.notes.at(-1)?.text);
+} catch (e) { log("AI 供應鏈觀察組合失敗（不影響回測）：", e); }
 // 全個股觀察組合（不限檔數、每天局部修正）
 try {
   const w = runWatch(days, companies, { mode: "wide" });

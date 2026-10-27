@@ -302,21 +302,36 @@ function check(ok, name, detail = "") {
   check(!!bsum && +bsum[1] + +bsum[2] + +bsum[3] >= 900, "上市漲跌家數加總合理（≥900）", bsum ? bsum.slice(1).join("/") : "無");
   await shot("05-國內外數據");
 
-  // ETF 排行（第 6 個分頁）：個股被 ETF 買賣超（用投信買賣超代表），今日／近 5 日買超與賣超前 20
+  // ETF 排行（第 6 個分頁）：個股被 ETF 買賣超。預設「主動式 ETF」（比對各主動式 ETF 每日持股），另可切「投信全部」
   await page.click("nav.tabs button:nth-child(6)");
-  await page.waitForSelector('[data-testid="etfrank-buy"] .item', { timeout: 60000 });
+  await page.waitForSelector('[data-testid="etfrank-buy"] .item, [data-testid="etfrank-accum"]', { timeout: 60000 });
   const rk = async () => page.evaluate(() => ({
     note: document.querySelector('[data-testid="etfrank-note"]')?.innerText.replace(/\s+/g, " ") || "",
     buy: [...document.querySelectorAll('[data-testid="etfrank-buy"] .item')].map((e) => e.innerText.replace(/\s+/g, " ")),
     sell: [...document.querySelectorAll('[data-testid="etfrank-sell"] .item')].map((e) => e.innerText.replace(/\s+/g, " ")),
   }));
-  const rk1 = await rk();
-  log("ETF排行 今日", JSON.stringify({ note: rk1.note, buy: rk1.buy.slice(0, 3), sell: rk1.sell.slice(0, 3), n: [rk1.buy.length, rk1.sell.length] }));
+  const codeOf = (t) => /^\d+\. .+? (\w+) /.exec(t)?.[1] || "";
   const amtOf = (t) => { const m = /([+-])([\d.,]+) (億|萬)/.exec(t); return m ? (m[1] === "-" ? -1 : 1) * parseFloat(m[2].replace(/,/g, "")) * (m[3] === "億" ? 1e4 : 1) : NaN; };
   const sortedDesc = (xs) => xs.every((x, i) => i === 0 || Math.abs(xs[i - 1]) >= Math.abs(x));
-  const codeOf = (t) => /^\d+\. .+? (\w+) /.exec(t)?.[1] || "";
+  const ra = await rk();
+  const accum = await page.$eval('[data-testid="etfrank-accum"]', (e) => e.innerText).catch(() => "");
+  log("ETF排行 主動式", JSON.stringify({ note: ra.note.slice(0, 120), accum, buy: ra.buy.slice(0, 3), sell: ra.sell.slice(0, 3), n: [ra.buy.length, ra.sell.length] }));
+  const nActive = +(/比對 (\d+) 檔台股主動式 ETF/.exec(ra.note)?.[1] || 0);
+  check(nActive >= 10, "主動式 ETF 排名：取得 10 檔以上主動式 ETF 的持股", ra.note.slice(0, 120));
+  if (accum) check(/資料累積中：已取得 \d+ 檔主動式 ETF 的持股/.test(accum), "主動式 ETF 第一天只有一份持股時，顯示資料累積中", accum);
+  else {
+    const ab = ra.buy.map(amtOf), as = ra.sell.map(amtOf);
+    check(ra.buy.length > 0 && ra.sell.length > 0 && ab.every((x) => x > 0) && as.every((x) => x < 0) && sortedDesc(ab) && sortedDesc(as), "主動式 ETF 買超為正、賣超為負，依金額由大到小", JSON.stringify({ b: ab.slice(0, 5), s: as.slice(0, 5) }));
+    check([...ra.buy, ...ra.sell].every((t) => /^[1-9]\d{3}$/.test(codeOf(t)) && /\d+ 檔主動 ETF (買|賣)：/.test(t)), "主動式 ETF 排名列的是個股，並寫出是哪幾檔主動 ETF 買賣", ra.buy[0]?.slice(0, 80) || "");
+    check(/持股資料日 \d+\/\d+/.test(ra.note), "主動式 ETF 排名顯示持股資料日", ra.note.slice(0, 60));
+  }
+  await shot("05h-ETF排行主動式");
+  await page.click('[data-testid="etfrank-trust"]');
+  await page.waitForSelector('[data-testid="etfrank-buy"] .item', { timeout: 30000 });
+  const rk1 = await rk();
+  log("ETF排行 今日", JSON.stringify({ note: rk1.note, buy: rk1.buy.slice(0, 3), sell: rk1.sell.slice(0, 3), n: [rk1.buy.length, rk1.sell.length] }));
   const bAmt = rk1.buy.map(amtOf), sAmt = rk1.sell.map(amtOf);
-  check(rk1.buy.length === 20 && rk1.sell.length === 20, "ETF 排行今日買超、賣超各列 20 名", `${rk1.buy.length}/${rk1.sell.length}`);
+  check(rk1.buy.length === 20 && rk1.sell.length === 20, "ETF 排行（投信全部）今日買超、賣超各列 20 名", `${rk1.buy.length}/${rk1.sell.length}`);
   check(bAmt.every((x) => x > 0) && sAmt.every((x) => x < 0) && sortedDesc(bAmt) && sortedDesc(sAmt), "買超全為正、賣超全為負，且依金額由大到小", JSON.stringify({ b: bAmt.slice(0, 5), s: sAmt.slice(0, 5) }));
   const rkCodes = [...rk1.buy, ...rk1.sell].map(codeOf);
   check(rkCodes.every((c) => /^[1-9]\d{3}$/.test(c)), "ETF 排行列的是個股（4 碼代號、不含 ETF）", JSON.stringify(rkCodes.slice(0, 8)));

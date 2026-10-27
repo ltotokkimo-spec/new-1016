@@ -17,6 +17,7 @@ import { parseUsLive, usLiveUrl } from "./data/usLive";
 import * as upd from "./lib/update";
 import type { BacktestResult } from "./engine/backtest";
 import type { VirtualEtf } from "./engine/virtualEtf";
+import type { ActiveEtfData } from "./lib/activeEtf";
 import { liveUrl, parseLive, type LiveQuote } from "./data/twLive";
 import { parseRevenue, revenueUrls, type Revenue } from "./data/revenue";
 import { emptyEtf, etfAlerts, isOffList, liquidityCut, pickCandidates, positions as etfPositions, recordNav, stopOf, valuate, type AiEtf, type EtfTrade } from "./engine/aiEtf";
@@ -27,6 +28,7 @@ export const VIRTUAL_URL = "https://raw.githubusercontent.com/ltotokkimo-spec/ne
 export const WATCH_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/n5.json";
 export const WIDE_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/wide.json"; // 全個股觀察組合
 export const REGIME_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/regime.json"; // 攻守輪動觀察組合
+export const ACTIVE_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/active-etf.json"; // 主動式 ETF 個股買賣超
 export const AI_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/ai.json"; // AI 供應鏈觀察組合
 export const LEAD_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/lead.json"; // 權值強化觀察組合
 export const STEADY_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/steady.json"; // 觀察組合規則的 2 年回測結果
@@ -91,6 +93,7 @@ export interface State {
   regime?: { data: VirtualEtf; fetchedAt: number; error?: string };
   lead?: { data: VirtualEtf; fetchedAt: number; error?: string };
   ai?: { data: VirtualEtf; fetchedAt: number; error?: string };
+  activeEtf?: { data: ActiveEtfData; fetchedAt: number; error?: string };
   steady?: { data: SteadyLite; fetchedAt: number };
   live: Record<string, LiveQuote>; // 證交所即時報價（盤中每 30 秒更新）
   liveAt?: number;
@@ -164,6 +167,8 @@ async function initInner() {
   if (rg) set({ regime: rg });
   const ld = await kv.get<State["lead"]>("lead");
   if (ld) set({ lead: ld });
+  const ae = await kv.get<State["activeEtf"]>("activeEtf");
+  if (ae) set({ activeEtf: ae });
   const ai0 = await kv.get<State["ai"]>("ai");
   if (ai0) set({ ai: ai0 });
   const sd = await kv.get<State["steady"]>("steady");
@@ -565,6 +570,20 @@ export async function refreshAi() {
   } catch {
     if (state.ai) set({ ai: { ...state.ai, error: "這次沒下載到最新資料，顯示上次的內容" } });
     else set({ ai: undefined });
+  }
+}
+
+/** 下載主動式 ETF 個股買賣超（每天由 GitHub Actions 比對各主動式 ETF 持股產生）；失敗就沿用上次的 */
+export async function refreshActiveEtf() {
+  try {
+    const data = (await fetcher(`${ACTIVE_URL}?t=${Date.now()}`)) as ActiveEtfData;
+    if (data?.version !== 1 || !Array.isArray(data.days) || !Array.isArray(data.etfs)) throw new Error("格式不對");
+    const v = { data, fetchedAt: Date.now() };
+    await kv.set("activeEtf", v);
+    set({ activeEtf: v });
+  } catch {
+    if (state.activeEtf) set({ activeEtf: { ...state.activeEtf, error: "這次沒下載到最新資料，顯示上次的內容" } });
+    else set({ activeEtf: { data: { version: 1, updatedAt: "", etfs: [], days: [] }, fetchedAt: 0, error: "主動式 ETF 資料下載失敗" } });
   }
 }
 

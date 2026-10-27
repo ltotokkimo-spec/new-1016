@@ -14,9 +14,16 @@ describe("盤中 K 棒", () => {
     expect(r[2]).toEqual({ date: "20261027", open: 11.2, high: 11.8, low: 11.1, close: 11.8, volume: 3_000_000, live: true });
   });
   it("已經有今天的正式資料（收盤後）就不加；沒有開盤價（還沒成交）也不加", () => {
-    expect(withLiveBar(bars, { date: "20261022", price: 11, open: 10.5, high: 12, low: 10 })).toBe(bars);
+    expect(withLiveBar(bars, { date: "20261022", price: 11, open: 10.5, high: 12, low: 10, final: true })).toBe(bars);
     expect(withLiveBar(bars, { date: "20261027", price: 11, open: NaN, high: NaN, low: NaN })).toBe(bars);
     expect(withLiveBar(bars, undefined)).toBe(bars);
+  });
+  it("同一天已有一根（美股下載當時的盤中 K）：盤中用即時價取代；已收盤就保留正式的", () => {
+    const r = withLiveBar(bars, { date: "20261022", price: 11.5, open: 10.5, high: 12.2, low: 10, volume: 2500, final: false });
+    expect(r).toHaveLength(2);
+    expect(r[1]).toMatchObject({ close: 11.5, high: 12.2, volume: 2500, live: true });
+    expect(withLiveBar(bars, { date: "20261022", price: 11.5, open: 10.5, high: 12.2, low: 10, final: true })).toBe(bars);
+    expect(withLiveBar(bars, { date: "20261021", price: 9, open: 9, high: 9, low: 9 })).toBe(bars); // 報價比 K 線舊
   });
   it("沒有成交量時記 0，不會變成 NaN", () => {
     expect(withLiveBar(bars, { date: "20261027", price: 11, open: 11, high: 11, low: 11 })[2].volume).toBe(0);

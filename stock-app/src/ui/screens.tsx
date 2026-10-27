@@ -352,8 +352,8 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
     return () => clearInterval(t);
   }, [s.code]);
   const price = lq ? lq.price : s.close;
-  // K 線圖盤中即時：台股用即時報價拼今天那一根（美股的日 K 日期是美國時間，先不拼）
-  const shownBars = useMemo(() => (bars && s.market !== "US" ? (withLiveBar(bars, lq) as CandleBar[]) : bars), [bars, lq]);
+  // K 線圖盤中即時：用即時報價拼今天那一根（台股：證交所；美股：CNBC，日期都是當地交易日）
+  const shownBars = useMemo(() => (bars ? (withLiveBar(bars, lq) as CandleBar[]) : bars), [bars, lq]);
   const liveBar = shownBars?.at(-1)?.live ? lq : undefined;
   const dayChg = lq && lq.prevClose > 0 ? lq.price / lq.prevClose - 1 : undefined;
 
@@ -439,7 +439,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
           ? (bars ? <FlowsPanel code={s.code} market={s.market === "TPEX" ? "TPEX" : "TWSE"} bars={bars} livePrice={lq?.price} /> : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>)
           : shownBars ? (shownBars.length > 1 ? <>
               <CandleChart bars={shownBars} us={s.market === "US"} />
-              {liveBar && <div class="date-hint" data-testid="kbar-live">⏱ 最後一根是今天{liveBar.final ? "收盤" : "盤中"}的即時價（{liveBar.time.slice(0, 5)}），每 30 秒更新；證交所正式資料（約 15:00 後）出來後會換成正式的</div>}
+              {liveBar && <div class="date-hint" data-testid="kbar-live">⏱ 最後一根是{liveBar.final ? "最新收盤" : "盤中"}的即時價（含成交量{liveBar.time ? `，台北 ${liveBar.time.slice(0, 5)}` : ""}），每 30 秒更新；{s.market === "US" ? "下次更新美股資料時換成正式日 K" : "證交所正式資料（約 15:00 後）出來後會換成正式的"}</div>}
             </> : <div class="empty">沒有走勢資料</div>) : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>}
       </div>
 

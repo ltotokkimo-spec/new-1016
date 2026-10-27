@@ -466,7 +466,7 @@ function check(ok, name, detail = "") {
   check(reopen.side === "買進" && !reopen.code && !reopen.shares && !reopen.price, "取消賣出後重新打開手動新增，預設買進、代號股數成交價都是空白（不沿用上一次的價格）", JSON.stringify(reopen));
   await page.fill("#etf-code", "7861");
   await page.fill("#etf-shares", "1");
-  await page.fill("#etf-price", "1000"); // 興櫃現價約 980，成本 1000 不會觸發停損提醒
+  await page.fill("#etf-price", "500"); // 成本壓低：興櫃現價會變動（10/27 已從約 980 跌到 900，成本 1000 會觸發 −10% 停損提醒），這裡只測非選股清單標示
   await page.click('[data-testid="etf-trade-save"]');
   await page.waitForSelector('[data-testid="off-list"]', { timeout: 10000 }).catch(() => {});
   const offRows = await page.$$eval('[data-testid="off-list"]', (xs) => xs.map((x) => x.parentElement.innerText.replace(/\s+/g, " ")));

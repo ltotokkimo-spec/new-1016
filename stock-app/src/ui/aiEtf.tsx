@@ -241,7 +241,7 @@ function DateHint({ asOf, latest, what = "這份建議" }: { asOf?: string; late
 
 const fmtAt = (t: number) => new Date(t).toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
-// 去 Claude App 之前記一筆旗標；回到掃雷專區時，如果剪貼簿裡有 Claude 的回覆就問要不要載入，不用自己貼
+// 去 Claude App 之前記一筆旗標；回到掃金雷達時，如果剪貼簿裡有 Claude 的回覆就問要不要載入，不用自己貼
 const PRO_KEY = "proPending";
 const PRO_TTL = 24 * 3600_000; // 按過按鈕後 24 小時內，回到 App 都會自動偵測剪貼簿
 const proFlag = {

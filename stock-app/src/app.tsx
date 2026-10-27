@@ -59,7 +59,7 @@ export function App() {
             <circle r="32" /><circle r="21" /><circle r="10" />
             <polyline points="-28,14 -14,2 -4,9 18,-16" class="radar-line" />
           </svg>
-          <span>掃雷<b>專區</b></span>
+          <span>掃金<b>雷達</b></span>
         </div>
         <div class="asof num">
           {ms.asOf ? <>{market === "US" ? "美股" : "台股"}資料 {pretty(ms.asOf)}</> : loaded ? "尚無資料" : ""}

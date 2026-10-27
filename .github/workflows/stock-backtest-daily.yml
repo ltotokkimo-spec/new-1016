@@ -5,7 +5,7 @@ name: Stock Backtest Daily
 # 實際的回測程式在 App 的開發分支（stock-backtest.yml）。
 on:
   schedule:
-    - cron: '40 10 * * 1-5' # 週一到週五 台灣時間 18:40（證交所當日資料公布後）
+    - cron: '40 8 * * 1-5' # 週一到週五 台灣時間 16:40（三大法人約 15:00～16:00 公布；萬一當天還沒公布，隔天重算會自動補正）
   workflow_dispatch:
 
 permissions:

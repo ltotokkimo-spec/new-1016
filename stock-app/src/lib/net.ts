@@ -7,9 +7,10 @@ export class HttpError extends Error {
   constructor(public status: number, public url: string, message: string) { super(message); }
 }
 
-// 證交所規定 5 秒內超過 3 次會暫時封鎖 IP，所以每次間隔 2 秒
+// 證交所規定 5 秒內超過 3 次會暫時封鎖 IP（被封鎖時請求會一直沒回應）。間隔 3 秒，5 秒內最多 2 次；
+// 重試也要照間隔（以前重試不等間隔，連假後往回找交易日時連打好幾次，會被封鎖卡在「三大法人」0%）
 const GAP_MS: Record<string, number> = {
-  "www.twse.com.tw": 2000,
+  "www.twse.com.tw": 3000,
   "openapi.twse.com.tw": 800,
   "mis.twse.com.tw": 1000,
   "mis.taifex.com.tw": 1000,
@@ -46,9 +47,9 @@ function withTimeout<T>(p: Promise<T>, url: string): Promise<T> {
 
 export const fetchJson: Fetcher = async (url) => {
   const host = new URL(url).host;
-  await throttle(host);
   const headers = { Accept: "application/json, text/plain, */*", "User-Agent": UA };
   for (let attempt = 0; ; attempt++) {
+    await throttle(host);
     try {
       if (Capacitor.isNativePlatform()) {
         const r = await withTimeout(CapacitorHttp.get({ url, headers, responseType: "json", connectTimeout: 20000, readTimeout: 60000 }), url);
@@ -93,8 +94,8 @@ export async function postJson(url: string, body: unknown): Promise<any> {
 export type TextFetcher = (url: string, ua?: string) => Promise<string>;
 export const fetchText: TextFetcher = async (url, ua = UA) => {
   const host = new URL(url).host;
-  await throttle(host);
   for (let attempt = 0; ; attempt++) {
+    await throttle(host);
     try {
       if (Capacitor.isNativePlatform()) {
         const r = await withTimeout(CapacitorHttp.get({ url, headers: { "User-Agent": ua, "Accept-Language": "zh-TW,zh;q=0.9" }, responseType: "text", connectTimeout: 20000, readTimeout: 60000 }), url);

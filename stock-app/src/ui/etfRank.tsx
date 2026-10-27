@@ -13,7 +13,7 @@ const amt = (x: number) => {
   const a = Math.abs(x), sign = x > 0 ? "+" : "-";
   return a >= 1e8 ? `${sign}${(a / 1e8).toFixed(2)} 億` : `${sign}${Math.round(a / 1e4).toLocaleString("zh-TW")} 萬`;
 };
-const ymdW = (d: string) => prettyW(`${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`);
+const ymdW = prettyW; // 持股資料日是 YYYYMMDD
 const shortName = (n: string) => n.replace(/^主動/, "");
 
 interface Row { item: Scored; shares: number; amount: number; sub?: string }

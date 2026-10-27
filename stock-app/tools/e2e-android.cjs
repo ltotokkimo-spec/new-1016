@@ -318,12 +318,12 @@ function check(ok, name, detail = "") {
   log("ETF排行 主動式", JSON.stringify({ note: ra.note.slice(0, 120), accum, buy: ra.buy.slice(0, 3), sell: ra.sell.slice(0, 3), n: [ra.buy.length, ra.sell.length] }));
   const nActive = +(/比對 (\d+) 檔台股主動式 ETF/.exec(ra.note)?.[1] || 0);
   check(nActive >= 10, "主動式 ETF 排名：取得 10 檔以上主動式 ETF 的持股", ra.note.slice(0, 120));
-  if (accum) check(/資料累積中：已取得 \d+ 檔主動式 ETF 的持股/.test(accum), "主動式 ETF 第一天只有一份持股時，顯示資料累積中", accum);
+  if (accum) check(/資料累積中：已取得 \d+ 檔主動式 ETF 的持股（\d+\/\d+（.）/.test(accum) && !/NaN|undefined/.test(accum), "主動式 ETF 第一天只有一份持股時，顯示資料累積中", accum);
   else {
     const ab = ra.buy.map(amtOf), as = ra.sell.map(amtOf);
     check(ra.buy.length > 0 && ra.sell.length > 0 && ab.every((x) => x > 0) && as.every((x) => x < 0) && sortedDesc(ab) && sortedDesc(as), "主動式 ETF 買超為正、賣超為負，依金額由大到小", JSON.stringify({ b: ab.slice(0, 5), s: as.slice(0, 5) }));
     check([...ra.buy, ...ra.sell].every((t) => /^[1-9]\d{3}$/.test(codeOf(t)) && /\d+ 檔主動 ETF (買|賣)：/.test(t)), "主動式 ETF 排名列的是個股，並寫出是哪幾檔主動 ETF 買賣", ra.buy[0]?.slice(0, 80) || "");
-    check(/持股資料日 \d+\/\d+/.test(ra.note), "主動式 ETF 排名顯示持股資料日", ra.note.slice(0, 60));
+    check(/持股資料日 \d+\/\d+（.）/.test(ra.note) && !/NaN|undefined/.test(ra.note), "主動式 ETF 排名顯示持股資料日", ra.note.slice(0, 60));
   }
   await shot("05h-ETF排行主動式");
   await page.click('[data-testid="etfrank-trust"]');

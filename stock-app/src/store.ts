@@ -1,7 +1,7 @@
 // App 狀態：資料快照、評分結果、持股、設定。全部存在手機的 IndexedDB。
 import { useEffect, useState } from "preact/hooks";
 import { indexedKV, type KV } from "./lib/kv";
-import { fetchJson, postJson, type Fetcher } from "./lib/net";
+import { fetchJson, fetchText, postJson, type Fetcher, type TextFetcher } from "./lib/net";
 import { TwLoader, TW_SNAPSHOT_VERSION, type TwSnapshot } from "./data/twLoader";
 import { isEtf, parseEsbLatest, twUrls, type EsbQuote } from "./data/tw";
 import { UsLoader, type UsSnapshot } from "./data/usLoader";
@@ -17,7 +17,7 @@ import { parseUsLive, usLiveUrl } from "./data/usLive";
 import * as upd from "./lib/update";
 import type { BacktestResult } from "./engine/backtest";
 import type { VirtualEtf } from "./engine/virtualEtf";
-import type { ActiveEtfData } from "./lib/activeEtf";
+import { mergeLive, parseMoneyDjHoldings, type ActiveEtfData } from "./lib/activeEtf";
 import { liveUrl, parseLive, type LiveQuote } from "./data/twLive";
 import { parseRevenue, revenueUrls, type Revenue } from "./data/revenue";
 import { emptyEtf, etfAlerts, isOffList, liquidityCut, pickCandidates, positions as etfPositions, recordNav, stopOf, valuate, type AiEtf, type EtfTrade } from "./engine/aiEtf";
@@ -93,7 +93,7 @@ export interface State {
   regime?: { data: VirtualEtf; fetchedAt: number; error?: string };
   lead?: { data: VirtualEtf; fetchedAt: number; error?: string };
   ai?: { data: VirtualEtf; fetchedAt: number; error?: string };
-  activeEtf?: { data: ActiveEtfData; fetchedAt: number; error?: string };
+  activeEtf?: { data: ActiveEtfData; fetchedAt: number; error?: string; liveAt?: number; liveProgress?: { done: number; total: number }; liveFound?: number };
   steady?: { data: SteadyLite; fetchedAt: number };
   live: Record<string, LiveQuote>; // 證交所即時報價（盤中每 30 秒更新）
   liveAt?: number;
@@ -135,6 +135,8 @@ let kv: KV = indexedKV();
 let fetcher: Fetcher = fetchJson;
 /** 測試用：換掉儲存與網路 */
 export function _inject(k: KV, f: Fetcher) { kv = k; fetcher = f; }
+let textFetcher: TextFetcher = fetchText;
+export function _injectText(f: TextFetcher) { textFetcher = f; }
 
 const timings: Record<string, number> = ((globalThis as any).__srTimings = {});
 const mark = (k: string) => { timings[k] = Math.round(performance.now()); };
@@ -578,12 +580,43 @@ export async function refreshActiveEtf() {
   try {
     const data = (await fetcher(`${ACTIVE_URL}?t=${Date.now()}`)) as ActiveEtfData;
     if (data?.version !== 1 || !Array.isArray(data.days) || !Array.isArray(data.etfs)) throw new Error("格式不對");
-    const v = { data, fetchedAt: Date.now() };
+    const v = { data, fetchedAt: Date.now(), liveAt: state.activeEtf?.liveAt };
     await kv.set("activeEtf", v);
     set({ activeEtf: v });
   } catch {
     if (state.activeEtf) set({ activeEtf: { ...state.activeEtf, error: "這次沒下載到最新資料，顯示上次的內容" } });
     else set({ activeEtf: { data: { version: 1, updatedAt: "", etfs: [], days: [] }, fetchedAt: 0, error: "主動式 ETF 資料下載失敗" } });
+  }
+}
+
+// MoneyDJ 的手機版只有前 10 大持股，要用電腦版瀏覽器的 UA 才有完整持股與股數
+const DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36";
+let activeLiveRunning = false;
+/** App 自己向 MoneyDJ 抓各主動式 ETF 的最新持股，比 GitHub 那份新的就併進來（持股一公布打開就看得到，不用等每天 18:40） */
+export async function refreshActiveLive() {
+  const cur = state.activeEtf;
+  if (!cur?.data.latest || !cur.data.etfs.length || activeLiveRunning) return;
+  activeLiveRunning = true;
+  const codes = cur.data.etfs.map((e) => e.code);
+  const fresh: NonNullable<ReturnType<typeof parseMoneyDjHoldings>>[] = [];
+  let done = 0;
+  const upd = () => { if (state.activeEtf) set({ activeEtf: { ...state.activeEtf, liveProgress: { done, total: codes.length } } }); };
+  upd();
+  try {
+    await Promise.all(codes.map(async (c) => {
+      try {
+        const p = parseMoneyDjHoldings(await textFetcher(`https://www.moneydj.com/ETF/X/Basic/Basic0007B.xdjhtm?etfid=${c}.TW`, DESKTOP_UA));
+        if (p && p.code === c) fresh.push(p);
+      } catch { /* 單檔失敗就沿用 GitHub 的 */ }
+      done++; upd();
+    }));
+    const base = state.activeEtf ?? cur;
+    const v = { ...base, data: mergeLive(base.data, fresh), liveAt: Date.now(), liveProgress: undefined, liveFound: fresh.length };
+    await kv.set("activeEtf", v);
+    set({ activeEtf: v });
+  } finally {
+    activeLiveRunning = false;
+    if (state.activeEtf?.liveProgress) set({ activeEtf: { ...state.activeEtf, liveProgress: undefined } });
   }
 }
 

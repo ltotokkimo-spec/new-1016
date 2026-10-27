@@ -325,6 +325,11 @@ function check(ok, name, detail = "") {
     check([...ra.buy, ...ra.sell].every((t) => /^[1-9]\d{3}$/.test(codeOf(t)) && /\d+ 檔主動 ETF (買|賣)：/.test(t)), "主動式 ETF 排名列的是個股，並寫出是哪幾檔主動 ETF 買賣", ra.buy[0]?.slice(0, 80) || "");
     check(/持股資料日 \d+\/\d+（.）/.test(ra.note) && !/NaN|undefined/.test(ra.note), "主動式 ETF 排名顯示持股資料日", ra.note.slice(0, 60));
   }
+  // App 自己向 MoneyDJ 檢查最新持股（電腦版頁面才有完整持股）：要能抓到 10 檔以上
+  await page.waitForFunction(() => /已檢查最新持股/.test(document.querySelector('[data-testid="etfrank-live"]')?.innerText || ""), null, { timeout: 120000 }).catch(() => {});
+  const liveTxt = await page.$eval('[data-testid="etfrank-live"]', (e) => e.innerText).catch(() => "");
+  log("ETF排行 App 檢查最新持股", liveTxt);
+  check(+(/取得 (\d+) 檔/.exec(liveTxt)?.[1] || 0) >= 10, "App 自己向 MoneyDJ 抓到 10 檔以上主動式 ETF 的最新持股", liveTxt);
   await shot("05h-ETF排行主動式");
   await page.click('[data-testid="etfrank-trust"]');
   await page.waitForSelector('[data-testid="etfrank-buy"] .item', { timeout: 30000 });

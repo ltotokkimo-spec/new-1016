@@ -14,6 +14,8 @@ export interface ActiveEtfData {
   updatedAt: string;
   etfs: { code: string; name: string; date: string; n: number }[]; // n = 持有台股檔數
   days: ActiveDay[]; // 新到舊
+  latest?: Record<string, HoldingSnap>; // 各 ETF 最新一份持股（App 自己抓到更新的持股時，用來比對）
+  live?: string; // App 自己向 MoneyDJ 補抓到的資料日（有的話）
 }
 
 const num = (s: string) => Number(s.replace(/,/g, ""));
@@ -72,7 +74,43 @@ export function buildActiveData(hist: ActiveHist, updatedAt: string): ActiveEtfD
     .map(([code, e]) => { const last = e.snaps[e.snaps.length - 1]; return { code, name: e.name, date: last?.date ?? "", n: last ? Object.keys(last.shares).length : 0 }; })
     .filter((e) => e.n > 0)
     .sort((a, b) => a.code.localeCompare(b.code));
-  return { version: 1, updatedAt, etfs, days: buildActiveDays(hist) };
+  const latest: Record<string, HoldingSnap> = {};
+  for (const [code, e] of Object.entries(hist.etfs)) { const last = e.snaps[e.snaps.length - 1]; if (last && Object.keys(last.shares).length) latest[code] = last; }
+  return { version: 1, updatedAt, etfs, days: buildActiveDays(hist), latest };
+}
+
+/** App 自己抓到的最新持股（比 GitHub 那份新的）併進資料：和 latest 那份比對，算出新的日子；同一天已經有的 ETF 不重複算 */
+export function mergeLive(data: ActiveEtfData, fresh: { code: string; name: string; date: string; shares: Record<string, number> }[]): ActiveEtfData {
+  const latest = { ...(data.latest ?? {}) };
+  let hist: ActiveHist = { version: 1, etfs: {} };
+  const names = new Map(data.etfs.map((e) => [e.code, e.name]));
+  let changed = false;
+  for (const f of fresh) {
+    const prev = latest[f.code];
+    if (!prev || f.date <= prev.date || !Object.keys(f.shares).length) continue;
+    hist = addSnap(hist, f.code, f.name, prev);
+    hist = addSnap(hist, f.code, f.name, { date: f.date, shares: f.shares });
+    latest[f.code] = { date: f.date, shares: f.shares };
+    names.set(f.code, f.name);
+    changed = true;
+  }
+  if (!changed) return data;
+  const byDate = new Map(data.days.map((d) => [d.date, { date: d.date, prev: { ...d.prev }, flows: Object.fromEntries(Object.entries(d.flows).map(([c, f]) => [c, { s: f.s, b: [...f.b] }])) }]));
+  for (const nd of buildActiveDays(hist, 99)) {
+    const day = byDate.get(nd.date) ?? { date: nd.date, prev: {}, flows: {} };
+    byDate.set(nd.date, day);
+    const add = new Set(Object.keys(nd.prev).filter((e) => !(e in day.prev)));
+    for (const e of add) day.prev[e] = nd.prev[e];
+    for (const [code, f] of Object.entries(nd.flows)) for (const [e, v] of f.b) {
+      if (!add.has(e)) continue;
+      const t = (day.flows[code] ??= { s: 0, b: [] });
+      t.s += v; t.b.push([e, v]); t.b.sort((x, y) => Math.abs(y[1]) - Math.abs(x[1]));
+    }
+  }
+  const days = [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10);
+  const etfs = Object.entries(latest).map(([code, l]) => ({ code, name: names.get(code) ?? code, date: l.date, n: Object.keys(l.shares).length })).sort((a, b) => a.code.localeCompare(b.code));
+  const live = Object.values(latest).reduce((m, l) => (l.date > m ? l.date : m), "");
+  return { ...data, etfs, days, latest, live };
 }
 
 export interface ActiveRankRow<T> { item: T; shares: number; amount: number; buyers: [string, number][] }

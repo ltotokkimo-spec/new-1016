@@ -14,6 +14,7 @@ const GAP_MS: Record<string, number> = {
   "mis.twse.com.tw": 1000,
   "mis.taifex.com.tw": 1000,
   "www.tpex.org.tw": 1000,
+  "www.moneydj.com": 400,
   "api.nasdaq.com": 250,
   "quote.cnbc.com": 0,
 };
@@ -87,3 +88,26 @@ export async function postJson(url: string, body: unknown): Promise<any> {
     }
   }
 }
+
+/** 抓網頁原文（例如 MoneyDJ 主動式 ETF 持股頁）；ua 可指定電腦版瀏覽器，有些網站手機版內容較少 */
+export type TextFetcher = (url: string, ua?: string) => Promise<string>;
+export const fetchText: TextFetcher = async (url, ua = UA) => {
+  const host = new URL(url).host;
+  await throttle(host);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      if (Capacitor.isNativePlatform()) {
+        const r = await withTimeout(CapacitorHttp.get({ url, headers: { "User-Agent": ua, "Accept-Language": "zh-TW,zh;q=0.9" }, responseType: "text", connectTimeout: 20000, readTimeout: 60000 }), url);
+        if (r.status >= 400) throw new HttpError(r.status, url, `HTTP ${r.status}`);
+        return typeof r.data === "string" ? r.data : String(r.data ?? "");
+      }
+      const r = await withTimeout(fetch(devUrl(url)), url);
+      if (!r.ok) throw new HttpError(r.status, url, `HTTP ${r.status}`);
+      return await r.text();
+    } catch (e) {
+      const retryable = !(e instanceof HttpError) || e.status === 429 || e.status >= 500;
+      if (attempt >= 1 || !retryable) throw e;
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  }
+};

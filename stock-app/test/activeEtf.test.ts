@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeRank, addSnap, buildActiveData, buildActiveDays, parseMoneyDjHoldings, type ActiveHist } from "../src/lib/activeEtf";
+import { activeRank, addSnap, buildActiveData, buildActiveDays, mergeLive, parseMoneyDjHoldings, type ActiveHist } from "../src/lib/activeEtf";
 
 // MoneyDJ「全部持股」頁的實際結構（10/27 從 GitHub Actions 探測取得，節錄）
 const html = `<div>首頁 / ETF介紹 / 個別ETF-全部持股</div><h3>主動統一台股增長(00981A.TW)-全部持股</h3><div>資料日期：2026/10/22</div>
@@ -56,5 +56,34 @@ describe("主動式 ETF 個股買賣超", () => {
     expect(r5.buy.find((x) => x.item.code === "2330")!.buyers).toEqual([["A1", 2000], ["A2", -1000]]);
     expect(r5.sell.map((x) => x.item.code)).toEqual(["2454"]);
     expect(activeRank(undefined, 1, look).buy).toEqual([]);
+  });
+});
+
+describe("App 自己補抓最新持股", () => {
+  let h: ActiveHist = { version: 1, etfs: {} };
+  h = addSnap(h, "A1", "甲", { date: "20261021", shares: { "2330": 1000 } });
+  h = addSnap(h, "A1", "甲", { date: "20261022", shares: { "2330": 3000 } });
+  h = addSnap(h, "A2", "乙", { date: "20261022", shares: { "2454": 500 } });
+  const data = buildActiveData(h, "t");
+  it("GitHub 資料帶各 ETF 最新一份持股", () => {
+    expect(data.latest).toEqual({ A1: { date: "20261022", shares: { "2330": 3000 } }, A2: { date: "20261022", shares: { "2454": 500 } } });
+  });
+  it("抓到較新的持股就算出新的一天；舊的或同一天不重複", () => {
+    const m = mergeLive(data, [
+      { code: "A1", name: "甲", date: "20261027", shares: { "2330": 2000, "3037": 100 } },
+      { code: "A2", name: "乙", date: "20261022", shares: { "2454": 9999 } }, // 同一天，不算
+    ]);
+    expect(m.days.map((d) => d.date)).toEqual(["20261027", "20261022"]);
+    expect(m.days[0].flows).toEqual({ "2330": { s: -1000, b: [["A1", -1000]] }, "3037": { s: 100, b: [["A1", 100]] } });
+    expect(m.days[0].prev).toEqual({ A1: "20261022" });
+    expect(m.latest!.A1.date).toBe("20261027");
+    expect(m.etfs.find((e) => e.code === "A1")!.date).toBe("20261027");
+    expect(m.live).toBe("20261027");
+    // 再補 A2 的 10/27：併進同一天，A1 不重算
+    const m2 = mergeLive(m, [{ code: "A1", name: "甲", date: "20261027", shares: { "2330": 2000, "3037": 100 } }, { code: "A2", name: "乙", date: "20261027", shares: { "2454": 700 } }]);
+    expect(m2.days[0].flows["2330"].s).toBe(-1000);
+    expect(m2.days[0].flows["2454"]).toEqual({ s: 200, b: [["A2", 200]] });
+    expect(Object.keys(m2.days[0].prev).sort()).toEqual(["A1", "A2"]);
+    expect(mergeLive(data, [])).toBe(data);
   });
 });

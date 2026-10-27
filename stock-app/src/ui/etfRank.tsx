@@ -5,7 +5,7 @@ import { activeRank } from "../lib/activeEtf";
 import { flowRank } from "../engine/etfRank";
 import type { Scored } from "../engine/score";
 import { prettyW } from "../lib/dates";
-import { refreshActiveEtf, useStore } from "../store";
+import { refreshActiveEtf, refreshActiveLive, useStore } from "../store";
 import { cls, fmtPct, fmtPrice } from "./common";
 
 const lots = (shares: number) => `${shares > 0 ? "+" : ""}${Math.round(shares / 1000).toLocaleString("zh-TW")} 張`;
@@ -47,7 +47,12 @@ export function EtfRankScreen({ open }: { open: (s: Scored) => void }) {
   const active = useStore((s) => s.activeEtf);
   const [src, setSrc] = useState<"active" | "trust">("active");
   const [days, setDays] = useState<1 | 5>(1);
-  useEffect(() => { if (!active || Date.now() - active.fetchedAt > 10 * 60_000) refreshActiveEtf(); }, []);
+  // GitHub 每天整理一次；另外打開時 App 自己向 MoneyDJ 檢查最新持股（10 分鐘內不重複）
+  useEffect(() => {
+    const old = (t?: number) => !t || Date.now() - t > 10 * 60_000;
+    if (!active || old(active.fetchedAt)) refreshActiveEtf().then(() => refreshActiveLive());
+    else if (old(active.liveAt)) refreshActiveLive();
+  }, []);
   const byCode = useMemo(() => new Map(tw.scored.map((s) => [s.code, s])), [tw.scored]);
   const etfName = useMemo(() => new Map((active?.data.etfs ?? []).map((e) => [e.code, shortName(e.name)])), [active]);
   const rank = useMemo(() => {
@@ -79,13 +84,17 @@ export function EtfRankScreen({ open }: { open: (s: Scored) => void }) {
         {src === "active" ? <>
           {used?.length ? <>持股資料日 {ymdW(used[0].date)}{days === 5 ? `，往前 ${used.length} 個持股日合計（${ymdW(used[used.length - 1].date)} 起）` : ""}{days === 5 && used.length < 5 ? `，目前只累積 ${used.length} 天` : ""}。</> : null}
           主動式 ETF 個股買賣超：每天比對 {active?.data.etfs.length ?? 0} 檔台股主動式 ETF 公布的完整持股，股數增減就是 ETF 實際買賣（含申購買回造成的同比例買賣），全部加總後依金額（張數 × 收盤價）排前 20 名。
-          持股約在當天晚上或隔天早上公布，App 每天 18:40 後更新。
+          持股是各投信每天收盤後公布一次（盤中沒有即時持股），打開這頁時 App 會自己向 MoneyDJ 檢查有沒有新的持股。
         </> : <>
           {tw.flowDate ? <>法人資料日 {prettyW(tw.flowDate)}{days === 5 ? " 往前 5 個交易日合計" : ""}。</> : null}
           投信全部：證交所、櫃買中心的「投信」買賣超，包含主動式、被動式 ETF（申購買回依指數權重買賣）與一般投信基金，依金額（張數 × 收盤價）排前 20 名（上市＋上櫃個股，不含 ETF）。
           資料每天收盤後約 15:00～16:00 公布，盤中看到的是前一個交易日。
         </>}
       </div>
+      {src === "active" && active && (active.liveProgress || active.liveAt) && <div class="muted" style={{ fontSize: "12px", margin: "0 2px 8px" }} data-testid="etfrank-live">
+        {active.liveProgress ? `正在檢查最新持股… ${active.liveProgress.done}/${active.liveProgress.total}`
+          : <>已檢查最新持股（{new Date(active.liveAt!).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false })}，取得 {active.liveFound ?? 0} 檔）{active.data.live ? `，最新持股日 ${ymdW(active.data.live)}` : ""} <button class="linkbtn" onClick={() => refreshActiveLive()} data-testid="etfrank-recheck">重新檢查</button></>}
+      </div>}
       {src === "active" && active?.error && <div class="card empty" style={{ marginBottom: "8px" }}>{active.error}</div>}
       {!ready ? <div class="card empty">{tw.status === "error" ? tw.error ?? "資料下載失敗" : "資料下載中…"}</div>
         : accumulating ? <div class="card empty" data-testid="etfrank-accum">資料累積中：已取得 {active!.data.etfs.length} 檔主動式 ETF 的持股{latestHold ? `（${ymdW(latestHold)}）` : ""}，下一份持股公布後就能比對出第一天的買賣超。</div>

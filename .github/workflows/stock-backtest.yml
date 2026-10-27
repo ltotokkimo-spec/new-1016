@@ -15,6 +15,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # 主動式 ETF 持股比對（和回測無關，平行跑，幾分鐘就好）
+  active-etf:
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/stock-active-etf.yml
+
   backtest:
     runs-on: ubuntu-latest
     timeout-minutes: 100

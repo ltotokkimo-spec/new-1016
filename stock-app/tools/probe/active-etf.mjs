@@ -1,13 +1,11 @@
-// 探測：口袋證券（CMoney GetDtnoData）ETF 持股 API 的 DtNo 與參數，能不能查歷史持股
-const UA = { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36", "accept-language": "zh-TW,zh;q=0.9", referer: "https://www.pocket.tw/etf/tw/00981A/fundholding/" };
-async function get(url) {
-  try { const r = await fetch(url, { headers: UA, signal: AbortSignal.timeout(20000) }); return { status: r.status, text: await r.text() }; }
-  catch (e) { return { status: 0, text: String(e) }; }
-}
-for (const f of ["033bc4d.js", "e433cb7.js"]) {
-  const js = (await get(`https://www.pocket.tw/etf/_nuxt/${f}`)).text;
-  for (const m of js.matchAll(/DtNo/g)) console.log(f, "@", m.index, js.slice(Math.max(0, m.index - 300), m.index + 300).replace(/\s+/g, " "));
-  for (const m of js.matchAll(/fundholding|Holding|holding/g)) { if (m.index % 1 === 0) console.log(f, "H@", m.index, js.slice(Math.max(0, m.index - 200), m.index + 300).replace(/\s+/g, " ")); }
-  const nums = [...new Set(js.match(/\b\d{7,9}\b/g) || [])];
-  console.log(f, "NUMS", nums.slice(0, 60).join(","));
+// 探測：證交所 T86 三大法人（10/27、10/26、10/23、10/22）實際回應與耗時
+const H = { "user-agent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Mobile Safari/537.36", accept: "application/json, text/plain, */*" };
+for (const d of ["20261027", "20261026", "20261023", "20261022", "20261021"]) {
+  const t0 = Date.now();
+  try {
+    const r = await fetch(`https://www.twse.com.tw/rwd/zh/fund/T86?date=${d}&selectType=ALLBUT0999&response=json`, { headers: H, signal: AbortSignal.timeout(60000) });
+    const t = await r.text();
+    console.log("T86", d, r.status, Date.now() - t0, "ms", t.length, t.slice(0, 160).replace(/\s+/g, " "));
+  } catch (e) { console.log("T86", d, "ERR", Date.now() - t0, "ms", String(e), e.cause ? String(e.cause) : ""); }
+  await new Promise((r) => setTimeout(r, 3500));
 }

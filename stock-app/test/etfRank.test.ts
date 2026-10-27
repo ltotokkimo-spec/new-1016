@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { etfFlowRank, sharesOf } from "../src/engine/etfRank";
+import { flowRank, sharesOf } from "../src/engine/etfRank";
 import { buildTwInputs } from "../src/data/twLoader";
 
 const e = (code: string, close: number, flow1: [number, number, number], flow5: [number, number, number]) => ({ code, name: `ETF${code}`, close, flow1, flow5 });
 
-describe("ETF 買賣排名", () => {
+describe("買賣超排名", () => {
   const list = [
     e("0050", 100, [1_000_000, 0, 0], [3_000_000, 0, 0]), // 今日買超 1 億
     e("00878", 20, [2_000_000, 1_000_000, 0], [-5_000_000, 0, 0]), // 今日 3000 張但只 6000 萬
@@ -12,23 +12,23 @@ describe("ETF 買賣排名", () => {
     e("006208", 120, [0, 0, 0], [0, 0, 0]),
   ];
   it("依金額（股數 × 收盤）排名，不是依張數", () => {
-    const r = etfFlowRank(list, 1, "all");
+    const r = flowRank(list, 1, "all");
     expect(r.buy.map((x) => x.item.code)).toEqual(["0050", "00878"]);
     expect(r.buy[0].amount).toBe(100_000_000);
     expect(r.sell.map((x) => x.item.code)).toEqual(["00632R"]);
     expect(r.sell[0].shares).toBe(-5_000_000);
   });
   it("分外資／投信／自營與近 5 日；買賣超為 0 的不列", () => {
-    expect(etfFlowRank(list, 1, "trust").buy.map((x) => x.item.code)).toEqual(["00878"]);
-    expect(etfFlowRank(list, 1, "dealer").sell.map((x) => x.item.code)).toEqual(["00632R"]);
-    const r5 = etfFlowRank(list, 5, "foreign");
+    expect(flowRank(list, 1, "trust").buy.map((x) => x.item.code)).toEqual(["00878"]);
+    expect(flowRank(list, 1, "dealer").sell.map((x) => x.item.code)).toEqual(["00632R"]);
+    const r5 = flowRank(list, 5, "foreign");
     expect(r5.buy.map((x) => x.item.code)).toEqual(["0050"]);
     expect(r5.sell.map((x) => x.item.code)).toEqual(["00878"]);
     expect(sharesOf(undefined, "all")).toBeUndefined();
   });
   it("最多取前 N 名", () => {
     const many = Array.from({ length: 30 }, (_, i) => e(String(10 + i), 10, [(i + 1) * 1000, 0, 0], [0, 0, 0]));
-    const r = etfFlowRank(many, 1, "all", 20);
+    const r = flowRank(many, 1, "all", 20);
     expect(r.buy).toHaveLength(20);
     expect(r.buy[0].item.code).toBe("39");
   });

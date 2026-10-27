@@ -67,7 +67,7 @@
 ## 8. 虛擬 ETF（Claude 用虛擬 10 萬操作）
 - 狀態檔 `stock-app/virtual/virtual-etf.json`；App 讀 `https://raw.githubusercontent.com/ltotokkimo-spec/new-1016/claude/ui-calculator-interface-t3x9kh/stock-app/virtual/virtual-etf.json`。程序在 `DAILY.md`，指令 `node --experimental-strip-types tools/virtual-etf.ts <init|fill|close|order|note|show> virtual/virtual-etf.json …`（在 `stock-app/` 執行）。
 - **模型（10/23 使用者指定：Claude 虛擬每日選股固定用 Opus 5.5）**：每日排程沒有自己的模型設定（`model` 為空），綁定對話時會沿用「那個對話目前的模型」；`update_trigger` 的 model 對綁定既有對話的排程無效。所以要在該對話（`session_01ApWNmMJa7iJ1ivpuuMR7hZ`）輸入 `/model claude-opus-5-5`，之後不要再切走；對話內若又切成 Sonnet，排程隔天就會跟著用 Sonnet。
-- 排程（10/22 起）`trig_01P8toMCwxC8oqAhFiSS27tp`：平日 17:40（台北），**綁定 `session_01ApWNmMJa7iJ1ivpuuMR7hZ`（這個有 repo 與台股官方 MCP 的對話）**。舊排程 `trig_01GKTYGpLeqWRS2Nrv75CoTv` 綁的對話已失效：10/21 17:40 在沒有 repo、沒有 MCP 的空對話裡執行，**當天沒有更新**（狀態停在 10/20），已於 10/22 使用者同意後停用。10/21、10/22 已用證交所真實價格補跑（note 標【補跑】）。CLI 參數順序是 `指令 <state> <日期> <quotes>`。若這個對話不再可用，要重建排程並先測新對話查得到台股行情。
+- 排程（10/22 起）`trig_01P8toMCwxC8oqAhFiSS27tp`：平日 16:40（台北；10/27 使用者要求從 17:40 提早，和規則組合一致），**綁定 `session_01ApWNmMJa7iJ1ivpuuMR7hZ`（這個有 repo 與台股官方 MCP 的對話）**。舊排程 `trig_01GKTYGpLeqWRS2Nrv75CoTv` 綁的對話已失效：10/21 17:40 在沒有 repo、沒有 MCP 的空對話裡執行，**當天沒有更新**（狀態停在 10/20），已於 10/22 使用者同意後停用。10/21、10/22 已用證交所真實價格補跑（note 標【補跑】）。CLI 參數順序是 `指令 <state> <日期> <quotes>`。若這個對話不再可用，要重建排程並先測新對話查得到台股行情。
 - 10/20 收盤：淨值 97,733（−2.27%），0050 −0.50%。持有大成鋼、元大金、長榮、儒鴻、潤泰新、中鋼；10/21 開盤的委託是賣元大金 110 股、買宏碁 250 股（限價 32.85、停損 30.9）。
 - **10/21 起資金加碼到 50 萬**（`topup` 指令，加入的錢當作之前閒置的現金；App 另外列加碼前報酬），配置改成**核心＋衛星**（核心約 45%：台積電、鴻海、台達電，分批進場；使用者不要 0050）。細節在 `DAILY.md`。
 - **資金水位**（10/21 使用者指定）：平常 7 成股票、3 成現金；加權指數距 20 日高點跌 5% 起最多 8 成、10% 起最多 9 成。每日排程用 `cash` 指令記錄判斷，App「資金水位」卡片顯示。

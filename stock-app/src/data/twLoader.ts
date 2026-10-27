@@ -48,7 +48,7 @@ export interface TwSnapshot {
   version?: number; // 2 = 含 ETF
 }
 
-export const TW_SNAPSHOT_VERSION = 2;
+export const TW_SNAPSHOT_VERSION = 3; // 3 = 含各法人今日／近 5 日買賣超（ETF 買賣排名用）；版本不同會用快取的原始資料重算
 
 export class TwLoader {
   requests = 0;
@@ -218,11 +218,14 @@ export function buildTwInputs(p: {
 
   return p.latest.map(([code, name, close, change, value]) => {
     let foreign5 = 0, foreign10 = 0, trust5 = 0, has = false;
+    let flow1: [number, number, number] | undefined;
+    const flow5: [number, number, number] = [0, 0, 0];
     flowDays.forEach((m, i) => {
       const r = m.get(code);
       if (!r) return;
       has = true;
-      if (i < 5) { foreign5 += r[1] || 0; trust5 += r[2] || 0; }
+      if (i === 0) flow1 = [r[1] || 0, r[2] || 0, r[3] || 0];
+      if (i < 5) { foreign5 += r[1] || 0; trust5 += r[2] || 0; flow5[0] += r[1] || 0; flow5[1] += r[2] || 0; flow5[2] += r[3] || 0; }
       foreign10 += r[1] || 0;
     });
     // 連續買超／賣超天數（從最新一天往回）
@@ -240,6 +243,7 @@ export function buildTwInputs(p: {
       ret1w: ret(close, wk.get(code)), ret1m: ret(close, mo.get(code)), ret3m: ret(close, qt.get(code)),
       chg1d: Number.isFinite(change) && close - change > 0 ? change / (close - change) : undefined,
       foreign5: has ? foreign5 : 0, foreign10: has ? foreign10 : 0, foreignStreak: streak, trust5: has ? trust5 : 0,
+      ...(has ? { flow1: flow1 ?? [0, 0, 0], flow5 } : {}),
     };
   });
 }

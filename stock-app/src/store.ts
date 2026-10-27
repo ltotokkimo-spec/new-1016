@@ -46,6 +46,7 @@ export interface MarketState {
   scored: Scored[];
   sectors: SectorStat[];
   fetchedAt?: number;
+  flowDate?: string; // 三大法人最新資料日（台股／ETF）
 }
 
 export interface Settings {
@@ -211,7 +212,7 @@ function applyTw(snap: TwSnapshot) {
   const common = snap.stocks.filter((x) => !isEtf(x.code));
   const etfs = snap.stocks.filter((x) => isEtf(x.code));
   const a = scoreStocks(common), b = scoreStocks(etfs);
-  const meta = { status: "ready" as const, asOf: snap.asOf, fetchedAt: snap.fetchedAt };
+  const meta = { status: "ready" as const, asOf: snap.asOf, fetchedAt: snap.fetchedAt, flowDate: snap.dates?.[0] };
   set({ prices: pricesOf(snap.stocks) });
   // ETF 回測顯示規則分辨不出好壞，只給分數當參考，不給買入／觀望／離場
   const etfScored = b.scored.map((x) => ({ ...x, refOnly: true }));

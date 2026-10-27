@@ -3,9 +3,10 @@ import { autoRefresh, etfAlertsNow, findScored, init, refreshEsb, refreshMacro, 
 import type { Scored } from "./engine/score";
 import { pretty } from "./lib/dates";
 import { AiEtfScreen } from "./ui/aiEtf";
+import { EtfRankScreen } from "./ui/etfRank";
 import { AiJobBanner, HoldingsScreen, MacroScreen, PicksScreen, SectorsScreen, SettingsScreen, StockDetail, UpdateBanner } from "./ui/screens";
 
-type Tab = "picks" | "sectors" | "holdings" | "aietf" | "macro" | "settings";
+type Tab = "picks" | "sectors" | "holdings" | "aietf" | "macro" | "etfrank" | "settings";
 
 const ICONS: Record<Tab, string> = {
   picks: "M3 17l5-5 4 4 8-9M14 7h6v6",
@@ -13,9 +14,10 @@ const ICONS: Record<Tab, string> = {
   holdings: "M3 7h18v12H3zM8 7V5h8v2M3 12h18",
   aietf: "M21 12a9 9 0 11-9-9v9zM12 3a9 9 0 019 9h-9z",
   macro: "M12 3a9 9 0 100 18 9 9 0 000-18zM3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18",
+  etfrank: "M8 6h13M8 12h9M8 18h5M3 6h.01M3 12h.01M3 18h.01",
   settings: "M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.7 1.7 0 00.3 1.8l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.8-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-1.1-1.5 1.7 1.7 0 00-1.8.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.8 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1a1.7 1.7 0 001.5-1.1 1.7 1.7 0 00-.3-1.8l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.8.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.8-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.8V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z",
 };
-const LABELS: Record<Tab, string> = { picks: "選股", sectors: "族群", holdings: "持股", aietf: "自組ETF", macro: "數據", settings: "設定" };
+const LABELS: Record<Tab, string> = { picks: "選股", sectors: "族群", holdings: "持股", aietf: "自組ETF", macro: "數據", etfrank: "ETF排行", settings: "設定" };
 
 export function App() {
   const [tab, setTab] = useState<Tab>(() => (location.hash.slice(1) as Tab) in LABELS ? (location.hash.slice(1) as Tab) : "picks");
@@ -77,6 +79,7 @@ export function App() {
         {tab === "holdings" && <HoldingsScreen open={setDetail} />}
         {tab === "aietf" && <AiEtfScreen />}
         {tab === "macro" && <MacroScreen />}
+        {tab === "etfrank" && <EtfRankScreen open={setDetail} />}
         {tab === "settings" && <SettingsScreen />}
       </main>
       <nav class="tabs" aria-label="主選單">

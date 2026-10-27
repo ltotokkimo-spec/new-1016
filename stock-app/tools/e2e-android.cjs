@@ -302,6 +302,31 @@ function check(ok, name, detail = "") {
   check(!!bsum && +bsum[1] + +bsum[2] + +bsum[3] >= 900, "上市漲跌家數加總合理（≥900）", bsum ? bsum.slice(1).join("/") : "無");
   await shot("05-國內外數據");
 
+  // ETF 排行（第 6 個分頁）：今日／近 5 日、三大法人／外資，買超與賣超前 20
+  await page.click("nav.tabs button:nth-child(6)");
+  await page.waitForSelector('[data-testid="etfrank-buy"] .item', { timeout: 60000 });
+  const rk = async () => page.evaluate(() => ({
+    note: document.querySelector('[data-testid="etfrank-note"]')?.innerText.replace(/\s+/g, " ") || "",
+    buy: [...document.querySelectorAll('[data-testid="etfrank-buy"] .item')].map((e) => e.innerText.replace(/\s+/g, " ")),
+    sell: [...document.querySelectorAll('[data-testid="etfrank-sell"] .item')].map((e) => e.innerText.replace(/\s+/g, " ")),
+  }));
+  const rk1 = await rk();
+  log("ETF排行 今日", JSON.stringify({ note: rk1.note, buy: rk1.buy.slice(0, 3), sell: rk1.sell.slice(0, 3), n: [rk1.buy.length, rk1.sell.length] }));
+  const amtOf = (t) => { const m = /([+-])([\d.,]+) (億|萬)/.exec(t); return m ? (m[1] === "-" ? -1 : 1) * parseFloat(m[2].replace(/,/g, "")) * (m[3] === "億" ? 1e4 : 1) : NaN; };
+  const sortedDesc = (xs) => xs.every((x, i) => i === 0 || Math.abs(xs[i - 1]) >= Math.abs(x));
+  const bAmt = rk1.buy.map(amtOf), sAmt = rk1.sell.map(amtOf);
+  check(rk1.buy.length === 20 && rk1.sell.length === 20, "ETF 排行今日買超、賣超各列 20 名", `${rk1.buy.length}/${rk1.sell.length}`);
+  check(bAmt.every((x) => x > 0) && sAmt.every((x) => x < 0) && sortedDesc(bAmt) && sortedDesc(sAmt), "買超全為正、賣超全為負，且依金額由大到小", JSON.stringify({ b: bAmt.slice(0, 5), s: sAmt.slice(0, 5) }));
+  check(/法人資料日 \d+\/\d+/.test(rk1.note) && /^1\. /.test(rk1.buy[0]) && /張/.test(rk1.buy[0]), "ETF 排行顯示資料日、名次與張數", rk1.note.slice(0, 60));
+  await shot("05f-ETF排行今日");
+  await page.click('[data-testid="etfrank-d5"]');
+  await page.click('[data-testid="etfrank-foreign"]');
+  await sleep(500);
+  const rk5 = await rk();
+  log("ETF排行 外資近5日", JSON.stringify({ note: rk5.note, buy: rk5.buy.slice(0, 3), sell: rk5.sell.slice(0, 3) }));
+  check(rk5.buy.length > 0 && rk5.sell.length > 0 && /往前 5 個交易日/.test(rk5.note) && /外資/.test(rk5.note) && JSON.stringify(rk5.buy) !== JSON.stringify(rk1.buy), "切換到外資近 5 日，排名跟著變", rk5.note.slice(0, 80));
+  await shot("05g-ETF排行外資近5日");
+
   // 自組 ETF：手動記一筆台積電成交，檢查淨值與 0050 對照
   await page.click("nav.tabs button:nth-child(4)");
   // 預設是 Claude 虛擬操作：從 GitHub 下載 Claude 每天更新的虛擬組合
@@ -611,7 +636,7 @@ function check(ok, name, detail = "") {
   // ---------- Claude AI（有提供金鑰才測） ----------
   const key = process.env.ANTHROPIC_API_KEY;
   if (key) {
-    await page2.click("nav.tabs button:nth-child(6)");
+    await page2.click("nav.tabs button:nth-child(7)");
     await page2.fill("#api-key", key);
     await page2.click("text=測試金鑰");
     await page2.waitForFunction(() => /金鑰可以使用|金鑰無效|權限|額度|連不到/.test(document.body.innerText), null, { timeout: 60000 });

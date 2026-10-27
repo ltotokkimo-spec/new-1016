@@ -19,6 +19,8 @@ export interface StockInput {
   foreign10?: number;
   foreignStreak?: number; // 外資連續買超天數（負數＝連續賣超）
   trust5?: number; // 投信近 5 日買賣超（股）
+  flow1?: [number, number, number]; // 最新一天的 [外資, 投信, 自營] 買賣超（股）
+  flow5?: [number, number, number]; // 近 5 日合計 [外資, 投信, 自營] 買賣超（股）
   // 美股才有
   aboveMa50?: boolean;
   ma20AboveMa50?: boolean;

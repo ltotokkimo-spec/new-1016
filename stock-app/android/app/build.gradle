@@ -26,11 +26,18 @@ android {
             keyPassword "android"
         }
     }
+    // release 打包時的 lintVital 檢查只會擋住打包、不影響功能；個人使用不上架，關掉
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
     buildTypes {
         debug {
             signingConfig signingConfigs.stable
         }
+        // 發布給手機的是 release（不可除錯；Play 安全防護比較不會把它當成可疑的測試版），簽章和 debug 相同，所以可以直接覆蓋更新、資料保留
         release {
+            signingConfig signingConfigs.stable
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

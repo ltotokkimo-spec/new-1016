@@ -61,13 +61,31 @@ jobs:
 
       - name: 打包 APK
         working-directory: stock-app/android
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        # debug 給模擬器實測（測試工具要連進 WebView 檢查畫面，只有 debug 允許）；release 發布給手機（不可除錯，同一把簽章）
+        run: ./gradlew assembleDebug assembleRelease --no-daemon --stacktrace
+
+      - name: 檢查 release APK（不可除錯、簽章和 debug 相同）
+        working-directory: stock-app/android/app/build/outputs/apk
+        run: |
+          BT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          REL=release/app-release.apk DBG=debug/app-debug.apk
+          test -f "$REL"
+          # 先確認檢查方法有效：debug 一定是可除錯
+          "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$DBG" | grep -q 'debuggable.*=true'
+          if "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$REL" | grep -q 'debuggable.*=true'; then echo "release 竟然是可除錯版本"; exit 1; fi
+          C1=$("$BT/apksigner" verify --print-certs "$REL" | grep 'SHA-256 digest')
+          C2=$("$BT/apksigner" verify --print-certs "$DBG" | grep 'SHA-256 digest')
+          echo "release: $C1"; echo "debug:   $C2"
+          test -n "$C1" && test "$C1" = "$C2"
+          "$BT/aapt2" dump badging "$REL" | grep -E "^package:|application-label:"
 
       - name: 上傳 APK
         uses: actions/upload-artifact@v4
         with:
           name: stock-radar-apk
-          path: stock-app/android/app/build/outputs/apk/debug/app-debug.apk
+          path: |
+            stock-app/android/app/build/outputs/apk/debug/app-debug.apk
+            stock-app/android/app/build/outputs/apk/release/app-release.apk
 
       - name: 啟用 KVM（模擬器加速）
         run: |
@@ -108,7 +126,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk stock-radar.apk
+          cp android/app/build/outputs/apk/release/app-release.apk stock-radar.apk
           # App 內更新會讀這個檔案比對版本號
           node -e 'const fs=require("fs");fs.writeFileSync("version.json",JSON.stringify({versionCode:Number(process.env.GITHUB_RUN_NUMBER),versionName:"1.0."+process.env.GITHUB_RUN_NUMBER,notes:fs.readFileSync("RELEASE_NOTES.txt","utf8").trim()}))'
           cat version.json

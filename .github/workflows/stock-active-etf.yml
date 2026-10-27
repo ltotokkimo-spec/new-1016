@@ -1,0 +1,46 @@
+name: Stock Active ETF
+
+# 主動式 ETF 每日持股 → 個股買賣超（App「ETF排行」分頁）。
+# 每天由 stock-backtest.yml（預設分支每天 18:40 觸發）呼叫；改這支程式時推送也會跑一次。
+# 歷史持股存在 Releases 的 stock-radar-data（active-etf-hist.json），每次下載、加上最新一份、再傳回去。
+on:
+  push:
+    branches: [ 'claude/**' ]
+    paths: [ 'stock-app/tools/activeEtf.ts', 'stock-app/src/lib/activeEtf.ts', 'stock-app/test/activeEtf.test.ts', '.github/workflows/stock-active-etf.yml' ]
+  workflow_call:
+
+permissions:
+  contents: write
+
+jobs:
+  active-etf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: stock-active-etf
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: stock-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: stock-app/package-lock.json
+      - run: npm ci
+      - name: 單元測試
+        run: npx vitest run test/activeEtf.test.ts
+      - name: 下載歷史持股
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download stock-radar-data --pattern active-etf-hist.json --dir . --clobber || echo "還沒有歷史持股，從今天開始累積"
+      - name: 抓主動式 ETF 持股並比對
+        run: |
+          npx vite build --ssr tools/activeEtf.ts --outDir .ae-build
+          node .ae-build/activeEtf.js active-etf-hist.json active-etf.json
+      - name: 發布（App 下載）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload stock-radar-data active-etf.json active-etf-hist.json --clobber

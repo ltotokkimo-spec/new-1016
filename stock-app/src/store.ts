@@ -592,7 +592,7 @@ export async function refreshActiveEtf() {
 // MoneyDJ 的手機版只有前 10 大持股，要用電腦版瀏覽器的 UA 才有完整持股與股數
 const DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36";
 let activeLiveRunning = false;
-/** App 自己向 MoneyDJ 抓各主動式 ETF 的最新持股，比 GitHub 那份新的就併進來（持股一公布打開就看得到，不用等每天 18:40） */
+/** App 自己向 MoneyDJ 抓各主動式 ETF 的最新持股，比 GitHub 那份新的就併進來（持股一公布打開就看得到，不用等每天 16:40） */
 export async function refreshActiveLive() {
   const cur = state.activeEtf;
   if (!cur?.data.latest || !cur.data.etfs.length || activeLiveRunning) return;

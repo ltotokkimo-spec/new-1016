@@ -11,6 +11,7 @@ import { CandleChart, type CandleBar } from "./candles";
 import { FlowsPanel } from "./flows";
 import { isEtf } from "../data/tw";
 import { freeReport } from "../engine/freeReport";
+import { withLiveBar } from "../engine/liveBar";
 import { isUsSymbol, MACRO_SYMBOLS } from "../data/us";
 import { marketOpen, type LiveQuote } from "../data/twLive";
 import { INDEX_CH } from "../data/twIndexLive";
@@ -351,6 +352,9 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
     return () => clearInterval(t);
   }, [s.code]);
   const price = lq ? lq.price : s.close;
+  // K 線圖盤中即時：台股用即時報價拼今天那一根（美股的日 K 日期是美國時間，先不拼）
+  const shownBars = useMemo(() => (bars && s.market !== "US" ? (withLiveBar(bars, lq) as CandleBar[]) : bars), [bars, lq]);
+  const liveBar = shownBars?.at(-1)?.live ? lq : undefined;
   const dayChg = lq && lq.prevClose > 0 ? lq.price / lq.prevClose - 1 : undefined;
 
   useEffect(() => {
@@ -433,7 +437,10 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
       <div class="card">
         {chartTab === "flow" && s.market !== "US"
           ? (bars ? <FlowsPanel code={s.code} market={s.market === "TPEX" ? "TPEX" : "TWSE"} bars={bars} livePrice={lq?.price} /> : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>)
-          : bars ? (bars.length > 1 ? <CandleChart bars={bars} us={s.market === "US"} /> : <div class="empty">沒有走勢資料</div>) : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>}
+          : shownBars ? (shownBars.length > 1 ? <>
+              <CandleChart bars={shownBars} us={s.market === "US"} />
+              {liveBar && <div class="date-hint" data-testid="kbar-live">⏱ 最後一根是今天{liveBar.final ? "收盤" : "盤中"}的即時價（{liveBar.time.slice(0, 5)}），每 30 秒更新；證交所正式資料（約 15:00 後）出來後會換成正式的</div>}
+            </> : <div class="empty">沒有走勢資料</div>) : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>}
       </div>
 
       <div class="section-title"><span>{s.refOnly ? "分數說明（ETF 只供參考）" : "評等理由"}</span><span>動能 {Math.round(s.momentum * 100)}・{s.market === "US" ? "趨勢" : "籌碼"} {Math.round(s.flow * 100)}・族群 {Math.round(s.sectorScore * 100)}</span></div>

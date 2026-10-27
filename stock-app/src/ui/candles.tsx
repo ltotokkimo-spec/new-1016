@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { kdSeries, macdSeries, rsiSeries, smaSeries } from "../engine/indicators";
 
-export interface CandleBar { date: string; open: number; high: number; low: number; close: number; volume: number }
+export interface CandleBar { date: string; open: number; high: number; low: number; close: number; volume: number; live?: boolean } // live：盤中用即時報價拼的暫時 K 棒
 type Tab = "KD" | "MACD" | "RSI";
 
 const MA_DEFS = [
@@ -41,7 +41,15 @@ export function CandleChart({ bars, us = false }: { bars: CandleBar[]; us?: bool
   const [wpx, setWpx] = useState(0); // 畫布寬度：旋轉螢幕、分割視窗時要重畫
   const viewRef = useRef(view);
   const setView = (v: View) => { const c = clampView(v, n); viewRef.current = c; setViewState(c); };
-  useEffect(() => { setView({ start: n, count: viewRef.current.count }); setSel(null); }, [bars]);
+  // 資料更新：盤中每 30 秒只是最後一根改變（檔數不變）→ 保留目前的畫面與點選；多了一根（盤中第一根出現）→ 原本在最右邊才跟著移
+  const prevN = useRef(n);
+  useEffect(() => {
+    const was = prevN.current;
+    prevN.current = n;
+    if (n === was) return;
+    if (n === was + 1) { if (viewRef.current.start >= was) setView({ start: n, count: viewRef.current.count }); return; }
+    setView({ start: n, count: viewRef.current.count }); setSel(null);
+  }, [bars]);
 
   const ind = useMemo(() => {
     const closes = bars.map((b) => b.close);
@@ -266,7 +274,7 @@ export function CandleChart({ bars, us = false }: { bars: CandleBar[]; us?: bool
   return (
     <div data-testid="candle-chart">
       <div class="muted num" style={{ fontSize: "12px", lineHeight: 1.6 }} data-testid="candle-info">
-        <span>{sel !== null ? dstr(b.date) : "最新"}　開 {fmtP(b.open)}　高 {fmtP(b.high)}　低 {fmtP(b.low)}　收 {fmtP(b.close)}　</span>
+        <span>{sel !== null ? dstr(b.date) : b.live ? "盤中" : "最新"}　開 {fmtP(b.open)}　高 {fmtP(b.high)}　低 {fmtP(b.low)}　收 {fmtP(b.close)}　</span>
         <span class={chg >= 0 ? "up" : "down"}>{chg >= 0 ? "+" : ""}{(chg * 100).toFixed(2)}%</span>
         <span>　量 {fmtVol(b.volume, us)}</span>
       </div>

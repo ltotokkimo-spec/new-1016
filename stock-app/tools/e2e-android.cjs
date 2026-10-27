@@ -146,7 +146,11 @@ function check(ok, name, detail = "") {
   const cd = async () => page.evaluate(() => ({ info: document.querySelector('[data-testid="candle-info"]')?.innerText.replace(/\s+/g, " ") || "", ma: document.querySelector('[data-testid="candle-ma"]')?.innerText.replace(/\s+/g, " ") || "", ind: document.querySelector('[data-testid="candle-ind"]')?.innerText.replace(/\s+/g, " ") || "" }));
   const cd0 = await cd();
   log("K線", JSON.stringify(cd0));
-  check(/^最新 開 [\d.,]+ 高 [\d.,]+ 低 [\d.,]+ 收 [\d.,]+ [+-]\d+\.\d\d% 量 /.test(cd0.info), "K 線圖上方顯示最新一根的開高低收與成交量", cd0.info);
+  check(/^(最新|盤中) 開 [\d.,]+ 高 [\d.,]+ 低 [\d.,]+ 收 [\d.,]+ [+-]\d+\.\d\d% 量 /.test(cd0.info), "K 線圖上方顯示最新一根的開高低收與成交量", cd0.info);
+  // 盤中即時 K 棒：有出現時，最新一根要標「盤中」（非交易時段或還沒成交時不會出現，只記錄）
+  const kLive = await page.$eval('[data-testid="kbar-live"]', (e) => e.innerText).catch(() => "");
+  if (kLive) check(/^盤中 開/.test(cd0.info) && /即時價/.test(kLive), "盤中 K 線圖最後一根用即時價並標示盤中", kLive);
+  else log("這次沒有盤中 K 棒（非交易時段或今天還沒有成交），略過盤中檢查");
   check(/^5日 [\d.,]+ 20日 [\d.,]+ 60日 [\d.,]+$/.test(cd0.ma), "K 線圖標示 5／20／60 日均線數值", cd0.ma);
   check(/^K \d+\.\d D \d+\.\d/.test(cd0.ind), "K 線圖下方預設顯示 KD", cd0.ind);
   await page.click('[data-testid="ind-MACD"]');

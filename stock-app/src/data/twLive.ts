@@ -10,7 +10,7 @@ export interface LiveQuote {
   session?: "盤中" | "收盤"; // 美股才有：price 是正常交易時段的最新價（盤中），或已經收盤的價格；盤前／盤後的成交在 ext
   // 美股才有：時間已換成台北時間；盤前／盤後的成交
   ext?: { label: "盤前" | "盤後"; price: number; chg: number; time: string };
-  volume?: number; // 美股：當日成交量（股）
+  volume?: number; // 當日累積成交量（股）；台股由證交所 mis 的 v（張）× 1000
 }
 
 export const liveUrl = (codes: string[]) =>
@@ -30,7 +30,7 @@ export function parseLive(json: any): Record<string, LiveQuote> {
     if (!Number.isFinite(price)) price = prev;
     if (!code || !Number.isFinite(price)) continue;
     const time = String(m.t ?? "");
-    out[code] = { code, name: String(m.n ?? code), price, prevClose: prev, open: num(m.o), high: num(m.h), low: num(m.l), date: String(m.d ?? ""), time, final: time >= "13:30:00" };
+    out[code] = { code, name: String(m.n ?? code), price, prevClose: prev, open: num(m.o), high: num(m.h), low: num(m.l), date: String(m.d ?? ""), time, final: time >= "13:30:00", volume: num(m.v) * 1000 };
   }
   return out;
 }

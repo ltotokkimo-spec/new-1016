@@ -26,7 +26,7 @@
 ## 溝通
 - 用繁體中文回覆。
 
-## 接手選股 App（掃雷專區）前先讀
+## 接手選股 App（掃金雷達）前先讀
 - **先讀 `HANDOFF.md`**（專案根目錄）：現況、程式地圖、資料來源、排程與算力、待辦與未決事項、已知坑。虛擬 ETF 每日程序在 `stock-app/virtual/DAILY.md`。
 - 開發分支 `claude/ui-calculator-interface-t3x9kh`。**推送前先** `git remote set-url origin https://github.com/ltotokkimo-spec/new-1016`（重啟後網址會被改掉）。
 - 推送會取消還在跑的 CI，**一次改完再推**；純文件變更提交訊息加 `[skip ci]`，避免白跑 12 分鐘的測試。

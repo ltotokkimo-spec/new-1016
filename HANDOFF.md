@@ -4,7 +4,7 @@
 > 這份是「事實與決定」的整理，數字會變的（持股、淨值）請以檔案為準，不要照抄這裡。
 
 ## 1. 專案概況
-- **掃雷專區**：個人用 Android 選股 App（Capacitor + Preact，繁體中文）。台股／美股／ETF 選股、族群、持股、自組 ETF、數據。
+- **掃金雷達**：個人用 Android 選股 App（Capacitor + Preact，繁體中文）。台股／美股／ETF 選股、族群、持股、自組 ETF、數據。
 - Repo：`ltotokkimo-spec/new-1016`，本機資料夾叫 `-`。**開發分支 `claude/ui-calculator-interface-t3x9kh`**（repo 預設分支是 `claude/conversation-start-guide-ya0q8x`，每日回測的觸發 workflow 放在那邊）。
 - 同一個 repo 還有計算機、小畫家（根目錄的 `calculator.py`、`paint.py`、`tests/`），與選股 App 無關。
 - 已發布版本：**1.0.132**（2026-10-22 深夜，Releases `stock-radar-latest`：`stock-radar.apk` ＋ `version.json`；App 內按「更新」下載）。單元測試 184 項、模擬器 e2e 約 100 項檢查。

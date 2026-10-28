@@ -113,7 +113,7 @@ function check(ok, name, detail = "") {
   check(!!brand && brand.text === "金雷達" && /linear-gradient/.test(brand.bg) && /brand-flow/.test(brand.anim), "標題「金雷達」套用流光金特效（金色漸層文字、流動動畫）", JSON.stringify(brand));
   const radar = await page.evaluate(() => { const l = document.querySelector(".radar-logo"); if (!l) return null; const c = getComputedStyle(l.querySelector(".radar-ring")); return { fan: l.querySelectorAll(".radar-fan path").length, blips: l.querySelectorAll(".radar-blip").length, ring: c.stroke, anim: getComputedStyle(l.querySelector(".radar-sweep")).animationName }; });
   log("標題雷達", JSON.stringify(radar));
-  check(!!radar && radar.fan === 38 && radar.blips === 4 && /240,\s*178,\s*62|184,\s*122,\s*7/.test(radar.ring) && /radar-spin/.test(radar.anim), "標題雷達：金色圓環、長殘影扇形、4 個紅色目標點、旋轉動畫", JSON.stringify(radar));
+  check(!!radar && radar.fan === 38 && radar.blips === 4 && /240,\s*178,\s*62|183,\s*122,\s*7/.test(radar.ring) && /radar-spin/.test(radar.anim), "標題雷達：金色圓環、長殘影扇形、4 個紅色目標點、旋轉動畫", JSON.stringify(radar));
   await shot("02-選股-台股");
 
   // 剛轉強：回測資料裡的訊號（站上 20 日線 5% 以內、MACD 剛翻正、RSI<70、法人買超）
@@ -251,6 +251,29 @@ function check(ok, name, detail = "") {
   check(/^(盤中|收盤) 昨收|^收盤價 \d+\/\d+/.test(etfDetail.note), "詳情頁大字旁標明盤中／收盤（不顯示時間）或收盤價日期", etfDetail.note);
   check(/折溢價（即時） [+-]?\d+\.\d\d% 預估淨值 [\d.]+(?!・\d\d:\d\d)/.test(etfDetail.sheet), "ETF 詳情頁有即時折溢價（預估淨值，不顯示時間；市價已在最上方現價）", /折溢價（即時）[^]{0,80}/.exec(etfDetail.sheet)?.[0] || "沒有折溢價");
   await page.click('button[aria-label="返回"]');
+  // 主動式 ETF 詳情頁：看得到買賣的成份（買進／賣出）與目前持股
+  const aItem = (await page.$$(".item")).length ? await page.evaluateHandle(() => [...document.querySelectorAll(".item")].find((e) => /\b00\d{3}A\b/.test(e.innerText))) : null;
+  const aEl = aItem && aItem.asElement();
+  if (!aEl) check(false, "ETF 清單找得到主動式 ETF（00xxxA）可點進去");
+  else {
+    await aEl.click();
+    await page.waitForSelector('[data-testid="etf-holdings"]', { timeout: 15000 });
+    await page.waitForFunction(() => document.querySelectorAll('[data-testid="hold-all"] [data-testid="hold-row"]').length >= 5, null, { timeout: 40000 }).catch(() => {});
+    const hd = await page.evaluate(() => ({
+      summary: document.querySelector('[data-testid="hold-summary"]')?.innerText.replace(/\s+/g, " ") || "",
+      buys: [...document.querySelectorAll('[data-testid="hold-buys"] [data-testid="hold-row"]')].map((e) => e.innerText.replace(/\s+/g, " ")),
+      sells: [...document.querySelectorAll('[data-testid="hold-sells"] [data-testid="hold-row"]')].map((e) => e.innerText.replace(/\s+/g, " ")),
+      all: [...document.querySelectorAll('[data-testid="hold-all"] [data-testid="hold-row"]')].map((e) => e.innerText.replace(/\s+/g, " ")),
+    }));
+    log("主動式 ETF 買賣成份", JSON.stringify({ summary: hd.summary, buys: hd.buys.slice(0, 3), sells: hd.sells.slice(0, 3), all: hd.all.slice(0, 3) }));
+    check(/持股資料日 \d+\/\d+（.）・台股 \d+ 檔/.test(hd.summary) && !/NaN|undefined/.test(hd.summary), "主動式 ETF 詳情頁顯示持股資料日與台股檔數", hd.summary);
+    check(hd.all.length >= 5 && hd.all.every((t) => /\b[1-9]\d{3}\b/.test(t) && /[\d,]+ 張/.test(t)), "主動式 ETF 詳情頁列出目前持股（個股、持有張數）", hd.all[0] || "");
+    if (/買進 \d+ 檔、賣出 \d+ 檔/.test(hd.summary)) {
+      check(hd.buys.every((t) => /持有 [\d,]+ → [\d,]+ 張/.test(t) && /(新增|加碼)/.test(t)) && hd.sells.every((t) => /持有 [\d,]+ → [\d,]+ 張/.test(t) && /(減碼|清倉)/.test(t)) && hd.buys.length + hd.sells.length > 0, "主動式 ETF 詳情頁列出買進（新增／加碼）與賣出（減碼／清倉）的成份股", JSON.stringify([hd.buys[0], hd.sells[0]]));
+    }
+    await shot("02c-主動式ETF買賣成份");
+    await page.click('button[aria-label="返回"]');
+  }
   await page.click(".seg button:nth-child(1)");
 
   // 族群

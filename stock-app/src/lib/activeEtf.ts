@@ -157,3 +157,27 @@ export function etfBreakdown(data: ActiveEtfData | undefined, code: string, days
   rows.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
   return { rows, used };
 }
+
+export interface EtfMove { code: string; delta: number; before: number; after: number; perDay: [string, number][] }
+export interface EtfHold { code: string; shares: number; delta: number }
+
+/** 某檔主動式 ETF 最近 days 天買賣了哪些股票（含新增、清倉）與目前完整持股（台股個股）；沒有這檔就回傳 undefined */
+export function etfHoldings(data: ActiveEtfData | undefined, etf: string, days: number): { name: string; date: string; n: number; moves: EtfMove[]; hold: EtfHold[]; used: string[] } | undefined {
+  const latest = data?.latest?.[etf];
+  const info = data?.etfs.find((e) => e.code === etf);
+  if (!latest || !info) return undefined;
+  const used = (data?.days ?? []).filter((d) => etf in d.prev).slice(0, days);
+  const by = new Map<string, [string, number][]>();
+  for (const d of used) for (const [code, f] of Object.entries(d.flows)) for (const [e, v] of f.b) if (e === etf) by.set(code, [...(by.get(code) ?? []), [d.date, v]]);
+  const moves: EtfMove[] = [];
+  for (const [code, perDay] of by) {
+    const delta = perDay.reduce((a, [, v]) => a + v, 0);
+    if (!delta) continue;
+    const after = latest.shares[code] ?? 0;
+    moves.push({ code, delta, before: Math.max(0, after - delta), after, perDay });
+  }
+  moves.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+  const delta = new Map(moves.map((m) => [m.code, m.delta]));
+  const hold = Object.entries(latest.shares).map(([code, shares]) => ({ code, shares, delta: delta.get(code) ?? 0 })).sort((a, b) => b.shares - a.shares);
+  return { name: info.name, date: latest.date, n: hold.length, moves, hold, used: used.map((d) => d.date) };
+}

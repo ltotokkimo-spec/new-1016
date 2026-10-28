@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeRank, addSnap, buildActiveData, buildActiveDays, mergeLive, parseMoneyDjHoldings, etfBreakdown, type ActiveHist } from "../src/lib/activeEtf";
+import { activeRank, addSnap, buildActiveData, buildActiveDays, mergeLive, parseMoneyDjHoldings, etfBreakdown, etfHoldings, type ActiveHist } from "../src/lib/activeEtf";
 
 // MoneyDJ「全部持股」頁的實際結構（10/27 從 GitHub Actions 探測取得，節錄）
 const html = `<div>首頁 / ETF介紹 / 個別ETF-全部持股</div><h3>主動統一台股增長(00981A.TW)-全部持股</h3><div>資料日期：2026/10/22</div>
@@ -112,5 +112,26 @@ describe("點進個股看是哪幾檔主動式 ETF 買賣", () => {
     const out = etfBreakdown(data, "2454", 5).rows[0];
     expect([out.delta, out.after]).toEqual([-5000, 0]); // 清倉
     expect(etfBreakdown(undefined, "2330", 1).rows).toEqual([]);
+  });
+});
+
+describe("點進主動式 ETF 看買賣的成份", () => {
+  let h: ActiveHist = { version: 1, etfs: {} };
+  h = addSnap(h, "A1", "主動甲", { date: "20261022", shares: { "2330": 3000, "2454": 5000, "1101": 700 } });
+  h = addSnap(h, "A1", "主動甲", { date: "20261027", shares: { "2330": 2500, "3037": 2000, "1101": 700 } });
+  const data = buildActiveData(h, "t");
+  it("列出買進、賣出（含新增、清倉）與完整持股，持股依股數大到小", () => {
+    const r = etfHoldings(data, "A1", 1)!;
+    expect(r.date).toBe("20261027");
+    expect(r.moves.map((m) => [m.code, m.delta, m.before, m.after])).toEqual([["2454", -5000, 5000, 0], ["2330", -500, 3000, 2500], ["3037", 2000, 0, 2000]].sort((a, b) => Math.abs(b[1] as number) - Math.abs(a[1] as number)));
+    expect(r.hold.map((x) => [x.code, x.shares, x.delta])).toEqual([["2330", 2500, -500], ["3037", 2000, 2000], ["1101", 700, 0]]);
+    expect(r.n).toBe(3);
+  });
+  it("沒有這檔或沒有資料就回傳 undefined；只有一份持股時沒有買賣、仍列出持股", () => {
+    expect(etfHoldings(data, "ZZ", 1)).toBeUndefined();
+    expect(etfHoldings(undefined, "A1", 1)).toBeUndefined();
+    const one = buildActiveData(addSnap({ version: 1, etfs: {} }, "B1", "主動丙", { date: "20261027", shares: { "2330": 100 } }), "t");
+    const r = etfHoldings(one, "B1", 1)!;
+    expect([r.moves.length, r.hold.length, r.used.length]).toEqual([0, 1, 0]);
   });
 });

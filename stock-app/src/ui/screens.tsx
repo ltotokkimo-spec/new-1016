@@ -10,6 +10,7 @@ import { type AiReport, analyzeStock, claudeAppPrompt, claudeAppUrl, client, exp
 import { twHistory } from "../data/history";
 import { CandleChart, type CandleBar } from "./candles";
 import { FlowsPanel } from "./flows";
+import { EtfHoldingsPanel, isActiveEtf } from "./etfHoldings";
 import { isEtf } from "../data/tw";
 import { freeReport } from "../engine/freeReport";
 import { withLiveBar } from "../engine/liveBar";
@@ -446,6 +447,13 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
               {liveBar && <div class="date-hint" data-testid="kbar-live">⏱ 最後一根是{liveBar.final ? "最新收盤" : "盤中"}的即時價（含成交量{liveBar.time ? `，台北 ${liveBar.time.slice(0, 5)}` : ""}），每 30 秒更新；{s.market === "US" ? "下次更新美股資料時換成正式日 K" : "證交所正式資料（約 15:00 後）出來後會換成正式的"}</div>}
             </> : <div class="empty">沒有走勢資料</div>) : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>}
       </div>
+
+      {s.market !== "US" && isActiveEtf(s.code) && (
+        <>
+          <div class="section-title"><span>主動式 ETF 買賣的成份</span><span>經理人實際加減碼</span></div>
+          <EtfHoldingsPanel code={s.code} />
+        </>
+      )}
 
       <div class="section-title"><span>{s.refOnly ? "分數說明（ETF 只供參考）" : "評等理由"}</span><span>動能 {Math.round(s.momentum * 100)}・{s.market === "US" ? "趨勢" : "籌碼"} {Math.round(s.flow * 100)}・族群 {Math.round(s.sectorScore * 100)}</span></div>
       <div class="card"><ul class="reasons">{s.reasons.map((r) => <li>{r}</li>)}</ul></div>

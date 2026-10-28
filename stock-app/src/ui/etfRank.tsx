@@ -126,14 +126,14 @@ export function EtfRankScreen({ open }: { open: (s: Scored) => void }) {
   const byCode = useMemo(() => new Map(tw.scored.map((s) => [s.code, s])), [tw.scored]);
   const etfName = useMemo(() => new Map((active?.data.etfs ?? []).map((e) => [e.code, shortName(e.name)])), [active]);
   const rank = useMemo(() => {
-    if (src === "trust") { const r = flowRank(tw.scored, days, "trust", 20); return { ...r, used: undefined }; }
+    if (src === "trust") { const r = flowRank(tw.scored, days, "trust", 20); return { ...r, used: undefined, partial: undefined }; }
     const r = activeRank(active?.data, days, (c) => byCode.get(c), 20);
     const sub = (b: [string, number][], side: 1 | -1) => {
       const same = b.filter(([, v]) => v * side > 0);
       const names = same.slice(0, 2).map(([e]) => etfName.get(e) ?? e).join("、");
       return `${same.length} 檔主動 ETF ${side > 0 ? "買" : "賣"}：${names}${same.length > 2 ? " 等" : ""}`;
     };
-    return { buy: r.buy.map((x) => ({ ...x, sub: sub(x.buyers, 1) })), sell: r.sell.map((x) => ({ ...x, sub: sub(x.buyers, -1) })), used: r.used };
+    return { buy: r.buy.map((x) => ({ ...x, sub: sub(x.buyers, 1) })), sell: r.sell.map((x) => ({ ...x, sub: sub(x.buyers, -1) })), used: r.used, partial: r.partial };
   }, [src, days, tw.scored, active, byCode, etfName]);
   const liveCodes = useMemo(() => [...rank.buy, ...rank.sell].map((r) => r.item.code), [rank]);
   const liveKey = liveCodes.join(",");
@@ -164,6 +164,7 @@ export function EtfRankScreen({ open }: { open: (s: Scored) => void }) {
       <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, margin: "4px 2px 8px" }} data-testid="etfrank-note">
         {src === "active" ? <>
           {used?.length ? <>持股資料日 {ymdW(used[0].date)}{days === 5 ? `，往前 ${used.length} 個持股日合計（${ymdW(used[used.length - 1].date)} 起）` : ""}{days === 5 && used.length < 5 ? `，目前只累積 ${used.length} 天` : ""}。</> : null}
+          {rank.partial ? <span data-testid="etfrank-partial">{ymdW(rank.partial.date)} 目前只有 {rank.partial.n} 檔（共 {rank.partial.of} 檔）公布持股，先顯示公布過半的 {ymdW(used![0].date)}；其餘公布後會自動換成新的一天。</span> : null}
           主動式 ETF 個股買賣超：每天比對 {active?.data.etfs.length ?? 0} 檔台股主動式 ETF 公布的完整持股，股數增減就是 ETF 實際買賣（含申購買回造成的同比例買賣），全部加總後依金額（張數 × 收盤價）排前 20 名。
           持股是各投信每天收盤後公布一次（盤中沒有即時持股），打開這頁時 App 會自己向 MoneyDJ 檢查有沒有新的持股。買賣超是「持股資料日」那一天的變動（不是今天盤中）；右邊的價格盤中會換成即時價（證交所約 30～60 秒才換一次資料），收盤後是收盤價。
         </> : <>

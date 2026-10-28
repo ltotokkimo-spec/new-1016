@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeRank, addSnap, buildActiveData, buildActiveDays, mergeLive, parseMoneyDjHoldings, etfBreakdown, etfHoldings, type ActiveHist } from "../src/lib/activeEtf";
+import { activeRank, addSnap, buildActiveData, buildActiveDays, mergeLive, parseMoneyDjHoldings, etfBreakdown, etfHoldings, pickDays, type ActiveHist } from "../src/lib/activeEtf";
 
 // MoneyDJ「全部持股」頁的實際結構（10/27 從 GitHub Actions 探測取得，節錄）
 const html = `<div>首頁 / ETF介紹 / 個別ETF-全部持股</div><h3>主動統一台股增長(00981A.TW)-全部持股</h3><div>資料日期：2026/10/22</div>
@@ -133,5 +133,26 @@ describe("點進主動式 ETF 看買賣的成份", () => {
     const one = buildActiveData(addSnap({ version: 1, etfs: {} }, "B1", "主動丙", { date: "20261027", shares: { "2330": 100 } }), "t");
     const r = etfHoldings(one, "B1", 1)!;
     expect([r.moves.length, r.hold.length, r.used.length]).toEqual([0, 1, 0]);
+  });
+});
+
+describe("最新一天只取公布過半的那天", () => {
+  const mk = (date: string, n: number) => ({ date, prev: Object.fromEntries(Array.from({ length: n }, (_, i) => [`E${i}`, "x"])), flows: { "2330": { s: 1000, b: [["E0", 1000]] as [string, number][] } } });
+  const data = { version: 1 as const, updatedAt: "t", etfs: Array.from({ length: 10 }, (_, i) => ({ code: `E${i}`, name: `E${i}`, date: "20261028", n: 5 })), days: [mk("20261028", 1), mk("20261027", 8), mk("20261022", 3)] };
+  it("最新那天只有 1/10 檔公布時，改用前一個完整的日子並回報 partial", () => {
+    const r = pickDays(data, 1);
+    expect(r.used.map((d) => d.date)).toEqual(["20261027"]);
+    expect(r.partial).toEqual({ date: "20261028", n: 1, of: 10 });
+  });
+  it("公布過半就用最新那天；近 5 日照舊全取", () => {
+    const d2 = { ...data, days: [mk("20261028", 6), ...data.days.slice(1)] };
+    expect(pickDays(d2, 1).used[0].date).toBe("20261028");
+    expect(pickDays(d2, 1).partial).toBeUndefined();
+    expect(pickDays(data, 5).used.map((d) => d.date)).toEqual(["20261028", "20261027", "20261022"]);
+  });
+  it("排名「最新一天」不再因為最新那天沒有變動而變空", () => {
+    const r = activeRank(data, 1, (c) => (c === "2330" ? { close: 2400 } : undefined), 20);
+    expect(r.buy.length).toBe(1);
+    expect(r.used[0].date).toBe("20261027");
   });
 });

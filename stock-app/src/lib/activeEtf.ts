@@ -113,11 +113,21 @@ export function mergeLive(data: ActiveEtfData, fresh: { code: string; name: stri
   return { ...data, etfs, days, latest, live };
 }
 
+/** 取最近 n 個持股日。「最新一天」只取公布家數過半的那天：各投信公布時間不一，最新那天常常只有 1～2 檔先公布，不能拿來當整天的買賣超 */
+export function pickDays(data: ActiveEtfData | undefined, n: number): { used: ActiveDay[]; partial?: { date: string; n: number; of: number } } {
+  const days = data?.days ?? [];
+  if (n !== 1) return { used: days.slice(0, n) };
+  const total = Math.max(data?.etfs.length ?? 0, ...days.map((d) => Object.keys(d.prev).length));
+  const i = days.findIndex((d) => Object.keys(d.prev).length * 2 >= total);
+  if (i < 0) return { used: days.slice(0, 1) };
+  return { used: [days[i]], partial: i > 0 ? { date: days[0].date, n: Object.keys(days[0].prev).length, of: total } : undefined };
+}
+
 export interface ActiveRankRow<T> { item: T; shares: number; amount: number; buyers: [string, number][] }
 
 /** 主動式 ETF 個股買賣超排名：最近 days 天合計，依金額（股數 × 收盤價）取買超、賣超前 n 名 */
-export function activeRank<T extends { close: number }>(data: ActiveEtfData | undefined, days: number, lookup: (code: string) => T | undefined, n = 20): { buy: ActiveRankRow<T>[]; sell: ActiveRankRow<T>[]; used: ActiveDay[] } {
-  const used = (data?.days ?? []).slice(0, days);
+export function activeRank<T extends { close: number }>(data: ActiveEtfData | undefined, days: number, lookup: (code: string) => T | undefined, n = 20): { buy: ActiveRankRow<T>[]; sell: ActiveRankRow<T>[]; used: ActiveDay[]; partial?: { date: string; n: number; of: number } } {
+  const { used, partial } = pickDays(data, days);
   const sum = new Map<string, { s: number; by: Map<string, number> }>();
   for (const d of used) for (const [code, f] of Object.entries(d.flows)) {
     const x = sum.get(code) ?? { s: 0, by: new Map() };
@@ -136,6 +146,7 @@ export function activeRank<T extends { close: number }>(data: ActiveEtfData | un
     buy: rows.filter((r) => r.amount > 0).sort((a, b) => b.amount - a.amount).slice(0, n),
     sell: rows.filter((r) => r.amount < 0).sort((a, b) => a.amount - b.amount).slice(0, n),
     used,
+    partial,
   };
 }
 
@@ -143,7 +154,7 @@ export interface EtfWho { etf: string; name: string; delta: number; before: numb
 
 /** 某檔股票在最近 days 天，是哪幾檔主動式 ETF 買賣：每檔合計增減、持股前後（股）與每天明細，依增減大小排序 */
 export function etfBreakdown(data: ActiveEtfData | undefined, code: string, days: number): { rows: EtfWho[]; used: ActiveDay[] } {
-  const used = (data?.days ?? []).slice(0, days);
+  const { used } = pickDays(data, days);
   const names = new Map((data?.etfs ?? []).map((e) => [e.code, e.name]));
   const by = new Map<string, [string, number][]>();
   for (const d of used) for (const [etf, v] of d.flows[code]?.b ?? []) by.set(etf, [...(by.get(etf) ?? []), [d.date, v]]);

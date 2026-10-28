@@ -712,7 +712,7 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
   const [busy, setBusy] = useState(false);
   const reload = async () => { setBusy(true); await (isAi ? refreshAi() : isLead ? refreshLead() : isWide ? refreshWide() : isRegime ? refreshRegime() : isWatch ? refreshWatch() : refreshVirtual()); setBusy(false); };
   useEffect(() => { if (!vt || Date.now() - vt.fetchedAt > 10 * 60_000) reload(); }, []);
-  // 即時價：打開時抓一次，交易時段每 10 秒更新
+  // 即時價：打開時抓一次，交易時段每 30 秒更新
   const codes = vt ? [...positions(vt.data.trades).filter((p) => p.shares > 0).map((p) => p.code), ...vt.data.pending.map((o) => o.code), "0050"] : [];
   const codeKey = codes.join(",");
   useEffect(() => {
@@ -754,7 +754,7 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
             💰 {prettyW(b.date)} 起資金由 {fmtMoney(b.from)} 加到 {fmtMoney(b.to)}（加入的錢之前算閒置現金，所以上面的報酬率會被稀釋）。加碼前 {b.days} 天以 {fmtMoney(b.from)} 操作：組合 <span class={cls(b.ret)}>{fmtPct(b.ret, 2)}</span>、0050 <span class={cls(b.benchRet)}>{fmtPct(b.benchRet, 2)}</span>
           </div>;
         })()}
-        {intraday && <div class="date-hint" data-testid="virtual-live">⏱ 盤中即時估算（{intraday.time.slice(0, 5)}），每 10 秒更新；收盤後改用收盤價</div>}
+        {intraday && <div class="date-hint" data-testid="virtual-live">⏱ 盤中即時估算（{intraday.time.slice(0, 5)}），每 30 秒更新；收盤後改用收盤價</div>}
         <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
           {v.asOf ? <>資料日 {prettyW(v.asOf)} 收盤・</> : <>今天收盤後第一次更新・</>}{isAi
             ? "由規則自動計算（不需要 Claude），每個交易日收盤後更新（約 17:00）。全部是個股、不放 0050：只買 AI 供應鏈相關的 51 檔（AI 伺服器代工、晶圓代工與 IC 設計、封測與設備、載板與 PCB、散熱電源與連接、記憶體、網通與光通訊），依市值配置，單檔上限 35%（台積電通常會碰到上限），每 20 個交易日調整一次，差距小於淨值 0.5% 不動。成交規則：決定當天收盤後判斷，下一個交易日收盤價成交；已計手續費與證交稅。2 年回測年化 +118%（0050 為 +88%、一般電子股對照 +104%），但這份清單是用今天的眼光挑的，回測偏樂觀；波動也比 0050 大（最差一天 −7.8%、0050 為 −5.9%），夏普和 0050 差不多，AI 族群一起修正時會跌得更重。要靠接下來的實際觀察。"

@@ -95,7 +95,7 @@ export interface State {
   ai?: { data: VirtualEtf; fetchedAt: number; error?: string };
   activeEtf?: { data: ActiveEtfData; fetchedAt: number; error?: string; liveAt?: number; liveProgress?: { done: number; total: number }; liveFound?: number };
   steady?: { data: SteadyLite; fetchedAt: number };
-  live: Record<string, LiveQuote>; // 證交所即時報價（盤中每 10 秒更新）
+  live: Record<string, LiveQuote>; // 證交所即時報價（盤中每 30 秒更新）
   liveAt?: number;
   usExtra: UsExtra[]; // 使用者自己加的美股
   usPending: string[]; // 正在下載的美股持股代號
@@ -470,12 +470,12 @@ export async function installUpdate() {
 
 // ---------- 回測結果（GitHub Actions 算好，App 只下載） ----------
 /** 抓幾檔的即時報價（失敗就保留上次的） */
-/** 即時資料盤中更新間隔（毫秒）：使用者 10/28 指定每 10 秒 */
-export const LIVE_MS = 10_000;
+/** 即時資料盤中更新間隔（毫秒）：30 秒（10/28 試過 10 秒，證交所資料本身約 30～60 秒才更新，使用者改回 30 秒） */
+export const LIVE_MS = 30_000;
 const liveBusy = { tw: false, us: false };
 export async function refreshLive(codes: string[]) {
   const list = [...new Set(codes.filter((c) => /^[0-9A-Z]{4,6}$/.test(c)))];
-  if (!list.length || liveBusy.tw) return; // 上一次還沒抓完就略過，避免 10 秒更新時重疊
+  if (!list.length || liveBusy.tw) return; // 上一次還沒抓完就略過，避免更新時重疊
   liveBusy.tw = true;
   try {
     const got: Record<string, LiveQuote> = {};

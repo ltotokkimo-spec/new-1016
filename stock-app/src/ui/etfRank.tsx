@@ -1,14 +1,14 @@
 // ETF排行分頁：個股被 ETF 買賣超的排名，今天、近 5 日買超與賣超前 20 名（依金額排名）。
 // 兩種來源：主動式 ETF（每天比對各主動式 ETF 公布的持股，經理人實際加減碼）、投信全部（證交所／櫃買投信買賣超，含被動 ETF 與一般基金）。
 import { useEffect, useMemo, useState } from "preact/hooks";
-import { activeRank, etfBreakdown } from "../lib/activeEtf";
+import { activeCoverage, activeRank, etfBreakdown } from "../lib/activeEtf";
 import { flowRank } from "../engine/etfRank";
 import type { Scored } from "../engine/score";
 import { prettyW } from "../lib/dates";
-import { LIVE_MS, refreshActiveEtf, refreshActiveLive, refreshLive, useStore } from "../store";
+import { LIVE_MS, getState, refreshActiveEtf, refreshActiveLive, refreshLive, useStore } from "../store";
 import type { LiveQuote } from "../data/twLive";
 import { marketOpen } from "../data/twLive";
-import { taipeiToday } from "../lib/dates";
+import { taipeiHour, taipeiToday } from "../lib/dates";
 import { cls, fmtPct, fmtPrice, Sheet } from "./common";
 
 const lots = (shares: number) => `${shares > 0 ? "+" : ""}${Math.round(shares / 1000).toLocaleString("zh-TW")} 張`;
@@ -17,6 +17,7 @@ const amt = (x: number) => {
   return a >= 1e8 ? `${sign}${(a / 1e8).toFixed(2)} 億` : `${sign}${Math.round(a / 1e4).toLocaleString("zh-TW")} 萬`;
 };
 const ymdW = prettyW; // 持股資料日是 YYYYMMDD
+const AUTO_MS = 5 * 60_000; // 還有 ETF 沒公布時的自動檢查間隔
 const shortName = (n: string) => n.replace(/^主動/, "");
 
 interface Row { item: Scored; shares: number; amount: number; sub?: string }
@@ -122,6 +123,18 @@ export function EtfRankScreen({ open }: { open: (s: Scored) => void }) {
     if (!active || old(active.fetchedAt)) refreshActiveEtf().then(() => refreshActiveLive());
     else if (old(active.liveAt)) refreshActiveLive();
   }, []);
+  // 持股各投信收盤後陸續公布（有的到晚上）：停在這頁、還有 ETF 沒公布今天持股時，平日 15:30～24:00 每 5 分鐘自動檢查，公布了就馬上併進排行
+  useEffect(() => {
+    const t = setInterval(() => {
+      const st = getState().activeEtf;
+      const cov = activeCoverage(st?.data), now = new Date(Date.now() + 8 * 3600_000), dow = now.getUTCDay();
+      const h = taipeiHour() + now.getUTCMinutes() / 60;
+      const incomplete = !cov || cov.date < taipeiToday() || cov.n < cov.of;
+      if (st && !st.liveProgress && dow >= 1 && dow <= 5 && h >= 15.5 && incomplete) refreshActiveLive();
+    }, AUTO_MS);
+    return () => clearInterval(t);
+  }, []);
+  const cover = useMemo(() => activeCoverage(active?.data), [active]);
   const live = useStore((s) => s.live);
   const byCode = useMemo(() => new Map(tw.scored.map((s) => [s.code, s])), [tw.scored]);
   const etfName = useMemo(() => new Map((active?.data.etfs ?? []).map((e) => [e.code, shortName(e.name)])), [active]);
@@ -175,7 +188,7 @@ export function EtfRankScreen({ open }: { open: (s: Scored) => void }) {
       </div>
       {src === "active" && active && (active.liveProgress || active.liveAt) && <div class="muted" style={{ fontSize: "12px", margin: "0 2px 8px" }} data-testid="etfrank-live">
         {active.liveProgress ? `正在檢查最新持股… ${active.liveProgress.done}/${active.liveProgress.total}`
-          : <>已檢查最新持股（{new Date(active.liveAt!).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false })}，取得 {active.liveFound ?? 0} 檔）{active.data.live ? `，最新持股日 ${ymdW(active.data.live)}` : ""} <button class="linkbtn" onClick={() => refreshActiveLive()} data-testid="etfrank-recheck">重新檢查</button></>}
+          : <>已檢查最新持股（{new Date(active.liveAt!).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false })}，取得 {active.liveFound ?? 0} 檔）{active.data.live ? `，最新持股日 ${ymdW(active.data.live)}` : ""}{cover ? `，${ymdW(cover.date)} 已公布 ${cover.n}／${cover.of} 檔${cover.n < cover.of ? "（停在這頁每 5 分鐘自動檢查）" : ""}` : ""} <button class="linkbtn" onClick={() => refreshActiveLive()} data-testid="etfrank-recheck">重新檢查</button></>}
       </div>}
       {who && <WhoSheet row={who} days={days} live={live} onClose={() => setWho(null)} openDetail={() => open(who.item)} />}
       {src === "active" && active?.error && <div class="card empty" style={{ marginBottom: "8px" }}>{active.error}</div>}

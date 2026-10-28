@@ -113,6 +113,14 @@ export function mergeLive(data: ActiveEtfData, fresh: { code: string; name: stri
   return { ...data, etfs, days, latest, live };
 }
 
+/** 各 ETF 最新持股的公布進度：最新的持股日、已公布那天的家數、全部家數（各投信公布時間不一，晚的要到晚上） */
+export function activeCoverage(data: ActiveEtfData | undefined): { date: string; n: number; of: number } | undefined {
+  const l = Object.values(data?.latest ?? {});
+  if (!l.length) return undefined;
+  const date = l.reduce((m, x) => (x.date > m ? x.date : m), "");
+  return { date, n: l.filter((x) => x.date === date).length, of: l.length };
+}
+
 /** 取最近 n 個持股日。「最新一天」只取公布家數過半的那天：各投信公布時間不一，最新那天常常只有 1～2 檔先公布，不能拿來當整天的買賣超 */
 export function pickDays(data: ActiveEtfData | undefined, n: number): { used: ActiveDay[]; partial?: { date: string; n: number; of: number } } {
   const days = data?.days ?? [];

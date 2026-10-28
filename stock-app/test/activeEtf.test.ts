@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeRank, addSnap, buildActiveData, buildActiveDays, mergeLive, parseMoneyDjHoldings, etfBreakdown, etfHoldings, pickDays, type ActiveHist } from "../src/lib/activeEtf";
+import { activeRank, addSnap, buildActiveData, buildActiveDays, mergeLive, parseMoneyDjHoldings, etfBreakdown, etfHoldings, pickDays, activeCoverage, type ActiveHist } from "../src/lib/activeEtf";
 
 // MoneyDJ「全部持股」頁的實際結構（10/27 從 GitHub Actions 探測取得，節錄）
 const html = `<div>首頁 / ETF介紹 / 個別ETF-全部持股</div><h3>主動統一台股增長(00981A.TW)-全部持股</h3><div>資料日期：2026/10/22</div>
@@ -154,5 +154,16 @@ describe("最新一天只取公布過半的那天", () => {
     const r = activeRank(data, 1, (c) => (c === "2330" ? { close: 2400 } : undefined), 20);
     expect(r.buy.length).toBe(1);
     expect(r.used[0].date).toBe("20261027");
+  });
+});
+
+describe("持股公布進度", () => {
+  it("算最新持股日已公布幾檔／共幾檔", () => {
+    let h: ActiveHist = { version: 1, etfs: {} };
+    h = addSnap(h, "A1", "甲", { date: "20261028", shares: { "2330": 1 } });
+    h = addSnap(h, "A2", "乙", { date: "20261027", shares: { "2330": 1 } });
+    h = addSnap(h, "A3", "丙", { date: "20261028", shares: { "2330": 1 } });
+    expect(activeCoverage(buildActiveData(h, "t"))).toEqual({ date: "20261028", n: 2, of: 3 });
+    expect(activeCoverage(undefined)).toBeUndefined();
   });
 });

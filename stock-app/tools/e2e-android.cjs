@@ -108,6 +108,9 @@ function check(ok, name, detail = "") {
   }, null, { timeout: 30000 }).then((h) => h.jsonValue()).catch(() => null);
   log("選股今日漲跌", JSON.stringify(pickDay));
   check(!!pickDay && pickDay.every((t) => /(現價|收盤).*今日\s*[+-]?\d/.test(t)), "選股每列顯示今日漲跌", JSON.stringify(pickDay));
+  const brand = await page.$eval('[data-testid="brand"]', (e) => { const c = getComputedStyle(e); return { text: e.innerText, bg: c.backgroundImage.slice(0, 60), fill: c.webkitTextFillColor || c.color, anim: c.animationName }; }).catch(() => null);
+  log("標題特效", JSON.stringify(brand));
+  check(!!brand && brand.text === "金雷達" && /linear-gradient/.test(brand.bg) && /brand-flow/.test(brand.anim), "標題「金雷達」套用流光金特效（金色漸層文字、流動動畫）", JSON.stringify(brand));
   await shot("02-選股-台股");
 
   // 剛轉強：回測資料裡的訊號（站上 20 日線 5% 以內、MACD 剛翻正、RSI<70、法人買超）

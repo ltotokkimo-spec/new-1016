@@ -3,10 +3,20 @@ name: Stock Backtest Daily
 # 股市雷達 App 的回測每天自動更新。
 # GitHub 只會在預設分支執行定時工作，所以這裡只負責「每天叫一次」，
 # 實際的回測程式在 App 的開發分支（stock-backtest.yml）。
+# GitHub 的定時工作偶爾會被漏掉（10/28 16:40 就沒跑），所以排了 4 次：台灣時間 16:40、17:10、17:40、18:40，
+# 每次先檢查「今天 16:30 之後」有沒有成功的回測，有就跳過，所以正常情況只會跑一次。
 on:
   schedule:
-    - cron: '40 8 * * 1-5' # 週一到週五 台灣時間 16:40（三大法人約 15:00～16:00 公布；萬一當天還沒公布，隔天重算會自動補正）
+    - cron: '40 8 * * 1-5'  # 週一到週五 台灣時間 16:40（三大法人約 15:00～16:00 公布）
+    - cron: '10 9 * * 1-5'  # 17:10 備援
+    - cron: '40 9 * * 1-5'  # 17:40 備援
+    - cron: '40 10 * * 1-5' # 18:40 備援
   workflow_dispatch:
+    inputs:
+      force:
+        description: '不檢查今天是否已跑過，直接觸發'
+        type: boolean
+        default: false
 
 permissions:
   actions: write
@@ -15,7 +25,17 @@ jobs:
   trigger:
     runs-on: ubuntu-latest
     steps:
-      - name: 觸發回測
+      - name: 觸發回測（今天已成功跑過就跳過）
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run stock-backtest.yml --repo "${{ github.repository }}" --ref claude/ui-calculator-interface-t3x9kh
+          FORCE: ${{ inputs.force }}
+        run: |
+          since="$(date -u +%Y-%m-%d)T08:30:00Z"   # 台灣時間 16:30
+          done_n=$(gh run list --repo "${{ github.repository }}" --workflow stock-backtest.yml --branch claude/ui-calculator-interface-t3x9kh \
+            --status success --limit 30 --json createdAt --jq "[.[] | select(.createdAt >= \"$since\")] | length")
+          echo "今天 16:30 之後成功的回測：${done_n} 次"
+          if [ "$FORCE" != "true" ] && [ "${done_n:-0}" -gt 0 ]; then
+            echo "今天已更新過，跳過"
+            exit 0
+          fi
+          gh workflow run stock-backtest.yml --repo "${{ github.repository }}" --ref claude/ui-calculator-interface-t3x9kh

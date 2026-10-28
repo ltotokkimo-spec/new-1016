@@ -5,7 +5,10 @@ import { activeRank } from "../lib/activeEtf";
 import { flowRank } from "../engine/etfRank";
 import type { Scored } from "../engine/score";
 import { prettyW } from "../lib/dates";
-import { refreshActiveEtf, refreshActiveLive, useStore } from "../store";
+import { LIVE_MS, refreshActiveEtf, refreshActiveLive, refreshLive, useStore } from "../store";
+import type { LiveQuote } from "../data/twLive";
+import { marketOpen } from "../data/twLive";
+import { taipeiToday } from "../lib/dates";
 import { cls, fmtPct, fmtPrice } from "./common";
 
 const lots = (shares: number) => `${shares > 0 ? "+" : ""}${Math.round(shares / 1000).toLocaleString("zh-TW")} 張`;
@@ -18,11 +21,17 @@ const shortName = (n: string) => n.replace(/^主動/, "");
 
 interface Row { item: Scored; shares: number; amount: number; sub?: string }
 
-function RankList({ rows, side, open }: { rows: Row[]; side: "buy" | "sell"; open: (s: Scored) => void }) {
+function RankList({ rows, side, open, live }: { rows: Row[]; side: "buy" | "sell"; open: (s: Scored) => void; live: Record<string, LiveQuote> }) {
   if (!rows.length) return <div class="card empty">沒有{side === "buy" ? "買超" : "賣超"}的個股</div>;
   return (
     <div class="list" data-testid={`etfrank-${side}`}>
-      {rows.map((r, i) => (
+      {rows.map((r, i) => {
+        // 盤中用證交所即時報價；沒有就顯示最近一個收盤
+        const q = live[r.item.code];
+        const intraday = !!q && !q.final && q.date === taipeiToday() && marketOpen();
+        const price = intraday ? q!.price : r.item.close;
+        const chg = intraday && Number.isFinite(q!.prevClose) ? q!.price / q!.prevClose - 1 : r.item.chg1d;
+        return (
         <button class="item" onClick={() => open(r.item)}>
           <div style={{ minWidth: 0 }}>
             <div class="name"><span class="muted num" style={{ fontWeight: 400 }}>{i + 1}.</span> {r.item.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{r.item.code}</span></div>
@@ -33,11 +42,12 @@ function RankList({ rows, side, open }: { rows: Row[]; side: "buy" | "sell"; ope
             <div class={`c num ${cls(r.shares)}`}>{lots(r.shares)}</div>
           </div>
           <div class="px">
-            <div class="c num"><span class="lbl">收盤</span>{fmtPrice(r.item.close)}</div>
-            {r.item.chg1d !== undefined && <div class={`c num ${cls(r.item.chg1d)}`}><span class="lbl">今日</span>{fmtPct(r.item.chg1d)}</div>}
+            <div class="c num"><span class="lbl">{intraday ? `現價 ${q!.time.slice(0, 5)}` : "收盤"}</span>{fmtPrice(price)}</div>
+            {chg !== undefined && Number.isFinite(chg) && <div class={`c num ${cls(chg)}`} data-testid="rank-day"><span class="lbl">{intraday ? "今日" : "當日"}</span>{fmtPct(chg)}</div>}
           </div>
         </button>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -53,6 +63,7 @@ export function EtfRankScreen({ open }: { open: (s: Scored) => void }) {
     if (!active || old(active.fetchedAt)) refreshActiveEtf().then(() => refreshActiveLive());
     else if (old(active.liveAt)) refreshActiveLive();
   }, []);
+  const live = useStore((s) => s.live);
   const byCode = useMemo(() => new Map(tw.scored.map((s) => [s.code, s])), [tw.scored]);
   const etfName = useMemo(() => new Map((active?.data.etfs ?? []).map((e) => [e.code, shortName(e.name)])), [active]);
   const rank = useMemo(() => {
@@ -65,9 +76,18 @@ export function EtfRankScreen({ open }: { open: (s: Scored) => void }) {
     };
     return { buy: r.buy.map((x) => ({ ...x, sub: sub(x.buyers, 1) })), sell: r.sell.map((x) => ({ ...x, sub: sub(x.buyers, -1) })), used: r.used };
   }, [src, days, tw.scored, active, byCode, etfName]);
+  const liveCodes = useMemo(() => [...rank.buy, ...rank.sell].map((r) => r.item.code), [rank]);
+  const liveKey = liveCodes.join(",");
+  useEffect(() => {
+    if (!liveCodes.length) return;
+    refreshLive(liveCodes);
+    const t = setInterval(() => { if (marketOpen()) refreshLive(liveCodes); }, LIVE_MS);
+    return () => clearInterval(t);
+  }, [liveKey]);
   const ready = tw.scored.length > 0 && (src === "trust" || !!active);
-  const period = days === 1 ? "今日" : "近 5 日";
   const used = rank.used;
+  const dataDay = src === "active" ? (used?.[0]?.date ?? active?.data.live ?? "") : (tw.flowDate ?? "");
+  const period = days === 1 ? (dataDay ? `${ymdW(dataDay.replace(/-/g, ""))}` : "最新一天") : "近 5 日";
   const latestHold = active?.data.etfs.reduce((m, e) => (e.date > m ? e.date : m), "") ?? "";
   const accumulating = src === "active" && !!active && !active.data.days.length;
   return (
@@ -77,14 +97,14 @@ export function EtfRankScreen({ open }: { open: (s: Scored) => void }) {
         <button aria-pressed={src === "trust"} onClick={() => setSrc("trust")} data-testid="etfrank-trust">投信全部</button>
       </div>
       <div class="seg" role="group" aria-label="期間" style={{ marginBottom: "8px" }}>
-        <button aria-pressed={days === 1} onClick={() => setDays(1)} data-testid="etfrank-d1">今日</button>
+        <button aria-pressed={days === 1} onClick={() => setDays(1)} data-testid="etfrank-d1">最新一天</button>
         <button aria-pressed={days === 5} onClick={() => setDays(5)} data-testid="etfrank-d5">近 5 日</button>
       </div>
       <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, margin: "4px 2px 8px" }} data-testid="etfrank-note">
         {src === "active" ? <>
           {used?.length ? <>持股資料日 {ymdW(used[0].date)}{days === 5 ? `，往前 ${used.length} 個持股日合計（${ymdW(used[used.length - 1].date)} 起）` : ""}{days === 5 && used.length < 5 ? `，目前只累積 ${used.length} 天` : ""}。</> : null}
           主動式 ETF 個股買賣超：每天比對 {active?.data.etfs.length ?? 0} 檔台股主動式 ETF 公布的完整持股，股數增減就是 ETF 實際買賣（含申購買回造成的同比例買賣），全部加總後依金額（張數 × 收盤價）排前 20 名。
-          持股是各投信每天收盤後公布一次（盤中沒有即時持股），打開這頁時 App 會自己向 MoneyDJ 檢查有沒有新的持股。
+          持股是各投信每天收盤後公布一次（盤中沒有即時持股），打開這頁時 App 會自己向 MoneyDJ 檢查有沒有新的持股。買賣超是「持股資料日」那一天的變動（不是今天盤中）；右邊的價格盤中會換成即時價（證交所約 30～60 秒才換一次資料），收盤後是收盤價。
         </> : <>
           {tw.flowDate ? <>法人資料日 {prettyW(tw.flowDate)}{days === 5 ? " 往前 5 個交易日合計" : ""}。</> : null}
           投信全部：證交所、櫃買中心的「投信」買賣超，包含主動式、被動式 ETF（申購買回依指數權重買賣）與一般投信基金，依金額（張數 × 收盤價）排前 20 名（上市＋上櫃個股，不含 ETF）。
@@ -100,9 +120,9 @@ export function EtfRankScreen({ open }: { open: (s: Scored) => void }) {
         : accumulating ? <div class="card empty" data-testid="etfrank-accum">資料累積中：已取得 {active!.data.etfs.length} 檔主動式 ETF 的持股{latestHold ? `（${ymdW(latestHold)}）` : ""}，下一份持股公布後就能比對出第一天的買賣超。</div>
         : <>
           <div class="section-title"><span class="up">{src === "active" ? "主動式 ETF" : "投信"} 買超前 20 名</span><span>{period}</span></div>
-          <RankList rows={rank.buy} side="buy" open={open} />
+          <RankList rows={rank.buy} side="buy" open={open} live={live} />
           <div class="section-title"><span class="down">{src === "active" ? "主動式 ETF" : "投信"} 賣超前 20 名</span><span>{period}</span></div>
-          <RankList rows={rank.sell} side="sell" open={open} />
+          <RankList rows={rank.sell} side="sell" open={open} live={live} />
         </>}
     </div>
   );

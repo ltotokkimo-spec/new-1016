@@ -232,6 +232,9 @@ function check(ok, name, detail = "") {
   const nEtf = Number(/全部 (\d+)/.exec(etf.chips)?.[1] || 0);
   check(nEtf >= 30, "ETF 分頁有評分的 ETF", `全部 ${nEtf} 檔`);
   check(etf.rows.every((r) => /\b00\d{2,4}[A-Z]?\b/.test(r) && /參考/.test(r) && /分數 \d+/.test(r) && !/(買入|觀望|離場)/.test(r)), "ETF 每列都是 00 開頭代號，只給分數參考、不給買賣評等", etf.rows[0]);
+  const etfVols = etf.rows.map((r) => Number((/量 ([\d,]+) 張/.exec(r)?.[1] || "NaN").replace(/,/g, "")));
+  check(etfVols.length >= 5 && etfVols.every((v, i) => Number.isFinite(v) && (i === 0 || etfVols[i - 1] >= v)), "ETF 清單依成交量由大到小排序，每列顯示成交量", JSON.stringify(etfVols));
+  check(/依成交量排序（\d+\/\d+/.test(await page.evaluate(() => document.body.innerText)), "ETF 清單標題寫明依成交量排序與資料日");
   await shot("02b-選股-ETF");
   // ETF 詳情頁：大字是現價（或明確標示的收盤價），並有即時折溢價（證交所 ETF 預估淨值）
   await page.click(".item");

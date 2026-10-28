@@ -10,6 +10,7 @@ export interface StockInput {
   sector: string;
   close: number;
   value: number; // 當日成交金額（台幣或美元）
+  volume?: number; // 當日成交股數（台股；ETF 清單依成交量排序用）
   ret1w: number; // 小數，0.05 = +5%
   ret1m: number;
   ret3m: number;

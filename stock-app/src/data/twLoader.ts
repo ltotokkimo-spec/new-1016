@@ -48,7 +48,7 @@ export interface TwSnapshot {
   version?: number; // 2 = 含 ETF
 }
 
-export const TW_SNAPSHOT_VERSION = 3; // 3 = 含各法人今日／近 5 日買賣超（ETF 買賣排名用）；版本不同會用快取的原始資料重算
+export const TW_SNAPSHOT_VERSION = 4; // 4 = 含成交股數（ETF 依成交量排序）、3 = 含各法人今日／近 5 日買賣超（ETF 買賣排名用）；版本不同會用快取的原始資料重算
 
 export class TwLoader {
   requests = 0;
@@ -216,7 +216,7 @@ export function buildTwInputs(p: {
   const flowDays = p.flows.map((rows) => new Map(rows.map((r) => [r[0], r])));
   const ret = (now: number, then: number | undefined) => (then && then > 0 ? now / then - 1 : NaN);
 
-  return p.latest.map(([code, name, close, change, value]) => {
+  return p.latest.map(([code, name, close, change, value, volume]) => {
     let foreign5 = 0, foreign10 = 0, trust5 = 0, has = false;
     let flow1: [number, number, number] | undefined;
     const flow5: [number, number, number] = [0, 0, 0];
@@ -239,7 +239,7 @@ export function buildTwInputs(p: {
     }
     return {
       code, name, market: p.tpexCodes.has(code) ? ("TPEX" as const) : ("TWSE" as const),
-      sector: isEtf(code) ? etfCategory(name) : ind.get(code) ?? "其他", close, value,
+      sector: isEtf(code) ? etfCategory(name) : ind.get(code) ?? "其他", close, value, volume: Number.isFinite(volume) ? volume : undefined,
       ret1w: ret(close, wk.get(code)), ret1m: ret(close, mo.get(code)), ret3m: ret(close, qt.get(code)),
       chg1d: Number.isFinite(change) && close - change > 0 ? change / (close - change) : undefined,
       foreign5: has ? foreign5 : 0, foreign10: has ? foreign10 : 0, foreignStreak: streak, trust5: has ? trust5 : 0,

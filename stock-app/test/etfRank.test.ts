@@ -39,4 +39,9 @@ describe("買賣超排名", () => {
     expect(x.flow1).toEqual([1000, 10, -5]);
     expect(x.flow5).toEqual([1000 + 2000 + 3000 + 4000 + 5000, 50, -25]);
   });
+  it("評分輸入帶出當日成交股數（ETF 清單依成交量排序用）", () => {
+    const q = (code: string, close: number, vol: number) => [code, code, close, 0, 1e8, vol] as [string, string, number, number, number, number];
+    const xs = buildTwInputs({ latest: [q("0050", 100, 123_456_000), q("00878", 20, 987_654_000)], week: [], month: [], quarter: [], flows: [], companies: [], tpexCodes: new Set() });
+    expect(xs.map((x) => x.volume)).toEqual([123_456_000, 987_654_000]);
+  });
 });

@@ -51,8 +51,10 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
     const t = q.trim().toUpperCase();
     return ms.scored.filter((s) =>
       (filter === "全部" || (filter === "剛轉強" ? turnMap.has(s.code) : s.rating === filter)) && (!sector || s.sector === sector) &&
-      (!t || s.code.toUpperCase().includes(t) || s.name.toUpperCase().includes(t)));
-  }, [ms.scored, filter, q, sector, turnMap]);
+      (!t || s.code.toUpperCase().includes(t) || s.name.toUpperCase().includes(t)))
+      // ETF 依最近一個交易日的成交量排序（其他市場維持依分數）；用固定的收盤量，盤中不會一直重新排列
+      .sort(market === "ETF" ? (a, b) => (b.volume ?? 0) - (a.volume ?? 0) : () => 0);
+  }, [ms.scored, filter, q, sector, turnMap, market]);
   const liveCodes = list.slice(0, 60).map((x) => x.code);
   const liveKey = market + liveCodes.join(",");
   useEffect(() => {
@@ -91,7 +93,7 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
       {ms.status === "ready" && (
         <>
           <div class="section-title">
-            <span>{sector ? `${sector}・` : ""}{filter === "全部" ? (market === "ETF" ? "全部 ETF" : "全部股票") : filter === "剛轉強" ? "剛轉強" : `評等「${filter}」`}・依分數排序</span>
+            <span>{sector ? `${sector}・` : ""}{filter === "全部" ? (market === "ETF" ? "全部 ETF" : "全部股票") : filter === "剛轉強" ? "剛轉強" : `評等「${filter}」`}・{market === "ETF" ? `依成交量排序${ms.asOf ? `（${prettyW(ms.asOf)}）` : ""}` : "依分數排序"}</span>
             <span>{list.length} 檔</span>
           </div>
           {market === "US" && <UsLookup q={q} found={list.length > 0} />}
@@ -137,6 +139,7 @@ function StockRow({ s, q, turn, onClick }: { s: Scored; q?: LiveQuote; turn?: Tu
         <div class="name">{s.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{s.code}</span></div>
         <div class="sub">
           {s.sector}
+          {isEtf(s.code) && s.volume ? <>・量 <b class="num">{Math.round(s.volume / 1000).toLocaleString("zh-TW")}</b> 張</> : null}
           {s.market !== "US" ? <>・外資5日 <span class={cls(s.foreign5)}>{lots(s.foreign5)}</span></> : <>・相對大盤 <span class={cls(s.rsVsIndex1m)}>{fmtPct(s.rsVsIndex1m)}</span></>}
         </div>
         {turn && <>

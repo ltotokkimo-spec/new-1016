@@ -229,7 +229,11 @@ export function reviewHolding(h: Holding, scored: Scored | undefined, lastPrice?
   } else if (scored) {
     if (rating === "買入") advice.push("動能與籌碼仍強，可續抱");
     else if (rating === "觀望") advice.push("訊號分歧，續抱但留意外資動向");
-    else advice.push("訊號轉弱，考慮減碼或出場");
+    else {
+      advice.push("訊號轉弱，考慮減碼或出場");
+      // 跌深反彈中：評等看的是中期趨勢，反彈要等站回均線才會改評，這裡先提醒一句，不改評等
+      if (scored.ret1w > 0 && scored.ret1m < 0) advice.push(`反彈中：近1週 ${pct(scored.ret1w)}，但近1月仍 ${pct(scored.ret1m)}${scored.market === "US" && scored.aboveMa50 === false ? "、還在 50 日均線下" : ""}，離場訊號尚未解除，是否出場請自己判斷`);
+    }
   }
   return { ...h, price, pnl, pnlPct, rating, advice, scored };
 }

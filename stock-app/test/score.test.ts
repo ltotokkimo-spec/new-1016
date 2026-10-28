@@ -74,6 +74,21 @@ describe("持股健檢", () => {
   });
 });
 
+describe("離場評等的反彈提示", () => {
+  const h = { id: "1", code: "AXTI", name: "AXT", market: "US" as const, shares: 32, cost: 56.03 };
+  const s = (o: any): any => ({ code: "AXTI", name: "AXT", market: "US", sector: "半導體", close: 58, value: 1e9, ret1w: 0.02, ret1m: -0.21, ret3m: 0.09, score: 30, momentum: 0, flow: 0, sectorScore: 0, rating: "離場", aboveMa50: false, reasons: [], ...o });
+  it("離場但近 1 週上漲、近 1 月仍下跌：多一句反彈提示，評等不變", () => {
+    const v = reviewHolding(h, s({}));
+    expect(v.rating).toBe("離場");
+    expect(v.advice.join()).toMatch(/訊號轉弱/);
+    expect(v.advice.join()).toMatch(/反彈中：近1週 \+2\.0%.*近1月仍 -21\.0%、還在 50 日均線下/);
+  });
+  it("近 1 週沒漲、或評為買入／觀望時不加反彈提示", () => {
+    expect(reviewHolding(h, s({ ret1w: -0.01 })).advice.join()).not.toMatch(/反彈中/);
+    expect(reviewHolding(h, s({ rating: "觀望" })).advice.join()).not.toMatch(/反彈中/);
+  });
+});
+
 describe("ETF 只當參考", () => {
   it("持股健檢不給買入／觀望／離場，但仍提醒停損", async () => {
     const { reviewHolding } = await import("../src/engine/score");

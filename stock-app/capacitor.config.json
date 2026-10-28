@@ -1,6 +1,6 @@
 {
   "appId": "tw.ltotokkimo.stockradar",
-  "appName": "掃金雷達",
+  "appName": "金雷達",
   "webDir": "dist",
   "android": { "backgroundColor": "#0e1215" },
   "plugins": { "CapacitorHttp": { "enabled": false } }

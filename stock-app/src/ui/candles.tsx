@@ -41,7 +41,7 @@ export function CandleChart({ bars, us = false }: { bars: CandleBar[]; us?: bool
   const [wpx, setWpx] = useState(0); // 畫布寬度：旋轉螢幕、分割視窗時要重畫
   const viewRef = useRef(view);
   const setView = (v: View) => { const c = clampView(v, n); viewRef.current = c; setViewState(c); };
-  // 資料更新：盤中每 30 秒只是最後一根改變（檔數不變）→ 保留目前的畫面與點選；多了一根（盤中第一根出現）→ 原本在最右邊才跟著移
+  // 資料更新：盤中每 10 秒只是最後一根改變（檔數不變）→ 保留目前的畫面與點選；多了一根（盤中第一根出現）→ 原本在最右邊才跟著移
   const prevN = useRef(n);
   useEffect(() => {
     const was = prevN.current;

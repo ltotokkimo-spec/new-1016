@@ -132,5 +132,5 @@ jobs:
           cat version.json
           gh release delete stock-radar-latest --yes --cleanup-tag || true
           gh release create stock-radar-latest stock-radar.apk version.json \
-            --title "掃金雷達（最新版）" --prerelease --target "${{ github.sha }}" \
+            --title "金雷達（最新版）" --prerelease --target "${{ github.sha }}" \
             --notes "用 Android 手機開這個頁面，點 stock-radar.apk 下載安裝。版本 1.0.${{ github.run_number }}，已在 Android 模擬器上以真實資料測試通過。"

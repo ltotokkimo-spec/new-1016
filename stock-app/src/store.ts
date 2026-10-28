@@ -95,7 +95,7 @@ export interface State {
   ai?: { data: VirtualEtf; fetchedAt: number; error?: string };
   activeEtf?: { data: ActiveEtfData; fetchedAt: number; error?: string; liveAt?: number; liveProgress?: { done: number; total: number }; liveFound?: number };
   steady?: { data: SteadyLite; fetchedAt: number };
-  live: Record<string, LiveQuote>; // 證交所即時報價（盤中每 30 秒更新）
+  live: Record<string, LiveQuote>; // 證交所即時報價（盤中每 10 秒更新）
   liveAt?: number;
   usExtra: UsExtra[]; // 使用者自己加的美股
   usPending: string[]; // 正在下載的美股持股代號
@@ -470,25 +470,32 @@ export async function installUpdate() {
 
 // ---------- 回測結果（GitHub Actions 算好，App 只下載） ----------
 /** 抓幾檔的即時報價（失敗就保留上次的） */
+/** 即時資料盤中更新間隔（毫秒）：使用者 10/28 指定每 10 秒 */
+export const LIVE_MS = 10_000;
+const liveBusy = { tw: false, us: false };
 export async function refreshLive(codes: string[]) {
   const list = [...new Set(codes.filter((c) => /^[0-9A-Z]{4,6}$/.test(c)))];
-  if (!list.length) return;
+  if (!list.length || liveBusy.tw) return; // 上一次還沒抓完就略過，避免 10 秒更新時重疊
+  liveBusy.tw = true;
   try {
     const got: Record<string, LiveQuote> = {};
     for (let i = 0; i < list.length; i += 20) Object.assign(got, parseLive(await fetcher(liveUrl(list.slice(i, i + 20)))));
     set({ live: { ...state.live, ...got }, liveAt: Date.now() });
   } catch { /* 即時報價只是輔助，抓不到就顯示收盤價 */ }
+  finally { liveBusy.tw = false; }
 }
 
 /** 美股即時報價（CNBC）：盤中最新價、收盤後收盤價，附盤前／盤後成交 */
 export async function refreshUsLive(symbols: string[]) {
   const list = [...new Set(symbols.filter((c) => /^[A-Z][A-Z.\-]{0,9}$/.test(c)))];
-  if (!list.length) return;
+  if (!list.length || liveBusy.us) return;
+  liveBusy.us = true;
   try {
     const got: Record<string, LiveQuote> = {};
     for (let i = 0; i < list.length; i += 20) Object.assign(got, parseUsLive(await fetcher(usLiveUrl(list.slice(i, i + 20)))));
     set({ live: { ...state.live, ...got }, liveAt: Date.now() });
   } catch { /* 抓不到就顯示最近收盤 */ }
+  finally { liveBusy.us = false; }
 }
 
 /** 下載 Claude 的虛擬自組 ETF；失敗就沿用上次下載的 */

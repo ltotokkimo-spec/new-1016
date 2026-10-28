@@ -1,10 +1,10 @@
-# 交接檔：掃金雷達（stock-app，10/27 由「掃雷專區」改名）與周邊排程
+# 交接檔：金雷達（stock-app，10/27 由「掃雷專區」改名「掃金雷達」，10/28 再改「金雷達」）與周邊排程
 
 > 初版 2026-10-21，**2026-10-23 更新（使用者換聊天室）**，供新的 Claude Code 對話接手。**先讀這份，再讀 `CLAUDE.md`（工作方式）與 `stock-app/virtual/DAILY.md`（虛擬 ETF 每日程序）。**
 > 這份是「事實與決定」的整理，數字會變的（持股、淨值）請以檔案為準，不要照抄這裡。
 
 ## 1. 專案概況
-- **掃金雷達**：個人用 Android 選股 App（Capacitor + Preact，繁體中文）。台股／美股／ETF 選股、族群、持股、自組 ETF、數據。
+- **金雷達**：個人用 Android 選股 App（Capacitor + Preact，繁體中文）。台股／美股／ETF 選股、族群、持股、自組 ETF、數據。
 - Repo：`ltotokkimo-spec/new-1016`，本機資料夾叫 `-`。**開發分支 `claude/ui-calculator-interface-t3x9kh`**（repo 預設分支是 `claude/conversation-start-guide-ya0q8x`，每日回測的觸發 workflow 放在那邊）。
 - 同一個 repo 還有計算機、小畫家（根目錄的 `calculator.py`、`paint.py`、`tests/`），與選股 App 無關。
 - 已發布版本：**1.0.132**（2026-10-22 深夜，Releases `stock-radar-latest`：`stock-radar.apk` ＋ `version.json`；App 內按「更新」下載）。單元測試 184 項、模擬器 e2e 約 100 項檢查。
@@ -139,3 +139,5 @@
 2. 看 `stock-app/RELEASE_NOTES.txt` 與 Releases 的 `version.json` 確認已發布版本。
 3. 跑 `cd stock-app && npm ci && npm test`（`npx tsc --noEmit -p .` 也要過）。
 4. 改完一次推送，等 CI，**自己看截圖**再回報。
+
+- **即時資料每 10 秒更新（10/28 使用者指定，原本 30 秒）**：`store.ts` 的 `LIVE_MS`（10_000）給所有盤中輪詢用（選股清單前 60 檔、詳情頁、持股、數據分頁指數／期貨／成交金額、虛擬 ETF 現價）；`refreshLive`／`refreshUsLive` 加了 `liveBusy`，上一次還沒抓完就略過，避免重疊。證交所 MIS 節流是 1 秒一次，60 檔分 3 批約 3 秒抓完，10 秒夠用；若被證交所擋（回應變慢、一直沒資料），先把 `LIVE_MS` 調回 15～30 秒。

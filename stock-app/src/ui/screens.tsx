@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
+  LIVE_MS,
   findScored, getFetcher, getKv, getState, holdingViews, refreshEsb, refreshMacro, refreshTw, refreshUs, saveHoldings, saveReport,
   saveSettings, clearCache, useStore, usBars, recordSpend, estimatedBalance, checkForUpdate, installUpdate,
   addUsSymbol, removeUsSymbol, refreshLive, refreshUsLive, refreshTwIndex, refreshFutures, refreshTurnover, refreshEtfNav, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
@@ -35,7 +36,7 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
   const filter = refOnly ? "全部" : filter0 === "剛轉強" && !turn ? "買入" : filter0; // ETF 不分評等；美股沒有「剛轉強」，從台股切過來時改回「買入」
   const [q, setQ] = useState("");
   const live = useStore((s) => s.live);
-  // 清單前 60 檔用即時價（台股：證交所；美股：CNBC，盤中每 30 秒更新），其餘顯示最近收盤的漲跌
+  // 清單前 60 檔用即時價（台股：證交所；美股：CNBC，盤中每 10 秒更新），其餘顯示最近收盤的漲跌
   const freshLive = (s: Scored): LiveQuote | undefined => {
     const lq = live[s.code];
     return lq && lq.date && lq.date >= (ms.asOf ?? "") ? lq : undefined;
@@ -59,7 +60,7 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
     const us = market === "US";
     const pull = () => (us ? refreshUsLive(liveCodes) : refreshLive(liveCodes));
     pull();
-    const t = setInterval(() => { if (us ? usQuoteHours() : marketOpen()) pull(); }, 30_000);
+    const t = setInterval(() => { if (us ? usQuoteHours() : marketOpen()) pull(); }, LIVE_MS);
     return () => clearInterval(t);
   }, [liveKey]);
 
@@ -336,7 +337,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
   const today = taipeiToday();
   const reportKey = `stock:${s.code}:${today}`;
   const report = reports[reportKey];
-  // 現價與 ETF 即時折溢價：大字原本是最近一個「收盤價」（可能是昨天），開啟詳情頁就抓即時價，盤中每 30 秒更新
+  // 現價與 ETF 即時折溢價：大字原本是最近一個「收盤價」（可能是昨天），開啟詳情頁就抓即時價，盤中每 10 秒更新
   const live = useStore((st) => st.live[s.code]);
   const snapAsOf = useStore((st) => (s.market === "US" ? st.us.asOf : st.tw.asOf));
   const etfNav = useStore((st) => st.etfNav[s.code]);
@@ -348,7 +349,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
       if (etf) refreshEtfNav();
     };
     pull();
-    const t = setInterval(() => { if (s.market === "US" || marketOpen()) pull(); }, 30_000);
+    const t = setInterval(() => { if (s.market === "US" || marketOpen()) pull(); }, LIVE_MS);
     return () => clearInterval(t);
   }, [s.code]);
   const price = lq ? lq.price : s.close;
@@ -439,7 +440,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
           ? (bars ? <FlowsPanel code={s.code} market={s.market === "TPEX" ? "TPEX" : "TWSE"} bars={bars} livePrice={lq?.price} /> : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>)
           : shownBars ? (shownBars.length > 1 ? <>
               <CandleChart bars={shownBars} us={s.market === "US"} />
-              {liveBar && <div class="date-hint" data-testid="kbar-live">⏱ 最後一根是{liveBar.final ? "最新收盤" : "盤中"}的即時價（含成交量{liveBar.time ? `，台北 ${liveBar.time.slice(0, 5)}` : ""}），每 30 秒更新；{s.market === "US" ? "下次更新美股資料時換成正式日 K" : "證交所正式資料（約 15:00 後）出來後會換成正式的"}</div>}
+              {liveBar && <div class="date-hint" data-testid="kbar-live">⏱ 最後一根是{liveBar.final ? "最新收盤" : "盤中"}的即時價（含成交量{liveBar.time ? `，台北 ${liveBar.time.slice(0, 5)}` : ""}），每 10 秒更新；{s.market === "US" ? "下次更新美股資料時換成正式日 K" : "證交所正式資料（約 15:00 後）出來後會換成正式的"}</div>}
             </> : <div class="empty">沒有走勢資料</div>) : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>}
       </div>
 
@@ -535,7 +536,7 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
   const live = useStore((s) => s.live);
   const twAsOf = useStore((s) => s.tw.asOf);
   const usAsOf = useStore((s) => s.us.asOf);
-  // 持股即時價：台股用證交所、美股用 CNBC（盤中每 30 秒更新）
+  // 持股即時價：台股用證交所、美股用 CNBC（盤中每 10 秒更新）
   const hs = useStore((s) => s.holdings);
   const twCodes = hs.filter((h) => h.market !== "US").map((h) => h.code);
   const usCodes = hs.filter((h) => h.market === "US").map((h) => h.code);
@@ -546,7 +547,7 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
     const t = setInterval(() => {
       if (twCodes.length && marketOpen()) refreshLive(twCodes);
       if (usCodes.length && usQuoteHours()) refreshUsLive(usCodes);
-    }, 30_000);
+    }, LIVE_MS);
     return () => clearInterval(t);
   }, [codeKey]);
   const today = taipeiToday();
@@ -760,10 +761,10 @@ function ImportReview({ data, onDone }: { data: { rows: ImportedHolding[]; note:
 // ---------------- 數據（國內外指標＋AI 解讀） ----------------
 export function MacroScreen() {
   const st = useStore((s) => ({ macro: s.macro, tw: s.tw, us: s.us, idx: s.twIndices, breadth: s.twBreadth, idxLive: s.twIndexLive, fut: s.futures, turnover: s.twTurnover, etfs: s.usSectorEtfs, apiKey: s.settings.apiKey, reports: s.reports }));
-  // 台股指數盤中每 30 秒更新（收盤後 MIS 回傳收盤價，仍會顯示）
+  // 台股指數盤中每 10 秒更新（收盤後 MIS 回傳收盤價，仍會顯示）
   useEffect(() => {
     refreshTwIndex(); refreshFutures(); refreshTurnover();
-    const t = setInterval(() => { if (marketOpen()) refreshTwIndex(); refreshFutures(); refreshTurnover(); }, 30_000);
+    const t = setInterval(() => { if (marketOpen()) refreshTwIndex(); refreshFutures(); refreshTurnover(); }, LIVE_MS);
     return () => clearInterval(t);
   }, []);
   // 盤中即時優先，沒有再用快照的收盤

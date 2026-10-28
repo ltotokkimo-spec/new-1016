@@ -19,6 +19,14 @@ const ICONS: Record<Tab, string> = {
 };
 const LABELS: Record<Tab, string> = { picks: "選股", sectors: "族群", holdings: "持股", aietf: "自組ETF", macro: "數據", etfrank: "ETF排行", settings: "設定" };
 
+// 標題雷達：扇形前緣在正上方，往逆時針拖出 38 片漸淡的殘影（約半圈）；目標點在掃描線掃到的那一刻亮起
+const radarPt = (deg: number, r: number) => { const a = (deg - 90) * Math.PI / 180; return [r * Math.cos(a), r * Math.sin(a)]; };
+const RADAR_FAN = Array.from({ length: 38 }, (_, i) => {
+  const step = 190 / 38, a1 = -i * step, a0 = a1 - step, p0 = radarPt(a0, 32), p1 = radarPt(a1, 32);
+  return { d: `M0 0 L${p0[0].toFixed(2)} ${p0[1].toFixed(2)} A32 32 0 0 1 ${p1[0].toFixed(2)} ${p1[1].toFixed(2)} Z`, op: +(0.8 * Math.exp(-(i + 0.5) * (3.2 / 38))).toFixed(3) };
+});
+const RADAR_BLIPS = [[40, 27], [130, 16], [215, 28], [300, 17]].map(([deg, r]) => { const p = radarPt(deg, r); return { x: +p[0].toFixed(1), y: +p[1].toFixed(1), delay: +(deg / 360 * 4.5).toFixed(2) }; });
+
 export function App() {
   const [tab, setTab] = useState<Tab>(() => (location.hash.slice(1) as Tab) in LABELS ? (location.hash.slice(1) as Tab) : "picks");
   const [market, setMarket] = useState<Market>("TW");
@@ -53,12 +61,11 @@ export function App() {
         <div class="brand">
           <svg class="radar-logo" viewBox="-36 -36 72 72" aria-hidden="true">
             <g class="radar-sweep">
-              <path d="M0 0 L0 -32 A32 32 0 0 1 22.6 -22.6 Z" opacity="0.85" />
-              <path d="M0 0 L-12.2 -29.6 A32 32 0 0 1 0 -32 Z" opacity="0.45" />
-              <path d="M0 0 L-22.6 -22.6 A32 32 0 0 1 -12.2 -29.6 Z" opacity="0.22" />
-              <path d="M0 0 L-29.6 -12.2 A32 32 0 0 1 -22.6 -22.6 Z" opacity="0.1" />
+              <g class="radar-fan">{RADAR_FAN.map((d, i) => <path key={i} d={d.d} opacity={d.op} />)}</g>
+              <line class="radar-edge" x1="0" y1="0" x2="0" y2="-32" />
             </g>
-            <circle r="32" /><circle r="21" /><circle r="10" />
+            <circle class="radar-ring" r="32" /><circle class="radar-ring" r="21" /><circle class="radar-ring" r="10" />
+            {RADAR_BLIPS.map((b, i) => <circle key={i} class="radar-blip" cx={b.x} cy={b.y} r="3" style={`animation-delay:${b.delay}s;transform-origin:${b.x}px ${b.y}px`} />)}
             <polyline points="-28,14 -14,2 -4,9 18,-16" class="radar-line" />
           </svg>
           <span class="brand-fx" data-testid="brand">金雷達</span>

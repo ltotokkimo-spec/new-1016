@@ -111,6 +111,9 @@ function check(ok, name, detail = "") {
   const brand = await page.$eval('[data-testid="brand"]', (e) => { const c = getComputedStyle(e); return { text: e.innerText, bg: c.backgroundImage.slice(0, 60), fill: c.webkitTextFillColor || c.color, anim: c.animationName }; }).catch(() => null);
   log("標題特效", JSON.stringify(brand));
   check(!!brand && brand.text === "金雷達" && /linear-gradient/.test(brand.bg) && /brand-flow/.test(brand.anim), "標題「金雷達」套用流光金特效（金色漸層文字、流動動畫）", JSON.stringify(brand));
+  const radar = await page.evaluate(() => { const l = document.querySelector(".radar-logo"); if (!l) return null; const c = getComputedStyle(l.querySelector(".radar-ring")); return { fan: l.querySelectorAll(".radar-fan path").length, blips: l.querySelectorAll(".radar-blip").length, ring: c.stroke, anim: getComputedStyle(l.querySelector(".radar-sweep")).animationName }; });
+  log("標題雷達", JSON.stringify(radar));
+  check(!!radar && radar.fan === 38 && radar.blips === 4 && /240,\s*178,\s*62|184,\s*122,\s*7/.test(radar.ring) && /radar-spin/.test(radar.anim), "標題雷達：金色圓環、長殘影扇形、4 個紅色目標點、旋轉動畫", JSON.stringify(radar));
   await shot("02-選股-台股");
 
   // 剛轉強：回測資料裡的訊號（站上 20 日線 5% 以內、MACD 剛翻正、RSI<70、法人買超）

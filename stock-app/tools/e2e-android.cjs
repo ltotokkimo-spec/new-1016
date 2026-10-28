@@ -361,7 +361,7 @@ function check(ok, name, detail = "") {
   await page.waitForFunction(() => /已檢查最新持股/.test(document.querySelector('[data-testid="etfrank-live"]')?.innerText || ""), null, { timeout: 120000 }).catch(() => {});
   const liveTxt = await page.$eval('[data-testid="etfrank-live"]', (e) => e.innerText).catch(() => "");
   log("ETF排行 App 檢查最新持股", liveTxt);
-  check(/\d+\/\d+ 已公布 \d+／\d+ 檔/.test(liveTxt) && !/NaN|undefined/.test(liveTxt), "ETF排行顯示持股公布進度（已公布幾檔／共幾檔）", liveTxt);
+  check(/\d+\/\d+（.） 已公布 \d+／\d+ 檔/.test(liveTxt) && !/NaN|undefined/.test(liveTxt), "ETF排行顯示持股公布進度（已公布幾檔／共幾檔）", liveTxt);
   check(+(/取得 (\d+) 檔/.exec(liveTxt)?.[1] || 0) >= 10, "App 自己向 MoneyDJ 抓到 10 檔以上主動式 ETF 的最新持股", liveTxt);
   await shot("05h-ETF排行主動式");
   // 點進個股：看是哪幾檔主動式 ETF 在買賣（每檔增減、持有張數），合計要和清單那一列一致

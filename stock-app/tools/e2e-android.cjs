@@ -334,6 +334,26 @@ function check(ok, name, detail = "") {
   log("ETF排行 App 檢查最新持股", liveTxt);
   check(+(/取得 (\d+) 檔/.exec(liveTxt)?.[1] || 0) >= 10, "App 自己向 MoneyDJ 抓到 10 檔以上主動式 ETF 的最新持股", liveTxt);
   await shot("05h-ETF排行主動式");
+  // 點進個股：看是哪幾檔主動式 ETF 在買賣（每檔增減、持有張數），合計要和清單那一列一致
+  if (!accum) {
+    const rowTxt = await page.$eval('[data-testid="etfrank-buy"] .item', (e) => e.innerText.replace(/\s+/g, " "));
+    await page.click('[data-testid="etfrank-buy"] .item');
+    await page.waitForSelector('[data-testid="etf-who"]', { timeout: 10000 });
+    const who = await page.evaluate(() => ({
+      summary: document.querySelector('[data-testid="who-summary"]')?.innerText.replace(/\s+/g, " ") || "",
+      rows: [...document.querySelectorAll('[data-testid="who-row"]')].map((e) => e.innerText.replace(/\s+/g, " ")),
+      title: document.querySelector(".sheet h2")?.innerText || "",
+    }));
+    log("ETF排行 點進個股", JSON.stringify(who));
+    const num = (t) => Number((/([+-][\d,]+) 張/.exec(t)?.[1] || "NaN").replace(/,/g, ""));
+    const listLots = num(rowTxt), sumLots = num(who.summary), rowLots = who.rows.map(num);
+    check(who.rows.length >= 1 && who.rows.every((r) => /\b00\d{3,4}[A-Z]\b/.test(r) && /持有 [\d,]+ → [\d,]+ 張/.test(r) && /(新增|加碼|減碼|清倉)/.test(r)), "點進個股列出每檔主動式 ETF（名稱、代號、持有前後張數、加減碼）", who.rows[0] || "");
+    check(Number.isFinite(listLots) && listLots === sumLots && Math.abs(rowLots.reduce((a, b) => a + b, 0) - sumLots) <= who.rows.length, "個股明細的各檔增減加總，等於清單那一列的張數", JSON.stringify({ listLots, sumLots, rowLots }));
+    check(/\d+ 檔買、\d+ 檔賣/.test(who.summary), "明細寫出幾檔買、幾檔賣", who.summary);
+    await shot("05i-ETF排行個股明細");
+    await page.click('button[aria-label="返回"]');
+    await page.waitForSelector('[data-testid="etf-who"]', { state: "detached", timeout: 5000 }).catch(() => {});
+  }
   await page.click('[data-testid="etfrank-trust"]');
   await page.waitForSelector('[data-testid="etfrank-buy"] .item', { timeout: 30000 });
   const rk1 = await rk();

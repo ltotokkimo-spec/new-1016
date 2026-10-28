@@ -138,3 +138,22 @@ export function activeRank<T extends { close: number }>(data: ActiveEtfData | un
     used,
   };
 }
+
+export interface EtfWho { etf: string; name: string; delta: number; before: number; after: number; perDay: [string, number][] }
+
+/** 某檔股票在最近 days 天，是哪幾檔主動式 ETF 買賣：每檔合計增減、持股前後（股）與每天明細，依增減大小排序 */
+export function etfBreakdown(data: ActiveEtfData | undefined, code: string, days: number): { rows: EtfWho[]; used: ActiveDay[] } {
+  const used = (data?.days ?? []).slice(0, days);
+  const names = new Map((data?.etfs ?? []).map((e) => [e.code, e.name]));
+  const by = new Map<string, [string, number][]>();
+  for (const d of used) for (const [etf, v] of d.flows[code]?.b ?? []) by.set(etf, [...(by.get(etf) ?? []), [d.date, v]]);
+  const rows: EtfWho[] = [];
+  for (const [etf, perDay] of by) {
+    const delta = perDay.reduce((a, [, v]) => a + v, 0);
+    if (!delta) continue;
+    const after = data?.latest?.[etf]?.shares[code] ?? 0;
+    rows.push({ etf, name: names.get(etf) ?? etf, delta, before: Math.max(0, after - delta), after, perDay });
+  }
+  rows.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+  return { rows, used };
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeRank, addSnap, buildActiveData, buildActiveDays, mergeLive, parseMoneyDjHoldings, type ActiveHist } from "../src/lib/activeEtf";
+import { activeRank, addSnap, buildActiveData, buildActiveDays, mergeLive, parseMoneyDjHoldings, etfBreakdown, type ActiveHist } from "../src/lib/activeEtf";
 
 // MoneyDJ「全部持股」頁的實際結構（10/27 從 GitHub Actions 探測取得，節錄）
 const html = `<div>首頁 / ETF介紹 / 個別ETF-全部持股</div><h3>主動統一台股增長(00981A.TW)-全部持股</h3><div>資料日期：2026/10/22</div>
@@ -85,5 +85,32 @@ describe("App 自己補抓最新持股", () => {
     expect(m2.days[0].flows["2454"]).toEqual({ s: 200, b: [["A2", 200]] });
     expect(Object.keys(m2.days[0].prev).sort()).toEqual(["A1", "A2"]);
     expect(mergeLive(data, [])).toBe(data);
+  });
+});
+
+describe("點進個股看是哪幾檔主動式 ETF 買賣", () => {
+  let h: ActiveHist = { version: 1, etfs: {} };
+  h = addSnap(h, "A1", "主動甲", { date: "20261021", shares: { "2330": 1000, "2454": 5000 } });
+  h = addSnap(h, "A1", "主動甲", { date: "20261022", shares: { "2330": 3000, "3037": 2000 } });
+  h = addSnap(h, "A1", "主動甲", { date: "20261027", shares: { "2330": 2500, "3037": 2000 } });
+  h = addSnap(h, "A2", "主動乙", { date: "20261022", shares: { "2330": 9000 } });
+  h = addSnap(h, "A2", "主動乙", { date: "20261027", shares: { "2330": 9800 } });
+  const data = buildActiveData(h, "t");
+  it("最新一天：每檔 ETF 的增減與持股前後", () => {
+    const r = etfBreakdown(data, "2330", 1);
+    expect(r.used.map((d) => d.date)).toEqual(["20261027"]);
+    expect(r.rows.map((x) => [x.etf, x.name, x.delta, x.before, x.after])).toEqual([["A2", "主動乙", 800, 9000, 9800], ["A1", "主動甲", -500, 3000, 2500]]);
+  });
+  it("多天合計並保留每天明細；新增與清倉也看得出來", () => {
+    const r = etfBreakdown(data, "2330", 5);
+    const a1 = r.rows.find((x) => x.etf === "A1")!;
+    expect(a1.delta).toBe(1500); // +2000（10/22）−500（10/27）
+    expect(a1.perDay).toEqual([["20261027", -500], ["20261022", 2000]]);
+    expect(a1.before).toBe(1000);
+    const n = etfBreakdown(data, "3037", 5).rows[0];
+    expect([n.delta, n.before, n.after]).toEqual([2000, 0, 2000]); // 新增
+    const out = etfBreakdown(data, "2454", 5).rows[0];
+    expect([out.delta, out.after]).toEqual([-5000, 0]); // 清倉
+    expect(etfBreakdown(undefined, "2330", 1).rows).toEqual([]);
   });
 });

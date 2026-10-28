@@ -1,7 +1,7 @@
 // ETF排行分頁：個股被 ETF 買賣超的排名，今天、近 5 日買超與賣超前 20 名（依金額排名）。
 // 兩種來源：主動式 ETF（每天比對各主動式 ETF 公布的持股，經理人實際加減碼）、投信全部（證交所／櫃買投信買賣超，含被動 ETF 與一般基金）。
 import { useEffect, useMemo, useState } from "preact/hooks";
-import { activeRank } from "../lib/activeEtf";
+import { activeRank, etfBreakdown } from "../lib/activeEtf";
 import { flowRank } from "../engine/etfRank";
 import type { Scored } from "../engine/score";
 import { prettyW } from "../lib/dates";
@@ -9,7 +9,7 @@ import { LIVE_MS, refreshActiveEtf, refreshActiveLive, refreshLive, useStore } f
 import type { LiveQuote } from "../data/twLive";
 import { marketOpen } from "../data/twLive";
 import { taipeiToday } from "../lib/dates";
-import { cls, fmtPct, fmtPrice } from "./common";
+import { cls, fmtPct, fmtPrice, Sheet } from "./common";
 
 const lots = (shares: number) => `${shares > 0 ? "+" : ""}${Math.round(shares / 1000).toLocaleString("zh-TW")} 張`;
 const amt = (x: number) => {
@@ -21,7 +21,7 @@ const shortName = (n: string) => n.replace(/^主動/, "");
 
 interface Row { item: Scored; shares: number; amount: number; sub?: string }
 
-function RankList({ rows, side, open, live }: { rows: Row[]; side: "buy" | "sell"; open: (s: Scored) => void; live: Record<string, LiveQuote> }) {
+function RankList({ rows, side, open, live }: { rows: Row[]; side: "buy" | "sell"; open: (r: Row) => void; live: Record<string, LiveQuote> }) {
   if (!rows.length) return <div class="card empty">沒有{side === "buy" ? "買超" : "賣超"}的個股</div>;
   return (
     <div class="list" data-testid={`etfrank-${side}`}>
@@ -32,7 +32,7 @@ function RankList({ rows, side, open, live }: { rows: Row[]; side: "buy" | "sell
         const price = intraday ? q!.price : r.item.close;
         const chg = intraday && Number.isFinite(q!.prevClose) ? q!.price / q!.prevClose - 1 : r.item.chg1d;
         return (
-        <button class="item" onClick={() => open(r.item)}>
+        <button class="item" onClick={() => open(r)}>
           <div style={{ minWidth: 0 }}>
             <div class="name"><span class="muted num" style={{ fontWeight: 400 }}>{i + 1}.</span> {r.item.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{r.item.code}</span></div>
             <div class="sub">{r.sub ?? r.item.sector}</div>
@@ -52,11 +52,70 @@ function RankList({ rows, side, open, live }: { rows: Row[]; side: "buy" | "sell
   );
 }
 
+/** 點進個股：這檔股票在選定期間是哪幾檔主動式 ETF 買賣（每檔增減、持有張數、每天明細）＋個股資訊 */
+function WhoSheet({ row, days, onClose, openDetail, live }: { row: Row; days: 1 | 5; onClose: () => void; openDetail: () => void; live: Record<string, LiveQuote> }) {
+  const active = useStore((s) => s.activeEtf);
+  const { rows, used } = useMemo(() => etfBreakdown(active?.data, row.item.code, days), [active, row.item.code, days]);
+  const s = row.item;
+  const q = live[s.code];
+  const intraday = !!q && !q.final && q.date === taipeiToday() && marketOpen();
+  const price = intraday ? q!.price : s.close;
+  const chg = intraday && Number.isFinite(q!.prevClose) ? q!.price / q!.prevClose - 1 : s.chg1d;
+  const buyers = rows.filter((r) => r.delta > 0), sellers = rows.filter((r) => r.delta < 0);
+  const sum = rows.reduce((a, r) => a + r.delta, 0);
+  const span = used.length ? `${ymdW(used[used.length - 1].date)}${used.length > 1 ? ` ～ ${ymdW(used[0].date)}` : ""}` : "";
+  return (
+    <Sheet title={`${s.name} ${s.code}`} onClose={onClose} actions={<button class="chip" onClick={openDetail} data-testid="who-detail">個股詳情</button>}>
+      <div data-testid="etf-who">
+        <div class="card" style={{ marginBottom: "12px" }}>
+          <div class="row" style={{ justifyContent: "space-between" }}>
+            <div><div class="muted" style={{ fontSize: "12px" }}>{intraday ? `現價 ${q!.time.slice(0, 5)}` : "收盤"}</div><div class="num" style={{ fontSize: "22px", fontWeight: 700 }}>{fmtPrice(price)}</div></div>
+            <div style={{ textAlign: "right" }}>
+              {chg !== undefined && Number.isFinite(chg) && <div class={`num ${cls(chg)}`} style={{ fontWeight: 600 }}>{fmtPct(chg)}</div>}
+              <div class="muted" style={{ fontSize: "12px" }}>{s.sector}</div>
+            </div>
+          </div>
+          <div class="muted" style={{ fontSize: "12px", marginTop: "8px", lineHeight: 1.7 }}>
+            評等 {s.rating}・分數 {s.score}　外資近 5 日 <span class={cls(s.foreign5)}>{lots(s.foreign5 ?? 0)}</span>　投信近 5 日 <span class={cls(s.trust5)}>{lots(s.trust5 ?? 0)}</span>
+          </div>
+        </div>
+        <div class="section-title"><span>主動式 ETF 買賣</span><span>{days === 1 ? "最新一天" : "近 5 日"}{span ? `・${span}` : ""}</span></div>
+        <div class="muted" style={{ fontSize: "13px", margin: "2px 2px 8px" }} data-testid="who-summary">
+          合計 <b class={`num ${cls(sum)}`}>{lots(sum)}</b>（約 {amt(sum * price)}）・{buyers.length} 檔買、{sellers.length} 檔賣
+        </div>
+        {!rows.length ? <div class="card empty">這段期間沒有主動式 ETF 買賣這檔</div> : (
+          <div class="list" data-testid="who-list">
+            {rows.map((r) => {
+              const pctChg = r.before > 0 ? r.delta / r.before : NaN;
+              const tag = r.before === 0 && r.delta > 0 ? "新增" : r.after === 0 && r.delta < 0 ? "清倉" : r.delta > 0 ? "加碼" : "減碼";
+              return (
+                <div class="item" style={{ cursor: "default" }} data-testid="who-row">
+                  <div style={{ minWidth: 0 }}>
+                    <div class="name">{r.name.replace(/^主動/, "")} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{r.etf}</span></div>
+                    <div class="sub">持有 {Math.round(r.before / 1000).toLocaleString("zh-TW")} → {Math.round(r.after / 1000).toLocaleString("zh-TW")} 張{Number.isFinite(pctChg) ? `（${pctChg > 0 ? "+" : ""}${(pctChg * 100).toFixed(1)}%）` : ""}</div>
+                    {r.perDay.length > 1 && <div class="sub">{r.perDay.map(([d, v]) => `${ymdW(d).split("（")[0]} ${lots(v)}`).join("・")}</div>}
+                  </div>
+                  <div class="px">
+                    <div class={`p num ${cls(r.delta)}`}>{lots(r.delta)}</div>
+                    <div class={`c num ${cls(r.delta)}`}>{tag}・{amt(r.delta * price)}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, margin: "10px 2px" }}>增減＝同一檔 ETF 前後兩份持股的股數差，含申購買回造成的同比例買賣；金額用上面的價格估算。</div>
+      </div>
+    </Sheet>
+  );
+}
+
 export function EtfRankScreen({ open }: { open: (s: Scored) => void }) {
   const tw = useStore((s) => s.tw);
   const active = useStore((s) => s.activeEtf);
   const [src, setSrc] = useState<"active" | "trust">("active");
   const [days, setDays] = useState<1 | 5>(1);
+  const [who, setWho] = useState<Row | null>(null);
   // GitHub 每天整理一次；另外打開時 App 自己向 MoneyDJ 檢查最新持股（10 分鐘內不重複）
   useEffect(() => {
     const old = (t?: number) => !t || Date.now() - t > 10 * 60_000;
@@ -84,6 +143,8 @@ export function EtfRankScreen({ open }: { open: (s: Scored) => void }) {
     const t = setInterval(() => { if (marketOpen()) refreshLive(liveCodes); }, LIVE_MS);
     return () => clearInterval(t);
   }, [liveKey]);
+  // 主動式 ETF：點進去看是哪幾檔在買賣；投信全部沒有逐檔資料，直接開個股詳情
+  const pick = (r: Row) => (src === "active" ? setWho(r) : open(r.item));
   const ready = tw.scored.length > 0 && (src === "trust" || !!active);
   const used = rank.used;
   const dataDay = src === "active" ? (used?.[0]?.date ?? active?.data.live ?? "") : (tw.flowDate ?? "");
@@ -115,14 +176,15 @@ export function EtfRankScreen({ open }: { open: (s: Scored) => void }) {
         {active.liveProgress ? `正在檢查最新持股… ${active.liveProgress.done}/${active.liveProgress.total}`
           : <>已檢查最新持股（{new Date(active.liveAt!).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false })}，取得 {active.liveFound ?? 0} 檔）{active.data.live ? `，最新持股日 ${ymdW(active.data.live)}` : ""} <button class="linkbtn" onClick={() => refreshActiveLive()} data-testid="etfrank-recheck">重新檢查</button></>}
       </div>}
+      {who && <WhoSheet row={who} days={days} live={live} onClose={() => setWho(null)} openDetail={() => open(who.item)} />}
       {src === "active" && active?.error && <div class="card empty" style={{ marginBottom: "8px" }}>{active.error}</div>}
       {!ready ? <div class="card empty">{tw.status === "error" ? tw.error ?? "資料下載失敗" : "資料下載中…"}</div>
         : accumulating ? <div class="card empty" data-testid="etfrank-accum">資料累積中：已取得 {active!.data.etfs.length} 檔主動式 ETF 的持股{latestHold ? `（${ymdW(latestHold)}）` : ""}，下一份持股公布後就能比對出第一天的買賣超。</div>
         : <>
           <div class="section-title"><span class="up">{src === "active" ? "主動式 ETF" : "投信"} 買超前 20 名</span><span>{period}</span></div>
-          <RankList rows={rank.buy} side="buy" open={open} live={live} />
+          <RankList rows={rank.buy} side="buy" open={pick} live={live} />
           <div class="section-title"><span class="down">{src === "active" ? "主動式 ETF" : "投信"} 賣超前 20 名</span><span>{period}</span></div>
-          <RankList rows={rank.sell} side="sell" open={open} live={live} />
+          <RankList rows={rank.sell} side="sell" open={pick} live={live} />
         </>}
     </div>
   );

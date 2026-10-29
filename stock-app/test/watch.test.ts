@@ -62,6 +62,11 @@ describe("N5 觀察組合", () => {
     expect(v.notes.some((n) => n.text.includes("重新選股"))).toBe(true);
   });
 
+  it("每天重新選股（不是每 5 天）：每個資料日都有「重新選股」說明", () => {
+    const n = v.notes.filter((x) => x.text.includes("重新選股")).length;
+    expect(n).toBeGreaterThanOrEqual(v.nav.length - 1);
+  });
+
   it("結果是穩定的：用同樣資料重算，結果一樣（不需要保存狀態）", () => {
     const again = runWatch(days, companies, { start: startAt, now: 0 });
     expect(again.trades).toEqual(v.trades);
@@ -118,6 +123,9 @@ describe("N5 觀察組合", () => {
 
   describe("權值強化", () => {
     const r = runWatch(days, companies, { start: startAt, now: 0, mode: "lead" });
+    it("每天重新判斷：每個資料日都有「本日判斷」說明", () => {
+      expect(r.notes.filter((x) => x.text.includes("本日判斷")).length).toBeGreaterThanOrEqual(r.nav.length - 1);
+    });
     it("全部是個股、不買 0050；下跌的股票不持有；現金不為負", () => {
       expect(r.trades.length).toBeGreaterThan(0);
       expect(r.trades.some((t) => t.code === "0050")).toBe(false);

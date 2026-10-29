@@ -1,4 +1,4 @@
-// N5 觀察組合（使用者 2026-10-23 指定套用並觀察）：虛擬 50 萬，一半買 0050，一半照方案 A 選股，每 5 個交易日調整一次。
+// N5 觀察組合（使用者 2026-10-23 指定套用並觀察）：虛擬 50 萬，一半買 0050，一半照方案 A 選股，每天重新判斷（10/29 使用者從每 5 個交易日改成每天）。
 // 完全由規則自動算（不需要 Claude），每天回測工作流程跑完後輸出 n5.json（和 Claude 虛擬 ETF 同格式），App 直接顯示。
 // 成交規則和 2 年回測一致：第 j 天收盤後決定，第 j+1 天收盤價成交，已計手續費與證交稅。
 import { cashFlow, recordNav, valuate, type EtfTrade } from "./aiEtf";
@@ -11,7 +11,7 @@ export const WATCH = {
   start: "20261023", // 第一次決定的日期（當天收盤後選股，下一個交易日收盤成交）
   budget: 500_000,
   core: 0.5, // 0050 比重；其餘給方案 A
-  every: 5, // 每幾個交易日調整一次（約每週）
+  every: 5, // 每幾個交易日調整一次（約每週）：現在只有攻守輪動用；N5、權值強化 10/29 起改成每天
   aiEvery: 20, // AI 供應鏈每幾個交易日調整一次（約每月，和回測一致）
   minTrade: 0.002, // 與目標差距小於淨值的 0.2% 就不動，避免零碎交易
 } as const;
@@ -20,7 +20,7 @@ const r2 = (x: number) => Math.round(x * 100) / 100;
 const pc = (x: number, d = 1) => `${x >= 0 ? "+" : ""}${(x * 100).toFixed(d)}%`;
 
 /**
- * mode "n5"：0050 五成＋方案 A 五成，每 5 個交易日調整。
+ * mode "n5"：0050 五成＋方案 A 五成，每天重新判斷（10/29 使用者從每 5 個交易日改成每天），差距小於淨值 0.2% 就不動。
  * mode "wide"：全個股（不放 0050）、不限檔數，條件同 A（見 wideTargets），每天重新判斷，只做局部修正。
  */
 export function runWatch(days: BtDay[], companies: Company[], opts: { start?: string; budget?: number; now?: number; mode?: "n5" | "wide" | "regime" | "lead" | "ai" } = {}): VirtualEtf {
@@ -77,8 +77,8 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
     v = { ...v, trades: [...trades], last: { ...last }, asOf: date };
     const val = valuate(v, (code) => close(code, j) ?? last[code]?.close);
     if (!val.missing.length) v = { ...v, ...recordNav(v, date, val) };
-    // 3. 收盤後：每 5 個交易日重新選股
-    const decide = wide || (j - j0) % (ai ? WATCH.aiEvery : WATCH.every) === 0;
+    // 3. 收盤後重新選股：全個股、N5、權值強化每天；攻守輪動每 5 個交易日；AI 供應鏈每 20 個交易日
+    const decide = wide || lead || !(regime || ai) || (j - j0) % (ai ? WATCH.aiEvery : WATCH.every) === 0;
     let text = `資料日收盤：組合 ${pc(val.ret, 2)}，0050 對照 ${pc(val.benchRet, 2)}；股票 ${val.nav > 0 ? Math.round((val.marketValue / val.nav) * 100) : 0}%，持有 ${hold.size} 檔。`;
     if (decide && wide) {
       const t = wideTargets(c, j, new Set(hold.keys()));

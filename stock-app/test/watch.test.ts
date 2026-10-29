@@ -67,6 +67,16 @@ describe("N5 觀察組合", () => {
     expect(n).toBeGreaterThanOrEqual(v.nav.length - 1);
   });
 
+  it("輸出調整時程 plan：N5 每天（1）、最近判斷日是最後一個資料日；攻守輪動 5、AI 20", () => {
+    expect(v.plan).toMatchObject({ every: 1, lastDecision: v.asOf });
+    expect(runWatch(days, companies, { start: startAt, now: 0, mode: "lead" }).plan?.every).toBe(1);
+    expect(runWatch(days, companies, { start: startAt, now: 0, mode: "wide" }).plan?.every).toBe(1);
+    const rg = runWatch(days, companies, { start: startAt, now: 0, mode: "regime" }).plan!;
+    expect(rg.every).toBe(5);
+    expect(rg.lastDecision && rg.lastDecision <= v.asOf).toBe(true);
+    expect(runWatch(days, companies, { start: startAt, now: 0, mode: "ai" }).plan?.every).toBe(20);
+  });
+
   it("結果是穩定的：用同樣資料重算，結果一樣（不需要保存狀態）", () => {
     const again = runWatch(days, companies, { start: startAt, now: 0 });
     expect(again.trades).toEqual(v.trades);

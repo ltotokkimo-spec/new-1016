@@ -34,6 +34,7 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
   const close = (code: string, j: number) => { const r = c.rows[j].get(code); return r && r[2] > 0 ? r[2] : undefined; };
   const name = (code: string, j: number) => c.rows[j].get(code)?.[1] ?? code;
 
+  let lastDecision: string | undefined; // 最近一次判斷日
   let target: Map<string, number> | null = null; // 昨天收盤後決定、今天收盤要調整成的目標
   const trades: EtfTrade[] = [];
   const last: VirtualEtf["last"] = {};
@@ -79,6 +80,7 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
     if (!val.missing.length) v = { ...v, ...recordNav(v, date, val) };
     // 3. 收盤後重新選股：全個股、N5、權值強化每天；攻守輪動每 5 個交易日；AI 供應鏈每 20 個交易日
     const decide = wide || lead || !(regime || ai) || (j - j0) % (ai ? WATCH.aiEvery : WATCH.every) === 0;
+    if (decide) lastDecision = date;
     let text = `資料日收盤：組合 ${pc(val.ret, 2)}，0050 對照 ${pc(val.benchRet, 2)}；股票 ${val.nav > 0 ? Math.round((val.marketValue / val.nav) * 100) : 0}%，持有 ${hold.size} 檔。`;
     if (decide && wide) {
       const t = wideTargets(c, j, new Set(hold.keys()));
@@ -116,5 +118,6 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
     }
     if (decide || j === c.N - 1) v = addNote(v, date, text);
   }
-  return v;
+  const every = wide || lead || !(regime || ai) ? 1 : ai ? WATCH.aiEvery : WATCH.every;
+  return { ...v, plan: { every, lastDecision, band: wide ? STEADY.wideBand : lead || ai ? LEAD.band : WATCH.minTrade } };
 }

@@ -5,8 +5,9 @@ import {
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError, holdingsFromImage, shrinkImage } from "../ai/claude";
 import type { Scored } from "../engine/score";
+import type { VirtualEtf } from "../engine/virtualEtf";
 import { type EtfTrade, comparePlans, DEFAULT_STOP, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
-import { orderDay, pretty, prettyW, taipeiToday } from "../lib/dates";
+import { addWeekdays, orderDay, pretty, prettyW, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
 import { marketOpen, type LiveQuote } from "../data/twLive";
 import { cls, fmtMoney, fmtPct, fmtPrice, fmtSigned } from "./common";
@@ -704,6 +705,33 @@ function CompareView() {
 }
 
 /** Claude 每個交易日自動操作的虛擬資金（唯讀） */
+/** 調整時程：多久判斷一次、最近一次與下次的判斷日與成交日、原則（規則組合與 Claude 虛擬操作都有，讓每一組都標清楚） */
+function SchedulePlanView({ v, isClaude }: { v: VirtualEtf; isClaude: boolean }) {
+  const md = (d: string) => prettyW(d);
+  let body: preact.ComponentChildren;
+  if (isClaude) {
+    const next = v.asOf ? addWeekdays(v.asOf, 1) : undefined;
+    body = <>
+      <div><b>調整頻率</b>：不固定，Claude 每個交易日收盤後檢視一次，沒有明確理由就不動</div>
+      {v.asOf && <div><b>最近一次檢視</b>：{md(v.asOf)} 收盤後・<b>下次檢視</b>：約 {md(next!)} 收盤後</div>}
+      <div class="muted"><b>原則</b>：前一天收盤後下委託，隔天以開盤價成交（限價沒碰到就不買）；單日換股不超過 2 檔；收盤跌破停損價就排隔天開盤賣出；已計手續費與證交稅。</div>
+    </>;
+  } else if (v.plan) {
+    const { every, lastDecision, band } = v.plan;
+    const freq = every === 1 ? "每個交易日" : `每 ${every} 個交易日（約${every === 5 ? "每週" : every === 20 ? "每月" : ""}）`;
+    const nextDecide = lastDecision ? addWeekdays(lastDecision, every) : undefined;
+    body = <>
+      <div><b>調整頻率</b>：{freq}收盤後重新判斷一次</div>
+      {lastDecision && <div><b>最近一次判斷</b>：{md(lastDecision)} 收盤後 → {md(addWeekdays(lastDecision, 1))} 收盤價成交</div>}
+      {nextDecide && <div><b>下次判斷</b>：約 {md(nextDecide)} 收盤後 → 約 {md(addWeekdays(nextDecide, 1))} 收盤價成交</div>}
+      <div class="muted"><b>原則</b>：從 {pretty(v.start)} 起算，第一次判斷在開始日後的第一個交易日；每次判斷當天收盤後算出目標持股，隔一個交易日以收盤價成交；目標和現有持股差距小於淨值 {(band * 100).toFixed(1)}% 就不動（避免零碎交易）；已計手續費與證交稅。下次日期只排除週末，遇國定假日會順延。</div>
+    </>;
+  } else {
+    body = <div class="muted">調整時程要等下一次更新（約 17:00）才會顯示。</div>;
+  }
+  return <div class="muted" style={{ fontSize: "12px", lineHeight: 1.7 }} data-testid="virtual-schedule">📅 {body}</div>;
+}
+
 function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide" | "regime" | "lead" | "ai" }) {
   const isWide = kind === "wide", isRegime = kind === "regime", isLead = kind === "lead", isAi = kind === "ai";
   const isWatch = kind !== "virtual"; // 三個規則自動計算的觀察組合共用版面
@@ -754,6 +782,7 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
             💰 {prettyW(b.date)} 起資金由 {fmtMoney(b.from)} 加到 {fmtMoney(b.to)}（加入的錢之前算閒置現金，所以上面的報酬率會被稀釋）。加碼前 {b.days} 天以 {fmtMoney(b.from)} 操作：組合 <span class={cls(b.ret)}>{fmtPct(b.ret, 2)}</span>、0050 <span class={cls(b.benchRet)}>{fmtPct(b.benchRet, 2)}</span>
           </div>;
         })()}
+        <SchedulePlanView v={v} isClaude={!isWatch} />
         {intraday && <div class="date-hint" data-testid="virtual-live">⏱ 盤中即時估算（{intraday.time.slice(0, 5)}），每 30 秒更新；收盤後改用收盤價</div>}
         <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
           {v.asOf ? <>資料日 {prettyW(v.asOf)} 收盤・</> : <>今天收盤後第一次更新・</>}{isAi

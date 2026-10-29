@@ -19,7 +19,11 @@ export interface VirtualEtf extends AiEtf {
   // 加碼紀錄：date 起資金由 from 加到 to；加入的錢視為一開始就在、之前閒置的現金（淨值歷史一起加上）
   topUps?: { date: string; from: number; to: number }[];
   cashPlan?: CashPlan; // 資金水位：Claude 每天收盤後依大盤跌幅更新
+  plan?: SchedulePlan; // 規則組合的調整時程（Claude 虛擬操作沒有固定頻率，不用這個）
 }
+
+/** 規則組合怎麼排調整：每 every 個交易日在收盤後判斷一次，lastDecision 是最近一次判斷日，差距小於淨值 band 不動 */
+export interface SchedulePlan { every: number; lastDecision?: string; band: number }
 
 /**
  * 資金水位規劃（使用者 10/21 指定）：平常 7 成股票、3 成現金；

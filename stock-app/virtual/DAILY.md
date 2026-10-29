@@ -44,4 +44,5 @@
    - 有要做的就寫 orders.json：`[{"code":"2330","name":"台積電","side":"buy","shares":10,"limit":1010,"stop":930,"reason":"一句話理由"}]`，執行 `order D orders.json`。賣出不用 limit。
 6. **寫說明**：`note D "..."`（同一天的說明會被取代：如果 `show` 前當天已經有說明，例如使用者盤中調整，要把原本內容保留在前面，再接上收盤說明），2～4 句：今天組合表現與 0050 比較、明天要做什麼（或為什麼不動）、需要注意的風險。
 7. `show` 檢查沒有錯（沒有負現金、沒有缺價）。然後只 `git add stock-app/virtual/virtual-etf.json`，commit 訊息「virtual-etf: D 收盤更新」，`git push origin claude/ui-calculator-interface-t3x9kh`（衝突就 `git pull --rebase` 再推，最多重試 4 次）。只改這個 JSON，不要改其他程式。
+7b. **觸發規則組合更新（使用者 10/29 同意）**：推送完成後，用 GitHub 工具 `mcp__github__actions_run_trigger`（method `run_workflow`、owner `ltotokkimo-spec`、repo `new-1016`、workflow_id `stock-backtest-daily.yml`、ref `claude/conversation-start-guide-ya0q8x`）觸發「Stock Backtest Daily」。原因：GitHub 的定時工作常被拖延好幾小時（10/28 排 16:40，實際到台北 23:27 才跑），這個排程比較準時。這個 workflow 會先檢查「今天 16:30 之後是否已有成功的回測」，有就跳過，所以重複觸發不會多花錢。只觸發這一個，休市日不觸發；失敗就在推播註明，不影響虛擬操作。
 8. 發手機推播（PushNotification 工具），一行：「✅ 虛擬ETF D：淨值 X（+Y%），0050 +Z%；明天：…」。失敗就推「❌ 虛擬ETF D 更新失敗：原因」。

@@ -28,6 +28,13 @@ export function isWeekday(ymd: string): boolean {
   return w !== 0 && w !== 6;
 }
 
+/** ymd 之後第 n 個平日（只排除週末；國定假日不知道，實際會順延） */
+export function addWeekdays(ymd: string, n: number): string {
+  let d = ymd;
+  for (let k = 0; k < n; k++) { d = addDays(d, 1); while (!isWeekday(d)) d = addDays(d, 1); }
+  return d;
+}
+
 /** 從 ymd（含）往前的平日，最多 n 個 */
 export function weekdaysBack(ymd: string, n: number): string[] {
   const out: string[] = [];

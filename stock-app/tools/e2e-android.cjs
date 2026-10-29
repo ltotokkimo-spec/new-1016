@@ -436,6 +436,8 @@ function check(ok, name, detail = "") {
   check(!!livePx && livePx.every((t) => /(現價|收盤).*\d/.test(t)), "Claude 虛擬操作持股顯示即時價（證交所 mis）");
   const vTrades = await page.$eval('[data-testid="virtual-trades"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   check(/成交價 [\d.,]+/.test(vTrades) && !vTrades.includes("@"), "虛擬成交紀錄寫「成交價」、不再用 @ 符號", vTrades.slice(0, 120));
+  const schedV = await page.$eval('[data-testid="virtual-schedule"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
+  check(/調整頻率：不固定，Claude 每個交易日收盤後檢視/.test(schedV) && /最近一次檢視：\d+\/\d+（.）/.test(schedV) && /下次檢視：約 \d+\/\d+（.）/.test(schedV) && /原則/.test(schedV), "Claude 虛擬操作標明調整時程（頻率、最近與下次檢視日、原則）", schedV.slice(0, 160));
   await shot("05a-Claude虛擬操作");
   // N5 觀察組合（0050 五成＋方案 A 五成）：由 Release 的 n5.json 顯示
   await page.click('[data-testid="mode-watch"]');
@@ -444,6 +446,10 @@ function check(ok, name, detail = "") {
   log("N5 觀察組合", watchTxt.slice(0, 220));
   check(/N5 觀察組合/.test(watchTxt) && /虛擬資金 50\.0 萬/.test(watchTxt) && /同樣的錢買 0050/.test(watchTxt) && /方案 A/.test(watchTxt), "N5 觀察組合顯示（虛擬 50 萬、0050 對照、規則說明）", watchTxt.slice(0, 120));
   check(!/Claude 每日操作說明/.test(watchTxt) && !/資金水位/.test(watchTxt), "N5 觀察組合不顯示 Claude 專用的區塊");
+  // 調整時程：頻率、最近一次與下次判斷日、原則。regime／n5 的 JSON 由同一次推送的回測流程重算，剛推送時可能還是沒有 plan 的舊檔，所以也接受「等下一次更新」
+  const schedOk = (t) => /調整頻率：每個交易日收盤後重新判斷一次/.test(t) && /最近一次判斷：\d+\/\d+（.）/.test(t) && /下次判斷：約 \d+\/\d+（.）/.test(t) && /原則/.test(t);
+  const schedW = await page.$eval('[data-testid="virtual-schedule"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
+  check(schedOk(schedW) || /調整時程要等下一次更新/.test(schedW), "N5 觀察組合標明調整時程（每天判斷、最近與下次判斷日、原則）", schedW.slice(0, 200));
   await shot("05b-N5觀察組合");
   // 全個股觀察組合（不放 0050、不限檔數）：由 Release 的 wide.json 顯示
   await page.click('[data-testid="mode-wide"]');
@@ -458,6 +464,8 @@ function check(ok, name, detail = "") {
   const regTxt = await page.$eval('[data-testid="virtual-view"]', (e) => e.innerText.replace(/\s+/g, " "));
   log("攻守輪動觀察組合", regTxt.slice(0, 220));
   check(/攻守輪動觀察組合/.test(regTxt) && /虛擬資金 50\.0 萬/.test(regTxt) && /進攻/.test(regTxt) && /防守/.test(regTxt), "攻守輪動觀察組合顯示（虛擬 50 萬、進攻／防守規則說明）", regTxt.slice(0, 120));
+  const schedR = await page.$eval('[data-testid="virtual-schedule"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
+  check(/調整頻率：每 5 個交易日（約每週）收盤後重新判斷一次/.test(schedR) && /下次判斷：約 \d+\/\d+（.）/.test(schedR) || /調整時程要等下一次更新/.test(schedR), "攻守輪動標明調整時程（每 5 個交易日、下次判斷日）", schedR.slice(0, 200));
   await shot("05d-攻守輪動觀察組合");
   // 權值強化（Claude 設計，不放 0050）：由 Release 的 lead.json 顯示
   await page.click('[data-testid="mode-lead"]');

@@ -350,8 +350,12 @@ export async function refreshFutures() {
   }));
   // 日盤要到 08:45 開盤才有成交價，開盤前期交所回空的：沿用上一個日盤（記在手機上，重開 App 也在），畫面標「10/28 收盤」
   let keepDay = day;
-  if (day) kv.set("futDay", day).catch(() => {});
-  else keepDay = state.futures.day ?? (await kv.get<FutQuote>("futDay").catch(() => undefined));
+  if (day && !day.settleOnly) kv.set("futDay", day).catch(() => {});
+  else {
+    // 還沒開盤：優先用上一個真正的日盤（有收盤價與漲跌），沒有才用期交所給的前一交易日結算價
+    const prev = [state.futures.day, await kv.get<FutQuote>("futDay").catch(() => undefined)].find((x) => x && !x.settleOnly);
+    keepDay = prev ?? day;
+  }
   if (keepDay || night) set({ futures: { day: keepDay, night: night ?? state.futures.night, at: Date.now() } });
 }
 

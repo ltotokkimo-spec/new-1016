@@ -21,6 +21,7 @@ export interface FutQuote {
   spot?: number; // 同一份報價裡的現貨（加權指數）價位，算基差用；夜盤沒有現貨成交所沒有
   date: string; // 交易日 YYYYMMDD（夜盤算下一個交易日開頭的那一天，即 15:00 開盤那天）
   time: string; // HH:MM（最後一筆成交）
+  settleOnly?: boolean; // 日盤還沒開盤：沒有成交價，last 是「前一交易日結算價」，不是成交價
 }
 
 const positive = (x: number) => (Number.isFinite(x) && x > 0 ? x : undefined);
@@ -31,6 +32,8 @@ export function parseTaifex(json: any, session: FutSession): FutQuote | undefine
   const q = list.find((x) => /^TXF[A-L]\d-[FM]$/.test(String(x?.SymbolID ?? "")));
   if (!q) return undefined;
   const last = parseNum(q.CLastPrice), ref = parseNum(q.CRefPrice);
+  // 日盤 08:45 開盤前沒有成交價，但有前一交易日結算價：回傳它並標 settleOnly，畫面顯示「昨結算」，不讓整張卡片消失
+  if (!(last > 0) && ref > 0 && session === "day") return { session, symbol: String(q.SymbolID), last: ref, ref, change: 0, changePct: 0, date: "", time: "", settleOnly: true };
   if (!(last > 0) || !(ref > 0)) return undefined;
   const spotRow = list.find((x) => /^TXF-[SP]$/.test(String(x?.SymbolID ?? "")));
   const spot = parseNum(spotRow?.CLastPrice);

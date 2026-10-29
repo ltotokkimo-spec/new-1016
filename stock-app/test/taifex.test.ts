@@ -34,8 +34,12 @@ describe("台指期（期交所 MIS）", () => {
     expect(q.time).toBe("04:59");
     expect(q.spot).toBeUndefined(); // 夜盤沒有現貨成交價，不算基差
   });
+  it("日盤開盤前只有前一交易日結算價：回傳 settleOnly，數字是結算價、漲跌為 0", () => {
+    const q = parseTaifex({ RtData: { QuoteList: [{ SymbolID: "TXFK6-F", CLastPrice: "", CRefPrice: "47013.00" }] } }, "day")!;
+    expect([q.settleOnly, q.last, q.ref, q.change]).toEqual([true, 47013, 47013, 0]);
+  });
   it("開盤前沒有成交價（只有現貨或空值）就不顯示", () => {
-    expect(parseTaifex({ RtData: { QuoteList: [{ SymbolID: "TXFK6-F", CLastPrice: "", CRefPrice: "47013.00" }] } }, "day")).toBeUndefined();
+    expect(parseTaifex({ RtData: { QuoteList: [{ SymbolID: "TXFK6-F", CLastPrice: "", CRefPrice: "47013.00" }] } }, "night")).toBeUndefined();
     expect(parseTaifex({ RtData: { QuoteList: [DAY.RtData.QuoteList[0]] } }, "day")).toBeUndefined();
     expect(parseTaifex({}, "day")).toBeUndefined();
     expect(parseTaifex(null, "night")).toBeUndefined();

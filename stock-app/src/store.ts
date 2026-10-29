@@ -348,7 +348,11 @@ export async function refreshFutures() {
   const [day, night] = await Promise.all((["day", "night"] as const).map(async (k) => {
     try { return parseTaifex(await postJson(TAIFEX_URL, taifexBody(k)), k); } catch { return undefined; }
   }));
-  if (day || night) set({ futures: { day: day ?? state.futures.day, night: night ?? state.futures.night, at: Date.now() } });
+  // 日盤要到 08:45 開盤才有成交價，開盤前期交所回空的：沿用上一個日盤（記在手機上，重開 App 也在），畫面標「10/28 收盤」
+  let keepDay = day;
+  if (day) kv.set("futDay", day).catch(() => {});
+  else keepDay = state.futures.day ?? (await kv.get<FutQuote>("futDay").catch(() => undefined));
+  if (keepDay || night) set({ futures: { day: keepDay, night: night ?? state.futures.night, at: Date.now() } });
 }
 
 export async function refreshMacro() {

@@ -829,7 +829,7 @@ export function MacroScreen() {
           <div class="grid2" data-testid="fut-grid">
             {([["日盤", st.fut.day], ["夜盤", st.fut.night]] as const).map(([name, q]) => q && (
               <Metric k={`台指期 ${name}`} v={q.last.toLocaleString("zh-TW", { maximumFractionDigits: 0 })} c={cls(q.change)}
-                d={`${q.change > 0 ? "+" : ""}${q.change.toFixed(0)}（${q.changePct > 0 ? "+" : ""}${q.changePct.toFixed(2)}%）${q.time ? `・${q.time}` : ""}${q.high !== undefined && q.low !== undefined ? `・高 ${q.high.toLocaleString("zh-TW")} 低 ${q.low.toLocaleString("zh-TW")}` : ""}`} />
+                d={`${q.change > 0 ? "+" : ""}${q.change.toFixed(0)}（${q.changePct > 0 ? "+" : ""}${q.changePct.toFixed(2)}%）${q.session === "day" && q.date && q.date !== taipeiToday() ? `・${q.date.slice(4, 6).replace(/^0/, "")}/${q.date.slice(6, 8).replace(/^0/, "")} 收盤` : q.time ? `・${q.time}` : ""}${q.high !== undefined && q.low !== undefined ? `・高 ${q.high.toLocaleString("zh-TW")} 低 ${q.low.toLocaleString("zh-TW")}` : ""}`} />
             ))}
             {st.fut.day?.spot && (() => {
               const q = st.fut.day, basis = q.last - q.spot!;

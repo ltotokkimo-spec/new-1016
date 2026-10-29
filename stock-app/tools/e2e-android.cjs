@@ -835,6 +835,9 @@ function check(ok, name, detail = "") {
   await device.shell("input keyevent 4");
   await sleep(1500);
   await device.shell(`appops set ${PKG} REQUEST_INSTALL_PACKAGES allow`);
+  // 從系統設定頁返回時 App 會重新檢查更新，可能蓋掉前面強制出現的「有新版」狀態；再強制一次才點得到按鈕
+  await page2.evaluate(() => window.__srForceUpdate()).catch(() => {});
+  await page2.waitForSelector('[data-testid="install-update"]', { timeout: 15000 });
   await page2.click('[data-testid="install-update"]');
   let f2 = "";
   for (let i = 0; i < 90; i++) {

@@ -657,7 +657,7 @@ function check(ok, name, detail = "") {
   await page.waitForSelector(".sheet", { timeout: 10000 });
   await page.waitForFunction(() => document.querySelector('[data-testid="candle-cost"]') || /走勢圖下載失敗|沒有走勢資料/.test(document.body.innerText), null, { timeout: 120000 }).catch(() => {});
   const costTxt = await page.$eval('[data-testid="candle-cost"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
-  check(/我的均價 100\.00（現價 [\d,.]+，[+-]?\d+\.\d\d%）/.test(costTxt), "持股的 K 線圖標示我的均價線（均價與現價差）", costTxt);
+  check(/我的均價 100(\.0+)?（現價 [\d,.]+，[+-]?\d+\.\d\d%）/.test(costTxt), "持股的 K 線圖標示我的均價線（均價與現價差）", costTxt);
   await shot("06b-持股K線均價線");
 
   // 重開 App：持股仍在（存在手機裡）

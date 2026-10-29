@@ -732,6 +732,81 @@ function SchedulePlanView({ v, isClaude }: { v: VirtualEtf; isClaude: boolean })
   return <div class="muted" style={{ fontSize: "12px", lineHeight: 1.7 }} data-testid="virtual-schedule">📅 {body}</div>;
 }
 
+/** 每日損益：組合和同樣的錢買 0050 每天賺賠多少（金額與 %），差距就是當天贏或輸 0050 多少；盤中有即時價時多一列「今日盤中」 */
+function DailyCompare({ v, liveNav, liveBench }: { v: VirtualEtf; liveNav?: number; liveBench?: number }) {
+  const pts = v.nav;
+  if (!pts.length) return null;
+  const rows = pts.map((p, i) => {
+    const prev = i > 0 ? pts[i - 1] : { nav: v.budget, bench: v.budget };
+    return { date: p.date, d: p.nav - prev.nav, dp: prev.nav ? p.nav / prev.nav - 1 : 0, b: p.bench - prev.bench, bp: prev.bench ? p.bench / prev.bench - 1 : 0, live: false };
+  });
+  const lastP = pts[pts.length - 1];
+  if (liveNav !== undefined && liveBench !== undefined && lastP.date < taipeiToday()) {
+    rows.push({ date: taipeiToday(), d: liveNav - lastP.nav, dp: lastP.nav ? liveNav / lastP.nav - 1 : 0, b: liveBench - lastP.bench, bp: lastP.bench ? liveBench / lastP.bench - 1 : 0, live: true });
+  }
+  const show = rows.slice(-7).reverse();
+  const today = show[0];
+  const diff = today.dp - today.bp;
+  const sign = (x: number) => `${x > 0 ? "+" : ""}${Math.round(x).toLocaleString("zh-TW")}`;
+  return (
+    <div class="card stack" style={{ marginTop: "12px" }} data-testid="daily-compare">
+      <div class="row" style={{ justifyContent: "space-between" }}>
+        <b>每日損益 vs 0050</b>
+        <span class="muted" style={{ fontSize: "12px" }}>{today.live ? "今日盤中即時" : `${prettyW(today.date)} 收盤`}</span>
+      </div>
+      <div style={{ fontSize: "14px", lineHeight: 1.7 }} data-testid="daily-today">
+        組合 <b class={`num ${cls(today.d)}`}>{sign(today.d)} 元（{fmtPct(today.dp, 2)}）</b>・0050 <b class={`num ${cls(today.b)}`}>{sign(today.b)} 元（{fmtPct(today.bp, 2)}）</b>・{Math.abs(diff) < 0.00005 ? "和 0050 一樣" : diff > 0 ? <span class="up">當天贏 0050 {fmtPct(diff, 2)}</span> : <span class="down">當天輸 0050 {fmtPct(-diff, 2)}</span>}
+      </div>
+      <table class="cmp num" style={{ width: "100%", fontSize: "12.5px" }} data-testid="daily-table">
+        <thead><tr><th>日期</th><th style={{ textAlign: "right" }}>組合</th><th style={{ textAlign: "right" }}>0050</th><th style={{ textAlign: "right" }}>差</th></tr></thead>
+        <tbody>
+          {show.map((r) => {
+            const df = r.dp - r.bp;
+            return (
+              <tr key={r.date}>
+                <td>{pretty(r.date)}{r.live ? "（盤中）" : ""}</td>
+                <td style={{ textAlign: "right" }} class={cls(r.d)}>{sign(r.d)}（{fmtPct(r.dp, 2)}）</td>
+                <td style={{ textAlign: "right" }} class={cls(r.b)}>{sign(r.b)}（{fmtPct(r.bp, 2)}）</td>
+                <td style={{ textAlign: "right" }} class={cls(df)}>{df > 0 ? "+" : ""}{(df * 100).toFixed(2)}%</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <div class="muted" style={{ fontSize: "11px", lineHeight: 1.5 }}>每天損益 = 今天收盤淨值 − 前一天收盤淨值（第一天和起始資金比）；0050 是同樣的錢買 0050 的對照。已扣手續費與證交稅。</div>
+    </div>
+  );
+}
+
+/** 規則組合的資金水位：目前股票與現金比重、明天調整後的目標，以及這個規則怎麼留現金 */
+function CashReserve({ v, nav, marketValue, kind }: { v: VirtualEtf; nav: number; marketValue: number; kind: string }) {
+  const stock = nav > 0 ? marketValue / nav : 0, pct = (x: number) => `${Math.round(x * 100)}%`;
+  const nextStock = v.plan?.nextStock;
+  const policy: Record<string, string> = {
+    watch: "0050 固定五成；另一半是方案 A，沒有符合條件的檔數時那部分先放現金。",
+    wide: "不限檔數、全部是個股：凡是符合條件的才持有，條件不符的不買，沒買的部分就是現金；不會為了補水位硬買。",
+    regime: "進攻（0050 站上 60 日線）：0050 七成＋方案 A 三成；防守（跌破 60 日線）：0050 四成＋方案 A 四成，其餘約兩成現金。",
+    lead: "永遠滿倉：趨勢轉弱的權重轉給其他權值股，不留現金（回測顯示留現金在多頭少賺很多），現金只剩買不整的零頭。",
+    ai: "依市值配置 AI 供應鏈 51 檔，單檔上限 35%；基本上滿倉，現金只剩零頭與手續費。",
+  };
+  return (
+    <div class="card stack" style={{ marginTop: "12px" }} data-testid="cash-reserve">
+      <div class="row" style={{ justifyContent: "space-between" }}>
+        <b>資金水位</b>
+        <span class="num" style={{ fontSize: "14px" }}>股票 <b>{pct(stock)}</b>・現金 <b>{pct(1 - stock)}</b>（{fmtMoney(nav - marketValue)}）</span>
+      </div>
+      <div style={{ position: "relative", height: "18px", borderRadius: "6px", background: "var(--surface-2, var(--line))", overflow: "hidden" }}>
+        <div style={{ position: "absolute", left: 0, width: pct(Math.min(1, Math.max(0, stock))), top: "4px", bottom: "4px", borderRadius: "0 4px 4px 0", background: "var(--accent)" }} />
+        {nextStock !== undefined && <div style={{ position: "absolute", left: pct(Math.min(1, nextStock)), top: 0, bottom: 0, width: "2px", marginLeft: "-1px", background: "var(--fg)" }} />}
+      </div>
+      <div style={{ fontSize: "14px", lineHeight: 1.6 }} data-testid="cash-reserve-next">
+        {nextStock !== undefined ? <>明天調整後的規則目標：股票約 <b>{pct(nextStock)}</b>・現金約 <b>{pct(1 - nextStock)}</b>（黑線）</> : <span class="muted">這個資料日沒有新的判斷，目標沿用上一次調整後的持股</span>}
+      </div>
+      <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>{policy[kind] ?? ""}</div>
+    </div>
+  );
+}
+
 function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide" | "regime" | "lead" | "ai" }) {
   const isWide = kind === "wide", isRegime = kind === "regime", isLead = kind === "lead", isAi = kind === "ai";
   const isWatch = kind !== "virtual"; // 三個規則自動計算的觀察組合共用版面
@@ -802,12 +877,21 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
       </div>
 
       {!isWatch && <CashGauge plan={v.cashPlan} nav={val.nav} marketValue={val.marketValue} pendingNet={v.pending.reduce((t, o) => t + (o.side === "buy" ? 1 : -1) * o.shares * (o.limit ?? px(o.code) ?? 0), 0)} />}
+      {isWatch && <CashReserve v={v} nav={val.nav} marketValue={val.marketValue} kind={kind} />}
+      <DailyCompare v={v} liveNav={intraday ? val.nav : undefined} liveBench={intraday ? val.bench : undefined} />
 
       {v.nav.length >= 2 && <><div class="section-title"><span>報酬走勢</span><span>{v.nav.length} 天</span></div><NavChart points={v.nav} budget={v.budget} mine={isAi ? "AI 供應鏈組合" : isLead ? "權值強化組合" : isRegime ? "攻守輪動組合" : isWide ? "全個股組合" : isWatch ? "N5 觀察組合" : "Claude 虛擬組合"} /></>}
 
+      {isWatch && v.asOf && v.pending.length === 0 && (
+        <div class="card" style={{ marginTop: "12px" }} data-testid="virtual-pending">
+          <b>📅 {nextDay ? `${prettyW(nextDay)} ` : "下一個交易日"}沒有要調整的股票</b>
+          <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>{v.plan && v.plan.lastDecision === v.asOf ? `${prettyW(v.asOf)} 收盤後已判斷，目標和現有持股差距小於淨值 ${(v.plan.band * 100).toFixed(1)}%，所以不動。` : `${prettyW(v.asOf)} 不是這組的判斷日（每 ${v.plan?.every ?? "?"} 個交易日判斷一次），持股照上一次的目標，不調整。`}</div>
+        </div>
+      )}
       {v.pending.length > 0 && (
         <div class="card stack" style={{ marginTop: "12px" }} data-testid="virtual-pending">
-          <b>📅 {nextDay ? `${prettyW(nextDay)} ` : "下一個交易日"}預計操作</b>
+          <b>📅 {nextDay ? `${prettyW(nextDay)} ` : "下一個交易日"}{isWatch ? "要調整的股票" : "預計操作"}</b>
+          {isWatch && <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }} data-testid="pending-note">{prettyW(v.asOf)} 收盤後判斷、{nextDay ? `${prettyW(nextDay)} ` : "下一個交易日"}收盤價成交（遇國定假日順延）；股數依 {prettyW(v.asOf)} 收盤價估算，實際以成交日收盤價為準。</div>}
           {v.pending.map((o) => (
             <div style={{ fontSize: "14px", lineHeight: 1.6 }}>
               <span class={o.side === "buy" ? "up" : "down"}>{o.side === "buy" ? "買進" : "賣出"}</span> <b>{o.name}</b> <span class="muted num">{o.code}</span> {o.shares.toLocaleString()} 股{o.limit ? `・限價 ${o.limit}` : "・開盤價"}

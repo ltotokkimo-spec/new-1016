@@ -438,6 +438,8 @@ function check(ok, name, detail = "") {
   check(/成交價 [\d.,]+/.test(vTrades) && !vTrades.includes("@"), "虛擬成交紀錄寫「成交價」、不再用 @ 符號", vTrades.slice(0, 120));
   const schedV = await page.$eval('[data-testid="virtual-schedule"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   check(/調整頻率：不固定，Claude 每個交易日收盤後檢視/.test(schedV) && /最近一次檢視：\d+\/\d+（.）/.test(schedV) && /下次檢視：約 \d+\/\d+（.）/.test(schedV) && /原則/.test(schedV), "Claude 虛擬操作標明調整時程（頻率、最近與下次檢視日、原則）", schedV.slice(0, 160));
+  const dailyV = await page.$eval('[data-testid="daily-today"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
+  check(/組合 [+-]?[\d,]+ 元（[+-]?\d+\.\d\d%）・0050 [+-]?[\d,]+ 元/.test(dailyV), "Claude 虛擬操作也顯示每日損益 vs 0050", dailyV.slice(0, 160));
   await shot("05a-Claude虛擬操作");
   // N5 觀察組合（0050 五成＋方案 A 五成）：由 Release 的 n5.json 顯示
   await page.click('[data-testid="mode-watch"]');
@@ -445,7 +447,18 @@ function check(ok, name, detail = "") {
   const watchTxt = await page.$eval('[data-testid="virtual-view"]', (e) => e.innerText.replace(/\s+/g, " "));
   log("N5 觀察組合", watchTxt.slice(0, 220));
   check(/N5 觀察組合/.test(watchTxt) && /虛擬資金 50\.0 萬/.test(watchTxt) && /同樣的錢買 0050/.test(watchTxt) && /方案 A/.test(watchTxt), "N5 觀察組合顯示（虛擬 50 萬、0050 對照、規則說明）", watchTxt.slice(0, 120));
-  check(!/Claude 每日操作說明/.test(watchTxt) && !/資金水位/.test(watchTxt), "N5 觀察組合不顯示 Claude 專用的區塊");
+  check(!/Claude 每日操作說明/.test(watchTxt), "N5 觀察組合不顯示 Claude 專用的區塊（每日操作說明）");
+  // 規則組合：資金水位（目前比重＋明天調整後目標）、每日損益 vs 0050、明天要調整的股票（含日期註記）
+  const watchBlocks = await page.evaluate(() => ({
+    reserve: document.querySelector('[data-testid="cash-reserve"]')?.innerText.replace(/\s+/g, " ") || "",
+    daily: document.querySelector('[data-testid="daily-today"]')?.innerText.replace(/\s+/g, " ") || "",
+    rows: document.querySelectorAll('[data-testid="daily-table"] tbody tr').length,
+    pending: document.querySelector('[data-testid="virtual-pending"]')?.innerText.replace(/\s+/g, " ") || "",
+  }));
+  log("N5 水位／每日損益／明日調整", JSON.stringify(watchBlocks).slice(0, 400));
+  check(/資金水位 股票 \d+%・現金 \d+%/.test(watchBlocks.reserve) && (/明天調整後的規則目標：股票約 \d+%・現金約 \d+%/.test(watchBlocks.reserve) || /沒有新的判斷/.test(watchBlocks.reserve)), "N5 顯示資金水位（目前股票／現金比重、明天調整後目標）", watchBlocks.reserve.slice(0, 160));
+  check(/組合 [+-]?[\d,]+ 元（[+-]?\d+\.\d\d%）・0050 [+-]?[\d,]+ 元（[+-]?\d+\.\d\d%）/.test(watchBlocks.daily) && watchBlocks.rows >= 1, "N5 顯示每日損益 vs 0050（金額、%、當天贏輸）與逐日表", watchBlocks.daily.slice(0, 160));
+  check(/\d+\/\d+（.）(要調整的股票|沒有要調整的股票)/.test(watchBlocks.pending) && (/收盤價成交（遇國定假日順延）/.test(watchBlocks.pending) || /沒有要調整/.test(watchBlocks.pending)), "N5 標明明天要調整的股票與日期註記（或說明為何不調整）", watchBlocks.pending.slice(0, 200));
   // 調整時程：頻率、最近一次與下次判斷日、原則。regime／n5 的 JSON 由同一次推送的回測流程重算，剛推送時可能還是沒有 plan 的舊檔，所以也接受「等下一次更新」
   const schedOk = (t) => /調整頻率：每個交易日收盤後重新判斷一次/.test(t) && /最近一次判斷：\d+\/\d+（.）/.test(t) && /下次判斷：約 \d+\/\d+（.）/.test(t) && /原則/.test(t);
   const schedW = await page.$eval('[data-testid="virtual-schedule"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");

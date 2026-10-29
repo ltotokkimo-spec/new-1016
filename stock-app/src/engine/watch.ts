@@ -4,7 +4,7 @@
 import { cashFlow, recordNav, valuate, type EtfTrade } from "./aiEtf";
 import type { BtDay } from "./backtest";
 import { aiTargets, aPicks, buildCtx, LEAD, leadTargets, regimeStep, STEADY, wideTargets } from "./steady";
-import { addNote, newVirtual, type VirtualEtf } from "./virtualEtf";
+import { addNote, newVirtual, type PendingOrder, type VirtualEtf } from "./virtualEtf";
 import type { Company } from "../data/tw";
 
 export const WATCH = {
@@ -35,13 +35,15 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
   const name = (code: string, j: number) => c.rows[j].get(code)?.[1] ?? code;
 
   let lastDecision: string | undefined; // 最近一次判斷日
-  let target: Map<string, number> | null = null; // 昨天收盤後決定、今天收盤要調整成的目標
+  let lastDayTarget = undefined as Map<string, number> | undefined; // 最後一個資料日收盤後做的決定（明天要成交的目標，還沒成交）
+  let target = null as Map<string, number> | null; // 昨天收盤後決定、今天收盤要調整成的目標
   const trades: EtfTrade[] = [];
   const last: VirtualEtf["last"] = {};
   const hold = new Map<string, number>(); // 代號 → 股數
   let cash = budget;
   for (let j = j0; j < c.N; j++) {
     const date = c.dates[j];
+    const setTarget = (t: Map<string, number>) => { if (j < c.N - 1) target = t; else lastDayTarget = t; };
     const bench = close(BENCH, j);
     // 1. 執行昨天決定的調整（今天收盤價）
     if (target && bench) {
@@ -84,40 +86,61 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
     let text = `資料日收盤：組合 ${pc(val.ret, 2)}，0050 對照 ${pc(val.benchRet, 2)}；股票 ${val.nav > 0 ? Math.round((val.marketValue / val.nav) * 100) : 0}%，持有 ${hold.size} 檔。`;
     if (decide && wide) {
       const t = wideTargets(c, j, new Set(hold.keys()));
-      if (j < c.N - 1) target = t;
+      setTarget(t);
       const adds = [...t.keys()].filter((code) => !hold.has(code)), drops = [...hold.keys()].filter((code) => !t.has(code));
       const nm = (list: string[]) => (list.length ? list.slice(0, 8).map((code) => `${name(code, j)}${code}`).join("、") + (list.length > 8 ? `…共 ${list.length} 檔` : "") : "無");
       text += `\n本日判斷：符合條件 ${t.size} 檔（不限檔數）。下一個交易日收盤價調整，新增：${nm(adds)}；剔除：${nm(drops)}；其餘差距小於淨值 ${(STEADY.wideBand * 100).toFixed(1)}% 的不動。`;
     } else if (decide && ai) {
       const t = aiTargets(c, j, { weight: "cap" });
-      if (j < c.N - 1) target = t;
+      setTarget(t);
       const top = [...t].sort((a, b) => b[1] - a[1]);
       const list = top.slice(0, 10).map(([code, w]) => `${name(code, j)}${code} ${(w * 100).toFixed(1)}%`).join("、");
       text += `\n本日判斷：AI 供應鏈清單依市值配置（單檔上限 35%），共 ${top.length} 檔，前 10 大：${list || "無"}。下一個交易日收盤價調整（每 ${WATCH.aiEvery} 個交易日調整一次）。`;
     } else if (decide && lead) {
       const r = leadTargets(c, j);
-      if (j < c.N - 1) target = r.targets;
+      setTarget(r.targets);
       const top = [...r.targets].sort((a, b) => b[1] - a[1]);
       const list = top.slice(0, 10).map(([code, w]) => `${name(code, j)}${code} ${(w * 100).toFixed(1)}%`).join("、");
       text += `\n本日判斷：${r.byCap ? "市值" : "成交金額"}前 ${LEAD.universe} 大個股，依市值配置再依趨勢、外資、投信、走勢品質調整（滿倉）；目標持股 ${Math.round(r.exposure * 100)}%、${top.length} 檔，前 10 大：${list || "無"}。下一個交易日收盤價調整。`;
     } else if (decide && regime) {
       const r = regimeStep(c, j, regimeOn);
       regimeOn = r.on;
-      if (j < c.N - 1) target = r.targets;
+      setTarget(r.targets);
       const sat = [...r.targets].filter(([code]) => code !== BENCH).sort((a, b) => b[1] - a[1]);
       const list = sat.map(([code, w]) => `${name(code, j)}${code} ${(w * 100).toFixed(1)}%`).join("、");
       text += `\n市場狀態：${r.on ? "進攻（0050 站上 60 日線）" : "防守（0050 跌破 60 日線）"}；目標 0050 ${Math.round((r.targets.get(BENCH) ?? 0) * 100)}%，方案 A ${sat.length} 檔：${list || "目前沒有符合的，先放現金"}。下一個交易日收盤價調整。`;
     } else if (decide) {
       const a = aPicks(c, j);
-      if (j < c.N - 1) { // 最後一天的決定還沒成交，下次有新資料時會重算並執行
-        target = new Map([[BENCH, WATCH.core]]);
-        for (const [code, w] of a) target.set(code, (target.get(code) ?? 0) + w * (1 - WATCH.core));
-      }
+      const t = new Map<string, number>([[BENCH, WATCH.core]]);
+      for (const [code, w] of a) t.set(code, (t.get(code) ?? 0) + w * (1 - WATCH.core));
+      setTarget(t); // 最後一天的決定還沒成交，下次有新資料時會重算並執行
       const list = [...a].map(([code, w]) => `${name(code, j)}${code} ${(w * (1 - WATCH.core) * 100).toFixed(1)}%`).join("、");
       text += `\n本日重新選股：0050 目標 ${Math.round(WATCH.core * 100)}%；方案 A ${a.size} 檔（各佔淨值）${list || "：目前沒有符合的，這部分先放現金"}。下一個交易日收盤價調整。`;
     }
     if (decide || j === c.N - 1) v = addNote(v, date, text);
   }
+  // 明天（下一個交易日）要調整的股票：最後一個資料日收盤後的目標，和目前持股的差距（數量用今天收盤價估算，實際以明天收盤價成交）
+  const pending: PendingOrder[] = [];
+  if (lastDayTarget && v.asOf) {
+    const px = (code: string) => v.last[code]?.close ?? close(code, c.N - 1) ?? 0;
+    let total = cash;
+    for (const [code, sh] of hold) total += sh * px(code);
+    const minAmt = total * (wide ? STEADY.wideBand : lead || ai ? LEAD.band : WATCH.minTrade);
+    const nm = (code: string) => name(code, c.N - 1);
+    for (const [code, sh] of hold) { // 先賣
+      const p = px(code), want = (lastDayTarget.get(code) ?? 0) * total, have = sh * p;
+      if (!(p > 0) || (lastDayTarget.has(code) && have - want <= minAmt)) continue;
+      const n = lastDayTarget.has(code) ? Math.min(sh, Math.floor((have - want) / p)) : sh;
+      if (n > 0) pending.push({ code, name: nm(code), side: "sell", shares: n, reason: lastDayTarget.has(code) ? `減碼：目標 ${(lastDayTarget.get(code)! * 100).toFixed(1)}%，目前 ${((have / total) * 100).toFixed(1)}%` : "不在今天的規則名單，全部賣出", placed: v.asOf });
+    }
+    for (const [code, w] of lastDayTarget) { // 再買
+      const p = px(code), have = (hold.get(code) ?? 0) * p, gap = w * total - have;
+      if (!(p > 0) || gap <= minAmt) continue;
+      const n = Math.floor(gap / p);
+      if (n > 0) pending.push({ code, name: nm(code), side: "buy", shares: n, reason: have > 0 ? `加碼：目標 ${(w * 100).toFixed(1)}%，目前 ${((have / total) * 100).toFixed(1)}%` : `新增：目標 ${(w * 100).toFixed(1)}%`, placed: v.asOf });
+    }
+  }
   const every = wide || lead || !(regime || ai) ? 1 : ai ? WATCH.aiEvery : WATCH.every;
-  return { ...v, plan: { every, lastDecision, band: wide ? STEADY.wideBand : lead || ai ? LEAD.band : WATCH.minTrade } };
+  const nextStock = lastDayTarget ? [...lastDayTarget.values()].reduce((a, b) => a + b, 0) : undefined; // 明天調整完的股票目標比重（其餘是現金）
+  return { ...v, pending, plan: { every, lastDecision, nextStock, band: wide ? STEADY.wideBand : lead || ai ? LEAD.band : WATCH.minTrade } };
 }

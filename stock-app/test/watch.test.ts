@@ -62,6 +62,15 @@ describe("N5 觀察組合", () => {
     expect(v.notes.some((n) => n.text.includes("重新選股"))).toBe(true);
   });
 
+  it("明天要調整的股票 pending：最後一個資料日有判斷就有，數量為整數、買賣方向與目標一致；plan.nextStock 是目標比重合計", () => {
+    expect(v.plan?.nextStock).toBeGreaterThan(0);
+    expect(v.plan!.nextStock!).toBeLessThanOrEqual(1.0001);
+    for (const o of v.pending) {
+      expect(Number.isInteger(o.shares) && o.shares > 0).toBe(true);
+      expect(o.placed).toBe(v.asOf);
+      expect(["buy", "sell"]).toContain(o.side);
+    }
+  });
   it("每天重新選股（不是每 5 天）：每個資料日都有「重新選股」說明", () => {
     const n = v.notes.filter((x) => x.text.includes("重新選股")).length;
     expect(n).toBeGreaterThanOrEqual(v.nav.length - 1);

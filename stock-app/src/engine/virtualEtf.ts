@@ -23,7 +23,7 @@ export interface VirtualEtf extends AiEtf {
 }
 
 /** 規則組合怎麼排調整：每 every 個交易日在收盤後判斷一次，lastDecision 是最近一次判斷日，差距小於淨值 band 不動 */
-export interface SchedulePlan { every: number; lastDecision?: string; band: number }
+export interface SchedulePlan { every: number; lastDecision?: string; nextStock?: number; band: number }
 
 /**
  * 資金水位規劃（使用者 10/21 指定）：平常 7 成股票、3 成現金；

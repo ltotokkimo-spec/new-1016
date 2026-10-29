@@ -326,7 +326,7 @@ function check(ok, name, detail = "") {
   log("台指期", JSON.stringify(futCards));
   const futOk = (name) => futCards.some((m) => new RegExp(`^台指期 ${name} [\\d,]{5,} [+-]?\\d+（[+-]?\\d+\\.\\d\\d%）`).test(m));
   check(futOk("夜盤") || (nightGap && futOk("日盤")), "數據頁顯示台指期夜盤（價格、漲跌、漲跌幅）；日盤收盤到夜盤開盤的空檔例外", `${nightGap ? "空檔・" : ""}${JSON.stringify(futCards)}`);
-  check(!futOk("日盤") || macro.some((m) => /^基差（期貨−現貨） [+-]?\d+ 點 (正價差|逆價差|平價)（[+-]?\d+\.\d\d%）・期貨 [\d,]+／現貨 [\d,]+/.test(m)), "有日盤時數據頁顯示基差（期貨−現貨，正價差／逆價差）", JSON.stringify(macro.filter((m) => /基差/.test(m))));
+  check(!futOk("日盤") || (tpeMin >= 8 * 60 + 45 && tpeMin < 9 * 60 + 5) || macro.some((m) => /^基差（期貨−現貨） [+-]?\d+ 點 (正價差|逆價差|平價)（[+-]?\d+\.\d\d%）・期貨 [\d,]+／現貨 [\d,]+/.test(m)), "有日盤時數據頁顯示基差（期貨−現貨，正價差／逆價差；08:45～09:05 現貨還沒開盤、沒有基差，略過）", JSON.stringify(macro.filter((m) => /基差/.test(m))));
   check(preOpen || futOk("日盤"), "數據頁顯示台指期日盤（價格、漲跌、漲跌幅）", preOpen ? "尚未開盤，略過" : JSON.stringify(futCards));
   // 收盤漲跌家數：上市、上櫃都要有「漲 N／跌 N」，且上市家數合理（普通股約 1000 檔以上）
   check(macro.some((m) => /^上市 漲 \d+／跌 \d+ 持平 \d+/.test(m)) && macro.some((m) => /^上櫃 漲 \d+／跌 \d+ 持平 \d+/.test(m)), "顯示收盤漲跌家數（上市、上櫃）", JSON.stringify(macro.filter((m) => /漲 \d+／跌/.test(m))));

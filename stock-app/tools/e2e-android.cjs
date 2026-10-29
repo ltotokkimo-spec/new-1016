@@ -454,12 +454,11 @@ function check(ok, name, detail = "") {
   const watchBlocks = await page.evaluate(() => ({
     reserve: document.querySelector('[data-testid="cash-reserve"]')?.innerText.replace(/\s+/g, " ") || "",
     daily: document.querySelector('[data-testid="daily-today"]')?.innerText.replace(/\s+/g, " ") || "",
-    rows: document.querySelectorAll('[data-testid="daily-table"] tbody tr').length,
     pending: document.querySelector('[data-testid="virtual-pending"]')?.innerText.replace(/\s+/g, " ") || "",
   }));
   log("N5 水位／每日損益／明日調整", JSON.stringify(watchBlocks).slice(0, 400));
   check(/資金水位 股票 \d+%・現金 \d+%/.test(watchBlocks.reserve) && (/明天調整後的規則目標：股票約 \d+%・現金約 \d+%/.test(watchBlocks.reserve) || /沒有新的判斷/.test(watchBlocks.reserve)), "N5 顯示資金水位（目前股票／現金比重、明天調整後目標）", watchBlocks.reserve.slice(0, 160));
-  check(/組合 [+-]?[\d,]+ 元（[+-]?\d+\.\d\d%）・0050 [+-]?[\d,]+ 元（[+-]?\d+\.\d\d%）/.test(watchBlocks.daily) && watchBlocks.rows >= 1, "N5 顯示每日損益 vs 0050（金額、%、當天贏輸）與逐日表", watchBlocks.daily.slice(0, 160));
+  check(/組合 [+-]?[\d,]+ 元（[+-]?\d+\.\d\d%）・0050 [+-]?[\d,]+ 元（[+-]?\d+\.\d\d%）/.test(watchBlocks.daily), "N5 顯示每日損益 vs 0050（金額、%、當天贏輸）", watchBlocks.daily.slice(0, 160));
   check(/\d+\/\d+（.）\s*(要調整的股票|沒有要調整的股票)/.test(watchBlocks.pending) && (/收盤價成交（遇國定假日順延）/.test(watchBlocks.pending) || /沒有要調整/.test(watchBlocks.pending)), "N5 標明明天要調整的股票與日期註記（或說明為何不調整）", watchBlocks.pending.slice(0, 200));
   // 調整時程：頻率、最近一次與下次判斷日、原則。regime／n5 的 JSON 由同一次推送的回測流程重算，剛推送時可能還是沒有 plan 的舊檔，所以也接受「等下一次更新」
   const schedOk = (t) => /調整頻率：每個交易日收盤後重新判斷一次/.test(t) && /最近一次判斷：\d+\/\d+（.）/.test(t) && /下次判斷：約 \d+\/\d+（.）/.test(t) && /原則/.test(t);

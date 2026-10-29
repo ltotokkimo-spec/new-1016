@@ -744,8 +744,7 @@ function DailyCompare({ v, liveNav, liveBench }: { v: VirtualEtf; liveNav?: numb
   if (liveNav !== undefined && liveBench !== undefined && lastP.date < taipeiToday()) {
     rows.push({ date: taipeiToday(), d: liveNav - lastP.nav, dp: lastP.nav ? liveNav / lastP.nav - 1 : 0, b: liveBench - lastP.bench, bp: lastP.bench ? liveBench / lastP.bench - 1 : 0, live: true });
   }
-  const show = rows.slice(-7).reverse();
-  const today = show[0];
+  const today = rows[rows.length - 1];
   const diff = today.dp - today.bp;
   const sign = (x: number) => `${x > 0 ? "+" : ""}${Math.round(x).toLocaleString("zh-TW")}`;
   return (
@@ -757,23 +756,7 @@ function DailyCompare({ v, liveNav, liveBench }: { v: VirtualEtf; liveNav?: numb
       <div style={{ fontSize: "14px", lineHeight: 1.7 }} data-testid="daily-today">
         組合 <b class={`num ${cls(today.d)}`}>{sign(today.d)} 元（{fmtPct(today.dp, 2)}）</b>・0050 <b class={`num ${cls(today.b)}`}>{sign(today.b)} 元（{fmtPct(today.bp, 2)}）</b>・{Math.abs(diff) < 0.00005 ? "和 0050 一樣" : diff > 0 ? <span class="up">當天贏 0050 {fmtPct(diff, 2)}</span> : <span class="down">當天輸 0050 {fmtPct(-diff, 2)}</span>}
       </div>
-      <table class="cmp num" style={{ width: "100%", fontSize: "12.5px" }} data-testid="daily-table">
-        <thead><tr><th>日期</th><th style={{ textAlign: "right" }}>組合</th><th style={{ textAlign: "right" }}>0050</th><th style={{ textAlign: "right" }}>差</th></tr></thead>
-        <tbody>
-          {show.map((r) => {
-            const df = r.dp - r.bp;
-            return (
-              <tr key={r.date}>
-                <td>{pretty(r.date)}{r.live ? "（盤中）" : ""}</td>
-                <td style={{ textAlign: "right" }} class={cls(r.d)}>{sign(r.d)}（{fmtPct(r.dp, 2)}）</td>
-                <td style={{ textAlign: "right" }} class={cls(r.b)}>{sign(r.b)}（{fmtPct(r.bp, 2)}）</td>
-                <td style={{ textAlign: "right" }} class={cls(df)}>{df > 0 ? "+" : ""}{(df * 100).toFixed(2)}%</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      <div class="muted" style={{ fontSize: "11px", lineHeight: 1.5 }}>每天損益 = 今天收盤淨值 − 前一天收盤淨值（第一天和起始資金比）；0050 是同樣的錢買 0050 的對照。已扣手續費與證交稅。</div>
+      <div class="muted" style={{ fontSize: "11px", lineHeight: 1.5 }}>每天損益 = 今天收盤淨值 − 前一天收盤淨值（第一天和起始資金比）；0050 是同樣的錢買 0050 的對照。已扣手續費與證交稅。每天的走勢往下看「報酬走勢」。</div>
     </div>
   );
 }

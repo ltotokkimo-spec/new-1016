@@ -652,6 +652,13 @@ function check(ok, name, detail = "") {
   const impliedRate = Math.abs(twd / usd);
   check(usHold.cardNtd === usHold.ntd && impliedRate > 20 && impliedRate < 50 && !/今日匯率/.test(usHold.note), "台幣損益由美金損益換算（匯率合理），畫面不顯示匯率", `${usd} → ${twd}（約 ${impliedRate.toFixed(1)}）`);
   await shot("06-持股健檢");
+  // 持股的 K 線圖要畫出「我的均價線」：點進美股持股 AAPL（均價 100），圖上方標示均價與現價差
+  await page.evaluate(() => [...document.querySelectorAll(".list .item")].find((e) => /AAPL/.test(e.innerText))?.click());
+  await page.waitForSelector(".sheet", { timeout: 10000 });
+  await page.waitForFunction(() => document.querySelector('[data-testid="candle-cost"]') || /走勢圖下載失敗|沒有走勢資料/.test(document.body.innerText), null, { timeout: 120000 }).catch(() => {});
+  const costTxt = await page.$eval('[data-testid="candle-cost"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
+  check(/我的均價 100\.00（現價 [\d,.]+，[+-]?\d+\.\d\d%）/.test(costTxt), "持股的 K 線圖標示我的均價線（均價與現價差）", costTxt);
+  await shot("06b-持股K線均價線");
 
   // 重開 App：持股仍在（存在手機裡）
   const oldPid = webview.pid();

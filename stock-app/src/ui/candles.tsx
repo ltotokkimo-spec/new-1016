@@ -32,7 +32,8 @@ const clampView = (v: View, n: number): View => {
   return { start, count };
 };
 
-export function CandleChart({ bars, us = false }: { bars: CandleBar[]; us?: boolean }) {
+export function CandleChart({ bars, us = false, cost }: { bars: CandleBar[]; us?: boolean; cost?: number }) {
+  const costOk = cost !== undefined && Number.isFinite(cost) && cost > 0;
   const n = bars.length;
   const ref = useRef<HTMLCanvasElement>(null);
   const [tab, setTab] = useState<Tab>("KD");
@@ -89,6 +90,8 @@ export function CandleChart({ bars, us = false }: { bars: CandleBar[]; us?: bool
       lo = Math.min(lo, bars[i].low); hi = Math.max(hi, bars[i].high);
       for (const m of ind.ma) if (Number.isFinite(m[i])) { lo = Math.min(lo, m[i]); hi = Math.max(hi, m[i]); }
     }
+    // 我的均價線：離 K 線不遠（±25%）才納入價格範圍；太遠就貼在上緣／下緣標示，免得把 K 線壓扁
+    if (costOk) { const span = hi - lo || 1; if (cost! >= lo - span * 0.25 && cost! <= hi + span * 0.25) { lo = Math.min(lo, cost!); hi = Math.max(hi, cost!); } }
     const pad = (hi - lo) * 0.05 || 1; lo -= pad; hi += pad;
     const py = (v: number) => padT + (1 - (v - lo) / (hi - lo)) * priceH;
     const hline = (yy: number, color = line) => { g.strokeStyle = color; g.lineWidth = 1; g.beginPath(); g.moveTo(padL, yy); g.lineTo(w - padR, yy); g.stroke(); };
@@ -117,6 +120,18 @@ export function CandleChart({ bars, us = false }: { bars: CandleBar[]; us?: bool
       g.stroke();
     };
     ind.ma.forEach((m, k) => drawLine(m, maColor[k], py));
+    // 我的均價線（持股成本）：金黃色虛線＋右側標籤
+    if (costOk) {
+      const raw = py(cost!), yy = Math.min(padT + priceH - 2, Math.max(padT + 2, raw));
+      const off = raw !== yy;
+      g.setLineDash([6, 3]); g.strokeStyle = "#f0b23e"; g.lineWidth = 1.5; g.beginPath(); g.moveTo(padL, yy); g.lineTo(w - padR, yy); g.stroke(); g.setLineDash([]);
+      const text = `${off ? (raw < yy ? "↑" : "↓") : ""}均${fmtP(cost!)}`;
+      g.font = "bold 10px sans-serif"; g.textAlign = "left"; g.textBaseline = "middle";
+      const tw = Math.min(padR - 1, g.measureText(text).width + 4);
+      g.fillStyle = "#f0b23e"; g.fillRect(w - padR + 1, yy - 7, tw, 14);
+      g.fillStyle = "#1a1203"; g.fillText(text, w - padR + 3, yy);
+      g.font = "11px sans-serif";
+    }
 
     // 成交量
     const vTop = padT + priceH + gap;
@@ -187,7 +202,7 @@ export function CandleChart({ bars, us = false }: { bars: CandleBar[]; us?: bool
       tag(py(sb.close), fmtP(sb.close), sb.close >= sb.open ? up : down);
       tag(vTop + volH - (sb.volume / vmax) * volH, volTag(sb.volume, us), sb.close >= sb.open ? up : down);
     }
-  }, [bars, view, tab, sel, ind, wpx]);
+  }, [bars, view, tab, sel, ind, wpx, cost]);
 
   useEffect(() => {
     const c = ref.current;
@@ -281,6 +296,7 @@ export function CandleChart({ bars, us = false }: { bars: CandleBar[]; us?: bool
       <div class="row num" style={{ fontSize: "12px", gap: "10px", flexWrap: "wrap" }} data-testid="candle-ma">
         {MA_DEFS.map((m, k) => <span key={m.n} style={{ color: m.color || "var(--accent)" }}>{m.label} {fmtP(ind.ma[k][idx])}</span>)}
       </div>
+      {costOk && <div class="num" style={{ fontSize: "12px", color: "#f0b23e" }} data-testid="candle-cost">┄ 我的均價 {fmtP(cost!)}（現價 {fmtP(bars[bars.length - 1].close)}，{bars[bars.length - 1].close >= cost! ? "+" : ""}{((bars[bars.length - 1].close / cost! - 1) * 100).toFixed(2)}%）</div>}
       <canvas ref={ref} class="chart candle" aria-label="K 線圖"
         onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onCancel} />
       <div class="row" style={{ justifyContent: "space-between", marginTop: "6px", gap: "8px" }}>

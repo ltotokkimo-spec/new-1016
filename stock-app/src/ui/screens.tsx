@@ -443,7 +443,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
         {chartTab === "flow" && s.market !== "US"
           ? (bars ? <FlowsPanel code={s.code} market={s.market === "TPEX" ? "TPEX" : "TWSE"} bars={bars} livePrice={lq?.price} /> : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>)
           : shownBars ? (shownBars.length > 1 ? <>
-              <CandleChart bars={shownBars} us={s.market === "US"} />
+              <CandleChart bars={shownBars} us={s.market === "US"} cost={holding?.cost} />
               {liveBar && <div class="date-hint" data-testid="kbar-live">⏱ 最後一根是{liveBar.final ? "最新收盤" : "盤中"}的即時價（含成交量{liveBar.time ? `，台北 ${liveBar.time.slice(0, 5)}` : ""}），每 30 秒更新；{s.market === "US" ? "下次更新美股資料時換成正式日 K" : "證交所正式資料（約 15:00 後）出來後會換成正式的"}</div>}
             </> : <div class="empty">沒有走勢資料</div>) : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>}
       </div>

@@ -19,6 +19,7 @@ import type { BacktestResult } from "./engine/backtest";
 import type { VirtualEtf } from "./engine/virtualEtf";
 import { mergeLive, parseMoneyDjHoldings, type ActiveEtfData } from "./lib/activeEtf";
 import { liveUrl, parseLive, type LiveQuote } from "./data/twLive";
+import { esbLiveUrl, parseEsbLive } from "./data/esb";
 import { parseRevenue, revenueUrls, type Revenue } from "./data/revenue";
 import { emptyEtf, etfAlerts, isOffList, liquidityCut, pickCandidates, positions as etfPositions, recordNav, stopOf, valuate, type AiEtf, type EtfTrade } from "./engine/aiEtf";
 
@@ -488,6 +489,11 @@ export async function refreshLive(codes: string[]) {
   try {
     const got: Record<string, LiveQuote> = {};
     for (let i = 0; i < list.length; i += 20) Object.assign(got, parseLive(await fetcher(liveUrl(list.slice(i, i + 20)))));
+    // 興櫃：證交所查不到，改用櫃買中心每分鐘更新的當日行情表（一次下載全部，只取需要的代號）
+    const esbCodes = list.filter((c) => state.esb[c] && !got[c]);
+    if (esbCodes.length) {
+      try { const all = parseEsbLive(await fetcher(esbLiveUrl())); for (const c of esbCodes) if (all[c]) got[c] = all[c]; } catch { /* 興櫃抓不到就沿用收盤價 */ }
+    }
     set({ live: { ...state.live, ...got }, liveAt: Date.now() });
   } catch { /* 即時報價只是輔助，抓不到就顯示收盤價 */ }
   finally { liveBusy.tw = false; }

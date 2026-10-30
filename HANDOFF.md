@@ -153,3 +153,8 @@
 ## 虛擬ETF 共通區塊（1.0.178）
 - 所有虛擬ETF組合（Claude/N5/全個股/攻守輪動/權值強化/AI供應鏈）都顯示：資金水位（`CashReserve`，規則組合另顯示明天調整後目標 `plan.nextStock`）、每日損益 vs 0050（`DailyCompare`）、明天要調整的股票（`pending`，規則組合由 `runWatch` 以最後資料日目標權重 vs 現有持股產生，帶日期註記）。
 - UI 在 `src/ui/aiEtf.tsx`；e2e 檢查 testid：`cash-reserve`、`daily-today`、`daily-table`、`virtual-pending`。舊 JSON 沒有 pending/plan 時 UI 要容忍。
+
+## 興櫃股票（1.0.186）
+- 證交所 MIS 查不到興櫃。盤中價用櫃買中心「興櫃當日行情表」`https://www.tpex.org.tw/www/zh-tw/emerging/latest?response=json`（每分鐘更新、一次全部；欄位 0 代號 2 前日均價 7 高 8 低 9 日均價 10 成交 13 成交量(股)），程式在 `src/data/esb.ts`、`store.ts refreshLive`。
+- 歷史行情 `…/emerging/historical?code=7861&date=2026/09/01&id=&response=json`：**日期一定要給完整日（年/月/日），只給年月會一律回傳當月**；只有最高、最低、均價、成交量，沒有開收盤，K 線用「前日均價為開、當日均價為收」。
+- UI：持股列表點興櫃個股 → `EsbDetail`（screens.tsx）。e2e 檢查在持股段（testid `esb-*`）。

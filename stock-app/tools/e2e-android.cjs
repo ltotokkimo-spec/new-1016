@@ -634,6 +634,23 @@ function check(ok, name, detail = "") {
   check(/元大台灣50/.test(row("0050")) && /參考/.test(row("0050")) && !/(買入|觀望|離場)/.test(row("0050")) && hasPrice(row("0050")), "0050 顯示現價、損益，只當參考不給買賣評等", row("0050"));
   check(hasPrice(row("00406A")) && !/無資料/.test(row("00406A")), "00406A 顯示現價與損益", row("00406A"));
   check(/貝爾威勒/.test(row("7861")) && /無評等/.test(row("7861")) && /興櫃/.test(row("7861")) && hasPrice(row("7861")), "興櫃 7861 顯示現價與損益、不評等", row("7861"));
+  // 興櫃個股詳情：點進去有報價（櫃買中心每分鐘行情）、日 K 走勢、我的均價線與損益
+  await page.evaluate(() => [...document.querySelectorAll(".list .item")].find((e) => /7861/.test(e.innerText))?.click());
+  await page.waitForSelector('[data-testid="esb-price"]', { timeout: 15000 });
+  await page.waitForFunction(() => document.querySelector('.sheet canvas.chart') || /走勢圖下載失敗|還沒有足夠/.test(document.querySelector(".sheet")?.innerText || ""), null, { timeout: 120000 });
+  const esbD = await page.evaluate(() => {
+    const t = (sel) => document.querySelector(sel)?.innerText.replace(/\s+/g, " ") || "";
+    return { title: document.querySelector(".sheet h2")?.textContent || "", price: t('[data-testid="esb-price"]'), chg: t('[data-testid="esb-chg"]'), note: t('[data-testid="esb-note"]'), stats: t('[data-testid="esb-stats"]'), chart: !!document.querySelector(".sheet canvas.chart"), cost: t('[data-testid="candle-cost"]'), info: t('[data-testid="candle-info"]'), hold: t('[data-testid="esb-hold"]'), kline: t('[data-testid="esb-kline-note"]') };
+  });
+  log("興櫃詳情", JSON.stringify(esbD));
+  check(/貝爾威勒 7861/.test(esbD.title) && /^[\d,]+(\.\d+)?$/.test(esbD.price), "興櫃個股詳情顯示現價", `${esbD.title} ${esbD.price}`);
+  check(/^興櫃股票・(盤中 \d\d:\d\d|收盤)/.test(esbD.note) && /前日均價 [\d,.]+ 今日高／低 [\d,.—]+ ／ [\d,.—]+ 今日成交量/.test(esbD.stats), "興櫃詳情標示盤中／收盤與前日均價、高低、成交量", `${esbD.note} | ${esbD.stats}`);
+  check(esbD.chart && /^(最新|盤中) 開 [\d.,]+ 高 [\d.,]+ 低 [\d.,]+ 收 [\d.,]+/.test(esbD.info), "興櫃個股有日 K 走勢圖（開高低收）", esbD.info);
+  check(/我的均價 900/.test(esbD.cost) && /損益 [+-]?[\d,]+（[+-]?\d+\.\d%）/.test(esbD.hold), "興櫃 K 線圖有我的均價線與持股損益", `${esbD.cost} | ${esbD.hold}`);
+  check(/沒有開盤價與收盤價/.test(esbD.kline), "興櫃 K 線說明開收的算法");
+  await shot("06c-興櫃個股詳情");
+  await page.click('.sheet header button[aria-label="返回"]');
+  await page.waitForFunction(() => !document.querySelector(".sheet"), null, { timeout: 5000 });
   // 美股持股：美金損益有 $ 符號，下一行台幣損益有 NT$ 符號；市值卡片也一樣
   await page.click("text=手動新增");
   await page.fill("#h-code", "AAPL");

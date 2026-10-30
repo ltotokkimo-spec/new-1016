@@ -8,6 +8,7 @@ import {
 import type { Holding, Rating, Scored, SectorStat } from "../engine/score";
 import { type AiReport, analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, parseUrls, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
 import { twHistory } from "../data/history";
+import { esbHistory } from "../data/esb";
 import { CandleChart, type CandleBar } from "./candles";
 import { FlowsPanel } from "./flows";
 import { EtfHoldingsPanel, isActiveEtf } from "./etfHoldings";
@@ -540,6 +541,61 @@ export function AiReportView({ r }: { r: AiReport }) {
 }
 
 // ---------------- 持股 ----------------
+// ---------------- 興櫃個股詳細（沒有評等，只有報價、走勢、我的損益） ----------------
+function EsbDetail({ h, onClose }: { h: { code: string; name: string; shares: number; cost: number }; onClose: () => void }) {
+  const lq = useStore((st) => st.live[h.code]);
+  const close = useStore((st) => st.prices[h.code]?.close);
+  const [bars, setBars] = useState<CandleBar[] | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    const pull = () => refreshLive([h.code]);
+    pull();
+    const t = setInterval(() => { if (marketOpen()) pull(); }, 60_000); // 櫃買的行情表每分鐘才更新一次
+    return () => clearInterval(t);
+  }, [h.code]);
+  useEffect(() => {
+    let alive = true;
+    esbHistory(getFetcher(), getKv(), h.code, 9).then((b) => { if (alive) setBars(b.slice(-200)); }).catch((e) => { if (alive) setErr(`走勢圖下載失敗：${e?.message ?? e}`); });
+    return () => { alive = false; };
+  }, [h.code]);
+  const shown = useMemo(() => (bars ? (withLiveBar(bars, lq) as CandleBar[]) : bars), [bars, lq]);
+  const price = lq ? lq.price : close ?? NaN;
+  const live = !!lq && !lq.final && lq.date === taipeiToday() && marketOpen();
+  const chg = lq && lq.prevClose > 0 ? lq.price / lq.prevClose - 1 : NaN;
+  const pnl = (price - h.cost) * h.shares;
+  return (
+    <Sheet title={`${h.name} ${h.code}`} onClose={onClose}>
+      <div class="row" style={{ justifyContent: "space-between", alignItems: "flex-end" }}>
+        <div>
+          <div class="big num" data-testid="esb-price">{fmtPrice(price)}</div>
+          {Number.isFinite(chg) && <div class={`num ${cls(chg)}`} data-testid="esb-chg">今日 {fmtPct(chg)}（對前日均價）</div>}
+        </div>
+        <div class="muted" style={{ fontSize: "12px", textAlign: "right" }} data-testid="esb-note">
+          興櫃股票・{live ? `盤中 ${lq!.time.slice(0, 5)}` : "收盤"}<br />櫃買中心行情每分鐘更新
+        </div>
+      </div>
+      {lq && (
+        <div class="grid2" style={{ marginTop: "10px" }} data-testid="esb-stats">
+          <div class="metric"><div class="k">前日均價</div><div class="v num">{fmtPrice(lq.prevClose)}</div></div>
+          <div class="metric"><div class="k">今日高／低</div><div class="v num">{Number.isFinite(lq.high) ? fmtPrice(lq.high) : "—"} ／ {Number.isFinite(lq.low) ? fmtPrice(lq.low) : "—"}</div></div>
+          <div class="metric"><div class="k">今日成交量</div><div class="v num">{lq.volume && lq.volume > 0 ? `${Math.round(lq.volume / 1000).toLocaleString()} 張` : "—"}</div></div>
+        </div>
+      )}
+      <div class="section-title"><span>走勢（日 K）</span></div>
+      {shown && shown.length >= 2 ? <CandleChart bars={shown} cost={h.cost} />
+        : err ? <div class="notice">{err}</div>
+        : shown ? <div class="notice">還沒有足夠的興櫃成交資料可以畫走勢圖。</div>
+        : <div class="muted">下載走勢中…</div>}
+      <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, marginTop: "6px" }} data-testid="esb-kline-note">
+        興櫃沒有開盤價與收盤價：K 線的開＝前一日均價、收＝當日均價（盤中那一根收盤用最新成交價），高低是當天最高與最低成交價。
+      </div>
+      <div class="section-title"><span>我的持股</span></div>
+      <div class="card num" data-testid="esb-hold">{h.shares.toLocaleString()} 股・成本 {fmtPrice(h.cost)}・損益 <span class={cls(pnl)}>{fmtMoney(pnl)}（{fmtPct(price / h.cost - 1)}）</span></div>
+      <div class="notice" style={{ marginTop: "10px" }}>興櫃股票沒有三大法人與族群資料，App 不評分、不給買賣建議，只提供報價、走勢與損益。</div>
+    </Sheet>
+  );
+}
+
 export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
   useStore((s) => [s.holdings, s.tw.scored, s.etf.scored, s.us.scored, s.esb, s.prices]);
   const apiKey = useStore((s) => s.settings.apiKey);
@@ -573,6 +629,7 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
     return { ...v, chg: v.scored?.chg1d ?? NaN, liveLabel: "收盤" };
   });
   const [adding, setAdding] = useState(false);
+  const [esbOpen, setEsbOpen] = useState<any>(null);
   const [importing, setImporting] = useState<{ rows: ImportedHolding[]; note: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -639,20 +696,22 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
         <div class="empty">還沒有持股。<br />拍一張證券 App 的「庫存」畫面，Claude 會自動辨識代號、股數與成本。</div>
       ) : (
         <div class="list">
-          {views.map((v) => <HoldingRow v={v} open={open} fx={fx} />)}
+          {views.map((v) => <HoldingRow v={v} open={open} onEsb={setEsbOpen} fx={fx} />)}
         </div>
       )}
       {views.length > 0 && <HoldingsEditor />}
       {adding && <HoldingForm onDone={() => setAdding(false)} />}
+      {esbOpen && <EsbDetail h={esbOpen} onClose={() => setEsbOpen(null)} />}
       {importing && <ImportReview data={importing} onDone={() => setImporting(null)} />}
     </div>
   );
 }
 
 /** 持股一列：左邊是名稱、損益金額（含報酬率）、建議；右邊是現價、今日漲跌、（美股盤前盤後）；賺紅賠綠 */
-function HoldingRow({ v, open, fx }: { v: any; open: (s: Scored) => void; fx?: number }) {
+function HoldingRow({ v, open, onEsb, fx }: { v: any; open: (s: Scored) => void; onEsb?: (v: any) => void; fx?: number }) {
+  const isEsb = useStore((st) => !!st.esb[v.code]);
   return (
-    <button class="item" onClick={() => v.scored && open(v.scored)}>
+    <button class="item" onClick={() => (v.scored ? open(v.scored) : isEsb && onEsb?.(v))}>
       <div style={{ minWidth: 0 }}>
         <div class="name">{v.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{v.code}</span></div>
         <div class={`num ${cls(v.pnl)}`} style={{ fontSize: "13px", fontWeight: 600, marginTop: "2px" }} data-testid="hold-pnl"><span class="lbl" style={{ fontFamily: "var(--font)", fontSize: "11px", fontWeight: 400, color: "var(--muted)", marginRight: "4px" }}>損益</span>{fmtSigned(v.pnl, v.market)}<span style={{ whiteSpace: "nowrap" }}>（{fmtPct(v.pnlPct)}）</span>{v.market === "US" && fx && Number.isFinite(v.pnl) && <span style={{ display: "block", whiteSpace: "nowrap" }} data-testid="hold-ntd">{fmtNtd(v.pnl, fx)}</span>}</div>

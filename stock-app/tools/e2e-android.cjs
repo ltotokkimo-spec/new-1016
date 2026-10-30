@@ -646,7 +646,7 @@ function check(ok, name, detail = "") {
   check(/貝爾威勒 7861/.test(esbD.title) && /^[\d,]+(\.\d+)?$/.test(esbD.price), "興櫃個股詳情顯示現價", `${esbD.title} ${esbD.price}`);
   check(/^興櫃股票・(盤中 \d\d:\d\d|收盤)/.test(esbD.note) && /前日均價 [\d,.]+ 今日高／低 [\d,.—]+ ／ [\d,.—]+ 今日成交量/.test(esbD.stats), "興櫃詳情標示盤中／收盤與前日均價、高低、成交量", `${esbD.note} | ${esbD.stats}`);
   check(esbD.chart && /^(最新|盤中) 開 [\d.,]+ 高 [\d.,]+ 低 [\d.,]+ 收 [\d.,]+/.test(esbD.info), "興櫃個股有日 K 走勢圖（開高低收）", esbD.info);
-  check(/我的均價 900/.test(esbD.cost) && /損益 [+-]?[\d,]+（[+-]?\d+\.\d%）/.test(esbD.hold), "興櫃 K 線圖有我的均價線與持股損益", `${esbD.cost} | ${esbD.hold}`);
+  check(/我的均價 900/.test(esbD.cost) && /損益 [+-]?[\d.,]+( 萬| 億)?（[+-]?\d+\.\d%）/.test(esbD.hold), "興櫃 K 線圖有我的均價線與持股損益", `${esbD.cost} | ${esbD.hold}`);
   check(/沒有開盤價與收盤價/.test(esbD.kline), "興櫃 K 線說明開收的算法");
   await shot("06c-興櫃個股詳情");
   await page.click('.sheet header button[aria-label="返回"]');

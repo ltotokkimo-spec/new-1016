@@ -587,7 +587,7 @@ function EsbDetail({ h, onClose }: { h: { code: string; name: string; shares: nu
         : shown ? <div class="notice">還沒有足夠的興櫃成交資料可以畫走勢圖。</div>
         : <div class="muted">下載走勢中…</div>}
       <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, marginTop: "6px" }} data-testid="esb-kline-note">
-        興櫃沒有開盤價與收盤價：K 線的開＝前一日均價、收＝當日均價（盤中那一根收盤用最新成交價），高低是當天最高與最低成交價。
+        興櫃沒有開盤價與收盤價：K 線的開＝前一日均價、收＝當日均價（盤中那一根收盤用最新成交價）；影線是當天最高與最低成交價，若前日均價在範圍外，影線會延伸到前日均價。
       </div>
       <div class="section-title"><span>我的持股</span></div>
       <div class="card num" data-testid="esb-hold">{h.shares.toLocaleString()} 股・成本 {fmtPrice(h.cost)}・損益 <span class={cls(pnl)}>{fmtMoney(pnl)}（{fmtPct(price / h.cost - 1)}）</span></div>

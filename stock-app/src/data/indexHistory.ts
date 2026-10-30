@@ -1,8 +1,8 @@
 // 指數的日 K（點進「數據」頁的指數看走勢）：
 //  ・加權指數：證交所「發行量加權股價指數歷史資料」每月一份，有完整開高低收
 //  ・櫃買指數：櫃買中心 openapi 只回傳當月開高低收，App 每次看到就存進手機，累積成更長的走勢
-//  ・臺灣50、半導體、金融保險、電子：證交所沒有這些指數的歷史開高低收，用 App 已經下載的每日收盤行情裡的「收盤指數」串起來，
-//    K 棒的開＝前一天收盤、收＝當天收盤（沒有真正的盤中高低）
+//  ・臺灣50、半導體、金融保險、電子：證交所沒有這些指數的歷史開高低收，改抓每天的「指數收盤」（MI_INDEX type=IND，每天約 22KB），
+//    一次抓回全部指數、存在手機裡；K 棒的開＝前一天收盤、收＝當天收盤（沒有真正的盤中高低）
 import type { Fetcher } from "../lib/net";
 import type { KV } from "../lib/kv";
 import { taipeiHour, taipeiToday, weekdaysBack } from "../lib/dates";
@@ -10,6 +10,8 @@ import { rocToYmd, type DayBar } from "./tw";
 
 export const taiexHistUrl = (ym: string) => `https://www.twse.com.tw/rwd/zh/TAIEX/MI_5MINS_HIST?date=${ym.slice(0, 6)}01&response=json`;
 export const tpexIndexUrl = () => "https://www.tpex.org.tw/openapi/v1/tpex_index";
+export const twseIndexDayUrl = (d: string) => `https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${d}&type=IND&response=json`;
+const TRACKED = ["發行量加權股價指數", "臺灣50指數", "半導體類指數", "金融保險類指數", "電子類指數"];
 
 const n = (s: unknown): number => { const v = parseFloat(String(s ?? "").replace(/,/g, "")); return Number.isFinite(v) && v > 0 ? v : NaN; };
 
@@ -38,19 +40,41 @@ export function closesToBars(closes: { date: string; close: number }[]): DayBar[
   });
 }
 
+/** MI_INDEX type=IND：每張表第一欄是「指數」，取我們追蹤的幾個指數的收盤；休市（stat 非 OK）回傳 null */
+export function parseIndexDay(json: any): Record<string, number> | null {
+  if (!json || json.stat !== "OK" || !Array.isArray(json.tables)) return null;
+  const out: Record<string, number> = {};
+  for (const t of json.tables) {
+    if (t?.fields?.[0] !== "指數" || !Array.isArray(t.data)) continue;
+    for (const r of t.data) {
+      const name = String(r?.[0] ?? "").trim();
+      if (TRACKED.includes(name) && !(name in out)) { const c = n(r[1]); if (Number.isFinite(c)) out[name] = c; }
+    }
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 /** 畫面上的指數名稱 → 每日收盤行情裡的名稱 */
 export const dailyIndexName = (name: string) => (name === "加權指數" ? "發行量加權股價指數" : name);
 
-/** 從手機裡已下載的每日行情（loader 的快取）撈某指數的收盤 */
-export async function cachedCloses(kv: KV, name: string, days = 130, now = Date.now()): Promise<{ date: string; close: number }[]> {
-  const want = dailyIndexName(name);
-  const dates = weekdaysBack(taipeiToday(now), days);
-  const got = await Promise.all(dates.map(async (d) => {
-    const hit = await kv.get<any>(`tw2:q:twse:${d}`);
-    const c = hit?.indices?.find?.((x: any) => x?.name === want)?.close;
-    return Number.isFinite(c) && c > 0 ? { date: d, close: c as number } : null;
-  }));
-  return got.filter((x): x is { date: string; close: number } => !!x);
+const isFinalDay = (d: string, now: number) => { const t = taipeiToday(now); return d < t || (d === t && taipeiHour(now) >= 14); };
+
+/** 某天各指數收盤：先看手機存的（指數專用、每日行情兩種），沒有才連網；休市存空物件。連網失敗回傳 undefined */
+export async function indexDay(fetch: Fetcher, kv: KV, d: string, now = Date.now()): Promise<Record<string, number> | undefined> {
+  const mine = await kv.get<Record<string, number>>(`idx:d:${d}`);
+  if (mine) return mine;
+  const old = await kv.get<any>(`tw2:q:twse:${d}`);
+  if (old?.indices?.length) {
+    const o: Record<string, number> = {};
+    for (const x of old.indices) if (TRACKED.includes(x?.name) && Number.isFinite(x.close) && x.close > 0) o[x.name] = x.close;
+    if (Object.keys(o).length) return o;
+  }
+  if (!isFinalDay(d, now)) return undefined; // 今天還沒收盤：交給即時報價
+  try {
+    const day = parseIndexDay(await fetch(twseIndexDayUrl(d))) ?? {};
+    await kv.set(`idx:d:${d}`, day); // 休市日也存（空物件），之後不再問
+    return day;
+  } catch { return undefined; }
 }
 
 export interface IndexHist { bars: DayBar[]; kind: "ohlc" | "close" }
@@ -58,7 +82,7 @@ export interface IndexHist { bars: DayBar[]; kind: "ohlc" | "close" }
 /**
  * 指數日 K。onPartial：有部分資料就先回報（手機裡已有的先畫，其餘下載後再更新）。
  */
-export async function indexHistory(fetch: Fetcher, kv: KV, name: string, months = 6, now = Date.now(), onPartial?: (h: IndexHist) => void): Promise<IndexHist> {
+export async function indexHistory(fetch: Fetcher, kv: KV, name: string, months = 6, now = Date.now(), onPartial?: (h: IndexHist) => void, days = 70): Promise<IndexHist> {
   if (name === "加權指數") {
     const today = taipeiToday(now);
     let y = +today.slice(0, 4), m = +today.slice(4, 6);
@@ -90,6 +114,24 @@ export async function indexHistory(fetch: Fetcher, kv: KV, name: string, months 
     if (fresh.length) await kv.set("idx:o00", all);
     return { kind: "ohlc", bars: all };
   }
-  const bars = closesToBars(await cachedCloses(kv, name, 130, now));
-  return { kind: "close", bars };
+  // 其餘指數：最近 days 個平日各抓一次收盤（最新的先抓；手機存過的直接用），每抓完一批就回報一次
+  const want = dailyIndexName(name);
+  const dates = weekdaysBack(taipeiToday(now), days).filter((d) => isFinalDay(d, now)); // 新→舊
+  const got = new Map<string, number>();
+  const emit = () => onPartial?.({ kind: "close", bars: closesToBars([...got].map(([date, close]) => ({ date, close }))) });
+  const pending: string[] = [];
+  for (const d of dates) { // 手機裡已有的先處理（不連網）
+    const mine = await kv.get<Record<string, number>>(`idx:d:${d}`);
+    const old = mine ?? (await kv.get<any>(`tw2:q:twse:${d}`))?.indices?.reduce?.((o: any, x: any) => (x?.name === want ? { [want]: x.close } : o), undefined);
+    if (old) { if (Number.isFinite(old[want])) got.set(d, old[want]); } else pending.push(d);
+  }
+  if (got.size) emit();
+  let failed = 0;
+  for (let i = 0; i < pending.length && failed < 3; i += 4) {
+    const rs = await Promise.all(pending.slice(i, i + 4).map(async (d) => [d, await indexDay(fetch, kv, d, now)] as const));
+    for (const [d, r] of rs) { if (r === undefined) failed++; else if (Number.isFinite(r[want])) got.set(d, r[want]); }
+    emit();
+  }
+  if (!got.size && failed) throw new Error("下載指數收盤失敗");
+  return { kind: "close", bars: closesToBars([...got].map(([date, close]) => ({ date, close }))) };
 }

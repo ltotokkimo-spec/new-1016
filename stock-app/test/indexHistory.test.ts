@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { closesToBars, cachedCloses, indexHistory, parseTaiexHist, parseTpexIndex } from "../src/data/indexHistory";
+import { closesToBars, indexDay, indexHistory, parseIndexDay, parseTaiexHist, parseTpexIndex } from "../src/data/indexHistory";
 
 const memKv = (init: Record<string, unknown> = {}) => {
   const m = new Map<string, unknown>(Object.entries(init));
@@ -23,13 +23,42 @@ describe("指數歷史", () => {
     expect(b[0]).toMatchObject({ date: "20261029", open: 100, close: 100 });
     expect(b[1]).toMatchObject({ date: "20261030", open: 100, high: 100, low: 90, close: 90 });
   });
-  it("從每日行情快取撈指數收盤", async () => {
-    const kv = memKv({ "tw2:q:twse:20261029": { rows: [], indices: [{ name: "電子類指數", close: 1000 }] }, "tw2:q:twse:20261030": { rows: [], indices: [{ name: "電子類指數", close: 1010 }, { name: "發行量加權股價指數", close: 23000 }] } });
-    expect((await cachedCloses(kv, "電子類指數", 10, NOW)).sort((a, b) => a.date.localeCompare(b.date))).toEqual([{ date: "20261029", close: 1000 }, { date: "20261030", close: 1010 }]);
-    expect((await cachedCloses(kv, "加權指數", 10, NOW))[0].close).toBe(23000);
-    const h = await indexHistory(async () => { throw new Error("不該連網"); }, kv, "電子類指數", 6, NOW);
+  it("解析 MI_INDEX type=IND：只取追蹤的指數、休市回傳 null", () => {
+    const j = { stat: "OK", tables: [
+      { title: "價格指數(臺灣證券交易所)", fields: ["指數", "收盤指數", "漲跌(+/-)"], data: [["寶島股價指數", "52,047.99", "x"], ["發行量加權股價指數", "47,035.58", "x"], ["半導體類指數", "1,564.79", "x"]] },
+      { title: "報酬指數", fields: ["報酬指數", "收盤指數"], data: [["發行量加權股價報酬指數", "108,763.96"]] },
+    ] };
+    expect(parseIndexDay(j)).toEqual({ 發行量加權股價指數: 47035.58, 半導體類指數: 1564.79 });
+    expect(parseIndexDay({ stat: "很抱歉，沒有符合條件的資料!" })).toBeNull();
+  });
+  it("指數收盤：連網補抓並存起來、休市存空值、失敗不存", async () => {
+    const kv = memKv();
+    const calls: string[] = [];
+    const f = async (u: string) => { calls.push(u); if (u.includes("20261029")) return { stat: "OK", tables: [{ fields: ["指數", "收盤指數"], data: [["電子類指數", "1,000.5"]] }] }; if (u.includes("20261028")) return { stat: "很抱歉" }; throw new Error("斷線"); };
+    expect(await indexDay(f as any, kv, "20261029", NOW)).toEqual({ 電子類指數: 1000.5 });
+    expect(await indexDay(f as any, kv, "20261028", NOW)).toEqual({});
+    expect(await indexDay(f as any, kv, "20261027", NOW)).toBeUndefined();
+    expect(kv._m.has("idx:d:20261027")).toBe(false);
+    const n0 = calls.length;
+    await indexDay(f as any, kv, "20261029", NOW); await indexDay(f as any, kv, "20261028", NOW);
+    expect(calls.length).toBe(n0); // 都已存起來，不再連網
+    expect(await indexDay(f as any, kv, "20261030", Date.UTC(2026, 9, 30, 2, 0))).toBeUndefined(); // 今天 10:00 還沒收盤：不問
+  });
+  it("臺灣50等：缺的交易日自動補抓，手機已有的先回報，串成開＝前一天收盤的 K 棒", async () => {
+    const kv = memKv({ "idx:d:20261029": { 電子類指數: 1000 } });
+    const parts: number[] = [];
+    const f = async (u: string) => { const d = /date=(\d{8})/.exec(u)![1]; return { stat: "OK", tables: [{ fields: ["指數", "收盤指數"], data: [["電子類指數", String(1000 + (+d.slice(6)))]] }] }; };
+    const h = await indexHistory(f as any, kv, "電子類指數", 6, NOW, (p) => parts.push(p.bars.length), 6);
     expect(h.kind).toBe("close");
-    expect(h.bars).toHaveLength(2);
+    expect(parts[0]).toBe(1); // 先畫手機已有的那 1 天
+    expect(h.bars.length).toBeGreaterThanOrEqual(5);
+    const last = h.bars[h.bars.length - 1];
+    expect(last.date).toBe("20261030");
+    expect(last.open).toBe(h.bars[h.bars.length - 2].close);
+    expect(parts[parts.length - 1]).toBe(h.bars.length);
+  });
+  it("全部都連不上且手機沒有資料 → 丟錯", async () => {
+    await expect(indexHistory((async () => { throw new Error("斷線"); }) as any, memKv(), "電子類指數", 6, NOW, undefined, 6)).rejects.toThrow();
   });
   it("櫃買：新資料與手機存的合併、同一天以新的為準", async () => {
     const kv = memKv({ "idx:o00": [{ date: "20260930", open: 1, high: 2, low: 1, close: 2, volume: 0 }, { date: "20261029", open: 5, high: 5, low: 5, close: 5, volume: 0 }] });

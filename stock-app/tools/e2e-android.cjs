@@ -330,7 +330,7 @@ function check(ok, name, detail = "") {
   // 點指數卡片 → 日 K 走勢（加權有真實開高低收；臺灣50等用收盤串成）
   for (const nm of ["加權指數", "電子類指數", "櫃買指數"]) {
     await page.click(`[data-testid="idx-card-${nm}"]`);
-    await page.waitForFunction(() => document.querySelector(".sheet canvas.chart") || /走勢圖下載失敗|目前只累積/.test(document.querySelector(".sheet")?.innerText || ""), null, { timeout: 120000 });
+    await page.waitForFunction(() => document.querySelector(".sheet canvas.chart") || /走勢圖下載失敗|目前只累積/.test(document.querySelector(".sheet")?.innerText || ""), null, { timeout: 150000 });
     const ix = await page.evaluate(() => {
       const t = (q) => document.querySelector(q)?.innerText || "";
       return { title: document.querySelector(".sheet h2")?.textContent || "", price: t('[data-testid="idx-price"]'), chart: !!document.querySelector(".sheet canvas.chart"), info: t('[data-testid="candle-info"]'), note: t('[data-testid="idx-note"]'), text: document.querySelector(".sheet")?.innerText || "" };

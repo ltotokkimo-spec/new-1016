@@ -9,6 +9,7 @@ import type { Holding, Rating, Scored, SectorStat } from "../engine/score";
 import { type AiReport, analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, parseUrls, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
 import { twHistory } from "../data/history";
 import { esbHistory } from "../data/esb";
+import { indexHistory, type IndexHist } from "../data/indexHistory";
 import { CandleChart, type CandleBar } from "./candles";
 import { FlowsPanel } from "./flows";
 import { EtfHoldingsPanel, isActiveEtf } from "./etfHoldings";
@@ -832,8 +833,49 @@ function ImportReview({ data, onDone }: { data: { rows: ImportedHolding[]; note:
   );
 }
 
+// ---------------- 指數走勢（數據頁點指數卡片） ----------------
+function IndexDetail({ name, onClose }: { name: string; onClose: () => void }) {
+  const lq = useStore((st) => st.twIndexLive[name]);
+  const [hist, setHist] = useState<IndexHist | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    let alive = true;
+    indexHistory(getFetcher(), getKv(), name, 6, Date.now(), (h) => { if (alive) setHist(h); })
+      .then((h) => { if (alive) setHist(h); })
+      .catch((e) => { if (alive) setErr(`走勢圖下載失敗：${e?.message ?? e}`); });
+    return () => { alive = false; };
+  }, [name]);
+  const shown = useMemo(() => {
+    if (!hist) return null;
+    const live = lq ? { date: lq.date, price: lq.value, open: lq.prevClose, high: lq.high ?? lq.value, low: lq.low ?? lq.value, final: lq.final } : undefined;
+    return withLiveBar(hist.bars as CandleBar[], live) as CandleBar[];
+  }, [hist, lq]);
+  const label = name;
+  return (
+    <Sheet title={`${label} 走勢`} onClose={onClose}>
+      {lq && (
+        <div class="row" style={{ justifyContent: "space-between", alignItems: "flex-end" }}>
+          <div>
+            <div class="big num" data-testid="idx-price">{lq.value.toLocaleString("zh-TW", { maximumFractionDigits: 2 })}</div>
+            <div class={`num ${cls(lq.change)}`}>{lq.change > 0 ? "+" : ""}{lq.change.toFixed(2)}（{lq.changePct > 0 ? "+" : ""}{lq.changePct.toFixed(2)}%）</div>
+          </div>
+          <div class="muted" style={{ fontSize: "12px", textAlign: "right" }}>{lq.final ? "收盤" : `盤中 ${lq.time.slice(0, 5)}`}</div>
+        </div>
+      )}
+      <div class="section-title"><span>走勢（日 K）</span></div>
+      {err && !shown?.length && <div class="muted" data-testid="idx-err">{err}</div>}
+      {!shown && !err && <div class="muted">走勢圖下載中…</div>}
+      {shown && shown.length >= 2 && <CandleChart bars={shown} noVol />}
+      {shown && shown.length < 2 && !err && <div class="muted" data-testid="idx-few">目前只累積到 {shown.length} 天的資料，之後每天打開 App 會自動增加。</div>}
+      {hist && hist.kind === "close" && <div class="muted" data-testid="idx-note" style={{ fontSize: "12px", marginTop: "6px" }}>這個指數官方沒有提供歷史開高低收：K 棒的「開」用前一天收盤、「收」用當天收盤，只有 App 已下載過的交易日（約近 6 個月內）才有資料。</div>}
+      {hist && name === "櫃買指數" && <div class="muted" data-testid="idx-note" style={{ fontSize: "12px", marginTop: "6px" }}>櫃買中心只提供當月資料，更早的由 App 每次打開時存下來，用得越久走勢越長。</div>}
+    </Sheet>
+  );
+}
+
 // ---------------- 數據（國內外指標＋AI 解讀） ----------------
 export function MacroScreen() {
+  const [idxOpen, setIdxOpen] = useState<string | null>(null);
   const st = useStore((s) => ({ macro: s.macro, tw: s.tw, us: s.us, idx: s.twIndices, breadth: s.twBreadth, idxLive: s.twIndexLive, fut: s.futures, turnover: s.twTurnover, etfs: s.usSectorEtfs, apiKey: s.settings.apiKey, reports: s.reports }));
   // 台股指數盤中每 30 秒更新（收盤後 MIS 回傳收盤價，仍會顯示）
   useEffect(() => {
@@ -863,11 +905,12 @@ export function MacroScreen() {
 
   return (
     <div>
+      {idxOpen && <IndexDetail name={idxOpen} onClose={() => setIdxOpen(null)} />}
       {liveIdx.length > 0 ? (
         <>
           <div class="section-title" data-testid="tw-index-title"><span>台股{idxFinal ? "收盤" : idxTime ? `盤中 ${idxTime}` : ""}</span></div>
           <div class="grid2">
-            {liveIdx.map((i) => <Metric k={i.name.replace("發行量加權股價指數", "加權指數")} v={i.value.toLocaleString("zh-TW", { maximumFractionDigits: 2 })} c={cls(i.change)} d={`${i.change > 0 ? "+" : ""}${i.change.toFixed(2)}（${i.changePct > 0 ? "+" : ""}${i.changePct.toFixed(2)}%）`} />)}
+            {liveIdx.map((i) => <div data-testid={`idx-card-${i.name}`} style={{ cursor: "pointer" }} onClick={() => setIdxOpen(i.name)}><Metric k={i.name.replace("發行量加權股價指數", "加權指數")} v={i.value.toLocaleString("zh-TW", { maximumFractionDigits: 2 })} c={cls(i.change)} d={`${i.change > 0 ? "+" : ""}${i.change.toFixed(2)}（${i.changePct > 0 ? "+" : ""}${i.changePct.toFixed(2)}%）`} /></div>)}
             {(() => {
               const w = st.idxLive["加權指數"];
               if (!w) return null;

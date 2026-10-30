@@ -327,6 +327,21 @@ function check(ok, name, detail = "") {
   log("台股指數區", idxTitle);
   check(/台股(盤中 \d\d:\d\d|收盤)/.test(idxTitle), "台股指數改成盤中即時（或收盤）", idxTitle);
   check(["加權指數", "臺灣50指數", "半導體類指數", "金融保險類指數"].every((n) => macro.some((m) => m.includes(n))), "四大台股指數都顯示", JSON.stringify(macro.slice(0, 6)));
+  // 點指數卡片 → 日 K 走勢（加權有真實開高低收；臺灣50等用收盤串成）
+  for (const nm of ["加權指數", "電子類指數", "櫃買指數"]) {
+    await page.click(`[data-testid="idx-card-${nm}"]`);
+    await page.waitForFunction(() => document.querySelector(".sheet canvas.chart") || /走勢圖下載失敗|目前只累積/.test(document.querySelector(".sheet")?.innerText || ""), null, { timeout: 120000 });
+    const ix = await page.evaluate(() => {
+      const t = (q) => document.querySelector(q)?.innerText || "";
+      return { title: document.querySelector(".sheet h2")?.textContent || "", price: t('[data-testid="idx-price"]'), chart: !!document.querySelector(".sheet canvas.chart"), info: t('[data-testid="candle-info"]'), note: t('[data-testid="idx-note"]'), text: document.querySelector(".sheet")?.innerText || "" };
+    });
+    log(`指數走勢 ${nm}`, JSON.stringify({ ...ix, text: undefined }));
+    await shot(`指數走勢 ${nm}`);
+    check(ix.title.includes(nm) && ix.chart, `${nm}：點進去有 K 線走勢圖`, JSON.stringify({ ...ix, text: ix.text.slice(0, 120) }));
+    check(/開 [\d,.]+\s*高 [\d,.]+\s*低 [\d,.]+\s*收 [\d,.]+/.test(ix.info) && !/量 /.test(ix.info), `${nm}：K 線顯示開高低收、不顯示成交量`, ix.info);
+    await page.click('.sheet header button[aria-label="返回"]');
+    await page.waitForFunction(() => !document.querySelector(".sheet"), null, { timeout: 5000 });
+  }
   // 量能：只顯示最新交易日成交金額（億元，證交所統計）；不再顯示成交股數與成交筆數
   check(macro.some((m) => /^成交金額 [\d,]{3,} 億元/.test(m)) && !macro.some((m) => /成交筆數|成交股數/.test(m)), "顯示大盤成交金額（億元），沒有成交筆數與成交股數", JSON.stringify(macro.filter((m) => /成交/.test(m))));
   // 還沒開盤（台灣 09:00 前）：證交所即時資料四大指數漲跌都是 0.00

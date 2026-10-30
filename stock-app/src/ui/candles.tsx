@@ -32,7 +32,7 @@ const clampView = (v: View, n: number): View => {
   return { start, count };
 };
 
-export function CandleChart({ bars, us = false, cost }: { bars: CandleBar[]; us?: boolean; cost?: number }) {
+export function CandleChart({ bars, us = false, cost, noVol = false }: { bars: CandleBar[]; us?: boolean; cost?: number; noVol?: boolean }) {
   const costOk = cost !== undefined && Number.isFinite(cost) && cost > 0;
   const n = bars.length;
   const ref = useRef<HTMLCanvasElement>(null);
@@ -81,7 +81,7 @@ export function CandleChart({ bars, us = false, cost }: { bars: CandleBar[]; us?
     const { start, count } = view;
     const end = start + count; // 不含
     const i0 = Math.max(0, Math.floor(start)), i1 = Math.min(n, Math.ceil(end)); // 平移時 start 可以是小數
-    const padL = 4, padR = 46, padT = 6, priceH = 190, volH = 44, indH = 84, gap = 8, axisH = 14;
+    const padL = 4, padR = 46, padT = 6, priceH = noVol ? 242 : 190, volH = noVol ? 0 : 44, indH = 84, gap = 8, axisH = 14;
     const plotW = w - padL - padR;
     const sw = plotW / count;
     const cx = (i: number) => padL + (i - start + 0.5) * sw;
@@ -140,15 +140,17 @@ export function CandleChart({ bars, us = false, cost }: { bars: CandleBar[]; us?
     const vTop = padT + priceH + gap;
     let vmax = 1;
     for (let i = i0; i < i1; i++) if (Number.isFinite(bars[i].volume)) vmax = Math.max(vmax, bars[i].volume);
-    for (let i = i0; i < i1; i++) {
-      const b = bars[i];
-      g.fillStyle = b.close >= b.open ? up : down; g.globalAlpha = 0.55;
-      const hh = (b.volume / vmax) * volH;
-      g.fillRect(cx(i) - bw / 2, vTop + volH - hh, bw, hh);
+    if (!noVol) {
+      for (let i = i0; i < i1; i++) {
+        const b = bars[i];
+        g.fillStyle = b.close >= b.open ? up : down; g.globalAlpha = 0.55;
+        const hh = (b.volume / vmax) * volH;
+        g.fillRect(cx(i) - bw / 2, vTop + volH - hh, bw, hh);
+      }
+      g.globalAlpha = 1;
+      hline(vTop + volH);
+      g.fillStyle = muted; g.fillText("量", w - padR + 4, vTop + 6);
     }
-    g.globalAlpha = 1;
-    hline(vTop + volH);
-    g.fillStyle = muted; g.fillText("量", w - padR + 4, vTop + 6);
 
     // 指標區
     const iTop = vTop + volH + gap;
@@ -203,9 +205,9 @@ export function CandleChart({ bars, us = false, cost }: { bars: CandleBar[]; us?
       };
       const sb = bars[sel];
       tag(py(sb.close), fmtP(sb.close), sb.close >= sb.open ? up : down);
-      tag(vTop + volH - (sb.volume / vmax) * volH, volTag(sb.volume, us), sb.close >= sb.open ? up : down);
+      if (!noVol) tag(vTop + volH - (sb.volume / vmax) * volH, volTag(sb.volume, us), sb.close >= sb.open ? up : down);
     }
-  }, [bars, view, tab, sel, ind, wpx, cost]);
+  }, [bars, view, tab, sel, ind, wpx, cost, noVol]);
 
   useEffect(() => {
     const c = ref.current;
@@ -294,7 +296,7 @@ export function CandleChart({ bars, us = false, cost }: { bars: CandleBar[]; us?
       <div class="muted num" style={{ fontSize: "12px", lineHeight: 1.6 }} data-testid="candle-info">
         <span>{sel !== null ? dstr(b.date) : b.live ? "盤中" : "最新"}　開 {fmtP(b.open)}　高 {fmtP(b.high)}　低 {fmtP(b.low)}　收 {fmtP(b.close)}　</span>
         <span class={chg >= 0 ? "up" : "down"}>{chg >= 0 ? "+" : ""}{(chg * 100).toFixed(2)}%</span>
-        <span>　量 {fmtVol(b.volume, us)}</span>
+        {!noVol && <span>　量 {fmtVol(b.volume, us)}</span>}
       </div>
       <div class="row num" style={{ fontSize: "12px", gap: "10px", flexWrap: "wrap" }} data-testid="candle-ma">
         {MA_DEFS.map((m, k) => <span key={m.n} style={{ color: m.color || "var(--accent)" }}>{m.label} {fmtP(ind.ma[k][idx])}</span>)}

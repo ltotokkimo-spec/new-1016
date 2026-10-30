@@ -1,12 +1,13 @@
 // ETF 組合回測：抓候選 ETF 的日線與配息（Yahoo），跑規則式選配策略，和 0050、固定比例組合比較，輸出 etf-backtest.json。
-// 用法：node .eb-build/etfBacktest.js <輸出 etf-backtest.json>
+// 用法：node .eb-build/etfBacktest.js <輸出檔> [week|month]（預設 month：每月最後一個交易日判斷，每 3 次判斷＝一季重新平衡）
 import { writeFileSync } from "node:fs";
-import { DEFAULT_CFG, ETF_UNIVERSE, align, chooseTarget, evaluate, fixSplits, fixedDecider, metrics, parseYahoo, simulate, strategyDecider, type EtfData, type Sim } from "../src/engine/etfBacktest";
+import { DEFAULT_CFG, ETF_UNIVERSE, align, chooseTarget, evaluate, fixSplits, fixedDecider, isPeriodEnd, metrics, parseYahoo, simulate, strategyDecider, type EtfData, type Sim } from "../src/engine/etfBacktest";
 
 const UA = { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/126.0 Safari/537.36", accept: "application/json" };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const outPath = process.argv[2] ?? "etf-backtest.json";
-const cfg = DEFAULT_CFG;
+const outPath = process.argv[2] ?? "etf-backtest-monthly.json";
+const freq = process.argv[3] === "week" ? "week" : "month";
+const cfg = { ...DEFAULT_CFG, freq, fullEvery: freq === "week" ? DEFAULT_CFG.fullEvery : 3 } as typeof DEFAULT_CFG;
 
 async function load(code: string): Promise<{ bars: EtfData["bars"]; divs: EtfData["divs"]; fixed: string[] } | null> {
   for (const sfx of [".TW", ".TWO"]) {
@@ -39,17 +40,16 @@ const a = align(data);
 // 第一個能選出配置的週五收盤當起點；之後三條曲線（策略、0050、固定比例）從同一天起算
 let S = -1;
 for (let i = 100; i < a.dates.length; i++) {
-  const d = new Date(Date.UTC(+a.dates[i].slice(0, 4), +a.dates[i].slice(4, 6) - 1, +a.dates[i].slice(6)));
-  if (d.getUTCDay() !== 5) continue;
+  if (!isPeriodEnd(a.dates, i, freq)) continue;
   if (chooseTarget(a, i, new Set(), cfg)) { S = i; break; }
 }
 if (S < 0) throw new Error("找不到可以開始的日子");
 console.log("起點", a.dates[S], "終點", a.dates.at(-1), "交易日", a.dates.length - S);
 
 const strat = simulate(a, S, strategyDecider(cfg), cfg);
-const bench = simulate(a, S, fixedDecider({ "0050": 1 }, 1e9), cfg);
+const bench = simulate(a, S, fixedDecider({ "0050": 1 }, 1e9), { ...cfg, freq: "week" });
 const basketW = { "0050": 0.6, "00878": 0.2, "00720B": 0.2 };
-const basket = simulate(a, S, fixedDecider(basketW, 13), cfg);
+const basket = simulate(a, S, fixedDecider(basketW, 13), { ...cfg, freq: "week" }); // 固定比例組合維持每週檢查、每 13 次（一季）平衡，不受判斷頻率影響
 const ev = evaluate(strat, bench, basket, cfg);
 
 const pct = (x: number) => `${(x * 100).toFixed(2)}%`;
@@ -73,6 +73,7 @@ const nameOf = (c: string) => ETF_UNIVERSE.find((e) => e.code === c)?.name ?? c;
 const weekly = (s: Sim) => s.nav.filter((_, i) => i % 5 === 0 || i === s.nav.length - 1).map((p) => [p.d, Math.round(p.nav)]);
 const out = {
   generatedAt: new Date().toISOString(),
+  version: freq === "month" ? "V1：每月判斷（每 3 次判斷＝一季重新平衡），其餘規則與 V0 每週判斷相同" : "V0：每週判斷",
   note: "規則式選配框架的回測（不是 Claude 本人逐週的判斷）；含手續費、證交稅 0.1%、配息（稅前）；週五收盤判斷、隔天開盤成交",
   config: cfg,
   period: { start: a.dates[S], end: a.dates.at(-1), days: a.dates.length - S },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ETF_UNIVERSE, DEFAULT_CFG, align, chooseTarget, downSegmentReturn, evaluate, fixSplits, fixedDecider, metrics, parseYahoo, simulate, strategyDecider, violations, waterFill, type EtfData } from "../src/engine/etfBacktest";
+import { ETF_UNIVERSE, DEFAULT_CFG, align, chooseTarget, downSegmentReturn, evaluate, fixSplits, fixedDecider, isPeriodEnd, metrics, parseYahoo, simulate, strategyDecider, violations, waterFill, type EtfData } from "../src/engine/etfBacktest";
 
 // 合成資料：每檔一條可控的價格路徑（從 2024-01-01 起每個平日一根）
 const dates = (() => { const out: string[] = []; const d = new Date(Date.UTC(2024, 0, 1)); while (out.length < 330) { if (d.getUTCDay() % 6) out.push(d.toISOString().slice(0, 10).replace(/-/g, "")); d.setUTCDate(d.getUTCDate() + 1); } return out; })();
@@ -144,5 +144,25 @@ describe("分割還原", () => {
     const adjusted = [{ d: "20250101", o: 50, c: 50, v: 400 }, { d: "20250103", o: 50, c: 50, v: 400 }];
     expect(fixSplits(adjusted, [], [{ d: "20250103", ratio: 4 }])).toEqual([]);
     expect(adjusted[0].c).toBe(50);
+  });
+});
+
+describe("判斷頻率", () => {
+  it("每週：週五（或週五休市時該週最後一天）；每月：該月最後一個交易日", () => {
+    const ds = ["20260105", "20260106", "20260109", "20260112", "20260130", "20260202"];
+    expect(ds.map((_, i) => isPeriodEnd(ds, i, "week"))).toEqual([false, false, true, true, true, true]);
+    expect(ds.map((_, i) => isPeriodEnd(ds, i, "month"))).toEqual([false, false, false, false, true, true]);
+  });
+  it("每月判斷的調整次數比每週少很多（同一份資料）", () => {
+    const data = [
+      series("0050", drift(100, 0.0004)), series("00878", drift(30, 0.0003)), series("0052", drift(60, 0.0002)), series("0056", drift(50, 0.0003)), series("00919", drift(30, 0.0001)),
+      series("00720B", drift(30, 0.0001)), series("00679B", drift(26, 0.00005)),
+    ];
+    const a = align(data);
+    const from = (() => { let s = 130; while (!isPeriodEnd(a.dates, s, "month")) s++; return s; })();
+    const wk = simulate(a, from, strategyDecider({ ...DEFAULT_CFG, freq: "week" }), { ...DEFAULT_CFG, freq: "week" });
+    const mo = simulate(a, from, strategyDecider({ ...DEFAULT_CFG, freq: "month", fullEvery: 3 }), { ...DEFAULT_CFG, freq: "month", fullEvery: 3 });
+    expect(mo.rebalances.length).toBeLessThanOrEqual(wk.rebalances.length);
+    expect(mo.rebalances.length).toBeLessThanOrEqual(8);
   });
 });

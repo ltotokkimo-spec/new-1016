@@ -51,14 +51,15 @@ export interface BtConfig {
   maxEquityPicks: number;
   keepRank: number; // 已持有的股票型 ETF 只要排名還在前幾名就留著（減少來回換）
   driftBand: number; // 股票型比重偏離目標超過這個比例才重新平衡
-  fullEvery: number; // 每幾次判斷強制重新平衡一次（季）
+  fullEvery: number; // 每幾次判斷強制重新平衡一次（每週判斷用 13 次＝一季，每月判斷用 3 次＝一季）
+  freq: "week" | "month"; // 判斷頻率：每週最後一個交易日、或每月最後一個交易日收盤判斷，隔天開盤成交
   legBand: number; // 重新平衡時，單檔偏離小於這個比例（對淨值）就不動
   fee: number; // 買賣手續費
   tax: number; // 賣出證交稅（ETF）
 }
 export const DEFAULT_CFG: BtConfig = {
   budget: 500_000, warmup: 120, minTurnover: 5e7, momDays: 60, riskOnEquity: 0.8, riskOffEquity: 0.5,
-  maxSingle: 0.4, maxActive: 0.2, maxPerType: 2, maxEquityPicks: 3, keepRank: 5, driftBand: 0.1, fullEvery: 13, legBand: 0.02,
+  maxSingle: 0.4, maxActive: 0.2, maxPerType: 2, maxEquityPicks: 3, keepRank: 5, driftBand: 0.1, fullEvery: 13, freq: "week", legBand: 0.02,
   fee: 0.001425, tax: 0.001,
 };
 
@@ -98,6 +99,12 @@ const weekKey = (d: string) => {
   const wd = (new Date(t).getUTCDay() + 6) % 7; // 週一 = 0
   return Math.floor((t / 86400000 - wd + 3) / 7);
 };
+
+/** 第 i 個交易日是不是這個週期（週／月）的最後一個交易日（資料最後一天也算） */
+export function isPeriodEnd(dates: string[], i: number, freq: "week" | "month"): boolean {
+  if (i >= dates.length - 1) return true;
+  return freq === "week" ? weekKey(dates[i + 1]) !== weekKey(dates[i]) : dates[i + 1].slice(0, 6) !== dates[i].slice(0, 6);
+}
 
 // ---------------- 選配 ----------------
 export interface Scored { i: number; score: number; mom: number; vol: number }
@@ -260,8 +267,7 @@ export function simulate(a: Aligned, start: number, decide: Decider, cfg: BtConf
     const navC = value(t, "c");
     nav.push({ d: a.dates[t], nav: navC });
     for (const [c, n] of shares) maxW = Math.max(maxW, (n * px(c, "c", t)) / navC);
-    const lastOfWeek = t === N - 1 || weekKey(a.dates[t + 1]) !== weekKey(a.dates[t]);
-    if (lastOfWeek) {
+    if (isPeriodEnd(a.dates, t, cfg.freq)) {
       const w: Record<string, number> = {};
       for (const [c, n] of shares) w[c] = (n * px(c, "c", t)) / navC;
       const d = decide(a, t, w, decisions++);

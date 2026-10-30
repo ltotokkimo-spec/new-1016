@@ -329,8 +329,14 @@ function check(ok, name, detail = "") {
   check(["加權指數", "臺灣50指數", "半導體類指數", "金融保險類指數"].every((n) => macro.some((m) => m.includes(n))), "四大台股指數都顯示", JSON.stringify(macro.slice(0, 6)));
   // 點指數卡片 → 日 K 走勢（加權有真實開高低收；臺灣50等用收盤串成）
   for (const nm of ["加權指數", "電子類指數", "櫃買指數"]) {
+    await page.evaluate(() => { window.__srIdxTrace = []; });
     await page.click(`[data-testid="idx-card-${nm}"]`);
-    await page.waitForFunction(() => document.querySelector(".sheet canvas.chart") || /走勢圖下載失敗|目前只累積/.test(document.querySelector(".sheet")?.innerText || ""), null, { timeout: 150000 });
+    try {
+      await page.waitForFunction(() => document.querySelector(".sheet canvas.chart") || /走勢圖下載失敗|目前只累積/.test(document.querySelector(".sheet")?.innerText || ""), null, { timeout: 150000 });
+    } catch (e) {
+      log(`指數走勢 ${nm} 逾時診斷`, JSON.stringify(await page.evaluate(() => ({ sheet: (document.querySelector(".sheet")?.innerText || "無畫面").slice(0, 300), trace: (window.__srIdxTrace || []).slice(-40) }))));
+      throw e;
+    }
     const ix = await page.evaluate(() => {
       const t = (q) => document.querySelector(q)?.innerText || "";
       return { title: document.querySelector(".sheet h2")?.textContent || "", price: t('[data-testid="idx-price"]'), chart: !!document.querySelector(".sheet canvas.chart"), info: t('[data-testid="candle-info"]'), note: t('[data-testid="idx-note"]'), text: document.querySelector(".sheet")?.innerText || "" };

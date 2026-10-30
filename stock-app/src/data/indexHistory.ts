@@ -12,6 +12,8 @@ import { beginForeground } from "./history";
 export const taiexHistUrl = (ym: string) => `https://www.twse.com.tw/rwd/zh/TAIEX/MI_5MINS_HIST?date=${ym.slice(0, 6)}01&response=json`;
 export const tpexIndexUrl = () => "https://www.tpex.org.tw/openapi/v1/tpex_index";
 export const twseIndexDayUrl = (d: string) => `https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${d}&type=IND&response=json`;
+/** 診斷用：e2e 把 window.__srIdxTrace 設成陣列，下載過程就會記進去（平常不存在，沒有任何作用） */
+const trace = (m: string) => { try { (globalThis as any).__srIdxTrace?.push(`${Date.now() % 1e6} ${m}`); } catch { /* ignore */ } };
 const TRACKED = ["發行量加權股價指數", "臺灣50指數", "半導體類指數", "金融保險類指數", "電子類指數"];
 
 const n = (s: unknown): number => { const v = parseFloat(String(s ?? "").replace(/,/g, "")); return Number.isFinite(v) && v > 0 ? v : NaN; };
@@ -72,10 +74,12 @@ export async function indexDay(fetch: Fetcher, kv: KV, d: string, now = Date.now
   }
   if (!isFinalDay(d, now)) return undefined; // 今天還沒收盤：交給即時報價
   try {
+    trace(`fetch ${d}`);
     const day = parseIndexDay(await fetch(twseIndexDayUrl(d))) ?? {};
     await kv.set(`idx:d:${d}`, day); // 休市日也存（空物件），之後不再問
+    trace(`ok ${d} ${Object.keys(day).length}`);
     return day;
-  } catch { return undefined; }
+  } catch (e: any) { trace(`fail ${d} ${e?.message ?? e}`); return undefined; }
 }
 
 export interface IndexHist { bars: DayBar[]; kind: "ohlc" | "close" }
@@ -100,7 +104,7 @@ async function indexHistoryInner(fetch: Fetcher, kv: KV, name: string, months: n
     await Promise.all(keys.map(async (ym) => { const b = await kv.get<DayBar[]>(keyOf(ym)); if (b) got.set(ym, b); }));
     if (got.size) onPartial?.(merged());
     for (const ym of [...keys].reverse()) {
-      if (got.has(ym)) continue;
+      if (got.has(ym) || stop?.()) continue;
       let bars: DayBar[];
       try { bars = parseTaiexHist(await fetch(taiexHistUrl(ym))); } catch (e) { if (merged().bars.length) break; throw e; }
       if (bars.length) await kv.set(keyOf(ym), bars);
@@ -126,11 +130,14 @@ async function indexHistoryInner(fetch: Fetcher, kv: KV, name: string, months: n
   const got = new Map<string, number>();
   const emit = () => onPartial?.({ kind: "close", bars: closesToBars([...got].map(([date, close]) => ({ date, close }))) });
   const pending: string[] = [];
-  for (const d of dates) { // 手機裡已有的先處理（不連網）
-    const mine = await kv.get<Record<string, number>>(`idx:d:${d}`);
-    const old = mine ?? (await kv.get<any>(`tw2:q:twse:${d}`))?.indices?.reduce?.((o: any, x: any) => (x?.name === want ? { [want]: x.close } : o), undefined);
-    if (old) { if (Number.isFinite(old[want])) got.set(d, old[want]); } else pending.push(d);
-  }
+  trace(`start ${want} dates=${dates.length}`);
+  const mine = await Promise.all(dates.map((d) => kv.get<Record<string, number>>(`idx:d:${d}`))); // 平行讀手機裡存的（逐筆等會很慢）
+  const olds = await Promise.all(dates.map((d, i) => (mine[i] ? undefined : kv.get<any>(`tw2:q:twse:${d}`))));
+  dates.forEach((d, i) => {
+    const m = mine[i] ?? (olds[i]?.indices ? Object.fromEntries((olds[i].indices as any[]).map((x) => [x?.name, x?.close])) : undefined);
+    if (m) { if (Number.isFinite(m[want])) got.set(d, m[want]); } else pending.push(d);
+  });
+  trace(`close ${want} cached=${got.size} pending=${pending.length}`);
   if (got.size) emit();
   let failed = 0;
   for (let i = 0; i < pending.length && failed < 3 && !stop?.(); i += 2) { // 兩天一批：第一張圖約 6 秒就出來，其餘慢慢補（存在手機，下次不用再抓）

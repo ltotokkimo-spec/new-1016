@@ -1,0 +1,41 @@
+name: Stock ETF Backtest
+
+# ETF 組合回測（規則式選配框架）：抓候選 ETF 日線與配息，和 0050、固定比例組合比較，結果發布到 Releases 的 stock-radar-data（etf-backtest.json）。
+# 不排程；改這支程式時推送會跑一次，也可以手動執行。
+on:
+  push:
+    branches: [ 'claude/**' ]
+    paths: [ 'stock-app/tools/etfBacktest.ts', 'stock-app/src/engine/etfBacktest.ts', 'stock-app/test/etfBacktest.test.ts', '.github/workflows/stock-etf-backtest.yml' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  etf-backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: stock-etf-backtest
+      cancel-in-progress: true
+    defaults:
+      run:
+        working-directory: stock-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: stock-app/package-lock.json
+      - run: npm ci
+      - name: 單元測試
+        run: npx vitest run test/etfBacktest.test.ts
+      - name: 回測
+        run: |
+          npx vite build --ssr tools/etfBacktest.ts --outDir .eb-build
+          node .eb-build/etfBacktest.js etf-backtest.json
+      - name: 發布結果
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload stock-radar-data etf-backtest.json --clobber

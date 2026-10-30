@@ -71,12 +71,6 @@ const isFinalDay = (d: string, now: number) => { const t = taipeiToday(now); ret
 export async function indexDay(fetch: Fetcher, kv: KV, d: string, now = Date.now()): Promise<Record<string, number> | undefined> {
   const mine = await kv.get<Record<string, number>>(`idx:d:${d}`);
   if (mine) return mine;
-  const old = await kv.get<any>(`tw2:q:twse:${d}`);
-  if (old?.indices?.length) {
-    const o: Record<string, number> = {};
-    for (const x of old.indices) if (TRACKED.includes(x?.name) && Number.isFinite(x.close) && x.close > 0) o[x.name] = x.close;
-    if (Object.keys(o).length) return o;
-  }
   if (!isFinalDay(d, now)) return undefined; // 今天還沒收盤：交給即時報價
   try {
     trace(`fetch ${d}`);
@@ -139,8 +133,10 @@ async function indexHistoryInner(fetch: Fetcher, kv: KV, name: string, months: n
   const mine = await Promise.all(dates.map((d) => kv.get<Record<string, number>>(`idx:d:${d}`))); // 平行讀手機裡存的（逐筆等會很慢）
   const olds = await Promise.all(dates.map((d, i) => (mine[i] ? undefined : kv.get<any>(`tw2:q:twse:${d}`))));
   dates.forEach((d, i) => {
-    const m = mine[i] ?? (olds[i]?.indices ? Object.fromEntries((olds[i].indices as any[]).map((x) => [x?.name, x?.close])) : undefined);
-    if (m) { const c = pickClose(m, want); if (Number.isFinite(c)) got.set(d, c); } else pending.push(d);
+    if (mine[i]) { const c = pickClose(mine[i], want); if (Number.isFinite(c)) got.set(d, c); return; } // 指數專用的存檔：空物件代表休市，不用再問
+    // App 自己下載的每日行情快取只存了幾個指數（名稱也可能不同），沒有要的那個就當作沒有，去抓
+    const c = pickClose(olds[i]?.indices ? Object.fromEntries((olds[i].indices as any[]).map((x) => [x?.name, x?.close])) : undefined, want);
+    if (Number.isFinite(c)) got.set(d, c); else pending.push(d);
   });
   trace(`close ${want} cached=${got.size} pending=${pending.length}`);
   if (got.size) emit();

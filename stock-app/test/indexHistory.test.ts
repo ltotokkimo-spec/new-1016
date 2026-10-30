@@ -71,6 +71,14 @@ describe("指數歷史", () => {
     const h = await indexHistory(f as any, kv, "電子類指數", 6, NOW, undefined, 3);
     expect(h.bars.map((b) => b.close)).toEqual([4900, 5000]);
   });
+  it("App 舊的每日行情快取沒有要的指數（只存了其他指數）→ 照樣補抓，不能當作休市跳過", async () => {
+    const kv = memKv({ "tw2:q:twse:20261029": { rows: [], indices: [{ name: "臺灣50指數", close: 41000 }] } });
+    const calls: string[] = [];
+    const f = async (u: string) => { calls.push(u); return { stat: "OK", tables: [{ fields: ["指數", "收盤指數"], data: [["電子工業類指數", "2,887.2"]] }] }; };
+    const h = await indexHistory(f as any, kv, "電子類指數", 6, NOW, undefined, 2);
+    expect(calls.some((u) => u.includes("20261029"))).toBe(true);
+    expect(h.bars.map((b) => b.date)).toContain("20261029");
+  });
   it("全部都連不上且手機沒有資料 → 丟錯", async () => {
     await expect(indexHistory((async () => { throw new Error("斷線"); }) as any, memKv(), "電子類指數", 6, NOW, undefined, 6)).rejects.toThrow();
   });

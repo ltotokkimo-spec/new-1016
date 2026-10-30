@@ -345,6 +345,9 @@ function check(ok, name, detail = "") {
     await shot(`指數走勢 ${nm}`);
     check(ix.title.includes(nm) && ix.chart, `${nm}：點進去有 K 線走勢圖`, JSON.stringify({ ...ix, text: ix.text.slice(0, 120) }));
     check(/開 [\d,.]+\s*高 [\d,.]+\s*低 [\d,.]+\s*收 [\d,.]+/.test(ix.info) && !/量 /.test(ix.info), `${nm}：K 線顯示開高低收、不顯示成交量`, ix.info);
+    // 前後一致：圖上最新一根的漲跌（對前一根收盤）要和上方標題的漲跌幅一致，否則代表中間少了交易日
+    const hp = /（([+-]?[\d.]+)%）/.exec(ix.text), ip = /([+-][\d.]+)%\s*$/.exec(ix.info);
+    check(!!hp && !!ip && Math.abs(parseFloat(hp[1]) - parseFloat(ip[1])) <= 0.2, `${nm}：圖上最新漲跌與標題一致（沒有漏掉交易日）`, `標題 ${hp?.[1]}% / 圖 ${ip?.[1]}%`);
     await page.click('.sheet header button[aria-label="返回"]');
     await page.waitForFunction(() => !document.querySelector(".sheet"), null, { timeout: 5000 });
   }

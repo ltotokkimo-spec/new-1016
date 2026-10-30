@@ -360,6 +360,11 @@ function check(ok, name, detail = "") {
     check(/持股資料日 \d+\/\d+（.）/.test(ra.note) && !/NaN|undefined/.test(ra.note), "主動式 ETF 排名顯示持股資料日", ra.note.slice(0, 60));
   }
   // App 自己向 MoneyDJ 檢查最新持股（電腦版頁面才有完整持股）：要能抓到 10 檔以上
+  // 資料已經是最新（全部公布到應有日期）時 App 不會重抓；測試要驗證 MoneyDJ 這條路，所以按「重新檢查」強制抓一次
+  await page.waitForSelector('[data-testid="etfrank-recheck"], [data-testid="etfrank-live"]', { timeout: 30000 }).catch(() => {});
+  const upToDate = await page.$eval('[data-testid="etfrank-live"]', (e) => /持股資料已是最新/.test(e.innerText)).catch(() => false);
+  log("ETF排行 持股資料已是最新（不重抓）", String(upToDate));
+  if (upToDate) await page.click('[data-testid="etfrank-recheck"]');
   await page.waitForFunction(() => /已檢查最新持股/.test(document.querySelector('[data-testid="etfrank-live"]')?.innerText || ""), null, { timeout: 120000 }).catch(() => {});
   const liveTxt = await page.$eval('[data-testid="etfrank-live"]', (e) => e.innerText).catch(() => "");
   log("ETF排行 App 檢查最新持股", liveTxt);

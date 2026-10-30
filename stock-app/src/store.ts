@@ -94,7 +94,7 @@ export interface State {
   regime?: { data: VirtualEtf; fetchedAt: number; error?: string };
   lead?: { data: VirtualEtf; fetchedAt: number; error?: string };
   ai?: { data: VirtualEtf; fetchedAt: number; error?: string };
-  activeEtf?: { data: ActiveEtfData; fetchedAt: number; error?: string; liveAt?: number; liveProgress?: { done: number; total: number }; liveFound?: number };
+  activeEtf?: { data: ActiveEtfData; fetchedAt: number; error?: string; liveAt?: number; liveProgress?: { done: number; total: number }; liveFound?: number; liveHoldings?: { code: string; name: string; date: string; shares: Record<string, number> }[] };
   steady?: { data: SteadyLite; fetchedAt: number };
   live: Record<string, LiveQuote>; // 證交所即時報價（盤中每 30 秒更新）
   liveAt?: number;
@@ -601,7 +601,9 @@ export async function refreshActiveEtf() {
   try {
     const data = (await fetcher(`${ACTIVE_URL}?t=${Date.now()}`)) as ActiveEtfData;
     if (data?.version !== 1 || !Array.isArray(data.days) || !Array.isArray(data.etfs)) throw new Error("格式不對");
-    const v = { data, fetchedAt: Date.now(), liveAt: state.activeEtf?.liveAt };
+    // GitHub 那份每天只整理一次、比較舊：把上次 App 自己抓到的新持股重新套上去，不然打開就又退回舊資料、要再等一輪
+    const kept = state.activeEtf?.liveHoldings;
+    const v = { data: kept?.length ? mergeLive(data, kept) : data, fetchedAt: Date.now(), liveAt: state.activeEtf?.liveAt, liveHoldings: kept, liveFound: state.activeEtf?.liveFound };
     await kv.set("activeEtf", v);
     set({ activeEtf: v });
   } catch {
@@ -632,7 +634,10 @@ export async function refreshActiveLive() {
       done++; upd();
     }));
     const base = state.activeEtf ?? cur;
-    const v = { ...base, data: mergeLive(base.data, fresh), liveAt: Date.now(), liveProgress: undefined, liveFound: fresh.length };
+    // 每檔 ETF 只留最新的一份，供 GitHub 資料更新後重新套用
+    const byCode = new Map((base.liveHoldings ?? []).map((h) => [h.code, h]));
+    for (const f of fresh) { const o = byCode.get(f.code); if (!o || f.date >= o.date) byCode.set(f.code, f); }
+    const v = { ...base, data: mergeLive(base.data, fresh), liveAt: Date.now(), liveProgress: undefined, liveFound: fresh.length, liveHoldings: [...byCode.values()] };
     await kv.set("activeEtf", v);
     set({ activeEtf: v });
   } finally {

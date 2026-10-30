@@ -1,6 +1,7 @@
 // 主動式 ETF 個股買賣超：每天抓各主動式 ETF 的完整持股（MoneyDJ「全部持股」頁，各投信每日公布的持股），
 // 和同一檔 ETF 前一份持股比對股數，得到每檔 ETF 買賣了哪些股票；全部主動式 ETF 加總就是個股的主動式 ETF 買賣超。
 // 只算台股個股（4 碼代號），期貨、現金、國外股票不算。股數變化也包含投資人申購買回造成的同比例買賣，那也是 ETF 實際的買賣。
+import { taipeiToday, weekdaysBack } from "./dates";
 
 /** 一份持股：資料日（YYYYMMDD）與各股股數 */
 export interface HoldingSnap { date: string; shares: Record<string, number> }
@@ -199,4 +200,20 @@ export function etfHoldings(data: ActiveEtfData | undefined, etf: string, days: 
   const delta = new Map(moves.map((m) => [m.code, m.delta]));
   const hold = Object.entries(latest.shares).map(([code, shares]) => ({ code, shares, delta: delta.get(code) ?? 0 })).sort((a, b) => b.shares - a.shares);
   return { name: info.name, date: latest.date, n: hold.length, moves, hold, used: used.map((d) => d.date) };
+}
+
+/** 現在「應該已經公布」的最新持股日：平日 15:30 後是今天，其餘是前一個平日（國定假日不判斷，只會多檢查幾次） */
+export function expectedHoldingDate(now = Date.now()): string {
+  const d = new Date(now + 8 * 3600_000);
+  const h = d.getUTCHours() + d.getUTCMinutes() / 60;
+  const today = taipeiToday(now);
+  const days = weekdaysBack(today, 2); // [今天或最近的平日, 再前一個平日]
+  return days[0] === today && h >= 15.5 ? days[0] : days[0] === today ? days[1] : days[0];
+}
+
+/** 要不要向 MoneyDJ 重抓最新持股：已經全部公布到應有的日期就不用再等一輪 */
+export function liveNeeded(data: ActiveEtfData | undefined, now = Date.now()): boolean {
+  const cov = activeCoverage(data);
+  if (!cov) return true;
+  return cov.date < expectedHoldingDate(now) || cov.n < cov.of;
 }

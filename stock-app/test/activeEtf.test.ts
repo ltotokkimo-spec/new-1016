@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeRank, addSnap, buildActiveData, buildActiveDays, mergeLive, parseMoneyDjHoldings, etfBreakdown, etfHoldings, pickDays, activeCoverage, type ActiveHist } from "../src/lib/activeEtf";
+import { activeRank, addSnap, buildActiveData, buildActiveDays, mergeLive, parseMoneyDjHoldings, etfBreakdown, etfHoldings, pickDays, activeCoverage, expectedHoldingDate, liveNeeded, type ActiveHist } from "../src/lib/activeEtf";
 
 // MoneyDJ「全部持股」頁的實際結構（10/27 從 GitHub Actions 探測取得，節錄）
 const html = `<div>首頁 / ETF介紹 / 個別ETF-全部持股</div><h3>主動統一台股增長(00981A.TW)-全部持股</h3><div>資料日期：2026/10/22</div>
@@ -165,5 +165,40 @@ describe("持股公布進度", () => {
     h = addSnap(h, "A3", "丙", { date: "20261028", shares: { "2330": 1 } });
     expect(activeCoverage(buildActiveData(h, "t"))).toEqual({ date: "20261028", n: 2, of: 3 });
     expect(activeCoverage(undefined)).toBeUndefined();
+  });
+});
+
+describe("打開 ETF 排行不要每次重抓", () => {
+  let h: ActiveHist = { version: 1, etfs: {} };
+  h = addSnap(h, "A1", "甲", { date: "20261028", shares: { "2330": 1000 } });
+  h = addSnap(h, "A2", "乙", { date: "20261028", shares: { "2454": 500 } });
+  const gh = buildActiveData(h, "t");
+  const fresh: { code: string; name: string; date: string; shares: Record<string, number> }[] = [{ code: "A1", name: "甲", date: "20261029", shares: { "2330": 2000 } }, { code: "A2", name: "乙", date: "20261029", shares: { "2454": 600 } }];
+  const tpe = (ymd: string, hh: number, mm = 0) => Date.UTC(+ymd.slice(0, 4), +ymd.slice(4, 6) - 1, +ymd.slice(6, 8), hh - 8, mm);
+  it("GitHub 舊資料下載後，把上次自己抓到的新持股重新套上去，不會退回舊的", () => {
+    const merged = mergeLive(gh, fresh);
+    expect(merged.days[0].date).toBe("20261029");
+    const again = mergeLive(gh, fresh); // 重新下載的 GitHub 資料（還是舊的）＋保存的新持股
+    expect(again.days[0].date).toBe("20261029");
+    expect(activeCoverage(again)).toEqual({ date: "20261029", n: 2, of: 2 });
+    // GitHub 之後追上了：同一天不重複算
+    const caughtUp = mergeLive(mergeLive(gh, fresh), fresh);
+    expect(caughtUp.days.filter((d) => d.date === "20261029").length).toBe(1);
+  });
+  it("應該已公布的最新持股日：平日 15:30 後是今天，其餘是前一個平日", () => {
+    expect(expectedHoldingDate(tpe("20261029", 16))).toBe("20261029"); // 週四傍晚
+    expect(expectedHoldingDate(tpe("20261029", 9))).toBe("20261028"); // 週四早上
+    expect(expectedHoldingDate(tpe("20261030", 9))).toBe("20261029");
+    expect(expectedHoldingDate(tpe("20261031", 12))).toBe("20261030"); // 週六
+    expect(expectedHoldingDate(tpe("20261102", 9))).toBe("20261030"); // 週一早上
+  });
+  it("全部公布到應有日期就不重抓；還沒公布完或落後才抓", () => {
+    const merged = mergeLive(gh, fresh);
+    expect(liveNeeded(merged, tpe("20261029", 17))).toBe(false); // 10/29 全部公布、傍晚
+    expect(liveNeeded(merged, tpe("20261030", 9))).toBe(false); // 隔天早上也還是最新
+    expect(liveNeeded(gh, tpe("20261029", 17))).toBe(true); // 只有 10/28，傍晚該有 10/29
+    expect(liveNeeded(gh, tpe("20261029", 10))).toBe(false); // 早上，10/28 已是最新
+    expect(liveNeeded(mergeLive(gh, [fresh[0]]), tpe("20261029", 17))).toBe(true); // 只公布一檔
+    expect(liveNeeded(undefined)).toBe(true);
   });
 });

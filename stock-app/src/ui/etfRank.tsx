@@ -1,7 +1,7 @@
 // ETF排行分頁：個股被 ETF 買賣超的排名，今天、近 5 日買超與賣超前 20 名（依金額排名）。
 // 兩種來源：主動式 ETF（每天比對各主動式 ETF 公布的持股，經理人實際加減碼）、投信全部（證交所／櫃買投信買賣超，含被動 ETF 與一般基金）。
 import { useEffect, useMemo, useState } from "preact/hooks";
-import { activeCoverage, activeRank, etfBreakdown } from "../lib/activeEtf";
+import { activeCoverage, activeRank, etfBreakdown, liveNeeded } from "../lib/activeEtf";
 import { flowRank } from "../engine/etfRank";
 import type { Scored } from "../engine/score";
 import { prettyW } from "../lib/dates";
@@ -120,8 +120,10 @@ export function EtfRankScreen({ open }: { open: (s: Scored) => void }) {
   // GitHub 每天整理一次；另外打開時 App 自己向 MoneyDJ 檢查最新持股（10 分鐘內不重複）
   useEffect(() => {
     const old = (t?: number) => !t || Date.now() - t > 10 * 60_000;
-    if (!active || old(active.fetchedAt)) refreshActiveEtf().then(() => refreshActiveLive());
-    else if (old(active.liveAt)) refreshActiveLive();
+    // 已經全部公布到應有的日期就不用再向 MoneyDJ 抓一輪（以前每次打開都重抓、畫面一直停在舊資料等更新）
+    const live = () => { if (liveNeeded(getState().activeEtf?.data)) refreshActiveLive(); };
+    if (!active || old(active.fetchedAt)) refreshActiveEtf().then(live);
+    else if (old(active.liveAt)) live();
   }, []);
   // 持股各投信收盤後陸續公布（有的到晚上）：停在這頁、還有 ETF 沒公布今天持股時，平日 15:30～24:00 每 5 分鐘自動檢查，公布了就馬上併進排行
   useEffect(() => {
@@ -186,8 +188,9 @@ export function EtfRankScreen({ open }: { open: (s: Scored) => void }) {
           資料每天收盤後約 15:00～16:00 公布，盤中看到的是前一個交易日。
         </>}
       </div>
-      {src === "active" && active && (active.liveProgress || active.liveAt) && <div class="muted" style={{ fontSize: "12px", margin: "0 2px 8px" }} data-testid="etfrank-live">
+      {src === "active" && active && (active.liveProgress || active.liveAt || cover) && <div class="muted" style={{ fontSize: "12px", margin: "0 2px 8px" }} data-testid="etfrank-live">
         {active.liveProgress ? `正在檢查最新持股… ${active.liveProgress.done}/${active.liveProgress.total}`
+          : !active.liveAt ? <>持股資料已是最新{cover ? `（${ymdW(cover.date)} 已公布 ${cover.n}／${cover.of} 檔）` : ""}，不用再等 <button class="linkbtn" onClick={() => refreshActiveLive()} data-testid="etfrank-recheck">重新檢查</button></>
           : <>已檢查最新持股（{new Date(active.liveAt!).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false })}，取得 {active.liveFound ?? 0} 檔）{active.data.live ? `，最新持股日 ${ymdW(active.data.live)}` : ""}{cover ? `，${ymdW(cover.date)} 已公布 ${cover.n}／${cover.of} 檔${cover.n < cover.of ? "（停在這頁每 5 分鐘自動檢查）" : ""}` : ""} <button class="linkbtn" onClick={() => refreshActiveLive()} data-testid="etfrank-recheck">重新檢查</button></>}
       </div>}
       {who && <WhoSheet row={who} days={days} live={live} onClose={() => setWho(null)} openDetail={() => open(who.item)} />}

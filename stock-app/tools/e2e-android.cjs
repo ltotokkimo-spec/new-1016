@@ -150,6 +150,8 @@ function check(ok, name, detail = "") {
   check(detail.chart, "個股走勢圖有畫出來", detail.title);
   // K 線圖：K 線＋均線、成交量、KD／MACD／RSI 切換、縮放、點選當天
   const cd = async () => page.evaluate(() => ({ info: document.querySelector('[data-testid="candle-info"]')?.innerText.replace(/\s+/g, " ") || "", ma: document.querySelector('[data-testid="candle-ma"]')?.innerText.replace(/\s+/g, " ") || "", ind: document.querySelector('[data-testid="candle-ind"]')?.innerText.replace(/\s+/g, " ") || "" }));
+  // 圖現在是分段載入：最近的月份先畫出來，均線（20、60 日）要等更早的月份載完才有；等「下載中」消失再檢查
+  await page.waitForFunction(() => !document.querySelector('[data-testid="kline-loading-more"]'), null, { timeout: 120000 }).catch(() => {});
   const cd0 = await cd();
   log("K線", JSON.stringify(cd0));
   check(/^(最新|盤中) 開 [\d.,]+ 高 [\d.,]+ 低 [\d.,]+ 收 [\d.,]+ [+-]\d+\.\d\d% 量 /.test(cd0.info), "K 線圖上方顯示最新一根的開高低收與成交量", cd0.info);

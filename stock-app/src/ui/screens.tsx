@@ -841,7 +841,7 @@ function IndexDetail({ name, onClose }: { name: string; onClose: () => void }) {
   const [done, setDone] = useState(false);
   useEffect(() => {
     let alive = true;
-    indexHistory(getFetcher(), getKv(), name, 6, Date.now(), (h) => { if (alive) setHist(h); })
+    indexHistory(getFetcher(), getKv(), name, 6, Date.now(), (h) => { if (alive) setHist(h); }, 70, () => !alive)
       .then((h) => { if (alive) { setHist(h); setDone(true); } })
       .catch((e) => { if (alive) { setErr(`走勢圖下載失敗：${e?.message ?? e}`); setDone(true); } });
     return () => { alive = false; };
@@ -868,7 +868,7 @@ function IndexDetail({ name, onClose }: { name: string; onClose: () => void }) {
       {!done && <div class="muted" data-testid="idx-loading" style={{ fontSize: "12px" }}>走勢圖下載中…（已有的先畫，其餘陸續補上）</div>}
       {shown && shown.length >= 2 && <CandleChart bars={shown} noVol />}
       {done && shown && shown.length < 2 && !err && <div class="muted" data-testid="idx-few">目前只累積到 {shown.length} 天的資料，之後每天打開 App 會自動增加。</div>}
-      {hist && hist.kind === "close" && <div class="muted" data-testid="idx-note" style={{ fontSize: "12px", marginTop: "6px" }}>這個指數官方沒有提供歷史開高低收：K 棒的「開」用前一天收盤、「收」用當天收盤，只畫最近約 3 個月（第一次打開要逐日下載，之後存在手機裡就是即時的）。</div>}
+      {hist && hist.kind === "close" && <div class="muted" data-testid="idx-note" style={{ fontSize: "12px", marginTop: "6px" }}>這個指數官方沒有提供歷史開高低收：K 棒的「開」用前一天收盤、「收」用當天收盤，只畫最近約 3 個月（證交所限制每 3 秒才能抓一次，第一次打開會一批一批補上，約 3 分鐘補完；存在手機裡，之後就是即時的）。</div>}
       {hist && name === "櫃買指數" && <div class="muted" data-testid="idx-note" style={{ fontSize: "12px", marginTop: "6px" }}>櫃買中心只提供當月資料，更早的由 App 每次打開時存下來，用得越久走勢越長。</div>}
     </Sheet>
   );

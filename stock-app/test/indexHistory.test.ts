@@ -57,6 +57,14 @@ describe("指數歷史", () => {
     expect(last.open).toBe(h.bars[h.bars.length - 2].close);
     expect(parts[parts.length - 1]).toBe(h.bars.length);
   });
+  it("使用者關掉畫面（stop）就不再繼續抓，已抓到的留在手機", async () => {
+    const kv = memKv();
+    let calls = 0, closed = false;
+    const f = async (u: string) => { calls++; closed = true; const d = /date=(\d{8})/.exec(u)![1]; return { stat: "OK", tables: [{ fields: ["指數", "收盤指數"], data: [["電子類指數", String(1000 + (+d.slice(6)))]] }] }; };
+    await indexHistory(f as any, kv, "電子類指數", 6, NOW, undefined, 30, () => closed);
+    expect(calls).toBe(2); // 第一批 2 天之後就停
+    expect([...kv._m.keys()].filter((k) => k.startsWith("idx:d:")).length).toBe(2);
+  });
   it("全部都連不上且手機沒有資料 → 丟錯", async () => {
     await expect(indexHistory((async () => { throw new Error("斷線"); }) as any, memKv(), "電子類指數", 6, NOW, undefined, 6)).rejects.toThrow();
   });

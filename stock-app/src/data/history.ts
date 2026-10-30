@@ -7,6 +7,8 @@ import { parseTpexStockHist, parseTwseStockDay, twHistUrls, type DayBar } from "
 // 前景（使用者正在看 K 線）正在下載時，背景預載要先停下來，不然會擋住證交所的請求間隔
 let foreground = 0;
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+/** 其他前景下載（例如指數走勢）也讓背景預載先停下來；回傳結束時要呼叫的函式 */
+export function beginForeground(): () => void { foreground++; let done = false; return () => { if (!done) { done = true; foreground--; } }; }
 
 function monthKeys(today: string, months: number): string[] {
   let y = +today.slice(0, 4), m = +today.slice(4, 6);

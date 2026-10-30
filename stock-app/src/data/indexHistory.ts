@@ -7,6 +7,7 @@ import type { Fetcher } from "../lib/net";
 import type { KV } from "../lib/kv";
 import { taipeiHour, taipeiToday, weekdaysBack } from "../lib/dates";
 import { rocToYmd, type DayBar } from "./tw";
+import { beginForeground } from "./history";
 
 export const taiexHistUrl = (ym: string) => `https://www.twse.com.tw/rwd/zh/TAIEX/MI_5MINS_HIST?date=${ym.slice(0, 6)}01&response=json`;
 export const tpexIndexUrl = () => "https://www.tpex.org.tw/openapi/v1/tpex_index";
@@ -82,7 +83,12 @@ export interface IndexHist { bars: DayBar[]; kind: "ohlc" | "close" }
 /**
  * 指數日 K。onPartial：有部分資料就先回報（手機裡已有的先畫，其餘下載後再更新）。
  */
-export async function indexHistory(fetch: Fetcher, kv: KV, name: string, months = 6, now = Date.now(), onPartial?: (h: IndexHist) => void, days = 70): Promise<IndexHist> {
+export async function indexHistory(fetch: Fetcher, kv: KV, name: string, months = 6, now = Date.now(), onPartial?: (h: IndexHist) => void, days = 70, stop?: () => boolean): Promise<IndexHist> {
+  const end = beginForeground(); // 證交所每 3 秒才能問一次，使用者正在看時背景預載先讓路
+  try { return await indexHistoryInner(fetch, kv, name, months, now, onPartial, days, stop); } finally { end(); }
+}
+
+async function indexHistoryInner(fetch: Fetcher, kv: KV, name: string, months: number, now: number, onPartial: ((h: IndexHist) => void) | undefined, days: number, stop?: () => boolean): Promise<IndexHist> {
   if (name === "加權指數") {
     const today = taipeiToday(now);
     let y = +today.slice(0, 4), m = +today.slice(4, 6);
@@ -127,8 +133,8 @@ export async function indexHistory(fetch: Fetcher, kv: KV, name: string, months 
   }
   if (got.size) emit();
   let failed = 0;
-  for (let i = 0; i < pending.length && failed < 3; i += 4) {
-    const rs = await Promise.all(pending.slice(i, i + 4).map(async (d) => [d, await indexDay(fetch, kv, d, now)] as const));
+  for (let i = 0; i < pending.length && failed < 3 && !stop?.(); i += 2) { // 兩天一批：第一張圖約 6 秒就出來，其餘慢慢補（存在手機，下次不用再抓）
+    const rs = await Promise.all(pending.slice(i, i + 2).map(async (d) => [d, await indexDay(fetch, kv, d, now)] as const));
     for (const [d, r] of rs) { if (r === undefined) failed++; else if (Number.isFinite(r[want])) got.set(d, r[want]); }
     emit();
   }

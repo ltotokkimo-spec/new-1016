@@ -1,23 +1,20 @@
-// 探測櫃買興櫃：當日行情表（每分鐘更新）與個股歷史行情的欄位順序
+// 探測櫃買興櫃個股歷史行情：哪種日期格式能取到前幾個月
 const H = { "user-agent": "Mozilla/5.0", accept: "application/json,*/*" };
-const j = async (u) => { const r = await fetch(u, { headers: H, signal: AbortSignal.timeout(20000) }); return r.json(); };
-console.log("===== ESB probe2 =====");
-const L = await j("https://www.tpex.org.tw/www/zh-tw/emerging/latest?response=json");
-const t = L.tables?.[0];
-console.log("latest keys", Object.keys(L), "table keys", Object.keys(t ?? {}));
-console.log("latest fields", JSON.stringify(t?.fields));
-console.log("latest date", t?.date, "rows", t?.data?.length);
-console.log("latest 7861", JSON.stringify(t?.data?.find((r) => String(r[0]) === "7861")));
-console.log("latest first", JSON.stringify(t?.data?.[0]));
-const H2 = await j("https://www.tpex.org.tw/www/zh-tw/emerging/historical?code=7861&date=2026%2F10&response=json");
-const h = H2.tables?.[0];
-console.log("hist keys", Object.keys(H2), "table keys", Object.keys(h ?? {}));
-console.log("hist fields", JSON.stringify(h?.fields));
-console.log("hist rows", h?.data?.length, "first", JSON.stringify(h?.data?.[0]), "last", JSON.stringify(h?.data?.at(-1)));
-console.log("hist date/summary", JSON.stringify(h?.date), JSON.stringify(h?.summary ?? h?.totalCount));
-// 前一個月、不存在的代號、非興櫃代號（上櫃）的回應長什麼樣
-for (const [code, d] of [["7861", "2026/09"], ["7861", "2025/01"], ["2330", "2026/10"], ["9999", "2026/10"]]) {
-  const x = await j(`https://www.tpex.org.tw/www/zh-tw/emerging/historical?code=${code}&date=${encodeURIComponent(d)}&response=json`).catch((e) => ({ err: e.message }));
-  const tb = x.tables?.[0];
-  console.log(code, d, "stat", x.stat, "rows", tb?.data?.length, "first", JSON.stringify(tb?.data?.[0]), x.err ?? "");
+console.log("===== ESB probe3 =====");
+const tryIt = async (label, qs) => {
+  try {
+    const r = await fetch(`https://www.tpex.org.tw/www/zh-tw/emerging/historical?${qs}&response=json`, { headers: H, signal: AbortSignal.timeout(20000) });
+    const x = await r.json(); const t = x.tables?.[0];
+    console.log(label.padEnd(28), "stat", String(x.stat).slice(0, 30), "| title", t?.date, "| rows", t?.data?.length, "| first", t?.data?.[0]?.[0], "last", t?.data?.at(-1)?.[0]);
+  } catch (e) { console.log(label, "ERR", e.message); }
+};
+for (const [l, d] of [["2026/09", "2026/09"], ["2026/09/01", "2026/09/01"], ["115/09", "115/09"], ["115/09/01", "115/09/01"], ["20260901", "20260901"], ["2026-09-01", "2026-09-01"], ["2026/09/30", "2026/09/30"], ["2026/08/15", "2026/08/15"]]) {
+  await tryIt(`date=${l}`, `code=7861&date=${encodeURIComponent(d)}`);
+  await tryIt(`date=${l}&id=`, `code=7861&date=${encodeURIComponent(d)}&id=`);
 }
+await tryIt("year=2026&month=9", "code=7861&year=2026&month=9");
+await tryIt("code+d=115/09", "code=7861&d=115/09");
+await tryIt("stkno", "stkno=7861&date=2026%2F09");
+// 一個比較早就在興櫃的股票（貝爾威勒 10/20 才進度），再試一檔老興櫃（取最新行情表第一檔 1260 富味鄉）
+await tryIt("1260 2026/09/01", "code=1260&date=2026%2F09%2F01");
+await tryIt("1260 2026/10", "code=1260&date=2026%2F10");

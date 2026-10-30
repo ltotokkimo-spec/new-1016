@@ -166,6 +166,6 @@
 ## 指數走勢（1.0.194）
 - 數據頁指數卡片可點（testid `idx-card-<名稱>`）→ `IndexDetail`（screens.tsx）→ `CandleChart noVol`（不畫成交量）。資料層 `src/data/indexHistory.ts`。
 - 加權指數：`TAIEX/MI_5MINS_HIST` 每月一份真實開高低收（每月存 kv `idx:t00:YYYYMM`）。櫃買指數：`tpex.org.tw/openapi/v1/tpex_index` 只回當月，每次打開合併存到 kv `idx:o00`，越用越長。
-- 臺灣50／半導體／金融保險／電子：官方沒有歷史開高低收。逐日抓 `MI_INDEX?date=YYYYMMDD&type=IND`（每天約 22KB，**含全部指數**），存 kv `idx:d:YYYYMMDD`（休市存 `{}`）；K 棒開＝前一天收盤。證交所限速每 3 秒 1 次，70 天第一次要約 3.5 分鐘：兩天一批先出圖、關畫面就停、抓過存手機；載入時用 `beginForeground()`（history.ts）讓背景預載讓路。
+- 臺灣50／半導體／金融保險／電子：官方沒有歷史開高低收。逐日抓 `MI_INDEX?date=YYYYMMDD&type=IND`（每天約 22KB，**含全部指數；電子指數在這裡叫「電子工業類指數」**），存 kv `idx:d:YYYYMMDD`（休市存 `{}`）；K 棒開＝前一天收盤。證交所限速每 3 秒 1 次，70 天第一次要約 3.5 分鐘：兩天一批先出圖、關畫面就停、抓過存手機；載入時用 `beginForeground()`（history.ts）讓背景預載讓路。
 - 診斷：e2e 把 `window.__srIdxTrace=[]`，下載過程會記進去，逾時會印出（平常沒有任何作用）。
 - 想要更快的做法（未做，等使用者決定）：讓每日排程順便把各指數收盤累積成一份 JSON 放到 stock-radar-data，App 一次下載。

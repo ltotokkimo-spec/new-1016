@@ -25,10 +25,10 @@ describe("指數歷史", () => {
   });
   it("解析 MI_INDEX type=IND：只取追蹤的指數、休市回傳 null", () => {
     const j = { stat: "OK", tables: [
-      { title: "價格指數(臺灣證券交易所)", fields: ["指數", "收盤指數", "漲跌(+/-)"], data: [["寶島股價指數", "52,047.99", "x"], ["發行量加權股價指數", "47,035.58", "x"], ["半導體類指數", "1,564.79", "x"]] },
+      { title: "價格指數(臺灣證券交易所)", fields: ["指數", "收盤指數", "漲跌(+/-)"], data: [["寶島股價指數", "52,047.99", "x"], ["發行量加權股價指數", "47,035.58", "x"], ["半導體類指數", "1,564.79", "x"], ["電子工業類指數", "5,000.5", "x"]] },
       { title: "報酬指數", fields: ["報酬指數", "收盤指數"], data: [["發行量加權股價報酬指數", "108,763.96"]] },
     ] };
-    expect(parseIndexDay(j)).toEqual({ 發行量加權股價指數: 47035.58, 半導體類指數: 1564.79 });
+    expect(parseIndexDay(j)).toEqual({ 發行量加權股價指數: 47035.58, 半導體類指數: 1564.79, 電子工業類指數: 5000.5 });
     expect(parseIndexDay({ stat: "很抱歉，沒有符合條件的資料!" })).toBeNull();
   });
   it("指數收盤：連網補抓並存起來、休市存空值、失敗不存", async () => {
@@ -64,6 +64,12 @@ describe("指數歷史", () => {
     await indexHistory(f as any, kv, "電子類指數", 6, NOW, undefined, 30, () => closed);
     expect(calls).toBe(2); // 第一批 2 天之後就停
     expect([...kv._m.keys()].filter((k) => k.startsWith("idx:d:")).length).toBe(2);
+  });
+  it("電子類指數：每日資料叫「電子工業類指數」，舊快取叫「電子類指數」都認得", async () => {
+    const kv = memKv({ "idx:d:20261029": { 電子工業類指數: 5000 }, "tw2:q:twse:20261028": { rows: [], indices: [{ name: "電子類指數", close: 4900 }] } });
+    const f = async (u: string) => { throw new Error("不該連網 " + u); };
+    const h = await indexHistory(f as any, kv, "電子類指數", 6, NOW, undefined, 3);
+    expect(h.bars.map((b) => b.close)).toEqual([4900, 5000]);
   });
   it("全部都連不上且手機沒有資料 → 丟錯", async () => {
     await expect(indexHistory((async () => { throw new Error("斷線"); }) as any, memKv(), "電子類指數", 6, NOW, undefined, 6)).rejects.toThrow();

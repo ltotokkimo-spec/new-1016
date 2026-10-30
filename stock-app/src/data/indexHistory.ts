@@ -14,7 +14,7 @@ export const tpexIndexUrl = () => "https://www.tpex.org.tw/openapi/v1/tpex_index
 export const twseIndexDayUrl = (d: string) => `https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${d}&type=IND&response=json`;
 /** 診斷用：e2e 把 window.__srIdxTrace 設成陣列，下載過程就會記進去（平常不存在，沒有任何作用） */
 const trace = (m: string) => { try { (globalThis as any).__srIdxTrace?.push(`${Date.now() % 1e6} ${m}`); } catch { /* ignore */ } };
-const TRACKED = ["發行量加權股價指數", "臺灣50指數", "半導體類指數", "金融保險類指數", "電子類指數"];
+const TRACKED = ["發行量加權股價指數", "臺灣50指數", "半導體類指數", "金融保險類指數", "電子工業類指數", "電子類指數"];
 
 const n = (s: unknown): number => { const v = parseFloat(String(s ?? "").replace(/,/g, "")); return Number.isFinite(v) && v > 0 ? v : NaN; };
 
@@ -57,8 +57,13 @@ export function parseIndexDay(json: any): Record<string, number> | null {
   return Object.keys(out).length ? out : null;
 }
 
-/** 畫面上的指數名稱 → 每日收盤行情裡的名稱 */
-export const dailyIndexName = (name: string) => (name === "加權指數" ? "發行量加權股價指數" : name);
+/** 畫面上的指數名稱 → 證交所每日資料裡可能的名稱（電子指數在 MI_INDEX 叫「電子工業類指數」，盤中即時叫「電子類指數」） */
+const DAILY_NAMES: Record<string, string[]> = { 加權指數: ["發行量加權股價指數"], 電子類指數: ["電子工業類指數", "電子類指數"] };
+export const dailyIndexNames = (name: string) => DAILY_NAMES[name] ?? [name];
+export function pickClose(rec: Record<string, number> | undefined, name: string): number {
+  for (const k of dailyIndexNames(name)) { const v = rec?.[k]; if (Number.isFinite(v) && (v as number) > 0) return v as number; }
+  return NaN;
+}
 
 const isFinalDay = (d: string, now: number) => { const t = taipeiToday(now); return d < t || (d === t && taipeiHour(now) >= 14); };
 
@@ -125,7 +130,7 @@ async function indexHistoryInner(fetch: Fetcher, kv: KV, name: string, months: n
     return { kind: "ohlc", bars: all };
   }
   // 其餘指數：最近 days 個平日各抓一次收盤（最新的先抓；手機存過的直接用），每抓完一批就回報一次
-  const want = dailyIndexName(name);
+  const want = name;
   const dates = weekdaysBack(taipeiToday(now), days).filter((d) => isFinalDay(d, now)); // 新→舊
   const got = new Map<string, number>();
   const emit = () => onPartial?.({ kind: "close", bars: closesToBars([...got].map(([date, close]) => ({ date, close }))) });
@@ -135,14 +140,14 @@ async function indexHistoryInner(fetch: Fetcher, kv: KV, name: string, months: n
   const olds = await Promise.all(dates.map((d, i) => (mine[i] ? undefined : kv.get<any>(`tw2:q:twse:${d}`))));
   dates.forEach((d, i) => {
     const m = mine[i] ?? (olds[i]?.indices ? Object.fromEntries((olds[i].indices as any[]).map((x) => [x?.name, x?.close])) : undefined);
-    if (m) { if (Number.isFinite(m[want])) got.set(d, m[want]); } else pending.push(d);
+    if (m) { const c = pickClose(m, want); if (Number.isFinite(c)) got.set(d, c); } else pending.push(d);
   });
   trace(`close ${want} cached=${got.size} pending=${pending.length}`);
   if (got.size) emit();
   let failed = 0;
   for (let i = 0; i < pending.length && failed < 3 && !stop?.(); i += 2) { // 兩天一批：第一張圖約 6 秒就出來，其餘慢慢補（存在手機，下次不用再抓）
     const rs = await Promise.all(pending.slice(i, i + 2).map(async (d) => [d, await indexDay(fetch, kv, d, now)] as const));
-    for (const [d, r] of rs) { if (r === undefined) failed++; else if (Number.isFinite(r[want])) got.set(d, r[want]); }
+    for (const [d, r] of rs) { if (r === undefined) failed++; else { const c = pickClose(r, want); if (Number.isFinite(c)) got.set(d, c); } }
     emit();
   }
   if (!got.size && failed) throw new Error("下載指數收盤失敗");

@@ -194,7 +194,8 @@
 3. **每日排程（DAILY.md）還沒要求記配息**：現有 Claude 虛擬操作組與規則組合仍只看價格（高股息成分被低估）。要不要補，等使用者決定。
 4. **10/30 16:40 排程觸發的 Stock Backtest Daily**：只確認 GitHub 回應「已排入佇列」，沒有確認它有沒有跑完、五組規則組合有沒有更新。
 
-**排程綁定注意（換新對話前要處理）**
-- `trig_01P8toMCwxC8oqAhFiSS27tp`「Claude 虛擬自組ETF 每日操作（綁定本對話）」：每個交易日 16:40，**會叫醒舊對話**，不是新對話。
-- `trig_01ABAFSRzsGufiRFdEkuNRZQ`：10/31 01:30 UTC 的一次性提醒（重跑 App 測試），同樣叫醒舊對話。
-- 改綁定要使用者同意：可改成「每次觸發開新對話」（`create_new_session_on_fire`）或綁到新對話；舊對話很長，每天叫醒它會多花額度。
+**排程綁定注意（換新對話前要處理；使用者 10/30 已同意「改成每次觸發都開新對話」，但還沒改成）**
+- 目前有 3 個排程**綁在舊對話**（session_01ApWNmMJa7iJ1ivpuuMR7hZ），都會叫醒它：`trig_01P8toMCwxC8oqAhFiSS27tp` 每個交易日 16:40 虛擬 ETF 每日操作；`trig_015iTBWsQ3HRo3CfsdP7Djom` 每週六 09:50 虛擬 ETF 週檢視；`trig_01ABAFSRzsGufiRFdEkuNRZQ` 10/31 01:30 UTC 的一次性提醒（重跑 App 測試）。
+- **為什麼 10/30 沒改成功**：`update_trigger` 不能改綁定；要刪掉重建成 `create_new_session_on_fire=true`。但舊對話呼叫 `create_trigger` 時系統回「這個組織不能指定 connectors 參數」，且警告建出來的排程「不帶任何連接器、也沒有專案來源」。每日操作靠「台股官方」連接器查價，沒有它就查不到價，所以**沒有刪舊的**（舊的仍可用）。
+- 已知可行的例子：`trig_01MHAM59HPmLsnWaH6vs6zaX`（貝爾威勒追蹤，新對話模式）的 `mcp_connections` 有帶「台股官方」，表示從「持有該連接器、且系統願意傳遞連接器」的對話建立是可以的。
+- 建議做法：在新對話裡先試一次建「每次開新對話、帶台股官方連接器」的每日／週檢視排程（內容用舊排程 prompt，開頭加「這是新對話，先讀 CLAUDE.md、HANDOFF.md、DAILY.md」）；建好、確認帶了連接器之後，再刪舊排程。若還是不行，請使用者在 claude.ai 的 Routines 介面手動建立（要選專案 new-1016 與「台股官方」連接器）。**在週一 11/2 16:40 之前處理，否則舊對話又會被叫醒。**

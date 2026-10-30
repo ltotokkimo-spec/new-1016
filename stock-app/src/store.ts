@@ -514,7 +514,7 @@ export async function installUpdate() {
 /** 即時資料盤中更新間隔（毫秒）：30 秒（10/28 試過 10 秒，證交所資料本身約 30～60 秒才更新，使用者改回 30 秒） */
 export const LIVE_MS = 30_000;
 const liveBusy = { tw: false, us: false };
-export async function refreshLive(codes: string[]) {
+export async function refreshLive(codes: string[], esbHint: string[] = []) {
   const list = [...new Set(codes.filter((c) => /^[0-9A-Z]{4,6}$/.test(c)))];
   if (!list.length || liveBusy.tw) return; // 上一次還沒抓完就略過，避免更新時重疊
   liveBusy.tw = true;
@@ -522,7 +522,7 @@ export async function refreshLive(codes: string[]) {
     const got: Record<string, LiveQuote> = {};
     for (let i = 0; i < list.length; i += 20) Object.assign(got, parseLive(await fetcher(liveUrl(list.slice(i, i + 20)))));
     // 興櫃：證交所查不到，改用櫃買中心每分鐘更新的當日行情表（一次下載全部，只取需要的代號）
-    const esbCodes = list.filter((c) => state.esb[c] && !got[c]);
+    const esbCodes = list.filter((c) => (state.esb[c] || esbHint.includes(c)) && !got[c]); // esbHint：詳情頁已知是興櫃，不用等興櫃名單下載完
     if (esbCodes.length) {
       try { const all = parseEsbLive(await fetcher(esbLiveUrl())); for (const c of esbCodes) if (all[c]) got[c] = all[c]; } catch { /* 興櫃抓不到就沿用收盤價 */ }
     }

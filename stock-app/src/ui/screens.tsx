@@ -551,10 +551,11 @@ function EsbDetail({ h, onClose }: { h: { code: string; name: string; shares: nu
   const [bars, setBars] = useState<CandleBar[] | null>(null);
   const [err, setErr] = useState("");
   useEffect(() => {
-    const pull = () => refreshLive([h.code]);
+    const pull = () => refreshLive([h.code], [h.code]);
     pull();
+    const retry = setTimeout(() => { if (!getState().live[h.code]) pull(); }, 5000); // 第一次沒抓到就再試一次
     const t = setInterval(() => { if (marketOpen()) pull(); }, 60_000); // 櫃買的行情表每分鐘才更新一次
-    return () => clearInterval(t);
+    return () => { clearInterval(t); clearTimeout(retry); };
   }, [h.code]);
   useEffect(() => {
     let alive = true;

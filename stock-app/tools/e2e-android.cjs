@@ -656,6 +656,7 @@ function check(ok, name, detail = "") {
   await page.evaluate(() => [...document.querySelectorAll(".list .item")].find((e) => /7861/.test(e.innerText))?.click());
   await page.waitForSelector('[data-testid="esb-price"]', { timeout: 15000 });
   await page.waitForFunction(() => document.querySelector('.sheet canvas.chart') || /走勢圖下載失敗|還沒有足夠/.test(document.querySelector(".sheet")?.innerText || ""), null, { timeout: 120000 });
+  await page.waitForSelector('[data-testid="esb-stats"]', { timeout: 40000 }).catch(() => {}); // 櫃買行情偶爾慢，等它出現
   const esbD = await page.evaluate(() => {
     const t = (sel) => document.querySelector(sel)?.innerText.replace(/\s+/g, " ") || "";
     return { title: document.querySelector(".sheet h2")?.textContent || "", price: t('[data-testid="esb-price"]'), chg: t('[data-testid="esb-chg"]'), note: t('[data-testid="esb-note"]'), stats: t('[data-testid="esb-stats"]'), chart: !!document.querySelector(".sheet canvas.chart"), cost: t('[data-testid="candle-cost"]'), info: t('[data-testid="candle-info"]'), hold: t('[data-testid="esb-hold"]'), kline: t('[data-testid="esb-kline-note"]') };

@@ -14,9 +14,13 @@ export interface EtfTrade {
   offList?: boolean; // 買進當下不在 App 選股「買入」清單裡（只警告，不阻擋）
 }
 export interface NavPoint { date: string; nav: number; bench: number }
+/** 配息入帳（選用：沒有這個欄位的組合，算出來的數字和以前完全一樣）。date 是除息日；amount = 除息日前一天收盤持有的股數 × 每股配息 */
+export interface EtfDividend { id: string; date: string; code: string; name: string; perShare: number; shares: number; amount: number }
 export interface AiEtf {
   budget: number; // 起始資金
   trades: EtfTrade[];
+  dividends?: EtfDividend[]; // 持股的配息（現金入帳）
+  benchDividends?: { date: string; perShare: number }[]; // 0050 的配息（對照組用同樣方式入帳，才公平）
   nav: NavPoint[]; // 每天記一筆
   planKey?: string; // 最近一次 Claude 建議的報告 key
   appliedKey?: string; // 已經填入成交的建議（不再顯示填單表）
@@ -102,6 +106,24 @@ export interface Valuation {
   missing: string[]; // 沒有現價的代號
 }
 
+/** 除息日前一天收盤時持有的股數（除息日當天才買的不算，除息日開盤賣掉的仍算） */
+export function sharesBefore(trades: EtfTrade[], code: string, date: string): number {
+  let n = 0;
+  for (const t of trades) if (t.code === code && t.date < date) n += t.side === "buy" ? t.shares : -t.shares;
+  return Math.max(0, n);
+}
+
+/** 除息日前一天收盤時，0050 對照組持有的單位數（和 valuate 的對照組算法一致） */
+function benchUnitsBefore(trades: EtfTrade[], date: string): number {
+  let u = 0;
+  for (const t of [...trades].sort((a, b) => a.date.localeCompare(b.date))) {
+    if (t.date >= date || !(t.benchPrice > 0)) continue;
+    const units = (t.shares * t.price) / t.benchPrice;
+    u = t.side === "buy" ? u + units : u - Math.min(units, u);
+  }
+  return u;
+}
+
 /** 用目前價格算淨值；0050 對照組：每次買賣都用同樣金額買賣 0050 */
 export function valuate(etf: AiEtf, price: (code: string) => number | undefined): Valuation {
   let cash = etf.budget, bCash = etf.budget, bUnits = 0, lastBench = NaN;
@@ -115,6 +137,9 @@ export function valuate(etf: AiEtf, price: (code: string) => number | undefined)
       else { const u = Math.min(units, bUnits); bUnits -= u; bCash += cashFlow({ side: "sell", shares: u, price: t.benchPrice, code: BENCH }); }
     }
   }
+  // 配息（沒有這兩個欄位就完全不影響）
+  for (const d of etf.dividends ?? []) cash += d.amount;
+  for (const d of etf.benchDividends ?? []) bCash += benchUnitsBefore(etf.trades, d.date) * d.perShare;
   const missing: string[] = [];
   let marketValue = 0;
   for (const p of positions(etf.trades)) {

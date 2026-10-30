@@ -7,10 +7,11 @@
 //   note  <state> <日期> <文字>          記一則當天的操作說明
 //   topup <state> <日期> <加碼後資金>     資金加碼（例如 500000）
 //   cash  <state> <日期> <大盤距20日高點> <說明>  資金水位（例如 -0.059；跌 5% 起 8 成、10% 起 9 成）
+//   dividend <state> <除息日> <代號> <每股配息>  配息入帳（除息日前一天收盤持有的股數 × 每股配息；0050 也會記進對照組）
 //   show  <state>                        印出目前狀態
 // quotes.json 格式：{"2027":{"name":"大成鋼","open":50.7,"high":51.1,"low":50.1,"close":50.8}, "0050": {...}}
 import { readFileSync, writeFileSync } from "node:fs";
-import { addNote, cashLevel, closeDay, fillPending, newVirtual, placeOrders, setCashPlan, topUp, type VirtualEtf } from "../src/engine/virtualEtf.ts";
+import { addNote, cashLevel, closeDay, fillPending, newVirtual, placeOrders, recordDividend, setCashPlan, topUp, type VirtualEtf } from "../src/engine/virtualEtf.ts";
 import { positions, valuate } from "../src/engine/aiEtf.ts";
 
 const [cmd, file, a, b] = process.argv.slice(2);
@@ -37,7 +38,8 @@ switch (cmd) {
   case "order": save(placeOrders(load(), ymd(a), json(b))); break;
   case "note": save(addNote(load(), ymd(a), process.argv.slice(5).join(" "))); break;
   case "topup": save(topUp(load(), ymd(a), Number(b))); break;
+  case "dividend": save(recordDividend(load(), ymd(a), b, Number(process.argv[6]))); break;
   case "cash": save(setCashPlan(load(), ymd(a), Number(b), process.argv.slice(6).join(" "))); break;
   case "show": show(load()); break;
-  default: console.log("指令：init / fill / close / order / note / topup / cash / show"); process.exit(1);
+  default: console.log("指令：init / fill / close / order / note / topup / dividend / cash / show"); process.exit(1);
 }

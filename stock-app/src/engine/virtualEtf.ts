@@ -1,7 +1,7 @@
 // Claude 虛擬操作的自組 ETF：每個交易日收盤後由 Claude 排程任務更新（tools/virtual-etf.ts），
 // 結果發布到 GitHub Release，App 只負責顯示。這裡是純計算，App、排程與單元測試共用。
 // 注意：這個檔案也會被 Node 直接執行（--experimental-strip-types），所以 import 要寫副檔名。
-import { cashFlow, positions, recordNav, valuate, type AiEtf, type EtfTrade } from "./aiEtf.ts";
+import { BENCH, cashFlow, positions, recordNav, sharesBefore, valuate, type AiEtf, type EtfTrade } from "./aiEtf.ts";
 
 export interface Quote { name?: string; open: number; high: number; low: number; close: number }
 export interface PendingOrder { code: string; name: string; side: "buy" | "sell"; shares: number; limit?: number; stop?: number; reason: string; placed: string }
@@ -161,6 +161,27 @@ export function beforeTopUp(v: VirtualEtf): { from: number; to: number; date: st
 export function setCashPlan(v: VirtualEtf, date: string, drawdown: number, reason: string): VirtualEtf {
   if (!Number.isFinite(drawdown) || drawdown > 0 || drawdown < -0.6) throw new Error(`大盤跌幅要是 0 到 -0.6 之間的小數：${drawdown}`);
   return { ...v, cashPlan: { target: Math.min(CASH_MAX, targetFor(drawdown).target), drawdown, date, reason } };
+}
+
+/**
+ * 記錄除息日的配息（現金入帳）：date = 除息日，perShare = 每股配息。
+ * 持股：除息日前一天收盤持有的股數 × perShare；沒有持股就不記。同一天同一檔重複記只會有一筆（以最後一次為準）。
+ * 0050 另外記進對照組（不管有沒有持有），讓「同樣的錢買 0050」也有配息。
+ * 不扣二代健保補充保費（單筆配息 ≥ 2 萬元才有 2.11%），所以是稅前、略為高估。
+ */
+export function recordDividend(v: VirtualEtf, date: string, code: string, perShare: number): VirtualEtf {
+  if (!(perShare > 0) || perShare > 100) throw new Error(`每股配息要是大於 0 的數字：${perShare}`);
+  let out = v;
+  const shares = sharesBefore(v.trades, code, date);
+  if (shares > 0) {
+    const name = positions(v.trades).find((p) => p.code === code)?.name ?? code;
+    const id = `${date}-${code}-div`;
+    const d = { id, date, code, name, perShare, shares, amount: Math.round(shares * perShare * 100) / 100 };
+    out = { ...out, dividends: [...(out.dividends ?? []).filter((x) => x.id !== id), d] };
+  }
+  if (code === BENCH) out = { ...out, benchDividends: [...(out.benchDividends ?? []).filter((x) => x.date !== date), { date, perShare }] };
+  if (out === v) throw new Error(`${code} 在 ${date} 前一天收盤沒有持股，也不是對照用的 0050，沒有配息可記`);
+  return out;
 }
 
 export function addNote(v: VirtualEtf, date: string, text: string): VirtualEtf {

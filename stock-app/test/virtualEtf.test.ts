@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { beforeTopUp, cashLevel, closeDay, fillPending, newVirtual, placeOrders, setCashPlan, targetFor, topUp } from "../src/engine/virtualEtf";
+import { beforeTopUp, cashLevel, closeDay, fillPending, newVirtual, placeOrders, recordDividend, setCashPlan, targetFor, topUp } from "../src/engine/virtualEtf";
 import { positions, valuate } from "../src/engine/aiEtf";
 
 const q = (open: number, low = open, close = open, high = open) => ({ open, high, low, close });
@@ -97,5 +97,49 @@ describe("虛擬自組 ETF：審查修正", () => {
     expect(v.trades[0].price).toBe(50.13);
     const cash = valuate(v, () => undefined).cash;
     expect(cash).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("配息入帳（選用，沒有配息的組合算出來不變）", () => {
+  // 10/19 買 00878 1000 股（成交價 35）與 0050 對照；10/20 開盤再買 500 股
+  const bought = fillPending(placeOrders(newVirtual("20261019", 100_000), "20261018", [{ code: "00878", name: "國泰永續高股息", side: "buy", shares: 1000, reason: "a" }]), "20261019", { "00878": q(35), "0050": q(100) });
+  const more = fillPending(placeOrders(bought, "20261019", [{ code: "00878", name: "國泰永續高股息", side: "buy", shares: 500, reason: "b" }]), "20261020", { "00878": q(35), "0050": q(100) });
+  const price = (c: string) => (c === "00878" ? 35 : c === "0050" ? 100 : undefined);
+
+  it("沒有配息紀錄時淨值和以前完全一樣", () => {
+    const a = valuate(more, price);
+    const b = valuate({ ...more, dividends: [], benchDividends: [] }, price);
+    expect(b).toEqual(a);
+  });
+
+  it("除息日前一天收盤持有的股數 × 每股配息入帳到現金", () => {
+    const base = valuate(more, price);
+    const d = recordDividend(more, "20261021", "00878", 0.5);
+    expect(d.dividends).toMatchObject([{ code: "00878", shares: 1500, perShare: 0.5, amount: 750 }]);
+    expect(valuate(d, price).cash).toBeCloseTo(base.cash + 750, 6);
+    expect(valuate(d, price).nav).toBeCloseTo(base.nav + 750, 6);
+  });
+
+  it("除息日當天才買的不算，之前買的才算；重複記同一筆只留一筆", () => {
+    const d = recordDividend(more, "20261020", "00878", 0.5); // 10/20 開盤才買的 500 股不算
+    expect(d.dividends![0].shares).toBe(1000);
+    const again = recordDividend(d, "20261020", "00878", 0.6);
+    expect(again.dividends).toHaveLength(1);
+    expect(again.dividends![0].amount).toBe(600);
+  });
+
+  it("沒有持股也不是 0050 → 丟錯，不會憑空入帳", () => {
+    expect(() => recordDividend(more, "20261021", "00919", 0.3)).toThrow();
+    expect(() => recordDividend(more, "20261021", "00878", 0)).toThrow();
+  });
+
+  it("0050 配息也記進對照組（同樣的錢買 0050 的單位數 × 每股配息）", () => {
+    const base = valuate(more, price);
+    // 對照組單位數：(1000×35 + 500×35 但 10/20 那筆除息日 10/21 前已買) / 100 = 525 單位
+    const d = recordDividend(more, "20261021", "0050", 2);
+    expect(d.dividends).toBeUndefined(); // 沒持有 0050，持股現金不變
+    expect(valuate(d, price).cash).toBeCloseTo(base.cash, 6);
+    expect(valuate(d, price).bench).toBeGreaterThan(base.bench + 1000); // 約多 525 × 2
+    expect(valuate(d, price).bench - base.bench).toBeCloseTo(525 * 2, 6);
   });
 });

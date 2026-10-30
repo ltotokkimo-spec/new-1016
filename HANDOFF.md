@@ -170,3 +170,8 @@
 - 診斷：e2e 把 `window.__srIdxTrace=[]`，下載過程會記進去，逾時會印出（平常沒有任何作用）。
 - **每日累積檔（1.0.201，使用者 10/30 同意改排程）**：`stock-backtest.yml` 每天 18:40 的 `index-hist` job 呼叫 `stock-index-hist.yml` → `tools/indexHist.ts`，把 `index-hist.json`（Releases `stock-radar-data`）補齊後傳回。內容：`ohlc`（加權、櫃買真實開高低收）、`closes`（臺灣50／半導體／金融保險／電子工業類每日收盤）、`seen`（檢查過的日期，休市也算）。第一次要逐日抓約 260 個平日（約 15 分鐘），之後每天 1～2 個請求。App 端 `loadRemote`（indexHistory.ts）6 小時內只下載一次（kv `idx:rem`），只補檔案之後缺的日子。改程式的推送（路徑符合 stock-index-hist.yml）也會跑一次。
 - 美股指數日 K：CNBC bars `https://ts-api.cnbc.com/harmony/app/bars/<代號>/1D/<起>/<迄>/adjusted/EXTENDED.json`（代號同 MACRO_SYMBOLS：.SPX .IXIC .SOX .DJI .VIX），手機直接抓，一次約 1 年；kv `idx:us:<代號>` 先畫再更新。數據頁卡片 testid `idx-card-.SPX`。
+
+## 配息入帳（2026-10-30，為 ETF 組做準備）
+- 引擎新增**選用**的配息：`AiEtf.dividends`／`benchDividends`（aiEtf.ts），`recordDividend`（virtualEtf.ts），指令 `dividend <state> <除息日> <代號> <每股配息>`。沒有這兩個欄位的組合，`valuate` 算出來和以前一模一樣（有單元測試固定）。
+- 規則：除息日**前一天收盤**持有的股數 × 每股配息，現金入帳；除息日當天才買的不算，除息日開盤賣掉的仍算。0050 另外記進對照組（不管有沒有持有），讓「同樣的錢買 0050」也有配息。不扣二代健保補充保費（單筆 ≥ 2 萬元 2.11%），所以是稅前、略高估。
+- **每日排程（DAILY.md）還沒要求記配息**，現有的 Claude 虛擬操作組、規則組合都沒有記，所以它們目前仍是只看價格（高股息成分會被低估）。要不要補，等使用者決定。

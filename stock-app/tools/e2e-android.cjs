@@ -328,7 +328,7 @@ function check(ok, name, detail = "") {
   check(/台股(盤中 \d\d:\d\d|收盤)/.test(idxTitle), "台股指數改成盤中即時（或收盤）", idxTitle);
   check(["加權指數", "臺灣50指數", "半導體類指數", "金融保險類指數"].every((n) => macro.some((m) => m.includes(n))), "四大台股指數都顯示", JSON.stringify(macro.slice(0, 6)));
   // 點指數卡片 → 日 K 走勢（加權有真實開高低收；臺灣50等用收盤串成）
-  for (const nm of ["加權指數", "電子類指數", "櫃買指數"]) {
+  for (const nm of ["加權指數", "臺灣50指數", "電子類指數", "櫃買指數", ".SPX", ".VIX"]) {
     await page.evaluate(() => { window.__srIdxTrace = []; });
     await page.click(`[data-testid="idx-card-${nm}"]`);
     try {
@@ -343,11 +343,11 @@ function check(ok, name, detail = "") {
     });
     log(`指數走勢 ${nm}`, JSON.stringify({ ...ix, text: undefined }));
     await shot(`指數走勢 ${nm}`);
-    check(ix.title.includes(nm) && ix.chart, `${nm}：點進去有 K 線走勢圖`, JSON.stringify({ ...ix, text: ix.text.slice(0, 120) }));
+    check(ix.title.includes(nm === ".SPX" ? "S&P 500" : nm === ".VIX" ? "VIX" : nm) && ix.chart, `${nm}：點進去有 K 線走勢圖`, JSON.stringify({ ...ix, text: ix.text.slice(0, 120) }));
     check(/開 [\d,.]+\s*高 [\d,.]+\s*低 [\d,.]+\s*收 [\d,.]+/.test(ix.info) && !/量 /.test(ix.info), `${nm}：K 線顯示開高低收、不顯示成交量`, ix.info);
     // 前後一致：圖上最新一根的漲跌（對前一根收盤）要和上方標題的漲跌幅一致，否則代表中間少了交易日
     const hp = /（([+-]?[\d.]+)%）/.exec(ix.text), ip = /([+-][\d.]+)%\s*$/.exec(ix.info);
-    check(!!hp && !!ip && Math.abs(parseFloat(hp[1]) - parseFloat(ip[1])) <= 0.2, `${nm}：圖上最新漲跌與標題一致（沒有漏掉交易日）`, `標題 ${hp?.[1]}% / 圖 ${ip?.[1]}%`);
+    if (!nm.startsWith(".")) check(!!hp && !!ip && Math.abs(parseFloat(hp[1]) - parseFloat(ip[1])) <= 0.2, `${nm}：圖上最新漲跌與標題一致（沒有漏掉交易日）`, `標題 ${hp?.[1]}% / 圖 ${ip?.[1]}%`);
     await page.click('.sheet header button[aria-label="返回"]');
     await page.waitForFunction(() => !document.querySelector(".sheet"), null, { timeout: 5000 });
   }

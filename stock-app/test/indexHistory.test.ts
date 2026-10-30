@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { closesToBars, indexDay, indexHistory, parseIndexDay, parseTaiexHist, parseTpexIndex } from "../src/data/indexHistory";
+import { closesToBars, indexDay, indexHistory, INDEX_HIST_URL, parseCnbcBars, parseIndexDay, parseTaiexHist, parseTpexIndex } from "../src/data/indexHistory";
 
 const memKv = (init: Record<string, unknown> = {}) => {
   const m = new Map<string, unknown>(Object.entries(init));
   return { get: async (k: string) => m.get(k), set: async (k: string, v: unknown) => { m.set(k, v); }, del: async (k: string) => { m.delete(k); }, _m: m } as any;
 };
+const noRemote = <T extends (u: string) => any>(f: T) => (async (u: string) => { if (u.startsWith(INDEX_HIST_URL)) throw new Error("沒有累積檔"); return f(u); }) as unknown as T;
 const NOW = Date.UTC(2026, 9, 30, 8, 0); // 10/30 16:00 台北
 
 describe("指數歷史", () => {
@@ -48,7 +49,7 @@ describe("指數歷史", () => {
     const kv = memKv({ "idx:d:20261029": { 電子類指數: 1000 } });
     const parts: number[] = [];
     const f = async (u: string) => { const d = /date=(\d{8})/.exec(u)![1]; return { stat: "OK", tables: [{ fields: ["指數", "收盤指數"], data: [["電子類指數", String(1000 + (+d.slice(6)))]] }] }; };
-    const h = await indexHistory(f as any, kv, "電子類指數", 6, NOW, (p) => parts.push(p.bars.length), 6);
+    const h = await indexHistory(noRemote(f) as any, kv, "電子類指數", 6, NOW, (p) => parts.push(p.bars.length), 6);
     expect(h.kind).toBe("close");
     expect(parts[0]).toBe(1); // 先畫手機已有的那 1 天
     expect(h.bars.length).toBeGreaterThanOrEqual(5);
@@ -61,21 +62,21 @@ describe("指數歷史", () => {
     const kv = memKv();
     let calls = 0, closed = false;
     const f = async (u: string) => { calls++; closed = true; const d = /date=(\d{8})/.exec(u)![1]; return { stat: "OK", tables: [{ fields: ["指數", "收盤指數"], data: [["電子類指數", String(1000 + (+d.slice(6)))]] }] }; };
-    await indexHistory(f as any, kv, "電子類指數", 6, NOW, undefined, 30, () => closed);
+    await indexHistory(noRemote(f) as any, kv, "電子類指數", 6, NOW, undefined, 30, () => closed);
     expect(calls).toBe(2); // 第一批 2 天之後就停
     expect([...kv._m.keys()].filter((k) => k.startsWith("idx:d:")).length).toBe(2);
   });
   it("電子類指數：每日資料叫「電子工業類指數」，舊快取叫「電子類指數」都認得", async () => {
     const kv = memKv({ "idx:d:20261029": { 電子工業類指數: 5000 }, "tw2:q:twse:20261028": { rows: [], indices: [{ name: "電子類指數", close: 4900 }] } });
     const f = async (u: string) => { throw new Error("不該連網 " + u); };
-    const h = await indexHistory(f as any, kv, "電子類指數", 6, NOW, undefined, 3);
+    const h = await indexHistory(noRemote(f) as any, kv, "電子類指數", 6, NOW, undefined, 3);
     expect(h.bars.map((b) => b.close)).toEqual([4900, 5000]);
   });
   it("App 舊的每日行情快取沒有要的指數（只存了其他指數）→ 照樣補抓，不能當作休市跳過", async () => {
     const kv = memKv({ "tw2:q:twse:20261029": { rows: [], indices: [{ name: "臺灣50指數", close: 41000 }] } });
     const calls: string[] = [];
     const f = async (u: string) => { calls.push(u); return { stat: "OK", tables: [{ fields: ["指數", "收盤指數"], data: [["電子工業類指數", "2,887.2"]] }] }; };
-    const h = await indexHistory(f as any, kv, "電子類指數", 6, NOW, undefined, 2);
+    const h = await indexHistory(noRemote(f) as any, kv, "電子類指數", 6, NOW, undefined, 2);
     expect(calls.some((u) => u.includes("20261029"))).toBe(true);
     expect(h.bars.map((b) => b.date)).toContain("20261029");
   });
@@ -94,13 +95,54 @@ describe("指數歷史", () => {
     const ok = (ym: string, d: string) => ({ stat: "OK", data: [[`115/${d}`, "100", "110", "90", "105"]] });
     const calls: string[] = [];
     const kv = memKv();
-    const h = await indexHistory(async (u: string) => { calls.push(u); const ym = /date=(\d{6})/.exec(u)![1]; if (ym < "202608") throw new Error("斷線"); return ok(ym, `${ym.slice(4)}/01`); }, kv, "加權指數", 6, NOW);
+    const h = await indexHistory(noRemote(async (u: string) => { calls.push(u); const ym = /date=(\d{6})/.exec(u)![1]; if (ym < "202608") throw new Error("斷線"); return ok(ym, `${ym.slice(4)}/01`); }), kv, "加權指數", 6, NOW);
     expect(calls[0]).toContain("date=20261001"); // 最新月份先抓
     expect(h.kind).toBe("ohlc");
     expect(h.bars.length).toBe(3); // 8、9、10 月
     // 第二次：8、9 月（已過去的月份）直接用快取，10 月因收盤後 key 不同也已存
     const calls2: string[] = [];
     await indexHistory(async (u: string) => { calls2.push(u); throw new Error("斷線"); }, kv, "加權指數", 6, NOW);
-    expect(calls2.every((u) => /date=2026(0[1-7])01/.test(u))).toBe(true);
+    expect(calls2.filter((u) => u.includes("MI_5MINS_HIST")).every((u) => /date=2026(0[1-7])01/.test(u))).toBe(true);
+  });
+  it("美股指數：CNBC bars 解析", () => {
+    const bars = parseCnbcBars({ barData: { priceBars: [{ open: "7504.7800", high: "7610.0400", low: "7504.7800", close: "7600.5000", volume: 0, tradeTime: "20260803040000" }, { open: "x", high: "1", low: "1", close: "1", tradeTime: "20260804040000" }] } });
+    expect(bars).toEqual([{ date: "20260803", open: 7504.78, high: 7610.04, low: 7504.78, close: 7600.5, volume: 0 }]);
+    expect(parseCnbcBars({})).toEqual([]);
+  });
+  it("美股指數：手機存的先回報，抓到新的就存起來；斷線但有存的照樣回傳", async () => {
+    const kv = memKv({ "idx:us:.SPX": [{ date: "20261001", open: 1, high: 2, low: 1, close: 2, volume: 0 }] });
+    const parts: number[] = [];
+    const f = async (u: string) => ({ barData: { priceBars: [{ open: "1", high: "3", low: "1", close: "2", tradeTime: "20261001040000" }, { open: "2", high: "4", low: "2", close: "3", tradeTime: "20261002040000" }] }, u });
+    const h = await indexHistory(f as any, kv, ".SPX", 6, NOW, (p) => parts.push(p.bars.length));
+    expect(parts).toEqual([1]);
+    expect(h.bars).toHaveLength(2);
+    expect((kv._m.get("idx:us:.SPX") as any[]).length).toBe(2);
+    const h2 = await indexHistory((async () => { throw new Error("斷線"); }) as any, kv, ".SPX", 6, NOW);
+    expect(h2.bars).toHaveLength(2);
+  });
+  it("每日排程累積檔：第一次打開就有完整走勢，只補檔案之後缺的交易日", async () => {
+    const remote = { version: 1, ohlc: { 加權指數: [["20261028", 1, 2, 0.5, 1.5], ["20261029", 1.5, 3, 1, 2]], 櫃買指數: [["20260901", 10, 12, 9, 11]] },
+      closes: { 電子工業類指數: [["20261027", 100], ["20261028", 110], ["20261029", 120]] }, seen: ["20261023", "20261026", "20261027", "20261028", "20261029"] };
+    const urls: string[] = [];
+    const f = async (u: string) => {
+      urls.push(u);
+      if (u.startsWith(INDEX_HIST_URL)) return remote;
+      if (u.includes("MI_5MINS_HIST")) return { stat: "OK", data: [["115/10/30", "2", "3", "1", "2.5"]] };
+      if (u.includes("tpex_index")) return [{ Date: "20261030", Open: "11", High: "13", Low: "10", Close: "12" }];
+      if (u.includes("type=IND")) return { stat: "OK", tables: [{ fields: ["指數", "收盤指數"], data: [["電子工業類指數", "130"]] }] };
+      throw new Error("意外的網址 " + u);
+    };
+    const kv = memKv();
+    const parts: number[] = [];
+    const w = await indexHistory(f as any, kv, "加權指數", 6, NOW, (p) => parts.push(p.bars.length));
+    expect(parts[0]).toBe(2); // 一開始就用累積檔畫出來
+    expect(w.bars.map((b) => b.date)).toEqual(["20261028", "20261029", "20261030"]);
+    expect(urls.filter((u) => u.includes("MI_5MINS_HIST")).length).toBe(1); // 只補 10 月，不重抓更早月份
+    const e = await indexHistory(f as any, kv, "電子類指數", 6, NOW, undefined, 6);
+    expect(e.bars.map((b) => b.close)).toEqual([100, 110, 120, 130]);
+    expect(urls.filter((u) => u.includes("type=IND")).map((u) => /date=(\d{8})/.exec(u)![1])).toEqual(["20261030"]); // 累積檔看過的日子都不再抓
+    const o = await indexHistory(f as any, kv, "櫃買指數", 6, NOW);
+    expect(o.bars.map((b) => b.date)).toEqual(["20260901", "20261030"]);
+    expect(urls.filter((u) => u.startsWith(INDEX_HIST_URL)).length).toBe(1); // 累積檔一天內只下載一次
   });
 });

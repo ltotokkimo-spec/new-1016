@@ -19,6 +19,7 @@ import { withLiveBar } from "../engine/liveBar";
 import { isUsSymbol, MACRO_SYMBOLS } from "../data/us";
 import { marketOpen, type LiveQuote } from "../data/twLive";
 import { INDEX_CH } from "../data/twIndexLive";
+const US_INDEX_SYMBOLS = [".SPX", ".IXIC", ".SOX", ".DJI", ".VIX"]; // 數據頁可點進去看日 K 的國際指數（CNBC 代號）
 import { pretty, prettyW, taipeiToday, usQuoteHours } from "../lib/dates";
 import { latestNotes } from "../lib/notes";
 import { fmtNtd, usdTwdRate } from "../lib/fx";
@@ -834,8 +835,10 @@ function ImportReview({ data, onDone }: { data: { rows: ImportedHolding[]; note:
 }
 
 // ---------------- 指數走勢（數據頁點指數卡片） ----------------
-function IndexDetail({ name, onClose }: { name: string; onClose: () => void }) {
+function IndexDetail({ name, label, onClose }: { name: string; label?: string; onClose: () => void }) {
+  const us = name.startsWith("."); // 美股等國際指數用 CNBC 代號（.SPX）
   const lq = useStore((st) => st.twIndexLive[name]);
+  const mq = useStore((st) => (us ? st.macro.quotes.find((q) => q.symbol === name) : undefined));
   const [hist, setHist] = useState<IndexHist | null>(null);
   const [err, setErr] = useState("");
   const [done, setDone] = useState(false);
@@ -851,9 +854,17 @@ function IndexDetail({ name, onClose }: { name: string; onClose: () => void }) {
     const live = lq ? { date: lq.date, price: lq.value, open: lq.prevClose, high: lq.high ?? lq.value, low: lq.low ?? lq.value, final: lq.final } : undefined;
     return withLiveBar(hist.bars as CandleBar[], live) as CandleBar[];
   }, [hist, lq]);
-  const label = name;
   return (
-    <Sheet title={`${label} 走勢`} onClose={onClose}>
+    <Sheet title={`${label ?? name} 走勢`} onClose={onClose}>
+      {mq && (
+        <div class="row" style={{ justifyContent: "space-between", alignItems: "flex-end" }}>
+          <div>
+            <div class="big num" data-testid="idx-price">{mq.last.toLocaleString("en-US", { maximumFractionDigits: 3 })}</div>
+            <div class={`num ${cls(mq.change)}`}>{mq.change > 0 ? "+" : ""}{mq.change}（{mq.changePct > 0 ? "+" : ""}{mq.changePct}%）</div>
+          </div>
+          <div class="muted" style={{ fontSize: "12px", textAlign: "right" }}>CNBC 報價</div>
+        </div>
+      )}
       {lq && (
         <div class="row" style={{ justifyContent: "space-between", alignItems: "flex-end" }}>
           <div>
@@ -868,8 +879,9 @@ function IndexDetail({ name, onClose }: { name: string; onClose: () => void }) {
       {!done && <div class="muted" data-testid="idx-loading" style={{ fontSize: "12px" }}>走勢圖下載中…（已有的先畫，其餘陸續補上）</div>}
       {shown && shown.length >= 2 && <CandleChart bars={shown} noVol />}
       {done && shown && shown.length < 2 && !err && <div class="muted" data-testid="idx-few">目前只累積到 {shown.length} 天的資料，之後每天打開 App 會自動增加。</div>}
-      {hist && hist.kind === "close" && <div class="muted" data-testid="idx-note" style={{ fontSize: "12px", marginTop: "6px" }}>這個指數官方沒有提供歷史開高低收：K 棒的「開」用前一天收盤、「收」用當天收盤，只畫最近約 3 個月（證交所限制每 3 秒才能抓一次，第一次打開會一批一批補上，約 3 分鐘補完；存在手機裡，之後就是即時的）。</div>}
-      {hist && name === "櫃買指數" && <div class="muted" data-testid="idx-note" style={{ fontSize: "12px", marginTop: "6px" }}>櫃買中心只提供當月資料，更早的由 App 每次打開時存下來，用得越久走勢越長。</div>}
+      {hist && hist.kind === "close" && <div class="muted" data-testid="idx-note" style={{ fontSize: "12px", marginTop: "6px" }}>這個指數官方沒有提供歷史開高低收：K 棒的「開」用前一天收盤、「收」用當天收盤。歷史由每日排程累積（約 1 年），缺的日子手機自己補抓（證交所限制每 3 秒一次，會慢一點，抓過就存在手機裡）。</div>}
+      {hist && us && <div class="muted" data-testid="idx-note" style={{ fontSize: "12px", marginTop: "6px" }}>日 K 來自 CNBC，約近 1 年；以美股交易日計。</div>}
+      {hist && name === "櫃買指數" && <div class="muted" data-testid="idx-note" style={{ fontSize: "12px", marginTop: "6px" }}>櫃買中心只提供當月資料，更早的由每日排程累積（約 1 年）。</div>}
     </Sheet>
   );
 }
@@ -906,7 +918,7 @@ export function MacroScreen() {
 
   return (
     <div>
-      {idxOpen && <IndexDetail name={idxOpen} onClose={() => setIdxOpen(null)} />}
+      {idxOpen && <IndexDetail name={idxOpen.split("|")[0]} label={idxOpen.split("|")[1]} onClose={() => setIdxOpen(null)} />}
       {liveIdx.length > 0 ? (
         <>
           <div class="section-title" data-testid="tw-index-title"><span>台股{idxFinal ? "收盤" : idxTime ? `盤中 ${idxTime}` : ""}</span></div>
@@ -970,7 +982,9 @@ export function MacroScreen() {
             <div class="grid2">
               {items.map((m) => {
                 const q = bySymbol.get(m.symbol)!;
-                return <Metric k={m.label} v={q.last.toLocaleString("en-US", { maximumFractionDigits: 3 })} c={cls(q.change)} d={`${q.change > 0 ? "+" : ""}${q.change}（${q.changePct > 0 ? "+" : ""}${q.changePct}%）`} />;
+                const card = <Metric k={m.label} v={q.last.toLocaleString("en-US", { maximumFractionDigits: 3 })} c={cls(q.change)} d={`${q.change > 0 ? "+" : ""}${q.change}（${q.changePct > 0 ? "+" : ""}${q.changePct}%）`} />;
+                if (!US_INDEX_SYMBOLS.includes(m.symbol)) return card;
+                return <div data-testid={`idx-card-${m.symbol}`} style={{ cursor: "pointer" }} onClick={() => setIdxOpen(`${m.symbol}|${m.label}`)}>{card}</div>;
               })}
             </div>
           </>

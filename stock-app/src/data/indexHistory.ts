@@ -81,6 +81,40 @@ export async function indexDay(fetch: Fetcher, kv: KV, d: string, now = Date.now
   } catch (e: any) { trace(`fail ${d} ${e?.message ?? e}`); return undefined; }
 }
 
+/** 每日排程累積的指數歷史（stock-index-hist.yml 產生）：加權／櫃買的真實開高低收＋臺灣50等的每日收盤，第一次打開就有完整走勢 */
+export const INDEX_HIST_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/index-hist.json";
+export interface RemoteIndexHist { version: 1; updated?: string; ohlc: Record<string, [string, number, number, number, number][]>; closes: Record<string, [string, number][]>; seen?: string[] }
+const REMOTE_FRESH_MS = 6 * 3600_000;
+
+async function loadRemote(fetch: Fetcher, kv: KV, now: number): Promise<RemoteIndexHist | null> {
+  const cached = await kv.get<{ at: number; data: RemoteIndexHist }>("idx:rem");
+  if (cached && now - cached.at < REMOTE_FRESH_MS) return cached.data;
+  try {
+    const j = await fetch(`${INDEX_HIST_URL}?t=${now}`);
+    if (j && j.version === 1 && j.ohlc && j.closes) { await kv.set("idx:rem", { at: now, data: j }); trace(`remote ok seen=${j.seen?.length ?? 0}`); return j as RemoteIndexHist; }
+  } catch (e: any) { trace(`remote fail ${e?.message ?? e}`); }
+  return cached?.data ?? null;
+}
+const remoteBars = (r: RemoteIndexHist | null, name: string): DayBar[] =>
+  (r?.ohlc?.[name] ?? []).map(([date, open, high, low, close]) => ({ date, open, high, low, close, volume: 0 }));
+function remoteCloses(r: RemoteIndexHist | null, name: string): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const k of dailyIndexNames(name)) for (const [d, c] of r?.closes?.[k] ?? []) if (Number.isFinite(c) && c > 0) m.set(d, c);
+  return m;
+}
+
+// 美股指數（CNBC bars，和 App 的國際指標報價同一個來源）：真實開高低收，一次請求就有一年
+export const cnbcBarsUrl = (sym: string, startYmd: string, endYmd: string) =>
+  `https://ts-api.cnbc.com/harmony/app/bars/${encodeURIComponent(sym)}/1D/${startYmd}000000/${endYmd}000000/adjusted/EXTENDED.json`;
+export function parseCnbcBars(json: any): DayBar[] {
+  const list = json?.barData?.priceBars;
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((b: any) => ({ date: String(b?.tradeTime ?? "").slice(0, 8), open: n(b?.open), high: n(b?.high), low: n(b?.low), close: n(b?.close), volume: 0 }))
+    .filter((b: DayBar) => /^\d{8}$/.test(b.date) && Number.isFinite(b.close) && Number.isFinite(b.open) && Number.isFinite(b.high) && Number.isFinite(b.low));
+}
+export const isUsIndexSymbol = (name: string) => name.startsWith(".");
+
 export interface IndexHist { bars: DayBar[]; kind: "ohlc" | "close" }
 
 /**
@@ -92,6 +126,20 @@ export async function indexHistory(fetch: Fetcher, kv: KV, name: string, months 
 }
 
 async function indexHistoryInner(fetch: Fetcher, kv: KV, name: string, months: number, now: number, onPartial: ((h: IndexHist) => void) | undefined, days: number, stop?: () => boolean): Promise<IndexHist> {
+  if (isUsIndexSymbol(name)) {
+    const key = `idx:us:${name}`;
+    const saved = (await kv.get<DayBar[]>(key)) ?? [];
+    if (saved.length) onPartial?.({ kind: "ohlc", bars: saved });
+    const end = new Date(now + 86400_000).toISOString().slice(0, 10).replace(/-/g, "");
+    const start = new Date(now - 380 * 86400_000).toISOString().slice(0, 10).replace(/-/g, "");
+    try {
+      const bars = parseCnbcBars(await fetch(cnbcBarsUrl(name, start, end)));
+      if (bars.length) { await kv.set(key, bars); return { kind: "ohlc", bars }; }
+    } catch (e) { if (!saved.length) throw e; }
+    if (!saved.length) throw new Error("下載走勢失敗");
+    return { kind: "ohlc", bars: saved };
+  }
+  const remote = await loadRemote(fetch, kv, now);
   if (name === "加權指數") {
     const today = taipeiToday(now);
     let y = +today.slice(0, 4), m = +today.slice(4, 6);
@@ -99,11 +147,17 @@ async function indexHistoryInner(fetch: Fetcher, kv: KV, name: string, months: n
     for (let i = 0; i < months; i++) { keys.unshift(`${y}${String(m).padStart(2, "0")}`); m--; if (m === 0) { m = 12; y--; } }
     const keyOf = (ym: string) => `idx:t00:${ym}${ym === today.slice(0, 6) ? ":" + today + (taipeiHour(now) >= 14 ? "c" : "") : ""}`;
     const got = new Map<string, DayBar[]>();
-    const merged = (): IndexHist => ({ kind: "ohlc", bars: keys.flatMap((k) => got.get(k) ?? []).sort((a, b) => a.date.localeCompare(b.date)) });
+    const base = remoteBars(remote, name); // 排程累積的檔案當底，只需要補它之後的月份
+    const baseYm = base.length ? base[base.length - 1].date.slice(0, 6) : "";
+    const merged = (): IndexHist => {
+      const byDate = new Map(base.map((b) => [b.date, b]));
+      for (const k of keys) for (const b of got.get(k) ?? []) byDate.set(b.date, b); // 同一天以自己抓到的為準
+      return { kind: "ohlc", bars: [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)) };
+    };
     await Promise.all(keys.map(async (ym) => { const b = await kv.get<DayBar[]>(keyOf(ym)); if (b) got.set(ym, b); }));
-    if (got.size) onPartial?.(merged());
+    if (got.size || base.length) onPartial?.(merged());
     for (const ym of [...keys].reverse()) {
-      if (got.has(ym) || stop?.()) continue;
+      if (got.has(ym) || stop?.() || (baseYm && ym < baseYm)) continue;
       let bars: DayBar[];
       try { bars = parseTaiexHist(await fetch(taiexHistUrl(ym))); } catch (e) { if (merged().bars.length) break; throw e; }
       if (bars.length) await kv.set(keyOf(ym), bars);
@@ -114,10 +168,12 @@ async function indexHistoryInner(fetch: Fetcher, kv: KV, name: string, months: n
   }
   if (name === "櫃買指數") {
     const saved = (await kv.get<DayBar[]>("idx:o00")) ?? [];
-    if (saved.length) onPartial?.({ kind: "ohlc", bars: saved });
+    const early = remoteBars(remote, name);
+    if (saved.length || early.length) onPartial?.({ kind: "ohlc", bars: [...new Map([...early, ...saved].map((b) => [b.date, b])).values()].sort((a, b) => a.date.localeCompare(b.date)) });
     let fresh: DayBar[] = [];
-    try { fresh = parseTpexIndex(await fetch(tpexIndexUrl())); } catch (e) { if (!saved.length) throw e; }
-    const byDate = new Map(saved.map((b) => [b.date, b]));
+    try { fresh = parseTpexIndex(await fetch(tpexIndexUrl())); } catch (e) { if (!saved.length && !early.length) throw e; }
+    const byDate = new Map(remoteBars(remote, name).map((b) => [b.date, b]));
+    for (const b of saved) byDate.set(b.date, b);
     for (const b of fresh) byDate.set(b.date, b); // 同一天以新的為準
     const all = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)).slice(-400);
     if (fresh.length) await kv.set("idx:o00", all);
@@ -129,10 +185,14 @@ async function indexHistoryInner(fetch: Fetcher, kv: KV, name: string, months: n
   const got = new Map<string, number>();
   const emit = () => onPartial?.({ kind: "close", bars: closesToBars([...got].map(([date, close]) => ({ date, close }))) });
   const pending: string[] = [];
-  trace(`start ${want} dates=${dates.length}`);
+  const rc = remoteCloses(remote, want);
+  const rSeen = new Set(remote?.seen ?? []);
+  trace(`start ${want} dates=${dates.length} remote=${rc.size}`);
   const mine = await Promise.all(dates.map((d) => kv.get<Record<string, number>>(`idx:d:${d}`))); // 平行讀手機裡存的（逐筆等會很慢）
   const olds = await Promise.all(dates.map((d, i) => (mine[i] ? undefined : kv.get<any>(`tw2:q:twse:${d}`))));
   dates.forEach((d, i) => {
+    if (rc.has(d)) { got.set(d, rc.get(d)!); return; }
+    if (rSeen.has(d)) return; // 排程檢查過但沒有這個指數的資料（休市）
     if (mine[i]) { const c = pickClose(mine[i], want); if (Number.isFinite(c)) got.set(d, c); return; } // 指數專用的存檔：空物件代表休市，不用再問
     // App 自己下載的每日行情快取只存了幾個指數（名稱也可能不同），沒有要的那個就當作沒有，去抓
     const c = pickClose(olds[i]?.indices ? Object.fromEntries((olds[i].indices as any[]).map((x) => [x?.name, x?.close])) : undefined, want);

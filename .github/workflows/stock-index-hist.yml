@@ -1,0 +1,46 @@
+name: Stock Index History
+
+# 每天累積台股指數歷史（App 數據頁點指數看日 K；第一次打開就有完整走勢）。
+# 每天由 stock-backtest.yml（預設分支每天 18:40 觸發）呼叫；改這支程式時推送也會跑一次。
+# 累積檔 index-hist.json 存在 Releases 的 stock-radar-data，每次下載、補上缺的交易日、再傳回去。
+on:
+  push:
+    branches: [ 'claude/**' ]
+    paths: [ 'stock-app/tools/indexHist.ts', 'stock-app/src/data/indexHistory.ts', 'stock-app/test/indexHistory.test.ts', '.github/workflows/stock-index-hist.yml' ]
+  workflow_call:
+
+permissions:
+  contents: write
+
+jobs:
+  index-hist:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    concurrency:
+      group: stock-index-hist
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: stock-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: stock-app/package-lock.json
+      - run: npm ci
+      - name: 單元測試
+        run: npx vitest run test/indexHistory.test.ts
+      - name: 下載累積檔
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download stock-radar-data --pattern index-hist.json --dir . --clobber || echo "還沒有累積檔，從頭建立"
+      - name: 抓指數並累積
+        run: |
+          npx vite build --ssr tools/indexHist.ts --outDir .ih-build
+          node .ih-build/indexHist.js index-hist.json index-hist.json
+      - name: 發布（App 下載）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload stock-radar-data index-hist.json --clobber

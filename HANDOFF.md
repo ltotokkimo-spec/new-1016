@@ -168,4 +168,5 @@
 - 加權指數：`TAIEX/MI_5MINS_HIST` 每月一份真實開高低收（每月存 kv `idx:t00:YYYYMM`）。櫃買指數：`tpex.org.tw/openapi/v1/tpex_index` 只回當月，每次打開合併存到 kv `idx:o00`，越用越長。
 - 臺灣50／半導體／金融保險／電子：官方沒有歷史開高低收。逐日抓 `MI_INDEX?date=YYYYMMDD&type=IND`（每天約 22KB，**含全部指數；電子指數在這裡叫「電子工業類指數」**），存 kv `idx:d:YYYYMMDD`（休市存 `{}`）；K 棒開＝前一天收盤。證交所限速每 3 秒 1 次，70 天第一次要約 3.5 分鐘：兩天一批先出圖、關畫面就停、抓過存手機；載入時用 `beginForeground()`（history.ts）讓背景預載讓路。
 - 診斷：e2e 把 `window.__srIdxTrace=[]`，下載過程會記進去，逾時會印出（平常沒有任何作用）。
-- 想要更快的做法（未做，等使用者決定）：讓每日排程順便把各指數收盤累積成一份 JSON 放到 stock-radar-data，App 一次下載。
+- **每日累積檔（1.0.201，使用者 10/30 同意改排程）**：`stock-backtest.yml` 每天 18:40 的 `index-hist` job 呼叫 `stock-index-hist.yml` → `tools/indexHist.ts`，把 `index-hist.json`（Releases `stock-radar-data`）補齊後傳回。內容：`ohlc`（加權、櫃買真實開高低收）、`closes`（臺灣50／半導體／金融保險／電子工業類每日收盤）、`seen`（檢查過的日期，休市也算）。第一次要逐日抓約 260 個平日（約 15 分鐘），之後每天 1～2 個請求。App 端 `loadRemote`（indexHistory.ts）6 小時內只下載一次（kv `idx:rem`），只補檔案之後缺的日子。改程式的推送（路徑符合 stock-index-hist.yml）也會跑一次。
+- 美股指數日 K：CNBC bars `https://ts-api.cnbc.com/harmony/app/bars/<代號>/1D/<起>/<迄>/adjusted/EXTENDED.json`（代號同 MACRO_SYMBOLS：.SPX .IXIC .SOX .DJI .VIX），手機直接抓，一次約 1 年；kv `idx:us:<代號>` 先畫再更新。數據頁卡片 testid `idx-card-.SPX`。

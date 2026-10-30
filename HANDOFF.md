@@ -158,3 +158,7 @@
 - 證交所 MIS 查不到興櫃。盤中價用櫃買中心「興櫃當日行情表」`https://www.tpex.org.tw/www/zh-tw/emerging/latest?response=json`（每分鐘更新、一次全部；欄位 0 代號 2 前日均價 7 高 8 低 9 日均價 10 成交 13 成交量(股)），程式在 `src/data/esb.ts`、`store.ts refreshLive`。
 - 歷史行情 `…/emerging/historical?code=7861&date=2026/09/01&id=&response=json`：**日期一定要給完整日（年/月/日），只給年月會一律回傳當月**；只有最高、最低、均價、成交量，沒有開收盤，K 線用「前日均價為開、當日均價為收」。
 - UI：持股列表點興櫃個股 → `EsbDetail`（screens.tsx）。e2e 檢查在持股段（testid `esb-*`）。
+
+## K 線載入（1.0.190）
+- `twHistory`（src/data/history.ts）改為分段：手機裡有的月份先讀出來馬上回報（onPartial），缺的由最近月份往回下載、每月回報一次；更早月份失敗不丟掉已有資料。
+- 背景預載 `runHistoryPrefetch`（store.ts）：applyTw 後 30 秒，持股＋評分最高 10 檔買入，6 個月；前景下載時會讓路（`foreground` 計數）。快取 key 與前景相同（逐月）。

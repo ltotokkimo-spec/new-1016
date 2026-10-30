@@ -158,6 +158,16 @@ function check(ok, name, detail = "") {
   if (kLive) check(/^盤中 開/.test(cd0.info) && /即時價/.test(kLive), "盤中 K 線圖最後一根用即時價並標示盤中", kLive);
   else log("這次沒有盤中 K 棒（非交易時段或今天還沒有成交），略過盤中檢查");
   check(/^5日 [\d.,]+ 20日 [\d.,]+ 60日 [\d.,]+$/.test(cd0.ma), "K 線圖標示 5／20／60 日均線數值", cd0.ma);
+  // 預載與分段載入：等更早的月份載完後關掉再打開同一檔，K 線要馬上出現（手機裡已經存好，不用再等下載）
+  await page.waitForFunction(() => !document.querySelector('[data-testid="kline-loading-more"]'), null, { timeout: 120000 }).catch(() => {});
+  await page.click('.sheet header button[aria-label="返回"]');
+  await page.waitForFunction(() => !document.querySelector(".sheet"), null, { timeout: 5000 });
+  const reopenAt = Date.now();
+  await page.click(".item");
+  await page.waitForSelector(".sheet canvas.chart", { timeout: 15000 });
+  const reopenMs = Date.now() - reopenAt;
+  log("再次打開 K 線出現時間", `${reopenMs} ms`);
+  check(reopenMs < 3000, "再次打開個股，K 線 3 秒內就出現（資料已存在手機裡）", `${reopenMs} ms`);
   check(/^K \d+\.\d D \d+\.\d/.test(cd0.ind), "K 線圖下方預設顯示 KD", cd0.ind);
   await page.click('[data-testid="ind-MACD"]');
   const cdM = await cd();

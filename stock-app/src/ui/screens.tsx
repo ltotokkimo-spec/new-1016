@@ -335,6 +335,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
   const { holdings, apiKey, reports } = useStore((st) => ({ holdings: st.holdings, apiKey: st.settings.apiKey, reports: st.reports }));
   const [bars, setBars] = useState<CandleBar[] | null>(null);
   const [barsErr, setBarsErr] = useState("");
+  const [barsMore, setBarsMore] = useState(true); // 更早的月份還在下載
   const [chartTab, setChartTab] = useState<"k" | "flow">("k");
   const [adding, setAdding] = useState(false);
   const holding = holdings.find((h) => h.code === s.code);
@@ -367,9 +368,10 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
     let alive = true;
     (async () => {
       try {
-        const b = s.market === "US" ? await usBars(s.code) : await twHistory(getFetcher(), getKv(), s.code, s.market, 9);
-        if (alive) setBars(b.slice(-200));
-      } catch (e: any) { if (alive) setBarsErr(`走勢圖下載失敗：${e?.message ?? e}`); }
+        // 手機裡已有的月份馬上畫，其餘由最近的月份往回下載、每到一個月就更新圖（不用等全部下載完）
+        const b = s.market === "US" ? await usBars(s.code) : await twHistory(getFetcher(), getKv(), s.code, s.market, 9, Date.now(), (part) => { if (alive && part.length) setBars(part.slice(-200)); });
+        if (alive) { setBars(b.slice(-200)); setBarsMore(false); }
+      } catch (e: any) { if (alive) { setBarsMore(false); setBarsErr(`走勢圖下載失敗：${e?.message ?? e}`); } }
     })();
     return () => { alive = false; };
   }, [s.code]);
@@ -445,6 +447,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
           ? (bars ? <FlowsPanel code={s.code} market={s.market === "TPEX" ? "TPEX" : "TWSE"} bars={bars} livePrice={lq?.price} /> : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>)
           : shownBars ? (shownBars.length > 1 ? <>
               <CandleChart bars={shownBars} us={s.market === "US"} cost={holding?.cost} />
+              {barsMore && s.market !== "US" && <div class="muted" style={{ fontSize: "12px" }} data-testid="kline-loading-more">更早的走勢下載中…（現有的已可以看）</div>}
               {liveBar && <div class="date-hint" data-testid="kbar-live">⏱ 最後一根是{liveBar.final ? "最新收盤" : "盤中"}的即時價（含成交量{liveBar.time ? `，台北 ${liveBar.time.slice(0, 5)}` : ""}），每 30 秒更新；{s.market === "US" ? "下次更新美股資料時換成正式日 K" : "證交所正式資料（約 15:00 後）出來後會換成正式的"}</div>}
             </> : <div class="empty">沒有走勢資料</div>) : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>}
       </div>

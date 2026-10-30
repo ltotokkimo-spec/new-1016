@@ -20,6 +20,7 @@ import type { VirtualEtf } from "./engine/virtualEtf";
 import { mergeLive, parseMoneyDjHoldings, type ActiveEtfData } from "./lib/activeEtf";
 import { liveUrl, parseLive, type LiveQuote } from "./data/twLive";
 import { esbLiveUrl, parseEsbLive } from "./data/esb";
+import { twHistory } from "./data/history";
 import { parseRevenue, revenueUrls, type Revenue } from "./data/revenue";
 import { emptyEtf, etfAlerts, isOffList, liquidityCut, pickCandidates, positions as etfPositions, recordNav, stopOf, valuate, type AiEtf, type EtfTrade } from "./engine/aiEtf";
 
@@ -226,6 +227,37 @@ function applyTw(snap: TwSnapshot) {
   const etfScored = b.scored.map((x) => ({ ...x, refOnly: true }));
   set({ tw: { ...meta, scored: a.scored, sectors: a.sectors }, etf: { ...meta, scored: etfScored, sectors: b.sectors }, twIndices: snap.indices, twBreadth: snap.breadth });
   void snapshotEtfNav(snap.asOf);
+  scheduleHistoryPrefetch();
+}
+
+/**
+ * K 線預載：持股和評分最高的「買入」幾檔，在背景先把日 K 的月資料下載好存在手機裡，之後打開圖表就是即時的。
+ * 慢慢下載（證交所每 3 秒一次）、使用者正在看圖時會讓路；每個交易日每檔只做一次。
+ */
+let prefetchTimer: ReturnType<typeof setTimeout> | undefined;
+let prefetchedKey = "";
+let prefetching = false;
+function scheduleHistoryPrefetch() {
+  if (prefetchTimer || prefetching) return;
+  prefetchTimer = setTimeout(() => { prefetchTimer = undefined; void runHistoryPrefetch(); }, 30_000);
+}
+export async function runHistoryPrefetch() {
+  const asOf = state.tw.asOf;
+  if (!asOf || prefetching) return;
+  const list: { code: string; market: "TWSE" | "TPEX" }[] = [];
+  const seen = new Set<string>();
+  const add = (code: string, market: string) => { if ((market === "TWSE" || market === "TPEX") && !seen.has(code) && !state.esb[code]) { seen.add(code); list.push({ code, market }); } };
+  for (const h of state.holdings) add(h.code, h.market);
+  [...state.tw.scored].filter((x) => x.rating === "買入").sort((x, y) => y.score - x.score).slice(0, 10).forEach((x) => add(x.code, x.market));
+  const key = `${asOf}:${list.map((x) => x.code).join(",")}`;
+  if (!list.length || key === prefetchedKey) return;
+  prefetching = true;
+  try {
+    for (const x of list) {
+      try { await twHistory(fetcher, kv, x.code, x.market, 6, Date.now(), undefined, true); } catch { /* 預載失敗不影響，打開圖表時再下載 */ }
+    }
+    prefetchedKey = key;
+  } finally { prefetching = false; }
 }
 
 interface EsbSnapshot { quotes: EsbQuote[]; fetchedAt: number }

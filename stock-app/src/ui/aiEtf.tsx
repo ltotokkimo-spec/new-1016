@@ -611,6 +611,53 @@ export function AiEtfScreen() {
 }
 
 
+const SERIES_COLORS = ["#e5484d", "#3b8bef", "#2fb457", "#f0a020", "#a46be0", "#14b8c4"];
+/** 總評比的走勢圖：全部組合（各自累積報酬）加一條 0050 對照，一張圖看每天誰領先 */
+function CompareChart({ series, bench }: { series: { label: string; pts: { date: string; r: number }[] }[]; bench: { date: string; r: number }[] }) {
+  const [hide, setHide] = useState<Record<string, boolean>>({});
+  const ok = series.filter((x) => x.pts.length >= 1);
+  const dates = [...new Set([...ok.flatMap((x) => x.pts.map((p) => p.date)), ...bench.map((p) => p.date)])].sort();
+  if (dates.length < 2) return <div class="card muted" style={{ fontSize: "13px" }} data-testid="compare-chart">走勢圖要至少兩天的資料，明天收盤後就會畫出來。</div>;
+  const W = 340, H = 220, padL = 40, padR = 8, padT = 10, padB = 20, n = dates.length;
+  const vis = ok.filter((x) => !hide[x.label]);
+  const all = [...vis.flatMap((x) => x.pts.map((p) => p.r)), ...(hide["0050"] ? [] : bench.map((p) => p.r)), 0];
+  let lo = Math.min(...all), hi = Math.max(...all);
+  const m = (hi - lo) * 0.12 || 0.005; lo -= m; hi += m;
+  const x = (d: string) => padL + (dates.indexOf(d) / (n - 1)) * (W - padL - padR);
+  const y = (v: number) => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
+  const path = (pts: { date: string; r: number }[]) => pts.map((p, i) => `${i ? "L" : "M"}${x(p.date).toFixed(1)},${y(p.r).toFixed(1)}`).join("");
+  const ticks = [0, 1, 2, 3].map((k) => lo + ((hi - lo) * k) / 3);
+  const dateIdx = [...new Set([0, 1, 2, 3].map((k) => Math.round(((n - 1) * k) / 3)))];
+  const last = (pts: { r: number }[]) => pts[pts.length - 1]?.r;
+  const legend = [...ok.map((sx, i) => ({ label: sx.label, color: SERIES_COLORS[i % SERIES_COLORS.length], v: last(sx.pts), dash: false })), { label: "0050", color: "var(--fg)", v: last(bench), dash: true }];
+  return (
+    <div class="card stack" style={{ padding: "12px" }} data-testid="compare-chart">
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="全部虛擬 ETF 與 0050 累積報酬走勢">
+        {ticks.filter((t) => Math.abs(y(t) - y(0)) > 12).map((t) => <g key={t}>
+          <line x1={padL} x2={W - padR} y1={y(t)} y2={y(t)} stroke="var(--line)" />
+          <text x={padL - 4} y={y(t) + 3} font-size="10" fill="var(--muted)" text-anchor="end">{fmtPct(t, 1)}</text>
+        </g>)}
+        <line x1={padL} x2={W - padR} y1={y(0)} y2={y(0)} stroke="var(--fg)" stroke-opacity="0.5" stroke-dasharray="3 3" />
+        <text x={padL - 4} y={y(0) + 3} font-size="10" font-weight="700" fill="var(--fg)" text-anchor="end">0%</text>
+        {!hide["0050"] && bench.length > 0 && <path d={path(bench)} fill="none" stroke="var(--fg)" stroke-width="1.6" stroke-dasharray="5 3" />}
+        {ok.map((sx, i) => !hide[sx.label] && <g key={sx.label}>
+          <path d={path(sx.pts)} fill="none" stroke={SERIES_COLORS[i % SERIES_COLORS.length]} stroke-width="2" />
+          {sx.pts.length === 1 && <circle cx={x(sx.pts[0].date)} cy={y(sx.pts[0].r)} r="3" fill={SERIES_COLORS[i % SERIES_COLORS.length]} />}
+        </g>)}
+        {dateIdx.map((i) => <text key={i} x={Math.min(W - padR - 8, Math.max(padL + 6, padL + (i / (n - 1)) * (W - padL - padR)))} y={H - 4} font-size="10" fill="var(--muted)" text-anchor="middle">{pretty(dates[i])}</text>)}
+      </svg>
+      <div class="muted" style={{ fontSize: "11px" }}>點下面的名字可以顯示／隱藏那條線。0050 虛線是 Claude 虛擬組合起始日（最早）買進 0050 的對照。</div>
+      <div class="row" style={{ gap: "8px 12px", flexWrap: "wrap", fontSize: "12.5px" }}>
+        {legend.map((l) => (
+          <button key={l.label} class="chip" aria-pressed={!hide[l.label]} onClick={() => setHide({ ...hide, [l.label]: !hide[l.label] })} style={{ opacity: hide[l.label] ? 0.4 : 1 }} data-testid="compare-legend">
+            <b style={{ color: l.color }}>{l.dash ? "┅" : "━"}</b> {l.label} <span class={`num ${l.v !== undefined ? cls(l.v) : ""}`}>{l.v !== undefined ? fmtPct(l.v, 2) : "—"}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** 總評比：Claude 虛擬操作（第一組）和三個規則自動計算的觀察組合放在一起看，也和 0050 比 */
 function CompareView() {
   const virtual = useStore((s) => s.virtual), watch = useStore((s) => s.watch), wide = useStore((s) => s.wide), regime = useStore((s) => s.regime), leadG = useStore((s) => s.lead), aiG = useStore((s) => s.ai), steady = useStore((s) => s.steady);
@@ -658,6 +705,12 @@ function CompareView() {
         </div>
         <button class="btn secondary" onClick={reload} disabled={busy} data-testid="compare-reload">{busy ? "更新中…" : "重新下載全部"}</button>
       </div>
+
+      <div class="section-title"><span>每天走勢圖</span><span>累積報酬</span></div>
+      <CompareChart
+        series={groups.filter((g) => g.v && g.v.nav.length).map((g) => ({ label: g.short, pts: g.v!.nav.map((p) => ({ date: p.date, r: g.v!.budget ? p.nav / g.v!.budget - 1 : 0 })) }))}
+        bench={(() => { const v = groups.find((g) => g.v && g.v.nav.length)?.v; return v ? v.nav.map((p) => ({ date: p.date, r: v.budget ? p.bench / v.budget - 1 : 0 })) : []; })()}
+      />
 
       <div class="section-title"><span>各組從自己的起始日算起</span><span>報酬為相對起始資金</span></div>
       <div class="card" style={{ padding: "6px 8px", overflowX: "auto" }} data-testid="compare-all">

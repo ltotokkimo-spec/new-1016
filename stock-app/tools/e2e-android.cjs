@@ -510,6 +510,13 @@ function check(ok, name, detail = "") {
   await page.waitForFunction(() => /年化/.test(document.querySelector('[data-testid="compare-bt"]')?.innerText || "") && /\d+\.\d+%/.test(document.querySelector('[data-testid="compare-bt"]')?.innerText || ""), null, { timeout: 30000 });
   const btTxt = await page.$eval('[data-testid="compare-bt"]', (e) => e.innerText.replace(/\s+/g, " "));
   check(/只抱 0050/.test(btTxt) && /N5 觀察/.test(btTxt) && (btTxt.match(/[+-]\d+\.\d%/g) || []).length >= 6, "總評比附上規則的 2 年回測（年化、最大回檔、夏普）", btTxt.slice(0, 200));
+  // 總評比的每天走勢圖：六組＋0050 都有一條線、圖例標最新累積報酬；點圖例可隱藏那條線
+  const cc = await page.evaluate(() => ({ svg: document.querySelectorAll('[data-testid="compare-chart"] svg path[stroke-width="2"]').length, dash: document.querySelectorAll('[data-testid="compare-chart"] svg path[stroke-dasharray="5 3"]').length, legend: [...document.querySelectorAll('[data-testid="compare-legend"]')].map((e) => e.innerText.replace(/\s+/g, " ")) }));
+  log("總評比走勢圖", JSON.stringify(cc));
+  check(cc.svg === 6 && cc.dash === 1 && cc.legend.length === 7 && cc.legend.every((t) => /[+-]?\d+\.\d\d%|—/.test(t)), "總評比有全部組合＋0050 的每天走勢圖（圖例標最新累積報酬）", JSON.stringify(cc).slice(0, 300));
+  await page.click('[data-testid="compare-legend"]');
+  check((await page.$$eval('[data-testid="compare-chart"] svg path[stroke-width="2"]', (e) => e.length)) === 5, "點圖例可隱藏那一組的線");
+  await page.click('[data-testid="compare-legend"]');
   await shot("05e-總評比");
   await page.click('[data-testid="mode-real"]');
   await page.waitForSelector('[data-testid="etf-summary"]', { timeout: 10000 });

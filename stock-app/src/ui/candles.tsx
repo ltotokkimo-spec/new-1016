@@ -42,14 +42,17 @@ export function CandleChart({ bars, us = false, cost }: { bars: CandleBar[]; us?
   const [wpx, setWpx] = useState(0); // 畫布寬度：旋轉螢幕、分割視窗時要重畫
   const viewRef = useRef(view);
   const setView = (v: View) => { const c = clampView(v, n); viewRef.current = c; setViewState(c); };
+  const touched = useRef(false); // 使用者手動拖曳或縮放過：之後資料增加（更早的月份載入）就保留他的縮放；沒動過就用預設寬度
+  const userView = (v: View) => { touched.current = true; setView(v); };
   // 資料更新：盤中每 30 秒只是最後一根改變（檔數不變）→ 保留目前的畫面與點選；多了一根（盤中第一根出現）→ 原本在最右邊才跟著移
   const prevN = useRef(n);
   useEffect(() => {
     const was = prevN.current;
     prevN.current = n;
     if (n === was) return;
-    if (n === was + 1) { if (viewRef.current.start >= was) setView({ start: n, count: viewRef.current.count }); return; }
-    setView({ start: n, count: viewRef.current.count }); setSel(null);
+    const count = touched.current ? viewRef.current.count : DEFAULT_BARS;
+    if (n === was + 1) { if (viewRef.current.start >= was) setView({ start: n, count }); return; }
+    setView({ start: n, count }); setSel(null);
   }, [bars]);
 
   const ind = useMemo(() => {
@@ -240,10 +243,10 @@ export function CandleChart({ bars, us = false, cost }: { bars: CandleBar[]; us?
       const count = Math.min(n, Math.max(MIN_BARS, pv.count / ratio));
       const mid = ((a.x + b.x) / 2 - rect.left - 4) / plotW; // 兩指中心在視窗中的位置
       const anchor = pv.start + pv.count * Math.min(1, Math.max(0, mid));
-      setView({ start: anchor - count * Math.min(1, Math.max(0, mid)), count });
+      userView({ start: anchor - count * Math.min(1, Math.max(0, mid)), count });
     } else {
       const dx = e.clientX - gs.startX; gs.moved = Math.max(gs.moved, Math.abs(dx));
-      if (gs.moved > 6) { const per = plotW / gs.startView.count; setView({ start: gs.startView.start - dx / per, count: gs.startView.count }); }
+      if (gs.moved > 6) { const per = plotW / gs.startView.count; userView({ start: gs.startView.start - dx / per, count: gs.startView.count }); }
     }
   };
   const onUp = (e: PointerEvent) => {
@@ -265,7 +268,7 @@ export function CandleChart({ bars, us = false, cost }: { bars: CandleBar[]; us?
   const zoom = (f: number, anchorFrac = 1) => {
     const v = viewRef.current; const count = Math.min(n, Math.max(MIN_BARS, v.count * f));
     const anchor = v.start + v.count * anchorFrac;
-    setView({ start: anchor - count * anchorFrac, count });
+    userView({ start: anchor - count * anchorFrac, count });
   };
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();
@@ -306,7 +309,7 @@ export function CandleChart({ bars, us = false, cost }: { bars: CandleBar[]; us?
         <div class="seg" role="group" aria-label="縮放">
           <button onClick={() => zoom(1 / 1.5)} aria-label="放大" data-testid="zoom-in">＋</button>
           <button onClick={() => zoom(1.5)} aria-label="縮小" data-testid="zoom-out">－</button>
-          <button onClick={() => setView({ start: 0, count: n })} data-testid="zoom-all">全部</button>
+          <button onClick={() => userView({ start: 0, count: n })} data-testid="zoom-all">全部</button>
         </div>
       </div>
       <div class="muted num" style={{ fontSize: "12px", marginTop: "4px" }} data-testid="candle-ind">{indText}　<span>（顯示 {view.count} 日・左右拖曳、兩指縮放、點一下看當天）</span></div>

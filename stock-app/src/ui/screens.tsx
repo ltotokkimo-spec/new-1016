@@ -452,7 +452,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
               <CandleChart bars={shownBars} us={s.market === "US"} cost={holding?.cost} />
               {barsMore && s.market !== "US" && <div class="muted" style={{ fontSize: "12px" }} data-testid="kline-loading-more">更早的走勢下載中…（現有的已可以看）</div>}
               {liveBar && <div class="date-hint" data-testid="kbar-live">⏱ 最後一根是{liveBar.final ? "最新收盤" : "盤中"}的即時價（含成交量{liveBar.time ? `，台北 ${liveBar.time.slice(0, 5)}` : ""}），每 30 秒更新；{s.market === "US" ? "下次更新美股資料時換成正式日 K" : "證交所正式資料（約 15:00 後）出來後會換成正式的"}</div>}
-            </> : <div class="empty">沒有走勢資料</div>) : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>}
+            </> : barsMore ? <div class="empty" data-testid="kline-loading">載入中…（更早的走勢還在下載）</div> : <div class="empty">沒有走勢資料</div>) : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>}
       </div>
 
       {s.market !== "US" && isActiveEtf(s.code) && (

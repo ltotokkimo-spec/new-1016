@@ -151,7 +151,7 @@ function check(ok, name, detail = "") {
   await page.waitForFunction(() => document.querySelector("canvas.chart") || /走勢圖下載失敗|沒有走勢資料/.test(document.body.innerText), null, { timeout: 120000 });
   const detail = await page.evaluate(() => ({ title: document.querySelector(".sheet h2")?.textContent, text: document.querySelector(".sheet .body").innerText.slice(0, 400), chart: !!document.querySelector("canvas.chart") }));
   log("個股", JSON.stringify(detail));
-  check(detail.chart, "個股走勢圖有畫出來", detail.title);
+  check(detail.chart, "個股走勢圖有畫出來", detail.chart ? detail.title : `${detail.title}｜畫面：${detail.text.replace(/\s+/g, " ").slice(0, 200)}`);
   // K 線圖：K 線＋均線、成交量、KD／MACD／RSI 切換、縮放、點選當天
   const cd = async () => page.evaluate(() => ({ info: document.querySelector('[data-testid="candle-info"]')?.innerText.replace(/\s+/g, " ") || "", ma: document.querySelector('[data-testid="candle-ma"]')?.innerText.replace(/\s+/g, " ") || "", ind: document.querySelector('[data-testid="candle-ind"]')?.innerText.replace(/\s+/g, " ") || "" }));
   // 圖現在是分段載入：最近的月份先畫出來，均線（20、60 日）要等更早的月份載完才有；等「下載中」消失再檢查

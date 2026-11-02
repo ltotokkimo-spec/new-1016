@@ -712,7 +712,7 @@ function CompareView() {
         bench={(() => { const v = groups.find((g) => g.v && g.v.nav.length)?.v; return v ? v.nav.map((p) => ({ date: p.date, r: v.budget ? p.bench / v.budget - 1 : 0 })) : []; })()}
       />
 
-<div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, margin: "6px 4px 0" }}>圖上每條線都從自己的起始日 0% 出發；虛線 0050 是 Claude 虛擬組的對照（10/19 起），不是其他五組的對照。線的右端數字＝下面表格第一欄「報酬」。</div>
+<div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, margin: "6px 4px 0" }}>圖上每條線都從自己的起始日 0% 出發；虛線 0050 只有一條，是 Claude 虛擬組的對照（10/19 起）；其他五組有自己的對照，是否贏過 0050 請看下面表格的紅綠字，不要用這條虛線判斷。線的右端數字＝下面表格第一欄「報酬」。</div>
 
       <div class="section-title"><span>各組從自己的起始日算起</span><span>報酬為相對起始資金</span></div>
       <div class="card" style={{ padding: "6px 8px", overflowX: "auto" }} data-testid="compare-all">

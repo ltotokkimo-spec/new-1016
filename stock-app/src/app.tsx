@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { autoRefresh, etfAlertsNow, findScored, init, refreshEsb, refreshMacro, refreshTw, refreshUs, useStore, type AiJob, type Market } from "./store";
 import type { Scored } from "./engine/score";
-import { pretty } from "./lib/dates";
+import { pretty, taipeiToday } from "./lib/dates";
+import { livePolling } from "./data/twLive";
 import { AiEtfScreen } from "./ui/aiEtf";
 import { EtfRankScreen } from "./ui/etfRank";
 import { AiJobBanner, HoldingsScreen, MacroScreen, PicksScreen, SectorsScreen, SettingsScreen, StockDetail, UpdateBanner } from "./ui/screens";
@@ -33,6 +34,11 @@ export function App() {
   const [sector, setSector] = useState("");
   const [detail, setDetail] = useState<Scored | null>(null);
   const { tw, etf, us, loaded } = useStore((s) => ({ tw: s.tw, etf: s.etf, us: s.us, loaded: s.loaded, aiEtf: s.aiEtf, prices: s.prices }));
+  // 盤中（含試搓）且已抓到今天的台股即時價：頂端日期顯示今天，不要停在上個交易日的收盤
+  const liveToday = useStore((s) => {
+    const today = taipeiToday();
+    return livePolling() && Object.values(s.live).some((q) => q && q.date === today && !q.session && !q.final) ? today : "";
+  });
   const etfAlert = etfAlertsNow().length > 0;
   useEffect(() => { init(); }, []);
   // 從背景切回 App 時，資料過時就自動更新（例如傍晚 4:30 後有當天評分）
@@ -71,7 +77,9 @@ export function App() {
           <span class="brand-fx" data-testid="brand">金雷達</span>
         </div>
         <div class="asof num">
-          {ms.asOf ? <>{market === "US" ? "美股" : "台股"}資料 {pretty(ms.asOf)}</> : loaded ? "尚無資料" : ""}
+          {market !== "US" && liveToday && (!ms.asOf || liveToday > ms.asOf)
+            ? <span data-testid="asof-live">台股資料 {pretty(liveToday)} 盤中</span>
+            : ms.asOf ? <>{market === "US" ? "美股" : "台股"}資料 {pretty(ms.asOf)}</> : loaded ? "尚無資料" : ""}
           {ms.progress && ms.status === "ready" && <div>更新中 {Math.round((ms.progress.done / Math.max(ms.progress.total, 1)) * 100)}%</div>}
         </div>
         <button class="iconbtn" aria-label="重新整理" onClick={refresh} disabled={busy}>

@@ -10,7 +10,7 @@ import { type EtfTrade, comparePlans, DEFAULT_STOP, fitBudget, groupBySector, is
 import { addWeekdays, orderDay, pretty, prettyW, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
 import { livePolling, type LiveQuote } from "../data/twLive";
-import { cls, fmtMoney, fmtPct, fmtPrice, fmtSigned, LimitLight } from "./common";
+import { cls, fmtMoney, fmtPct, fmtPrice, fmtSigned, LimitPx } from "./common";
 import { navStats } from "../engine/navStats";
 import { compareGroups, type GroupRow } from "../engine/compare";
 import { AiProgressView, AiReportView, BalanceHint, copyText } from "./screens";
@@ -953,7 +953,7 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
                     {v.stops?.[p.code] && <div class="sub num">停損 {fmtPrice(v.stops[p.code])}</div>}
                   </div>
                   <div class="px">
-                    <div class="p num" data-testid="virtual-price"><span class="lbl">{label}</span>{c ? fmtPrice(c) : "—"}<LimitLight s={q?.limit} /></div>
+                    <div class="p num" data-testid="virtual-price"><span class="lbl">{label}</span><LimitPx s={q?.limit}>{c ? fmtPrice(c) : "—"}</LimitPx></div>
                     {q && Number.isFinite(q.prevClose) && <div class={`num ${cls(q.price - q.prevClose)}`} style={{ fontSize: "12px" }}>今日 {fmtPct(q.price / q.prevClose - 1)}</div>}
                     <div class={`c num ${cls(c ? c - p.avgCost : 0)}`}><span class="lbl">損益</span>{c ? fmtPct(c / p.avgCost - 1) : "—"}</div>
                   </div>

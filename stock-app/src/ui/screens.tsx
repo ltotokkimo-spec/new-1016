@@ -25,7 +25,7 @@ import { latestNotes } from "../lib/notes";
 import { fmtNtd, usdTwdRate } from "../lib/fx";
 import type { BacktestResult } from "../engine/backtest";
 import type { TurnPick } from "../engine/turning";
-import { cls, fmtMoney, fmtPct, fmtPrice, fmtSigned, LimitLight, lots, Markdown, Progress, RatingPill, Sheet } from "./common";
+import { cls, fmtMoney, fmtPct, fmtPrice, fmtSigned, LimitPx, lots, Markdown, Progress, RatingPill, Sheet } from "./common";
 import { limitFromChg } from "../lib/limit";
 
 // ---------------- 選股 ----------------
@@ -153,7 +153,7 @@ function StockRow({ s, q, turn, onClick }: { s: Scored; q?: LiveQuote; turn?: Tu
         </>}
       </div>
       <div class="px">
-        <div class="p num"><span class="lbl">{q?.trial ? `試搓 ${q.time.slice(0, 5)}` : intraday ? `現價 ${q!.time.slice(0, 5)}` : "收盤"}</span>{fmtPrice(price, s.market)}{s.market !== "US" && <LimitLight s={q?.limit ?? limitFromChg(price, chg, isEtf(s.code))} />}</div>
+        <div class="p num"><span class="lbl">{q?.trial ? `試搓 ${q.time.slice(0, 5)}` : intraday ? `現價 ${q!.time.slice(0, 5)}` : "收盤"}</span><LimitPx s={s.market !== "US" ? q?.limit ?? limitFromChg(price, chg, isEtf(s.code)) : undefined}>{fmtPrice(price, s.market)}</LimitPx></div>
         {chg !== undefined && Number.isFinite(chg) && <div class={`c num ${cls(chg)}`} data-testid="pick-day"><span class="lbl">今日</span>{fmtPct(chg)}</div>}
         {q?.ext && <div class={`c num ${cls(q.ext.chg)}`} data-testid="pick-ext"><span class="lbl">{q.ext.label} {q.ext.time}</span>{fmtPrice(q.ext.price, s.market)} {fmtPct(q.ext.chg)}</div>}
         <div class={`c num ${cls(s.ret1m)}`}><span class="lbl">近1月</span>{fmtPct(s.ret1m)}</div>
@@ -408,7 +408,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
     <Sheet title={`${s.name} ${s.code}`} onClose={onClose}>
       <div class="hero">
         <div>
-          <div class="price num" data-testid="detail-price">{fmtPrice(price, s.market)}{s.market !== "US" && <LimitLight s={lq?.limit ?? limitFromChg(price, dayChg ?? s.chg1d, isEtf(s.code))} />}</div>
+          <div class="price num" data-testid="detail-price"><LimitPx s={s.market !== "US" ? lq?.limit ?? limitFromChg(price, dayChg ?? s.chg1d, isEtf(s.code)) : undefined}>{fmtPrice(price, s.market)}</LimitPx></div>
           <div class="num" style={{ marginTop: "4px", fontSize: "13px" }} data-testid="detail-price-note">
             {lq
               ? <><div class="muted">{s.market === "US" ? (lq.session ?? "收盤") : lq.trial ? "試搓（開盤前試算價，還沒成交）" : lq.final || !marketOpen() ? "收盤" : "盤中"}</div><div><span class="muted">昨收 {fmtPrice(lq.prevClose, s.market)}　</span><span class={cls(dayChg)}>{fmtPct(dayChg)}</span></div></>
@@ -726,7 +726,7 @@ function HoldingRow({ v, open, onEsb, fx }: { v: any; open: (s: Scored) => void;
         <div class="sub">{v.advice.join("；")}</div>
       </div>
       <div class="px">
-        <div class="p num"><span class="lbl" data-testid="hold-label">{v.liveLabel}</span>{fmtPrice(v.price, v.market)}<LimitLight s={(v as any).limit} /></div>
+        <div class="p num"><span class="lbl" data-testid="hold-label">{v.liveLabel}</span><LimitPx s={(v as any).limit}>{fmtPrice(v.price, v.market)}</LimitPx></div>
         {Number.isFinite(v.chg) && <div class={`c num ${cls(v.chg)}`} data-testid="hold-day"><span class="lbl">今日</span>{fmtPct(v.chg)}</div>}
         {"ext" in v && v.ext && <div class={`c num ${cls(v.ext.chg)}`} data-testid="hold-ext"><span class="lbl">{v.ext.label}</span>{fmtPrice(v.ext.price, v.market)} {fmtPct(v.ext.chg)}</div>}
       </div>

@@ -5,10 +5,10 @@ import type { Rating } from "../engine/score";
 export const fmtPct = (x: number | undefined, digits = 1) =>
   x === undefined || !Number.isFinite(x) ? "—" : `${x > 0 ? "+" : ""}${(x * 100).toFixed(digits)}%`;
 
-/** 漲停亮紅燈、跌停亮綠燈（台股紅漲綠跌） */
-export function LimitLight({ s }: { s?: "up" | "down" }) {
-  if (!s) return null;
-  return <span class={`limit-light ${s}`} data-testid="limit-light" data-limit={s} title={s === "up" ? "漲停" : "跌停"}><i />{s === "up" ? "漲停" : "跌停"}</span>;
+/** 漲停：價格變成實心紅底白字的方塊；跌停：實心綠底白字（台股紅漲綠跌）。沒有漲跌停就原樣顯示價格 */
+export function LimitPx({ s, children }: { s?: "up" | "down"; children: any }) {
+  if (!s) return <>{children}</>;
+  return <span class={`limit-px ${s}`} data-testid="limit-light" data-limit={s} title={s === "up" ? "漲停" : "跌停"}>{children}</span>;
 }
 
 export const cls = (x: number | undefined) => (x === undefined || !Number.isFinite(x) || x === 0 ? "" : x > 0 ? "up" : "down");

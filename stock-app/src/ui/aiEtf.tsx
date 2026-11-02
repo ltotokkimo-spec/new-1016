@@ -613,14 +613,14 @@ export function AiEtfScreen() {
 
 const SERIES_COLORS = ["#e5484d", "#3b8bef", "#2fb457", "#f0a020", "#a46be0", "#14b8c4"];
 /** 總評比的走勢圖：全部組合（各自累積報酬）加一條 0050 對照，一張圖看每天誰領先 */
-function CompareChart({ series, bench }: { series: { label: string; pts: { date: string; r: number }[] }[]; bench: { date: string; r: number }[] }) {
+function CompareChart({ series, bench }: { series: { label: string; pts: { date: string; r: number }[]; own?: { date: string; r: number }[] }[]; bench: { date: string; r: number }[] }) {
   const [hide, setHide] = useState<Record<string, boolean>>({});
   const ok = series.filter((x) => x.pts.length >= 1);
   const dates = [...new Set([...ok.flatMap((x) => x.pts.map((p) => p.date)), ...bench.map((p) => p.date)])].sort();
   if (dates.length < 2) return <div class="card muted" style={{ fontSize: "13px" }} data-testid="compare-chart">走勢圖要至少兩天的資料，明天收盤後就會畫出來。</div>;
   const W = 340, H = 220, padL = 40, padR = 8, padT = 10, padB = 20, n = dates.length;
   const vis = ok.filter((x) => !hide[x.label]);
-  const all = [...vis.flatMap((x) => x.pts.map((p) => p.r)), ...(hide["0050"] ? [] : bench.map((p) => p.r)), 0];
+  const all = [...vis.flatMap((x) => [...x.pts, ...(x.own ?? [])].map((p) => p.r)), ...(hide["0050"] ? [] : bench.map((p) => p.r)), 0];
   let lo = Math.min(...all), hi = Math.max(...all);
   const m = (hi - lo) * 0.12 || 0.005; lo -= m; hi += m;
   const x = (d: string) => padL + (dates.indexOf(d) / (n - 1)) * (W - padL - padR);
@@ -641,12 +641,13 @@ function CompareChart({ series, bench }: { series: { label: string; pts: { date:
         <text x={padL - 4} y={y(0) + 3} font-size="10" font-weight="700" fill="var(--fg)" text-anchor="end">0%</text>
         {!hide["0050"] && bench.length > 0 && <path d={path(bench)} fill="none" stroke="var(--fg)" stroke-width="1.6" stroke-dasharray="5 3" />}
         {ok.map((sx, i) => !hide[sx.label] && <g key={sx.label}>
+          {sx.own && sx.own.length > 1 && <path d={path(sx.own)} fill="none" stroke={SERIES_COLORS[i % SERIES_COLORS.length]} stroke-width="1.2" stroke-opacity="0.75" stroke-dasharray="2 2" data-testid="own-bench" />}
           <path d={path(sx.pts)} fill="none" stroke={SERIES_COLORS[i % SERIES_COLORS.length]} stroke-width="2" />
           {sx.pts.length === 1 && <circle cx={x(sx.pts[0].date)} cy={y(sx.pts[0].r)} r="3" fill={SERIES_COLORS[i % SERIES_COLORS.length]} />}
         </g>)}
         {dateIdx.map((i) => <text key={i} x={Math.min(W - padR - 8, Math.max(padL + 6, padL + (i / (n - 1)) * (W - padL - padR)))} y={H - 4} font-size="10" fill="var(--muted)" text-anchor="middle">{pretty(dates[i])}</text>)}
       </svg>
-      <div class="muted" style={{ fontSize: "11px" }}>點下面的名字可以顯示／隱藏那條線。0050 虛線是 Claude 虛擬組合起始日（最早）買進 0050 的對照。</div>
+      <div class="muted" style={{ fontSize: "11px" }}>點下面的名字可以顯示／隱藏那條線。黑色虛線是 Claude 虛擬組的 0050 對照；其他組各有一條同色的細虛線，是它自己的 0050 對照（跟著該組買賣、現金一起算）。實線在自己的細虛線上方，就是贏過 0050，和下面表格的紅字一致。</div>
       <div class="row" style={{ gap: "8px 12px", flexWrap: "wrap", fontSize: "12.5px" }}>
         {legend.map((l) => (
           <button key={l.label} class="chip" aria-pressed={!hide[l.label]} onClick={() => setHide({ ...hide, [l.label]: !hide[l.label] })} style={{ opacity: hide[l.label] ? 0.4 : 1 }} data-testid="compare-legend">
@@ -708,11 +709,11 @@ function CompareView() {
 
       <div class="section-title"><span>每天走勢圖</span><span>累積報酬</span></div>
       <CompareChart
-        series={groups.filter((g) => g.v && g.v.nav.length).map((g) => ({ label: g.short, pts: g.v!.nav.map((p) => ({ date: p.date, r: g.v!.budget ? p.nav / g.v!.budget - 1 : 0 })) }))}
+        series={groups.filter((g) => g.v && g.v.nav.length).map((g) => ({ label: g.short, pts: g.v!.nav.map((p) => ({ date: p.date, r: g.v!.budget ? p.nav / g.v!.budget - 1 : 0 })), own: g.key === "virtual" ? undefined : g.v!.nav.map((p) => ({ date: p.date, r: g.v!.budget ? p.bench / g.v!.budget - 1 : 0 })) }))}
         bench={(() => { const v = groups.find((g) => g.v && g.v.nav.length)?.v; return v ? v.nav.map((p) => ({ date: p.date, r: v.budget ? p.bench / v.budget - 1 : 0 })) : []; })()}
       />
 
-<div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, margin: "6px 4px 0" }}>圖上每條線都從自己的起始日 0% 出發；虛線 0050 是 Claude 虛擬組的對照（10/19 起），不是其他五組的對照。線的右端數字＝下面表格第一欄「報酬」。</div>
+<div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, margin: "6px 4px 0" }}>圖上每條線都從自己的起始日 0% 出發。黑色虛線是 Claude 虛擬組的 0050 對照（10/19 起）；其他五組各有一條同色細虛線，是它自己的 0050 對照，實線在細虛線上方＝贏過 0050（表格紅字）。線的右端數字＝下面表格第一欄「報酬」。</div>
 
       <div class="section-title"><span>各組從自己的起始日算起</span><span>報酬為相對起始資金</span></div>
       <div class="card" style={{ padding: "6px 8px", overflowX: "auto" }} data-testid="compare-all">

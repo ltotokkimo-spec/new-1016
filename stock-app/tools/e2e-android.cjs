@@ -107,7 +107,7 @@ function check(ok, name, detail = "") {
     return els.length >= 3 ? els.slice(0, 3).map((e) => e.closest(".item").querySelector(".px").innerText.replace(/\s+/g, " ")) : null;
   }, null, { timeout: 30000 }).then((h) => h.jsonValue()).catch(() => null);
   log("選股今日漲跌", JSON.stringify(pickDay));
-  check(!!pickDay && pickDay.every((t) => /(現價|收盤).*今日\s*[+-]?\d/.test(t)), "選股每列顯示今日漲跌", JSON.stringify(pickDay));
+  check(!!pickDay && pickDay.every((t) => /(現價|試搓|收盤).*今日\s*[+-]?\d/.test(t)), "選股每列顯示今日漲跌", JSON.stringify(pickDay));
   const brand = await page.$eval('[data-testid="brand"]', (e) => { const c = getComputedStyle(e); return { text: e.innerText, bg: c.backgroundImage.slice(0, 60), fill: c.webkitTextFillColor || c.color, anim: c.animationName }; }).catch(() => null);
   log("標題特效", JSON.stringify(brand));
   check(!!brand && brand.text === "金雷達" && /linear-gradient/.test(brand.bg) && /brand-flow/.test(brand.anim), "標題「金雷達」套用流光金特效（金色漸層文字、流動動畫）", JSON.stringify(brand));
@@ -261,7 +261,7 @@ function check(ok, name, detail = "") {
   await page.waitForFunction(() => /折溢價（即時）/.test(document.querySelector(".sheet")?.innerText || ""), null, { timeout: 30000 }).catch(() => {});
   const etfDetail = await page.evaluate(() => ({ note: document.querySelector('[data-testid="detail-price-note"]')?.innerText.replace(/\s+/g, " ") || "", sheet: (document.querySelector(".sheet")?.innerText || "").replace(/\s+/g, " ") }));
   log("ETF 詳情", JSON.stringify({ note: etfDetail.note, prem: /折溢價（即時）[^]{0,80}/.exec(etfDetail.sheet)?.[0] }));
-  check(/^(盤中|收盤) 昨收|^收盤價 \d+\/\d+/.test(etfDetail.note), "詳情頁大字旁標明盤中／收盤（不顯示時間）或收盤價日期", etfDetail.note);
+  check(/^(盤中|收盤|試搓（[^）]*）) 昨收|^收盤價 \d+\/\d+/.test(etfDetail.note), "詳情頁大字旁標明盤中／收盤（不顯示時間）或收盤價日期", etfDetail.note);
   check(/折溢價（即時） [+-]?\d+\.\d\d% 預估淨值 [\d.]+(?!・\d\d:\d\d)/.test(etfDetail.sheet), "ETF 詳情頁有即時折溢價（預估淨值，不顯示時間；市價已在最上方現價）", /折溢價（即時）[^]{0,80}/.exec(etfDetail.sheet)?.[0] || "沒有折溢價");
   await page.click('button[aria-label="返回"]');
   // 主動式 ETF 詳情頁：看得到買賣的成份（買進／賣出）與目前持股
@@ -477,7 +477,7 @@ function check(ok, name, detail = "") {
     return els.length && document.querySelector('[data-testid="virtual-view"]').innerText.includes("今日") ? els.map((e) => e.innerText.replace(/\s+/g, " ")) : null;
   }, null, { timeout: 30000 }).then((h) => h.jsonValue()).catch(() => null);
   log("即時價", JSON.stringify(livePx));
-  check(!!livePx && livePx.every((t) => /(現價|收盤).*\d/.test(t)), "Claude 虛擬操作持股顯示即時價（證交所 mis）");
+  check(!!livePx && livePx.every((t) => /(現價|試搓|收盤).*\d/.test(t)), "Claude 虛擬操作持股顯示即時價（證交所 mis）");
   const vTrades = await page.$eval('[data-testid="virtual-trades"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   check(/成交價 [\d.,]+/.test(vTrades) && !vTrades.includes("@"), "虛擬成交紀錄寫「成交價」、不再用 @ 符號", vTrades.slice(0, 120));
   const schedV = await page.$eval('[data-testid="virtual-schedule"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
@@ -651,7 +651,7 @@ function check(ok, name, detail = "") {
   log("持股", hold);
   check(/台積電/.test(hold) && /(買入|觀望|離場)/.test(hold) && /%/.test(hold), "持股顯示現價、損益與評等", hold);
   const twHold = await page.$eval(".list .item", (e) => ({ label: e.querySelector('[data-testid="hold-label"]')?.innerText.trim() || "", avg: e.querySelector('[data-testid="hold-avg"]')?.innerText.replace(/\s+/g, " ").trim() || "", px: e.querySelector(".px")?.innerText.replace(/\s+/g, " ") || "" }));
-  check(/^(盤中|收盤)$/.test(twHold.label) && !/\d\d:\d\d/.test(twHold.px), "台股持股現價標盤中／收盤（不顯示時間）", `${twHold.label} | ${twHold.px}`);
+  check(/^(盤中|收盤|試搓)$/.test(twHold.label) && !/\d\d:\d\d/.test(twHold.px), "台股持股現價標盤中／收盤（不顯示時間）", `${twHold.label} | ${twHold.px}`);
   check(/^[\d,]+ 股・均價 2,000$/.test(twHold.avg), "台股持股顯示股數與均價（輸入成本 2,000）", twHold.avg);
   const dayTxt = await page.waitForFunction(() => document.querySelector('[data-testid="hold-day"]')?.innerText, null, { timeout: 20000 }).then((h) => h.jsonValue()).catch(() => "");
   log("持股今日漲跌", dayTxt);
@@ -672,7 +672,7 @@ function check(ok, name, detail = "") {
   const holds = await page.$$eval(".list .item", (xs) => xs.map((e) => e.innerText.replace(/\s+/g, " ")));
   log("持股（含 ETF／興櫃）", JSON.stringify(holds));
   const row = (c) => holds.find((h) => h.includes(c)) || "";
-  const hasPrice = (r) => /(盤中|收盤)\s*\d[\d,]*(\.\d+)?/.test(r) && /損益\s*[+-]?\$?[\d,]+（[+-]?\d+(\.\d)?%）/.test(r) && !/—/.test(r);
+  const hasPrice = (r) => /(盤中|收盤|試搓)\s*\d[\d,]*(\.\d+)?/.test(r) && /損益\s*[+-]?\$?[\d,]+（[+-]?\d+(\.\d)?%）/.test(r) && !/—/.test(r);
   check(/元大台灣50/.test(row("0050")) && /參考/.test(row("0050")) && !/(買入|觀望|離場)/.test(row("0050")) && hasPrice(row("0050")), "0050 顯示現價、損益，只當參考不給買賣評等", row("0050"));
   check(hasPrice(row("00406A")) && !/無資料/.test(row("00406A")), "00406A 顯示現價與損益", row("00406A"));
   check(/貝爾威勒/.test(row("7861")) && /無評等/.test(row("7861")) && /興櫃/.test(row("7861")) && hasPrice(row("7861")), "興櫃 7861 顯示現價與損益、不評等", row("7861"));

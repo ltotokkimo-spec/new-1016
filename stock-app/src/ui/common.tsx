@@ -5,6 +5,12 @@ import type { Rating } from "../engine/score";
 export const fmtPct = (x: number | undefined, digits = 1) =>
   x === undefined || !Number.isFinite(x) ? "—" : `${x > 0 ? "+" : ""}${(x * 100).toFixed(digits)}%`;
 
+/** 漲停亮紅燈、跌停亮綠燈（台股紅漲綠跌） */
+export function LimitLight({ s }: { s?: "up" | "down" }) {
+  if (!s) return null;
+  return <span class={`limit-light ${s}`} data-testid="limit-light" data-limit={s} title={s === "up" ? "漲停" : "跌停"}><i />{s === "up" ? "漲停" : "跌停"}</span>;
+}
+
 export const cls = (x: number | undefined) => (x === undefined || !Number.isFinite(x) || x === 0 ? "" : x > 0 ? "up" : "down");
 
 /** 帶正負號的損益金額：台股 +1,234／-567（台幣，不加幣別字樣）；美股 +$1,234／-$567 */

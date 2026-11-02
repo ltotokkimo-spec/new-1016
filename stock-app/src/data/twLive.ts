@@ -1,5 +1,7 @@
 // 證交所「基本市況報導」即時報價（mis.twse.com.tw），上市、上櫃都可以查；收盤後回傳當天收盤價。
 // 不知道代號是上市還是上櫃，所以兩種都問，查不到的會自動略過。
+import { limitState, type Limit } from "../lib/limit";
+
 export interface LiveQuote {
   code: string; name: string;
   price: number; // 最新成交價（盤中沒成交時用最佳買價，再不然用昨收）
@@ -7,6 +9,7 @@ export interface LiveQuote {
   date: string; // YYYYMMDD
   time: string; // HH:MM:SS
   final: boolean; // 13:30 收盤後的價格（美股：不在正常交易時段）
+  limit?: Limit; // 價格在漲停價（up）或跌停價（down）：畫面亮紅燈／綠燈
   trial?: boolean; // 台股開盤前（08:30～09:00）的試搓價：還沒有成交，price 是試算的開盤價，成交後才是真的
   session?: "盤中" | "收盤"; // 美股才有：price 是正常交易時段的最新價（盤中），或已經收盤的價格；盤前／盤後的成交在 ext
   // 美股才有：時間已換成台北時間；盤前／盤後的成交
@@ -35,7 +38,10 @@ export function parseLive(json: any): Record<string, LiveQuote> {
     if (!Number.isFinite(price)) price = first(m.b);
     if (!Number.isFinite(price)) price = prev;
     if (!code || !Number.isFinite(price)) continue;
-    out[code] = { code, name: String(m.n ?? code), price, prevClose: prev, open: num(m.o), high: num(m.h), low: num(m.l), date: String(m.d ?? ""), time, final: time >= "13:30:00", volume: num(m.v) * 1000, ...(trial ? { trial: true } : {}) };
+    // 漲停價 u、跌停價 w 是證交所給的；沒有就用規則算（ETF 代號 00 開頭，升降單位不同）
+    const up = num(m.u), dn = num(m.w);
+    const limit: Limit | undefined = Number.isFinite(up) && price >= up - 1e-6 ? "up" : Number.isFinite(dn) && price <= dn + 1e-6 ? "down" : Number.isFinite(up) || Number.isFinite(dn) ? undefined : limitState(price, prev, /^00\d/.test(code));
+    out[code] = { code, name: String(m.n ?? code), price, prevClose: prev, open: num(m.o), high: num(m.h), low: num(m.l), date: String(m.d ?? ""), time, final: time >= "13:30:00", volume: num(m.v) * 1000, ...(trial ? { trial: true } : {}), ...(limit ? { limit } : {}) };
   }
   return out;
 }

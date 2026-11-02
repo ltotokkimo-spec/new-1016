@@ -9,7 +9,8 @@ import { LIVE_MS, getState, refreshActiveEtf, refreshActiveLive, refreshLive, us
 import type { LiveQuote } from "../data/twLive";
 import { isLiveNow, livePolling } from "../data/twLive";
 import { taipeiHour, taipeiToday } from "../lib/dates";
-import { cls, fmtPct, fmtPrice, Sheet } from "./common";
+import { cls, fmtPct, fmtPrice, LimitLight, Sheet } from "./common";
+import { limitFromChg } from "../lib/limit";
 
 const lots = (shares: number) => `${shares > 0 ? "+" : ""}${Math.round(shares / 1000).toLocaleString("zh-TW")} 張`;
 const amt = (x: number) => {
@@ -43,7 +44,7 @@ function RankList({ rows, side, open, live }: { rows: Row[]; side: "buy" | "sell
             <div class={`c num ${cls(r.shares)}`}>{lots(r.shares)}</div>
           </div>
           <div class="px">
-            <div class="c num"><span class="lbl">{intraday ? `現價 ${q!.time.slice(0, 5)}` : "收盤"}</span>{fmtPrice(price)}</div>
+            <div class="c num"><span class="lbl">{intraday ? `現價 ${q!.time.slice(0, 5)}` : "收盤"}</span>{fmtPrice(price)}<LimitLight s={(intraday ? q!.limit : undefined) ?? limitFromChg(price, chg, false)} /></div>
             {chg !== undefined && Number.isFinite(chg) && <div class={`c num ${cls(chg)}`} data-testid="rank-day"><span class="lbl">{intraday ? "今日" : "當日"}</span>{fmtPct(chg)}</div>}
           </div>
         </button>

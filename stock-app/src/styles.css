@@ -165,6 +165,13 @@ canvas.chart.candle { height: 360px; touch-action: pan-y; user-select: none; }
 .report th, .report td { border: 1px solid var(--line); padding: 6px 6px; text-align: left; vertical-align: top; }
 .report th { background: var(--surface-2); white-space: nowrap; }
 a.btn { text-decoration: none; }
+/* 漲停／跌停燈號：圓點發光＋文字，紅＝漲停、綠＝跌停；減少動態效果時不閃爍 */
+.limit-light { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding: 1px 7px 1px 5px; border-radius: 999px; font-size: 11px; font-weight: 800; letter-spacing: 0.5px; vertical-align: middle; white-space: nowrap; }
+.limit-light i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; box-shadow: 0 0 6px 1px currentColor; animation: limit-glow 1.6s ease-in-out infinite; }
+.limit-light.up { color: var(--up); background: var(--up-bg); }
+.limit-light.down { color: var(--down); background: var(--down-bg); }
+@keyframes limit-glow { 50% { box-shadow: 0 0 11px 3px currentColor; opacity: 0.7; } }
+@media (prefers-reduced-motion: reduce) { .limit-light i { animation: none; } }
 .item .px .lbl { font-family: var(--font); font-size: 11px; font-weight: 400; color: var(--muted); margin-right: 4px; letter-spacing: 0; }
 
 /* 自組 ETF 免費提醒 */

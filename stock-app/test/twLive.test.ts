@@ -79,3 +79,24 @@ describe("開盤前試搓價", () => {
     expect(isLiveNow(q, "20261101", at("2026-11-02T08:45:00"))).toBe(false); // 不是今天的
   });
 });
+
+describe("漲停／跌停燈號（即時報價）", () => {
+  const q = (o: Record<string, string>) => parseLive({ msgArray: [{ c: "2308", n: "台達電", d: "20261030", t: "13:30:00", v: "18264", o: "1365", h: "1395", l: "1335", y: "1480.0000", u: "1625.0000", w: "1335.0000", ...o }] })["2308"];
+  it("成交價等於證交所給的跌停價 w → 跌停；等於漲停價 u → 漲停", () => {
+    expect(q({ z: "1335.0000" }).limit).toBe("down"); // 10/30 台達電真實情況
+    expect(q({ z: "1625.0000" }).limit).toBe("up");
+    expect(q({ z: "1340.0000" }).limit).toBeUndefined();
+  });
+  it("開盤前試搓價碰到跌停價也亮燈（11/02 台達電試搓 1,205 = 跌停價 1,205）", () => {
+    const r = parseLive({ msgArray: [{ c: "2308", n: "台達電", d: "20261102", t: "08:41:45", z: "-", pz: "1205.0000", y: "1335.0000", u: "1465.0000", w: "1205.0000", o: "-", v: "0" }] })["2308"];
+    expect(r.trial).toBe(true);
+    expect(r.limit).toBe("down");
+  });
+  it("沒有 u／w 時用規則算；有 u／w 但沒碰到就不亮", () => {
+    const noUw = parseLive({ msgArray: [{ c: "2330", n: "台積電", d: "20261030", t: "13:30:00", z: "2605.0000", y: "2370.0000", v: "1" }] })["2330"];
+    expect(noUw.limit).toBe("up");
+    const normal = parseLive({ msgArray: [{ c: "2330", n: "台積電", d: "20261030", t: "13:30:00", z: "2370.0000", y: "2370.0000", u: "2605.0000", w: "2135.0000", v: "1" }] })["2330"];
+    expect(normal.limit).toBeUndefined();
+  });
+});
+

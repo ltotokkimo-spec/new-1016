@@ -108,6 +108,10 @@ function check(ok, name, detail = "") {
   }, null, { timeout: 30000 }).then((h) => h.jsonValue()).catch(() => null);
   log("選股今日漲跌", JSON.stringify(pickDay));
   check(!!pickDay && pickDay.every((t) => /(現價|試搓|收盤).*今日\s*[+-]?\d/.test(t)), "選股每列顯示今日漲跌", JSON.stringify(pickDay));
+  // 漲停亮紅燈、跌停亮綠燈：畫面上有燈的列，今日漲跌幅方向與幅度要對得上（沒有漲跌停的日子就沒有燈，這項自然通過）
+  const lights = await page.evaluate(() => [...document.querySelectorAll('[data-testid="limit-light"]')].map((l) => ({ limit: l.getAttribute("data-limit"), row: (l.closest(".item")?.innerText || "").replace(/\s+/g, " ").slice(0, 120) })));
+  log("選股漲跌停燈", JSON.stringify(lights.slice(0, 6)));
+  check(lights.every((l) => { const m = /今日\s*([+-]?\d+(\.\d+)?)%/.exec(l.row); return !!m && (l.limit === "up" ? parseFloat(m[1]) >= 8 : parseFloat(m[1]) <= -8); }), "漲停亮紅燈／跌停亮綠燈與漲跌幅一致", JSON.stringify(lights.slice(0, 4)));
   const brand = await page.$eval('[data-testid="brand"]', (e) => { const c = getComputedStyle(e); return { text: e.innerText, bg: c.backgroundImage.slice(0, 60), fill: c.webkitTextFillColor || c.color, anim: c.animationName }; }).catch(() => null);
   log("標題特效", JSON.stringify(brand));
   check(!!brand && brand.text === "金雷達" && /linear-gradient/.test(brand.bg) && /brand-flow/.test(brand.anim), "標題「金雷達」套用流光金特效（金色漸層文字、流動動畫）", JSON.stringify(brand));

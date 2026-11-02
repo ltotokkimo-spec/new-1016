@@ -514,9 +514,18 @@ export async function installUpdate() {
 /** 即時資料盤中更新間隔（毫秒）：30 秒（10/28 試過 10 秒，證交所資料本身約 30～60 秒才更新，使用者改回 30 秒） */
 export const LIVE_MS = 30_000;
 const liveBusy = { tw: false, us: false };
+// 上一次還沒抓完時，新的要求先排隊，前一個一結束就補抓（合併成一次）。
+// 以前是直接略過：開 App 時選股頁正在抓 60 檔，切到持股頁的要求被丟掉，要等 30 秒才有即時價，這段時間畫面是上個交易日的收盤。
+let liveQueue: { codes: Set<string>; esb: Set<string> } | null = null;
 export async function refreshLive(codes: string[], esbHint: string[] = []) {
   const list = [...new Set(codes.filter((c) => /^[0-9A-Z]{4,6}$/.test(c)))];
-  if (!list.length || liveBusy.tw) return; // 上一次還沒抓完就略過，避免更新時重疊
+  if (!list.length) return;
+  if (liveBusy.tw) {
+    const q = (liveQueue ??= { codes: new Set(), esb: new Set() });
+    list.forEach((c) => q.codes.add(c));
+    esbHint.forEach((c) => q.esb.add(c));
+    return;
+  }
   liveBusy.tw = true;
   try {
     const got: Record<string, LiveQuote> = {};
@@ -528,7 +537,11 @@ export async function refreshLive(codes: string[], esbHint: string[] = []) {
     }
     set({ live: { ...state.live, ...got }, liveAt: Date.now() });
   } catch { /* 即時報價只是輔助，抓不到就顯示收盤價 */ }
-  finally { liveBusy.tw = false; }
+  finally {
+    liveBusy.tw = false;
+    const next = liveQueue; liveQueue = null;
+    if (next) void refreshLive([...next.codes], [...next.esb]);
+  }
 }
 
 /** 美股即時報價（CNBC）：盤中最新價、收盤後收盤價，附盤前／盤後成交 */

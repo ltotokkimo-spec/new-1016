@@ -624,7 +624,11 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
     }, LIVE_MS);
     return () => clearInterval(t);
   }, [codeKey]);
+  // 還沒抓到即時價的那幾十秒，畫面上是上個交易日的收盤：明確標示「更新中」，不要讓人以為這就是最新的
+  const [liveGiveUp, setLiveGiveUp] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setLiveGiveUp(true), 60_000); return () => clearTimeout(t); }, []);
   const today = taipeiToday();
+  const liveWaiting = !liveGiveUp && livePolling() && twCodes.some((c) => live[c]?.date !== today);
   const views = holdingViews().map((v) => {
     const isUs = v.market === "US";
     const q = live[v.code];
@@ -698,7 +702,7 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
       {!apiKey && <div class="muted" style={{ fontSize: "13px", marginTop: "8px" }}>照片匯入需要 Claude API 金鑰（到「設定」貼上）；手動新增不需要。</div>}
       {err && <div class="error" style={{ marginTop: "10px" }}>{err}</div>}
 
-      <div class="section-title"><span>持股健檢</span><span>{views.length} 檔</span></div>
+      <div class="section-title"><span>持股健檢{liveWaiting && <span class="muted" data-testid="live-loading" style={{ fontSize: "12px", fontWeight: 400, marginLeft: "8px" }}>即時價更新中…</span>}</span><span>{views.length} 檔</span></div>
       {views.length === 0 ? (
         <div class="empty">還沒有持股。<br />拍一張證券 App 的「庫存」畫面，Claude 會自動辨識代號、股數與成本。</div>
       ) : (

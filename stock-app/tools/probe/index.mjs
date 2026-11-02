@@ -1,18 +1,25 @@
-// 用 App 同樣的方式（每個代號同時問 tse_ 與 otc_）一次問持股，看證交所到底回了哪些
-const H = { "user-agent": "Mozilla/5.0 (Linux; Android 14) Chrome/129.0 Mobile Safari/537.36", accept: "application/json, text/plain, */*" };
-console.log("===== INDEX probe9 =====", new Date(Date.now() + 8 * 3600e3).toISOString(), "台北");
-const codes = ["00406A", "0050", "2409", "6182", "6515", "7861", "2330", "2308"];
-const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?json=1&delay=0&ex_ch=${codes.flatMap((c) => [`tse_${c}.tw`, `otc_${c}.tw`]).join("|")}`;
-console.log("url", url);
-for (let k = 0; k < 3; k++) {
-  const t0 = Date.now();
-  try {
-    const r = await fetch(url, { headers: H, signal: AbortSignal.timeout(40000) });
-    const txt = await r.text();
-    console.log(`#${k} [${r.status}] ${Date.now() - t0}ms bytes=${txt.length}`);
-    let j; try { j = JSON.parse(txt); } catch { console.log("非 JSON", txt.slice(0, 200)); continue; }
-    console.log("rtmessage", j.rtmessage, "rtcode", j.rtcode, "筆數", (j.msgArray ?? []).length);
-    for (const m of j.msgArray ?? []) console.log("  ", m.c, m.n, "z=", m.z, "pz=", m.pz, "b=", String(m.b).slice(0, 20), "y=", m.y, "t=", m.t, "d=", m.d, "u=", m.u, "w=", m.w, "v=", m.v);
-  } catch (e) { console.log("ERR", e.message); }
-  await new Promise((r) => setTimeout(r, 3000));
+// 探測 Yahoo 日線（含配息）：候選 ETF 的資料長度、配息筆數
+const H = { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/126.0 Safari/537.36", accept: "application/json" };
+console.log("===== INDEX probe6 =====");
+const codes = ["0050","006208","009816","0056","00878","00919","00929","00918","00713","0052","00881","00927","00891","00679B","00687B","00751B","00720B","00725B","00772B","00981A","00403A","00406A","00991A"];
+const ymd = (t) => new Date(t * 1000 + 8 * 3600e3).toISOString().slice(0, 10);
+for (const c of codes) {
+  let done = false;
+  for (const sfx of [".TW", ".TWO"]) {
+    try {
+      const u = `https://query1.finance.yahoo.com/v8/finance/chart/${c}${sfx}?range=3y&interval=1d&events=div%7Csplit`;
+      const r = await fetch(u, { headers: H, signal: AbortSignal.timeout(30000) });
+      if (!r.ok) continue;
+      const j = await r.json();
+      const res = j?.chart?.result?.[0];
+      if (!res?.timestamp?.length) continue;
+      const ts = res.timestamp, q = res.indicators.quote[0], adj = res.indicators.adjclose?.[0]?.adjclose;
+      const divs = Object.values(res.events?.dividends ?? {});
+      const valid = q.close.filter((x) => x != null).length;
+      console.log(`${c}${sfx} bars=${ts.length} valid=${valid} first=${ymd(ts[0])} last=${ymd(ts.at(-1))} lastClose=${q.close.filter((x)=>x!=null).at(-1)} adj=${adj ? "有" : "無"} divs=${divs.length} lastDiv=${JSON.stringify(divs.sort((a,b)=>a.date-b.date).slice(-2).map((d)=>[ymd(d.date), d.amount]))} name=${res.meta.shortName ?? ""}`);
+      done = true; break;
+    } catch (e) { /* 試下一個後綴 */ }
+  }
+  if (!done) console.log(`${c} 查不到`);
+  await new Promise((r) => setTimeout(r, 400));
 }

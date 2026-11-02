@@ -99,6 +99,7 @@ export interface State {
   steady?: { data: SteadyLite; fetchedAt: number };
   live: Record<string, LiveQuote>; // 證交所即時報價（盤中每 30 秒更新）
   liveAt?: number;
+  liveError?: string; // 最近一次台股即時價抓取失敗的原因（成功就清掉）
   usExtra: UsExtra[]; // 使用者自己加的美股
   usPending: string[]; // 正在下載的美股持股代號
   usNotFound: string[]; // Nasdaq 查不到的代號
@@ -514,33 +515,50 @@ export async function installUpdate() {
 /** 即時資料盤中更新間隔（毫秒）：30 秒（10/28 試過 10 秒，證交所資料本身約 30～60 秒才更新，使用者改回 30 秒） */
 export const LIVE_MS = 30_000;
 const liveBusy = { tw: false, us: false };
-// 上一次還沒抓完時，新的要求先排隊，前一個一結束就補抓（合併成一次）。
-// 以前是直接略過：開 App 時選股頁正在抓 60 檔，切到持股頁的要求被丟掉，要等 30 秒才有即時價，這段時間畫面是上個交易日的收盤。
-let liveQueue: { codes: Set<string>; esb: Set<string> } | null = null;
-export async function refreshLive(codes: string[], esbHint: string[] = []) {
+/** 即時價的單一請求最多等這麼久；證交所沒回應時不要卡著（原本最久會等 4～5 分鐘，這段時間整個更新都停住、畫面也沒有任何提示） */
+const LIVE_FETCH_MS = 15_000;
+const LIVE_RETRY_MS = 4_000;
+const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T> => {
+  let t: ReturnType<typeof setTimeout>;
+  return Promise.race([p, new Promise<T>((_, rej) => { t = setTimeout(() => rej(new Error("連線逾時")), ms); })]).finally(() => clearTimeout(t));
+};
+// 上一次還沒抓完時，新的要求先排隊，前一個一結束就補抓（合併成一次）；持股（priority）排在前面，
+// 前一個還有幾批沒抓時也會先停下來處理持股。以前是直接略過：開 App 時選股頁正在抓 60 檔，切到持股頁的要求被丟掉，要等 30 秒才有即時價。
+let liveQueue: { codes: Set<string>; esb: Set<string>; hi: Set<string> } | null = null;
+export async function refreshLive(codes: string[], esbHint: string[] = [], priority = false, retry = 0) {
   const list = [...new Set(codes.filter((c) => /^[0-9A-Z]{4,6}$/.test(c)))];
   if (!list.length) return;
   if (liveBusy.tw) {
-    const q = (liveQueue ??= { codes: new Set(), esb: new Set() });
-    list.forEach((c) => q.codes.add(c));
+    const q = (liveQueue ??= { codes: new Set(), esb: new Set(), hi: new Set() });
+    list.forEach((c) => { q.codes.add(c); if (priority) q.hi.add(c); });
     esbHint.forEach((c) => q.esb.add(c));
     return;
   }
   liveBusy.tw = true;
+  let failed = false;
   try {
     const got: Record<string, LiveQuote> = {};
-    for (let i = 0; i < list.length; i += 20) Object.assign(got, parseLive(await fetcher(liveUrl(list.slice(i, i + 20)))));
-    // 興櫃：證交所查不到，改用櫃買中心每分鐘更新的當日行情表（一次下載全部，只取需要的代號）
-    const esbCodes = list.filter((c) => (state.esb[c] || esbHint.includes(c)) && !got[c]); // esbHint：詳情頁已知是興櫃，不用等興櫃名單下載完
-    if (esbCodes.length) {
-      try { const all = parseEsbLive(await fetcher(esbLiveUrl())); for (const c of esbCodes) if (all[c]) got[c] = all[c]; } catch { /* 興櫃抓不到就沿用收盤價 */ }
+    for (let i = 0; i < list.length; i += 20) {
+      try {
+        Object.assign(got, parseLive(await withTimeout(fetcher(liveUrl(list.slice(i, i + 20))), LIVE_FETCH_MS)));
+        set({ live: { ...state.live, ...got }, liveAt: Date.now(), liveError: undefined }); // 每一批抓到就先存，不要等全部批次
+      } catch (e: any) {
+        failed = true;
+        set({ liveError: String(e?.message ?? e).slice(0, 60) });
+        break;
+      }
+      if (liveQueue?.hi.size && i + 20 < list.length) { list.slice(i + 20).forEach((c) => liveQueue!.codes.add(c)); break; } // 持股在排隊：先處理它，剩下的稍後
     }
-    set({ live: { ...state.live, ...got }, liveAt: Date.now() });
-  } catch { /* 即時報價只是輔助，抓不到就顯示收盤價 */ }
-  finally {
+    // 興櫃：證交所查不到，改用櫃買中心每分鐘更新的當日行情表（一次下載全部，只取需要的代號）
+    const esbCodes = failed ? [] : list.filter((c) => (state.esb[c] || esbHint.includes(c)) && !got[c]); // esbHint：詳情頁已知是興櫃，不用等興櫃名單下載完
+    if (esbCodes.length) {
+      try { const all = parseEsbLive(await withTimeout(fetcher(esbLiveUrl()), LIVE_FETCH_MS)); for (const c of esbCodes) if (all[c]) got[c] = all[c]; set({ live: { ...state.live, ...got }, liveAt: Date.now() }); } catch { /* 興櫃抓不到就沿用收盤價 */ }
+    }
+  } finally {
     liveBusy.tw = false;
     const next = liveQueue; liveQueue = null;
-    if (next) void refreshLive([...next.codes], [...next.esb]);
+    if (next) void refreshLive([...next.hi, ...[...next.codes].filter((c) => !next.hi.has(c))], [...next.esb], false);
+    else if (failed && retry < 2) setTimeout(() => void refreshLive(list, esbHint, priority, retry + 1), LIVE_RETRY_MS); // 失敗：幾秒後自動再試，不要等下一個 30 秒
   }
 }
 

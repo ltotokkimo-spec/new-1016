@@ -616,10 +616,10 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
   const usCodes = hs.filter((h) => h.market === "US").map((h) => h.code);
   const codeKey = twCodes.join(",") + "|" + usCodes.join(",");
   useEffect(() => {
-    if (twCodes.length) refreshLive(twCodes);
+    if (twCodes.length) refreshLive(twCodes, [], true); // 持股優先
     if (usCodes.length) refreshUsLive(usCodes);
     const t = setInterval(() => {
-      if (twCodes.length && livePolling()) refreshLive(twCodes);
+      if (twCodes.length && livePolling()) refreshLive(twCodes, [], true);
       if (usCodes.length && usQuoteHours()) refreshUsLive(usCodes);
     }, LIVE_MS);
     return () => clearInterval(t);
@@ -628,7 +628,10 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
   const [liveGiveUp, setLiveGiveUp] = useState(false);
   useEffect(() => { const t = setTimeout(() => setLiveGiveUp(true), 60_000); return () => clearTimeout(t); }, []);
   const today = taipeiToday();
-  const liveWaiting = !liveGiveUp && livePolling() && twCodes.some((c) => live[c]?.date !== today);
+  const liveError = useStore((s) => s.liveError);
+  const liveMissing = livePolling() && twCodes.some((c) => live[c]?.date !== today);
+  // 還沒抓到即時價：抓取中、抓取失敗、或超過 60 秒仍沒有，都要明確說，不能讓人以為畫面上的收盤價就是最新的
+  const liveNote = !liveMissing ? "" : liveError ? `即時價抓取失敗（${liveError}），目前是 ${twAsOf ? pretty(twAsOf) : "上次"} 收盤價，自動重試中` : liveGiveUp ? `即時價還沒抓到，目前是 ${twAsOf ? pretty(twAsOf) : "上次"} 收盤價` : "即時價更新中…";
   const views = holdingViews().map((v) => {
     const isUs = v.market === "US";
     const q = live[v.code];
@@ -702,7 +705,7 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
       {!apiKey && <div class="muted" style={{ fontSize: "13px", marginTop: "8px" }}>照片匯入需要 Claude API 金鑰（到「設定」貼上）；手動新增不需要。</div>}
       {err && <div class="error" style={{ marginTop: "10px" }}>{err}</div>}
 
-      <div class="section-title"><span>持股健檢{liveWaiting && <span class="muted" data-testid="live-loading" style={{ fontSize: "12px", fontWeight: 400, marginLeft: "8px" }}>即時價更新中…</span>}</span><span>{views.length} 檔</span></div>
+      <div class="section-title"><span>持股健檢{liveNote && <span class="muted" data-testid="live-loading" style={{ fontSize: "12px", fontWeight: 400, marginLeft: "8px" }}>{liveNote}</span>}</span><span>{views.length} 檔</span></div>
       {views.length === 0 ? (
         <div class="empty">還沒有持股。<br />拍一張證券 App 的「庫存」畫面，Claude 會自動辨識代號、股數與成本。</div>
       ) : (

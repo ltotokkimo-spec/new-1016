@@ -712,19 +712,23 @@ function CompareView() {
         bench={(() => { const v = groups.find((g) => g.v && g.v.nav.length)?.v; return v ? v.nav.map((p) => ({ date: p.date, r: v.budget ? p.bench / v.budget - 1 : 0 })) : []; })()}
       />
 
+<div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, margin: "6px 4px 0" }}>圖上每條線都從自己的起始日 0% 出發；虛線 0050 是 Claude 虛擬組的對照（10/19 起），不是其他五組的對照。線的右端數字＝下面表格第一欄「報酬」。</div>
+
       <div class="section-title"><span>各組從自己的起始日算起</span><span>報酬為相對起始資金</span></div>
       <div class="card" style={{ padding: "6px 8px", overflowX: "auto" }} data-testid="compare-all">
         <table style={{ width: "100%", fontSize: "13px", borderCollapse: "collapse" }}>
-          <thead><tr class="muted"><th style={{ ...th, textAlign: "left" }}>組合</th><th style={th}>報酬</th><th style={th}>0050</th><th style={th}>贏/輸</th><th style={th}>最大回檔</th><th style={th}>天數</th></tr></thead>
+          <thead><tr class="muted"><th style={{ ...th, textAlign: "left" }}>組合</th><th style={th}>報酬</th><th style={th}>同操作0050</th><th style={th}>贏/輸</th><th style={th}>最大回檔</th><th style={th}>天數</th></tr></thead>
           <tbody>{cmp.rows.map((r) => <Row r={r} same={false} />)}</tbody>
         </table>
       </div>
+
+<div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, margin: "6px 4px 0" }}>「同操作0050」：每次買賣都把同樣金額同時買賣 0050，現金部分也一樣放著不動。所以現金放得多的組合，它的 0050 跌得比較少，每組的數字不會一樣；「贏/輸」是和這個對照比的，公平。</div>
 
       {cmp.commonFrom && cmp.rows.filter((r) => r.same).length >= 2 && <>
         <div class="section-title"><span>同期比較</span><span>{prettyW(cmp.commonFrom)} 起</span></div>
         <div class="card" style={{ padding: "6px 8px", overflowX: "auto" }} data-testid="compare-same">
           <table style={{ width: "100%", fontSize: "13px", borderCollapse: "collapse" }}>
-            <thead><tr class="muted"><th style={{ ...th, textAlign: "left" }}>組合</th><th style={th}>報酬</th><th style={th}>0050</th><th style={th}>贏/輸</th><th style={th}>最大回檔</th><th style={th}>天數</th></tr></thead>
+            <thead><tr class="muted"><th style={{ ...th, textAlign: "left" }}>組合</th><th style={th}>報酬</th><th style={th}>同操作0050</th><th style={th}>贏/輸</th><th style={th}>最大回檔</th><th style={th}>天數</th></tr></thead>
             <tbody>{cmp.rows.map((r) => <Row r={r} same />)}</tbody>
           </table>
         </div>

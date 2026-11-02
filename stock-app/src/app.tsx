@@ -34,10 +34,12 @@ export function App() {
   const [sector, setSector] = useState("");
   const [detail, setDetail] = useState<Scored | null>(null);
   const { tw, etf, us, loaded } = useStore((s) => ({ tw: s.tw, etf: s.etf, us: s.us, loaded: s.loaded, aiEtf: s.aiEtf, prices: s.prices }));
-  // 盤中（含試搓）且已抓到今天的台股即時價：頂端日期顯示今天，不要停在上個交易日的收盤
-  const liveToday = useStore((s) => {
+  // 已抓到今天的台股即時價（盤中、試搓或收盤後）：頂端日期顯示今天，不要停在上個交易日的收盤
+  const liveToday = useStore((s): { date: string; final: boolean } | null => {
     const today = taipeiToday();
-    return livePolling() && Object.values(s.live).some((q) => q && q.date === today && !q.session && !q.final) ? today : "";
+    // 收盤後（13:30 起）到傍晚評分更新前，持股價是今天的收盤價，日期也要是今天
+    const qs = Object.values(s.live).filter((q) => q && q.date === today && !q.session);
+    return qs.length ? { date: today, final: qs.every((q) => q.final) || !livePolling() } : null;
   });
   const etfAlert = etfAlertsNow().length > 0;
   useEffect(() => { init(); }, []);
@@ -77,8 +79,8 @@ export function App() {
           <span class="brand-fx" data-testid="brand">金雷達</span>
         </div>
         <div class="asof num">
-          {market !== "US" && liveToday && (!ms.asOf || liveToday > ms.asOf)
-            ? <span data-testid="asof-live">台股資料 {pretty(liveToday)} 盤中</span>
+          {market !== "US" && liveToday && (!ms.asOf || liveToday.date > ms.asOf)
+            ? <span data-testid="asof-live">台股資料 {pretty(liveToday.date)} {liveToday.final ? "收盤" : "盤中"}</span>
             : ms.asOf ? <>{market === "US" ? "美股" : "台股"}資料 {pretty(ms.asOf)}</> : loaded ? "尚無資料" : ""}
           {ms.progress && ms.status === "ready" && <div>更新中 {Math.round((ms.progress.done / Math.max(ms.progress.total, 1)) * 100)}%</div>}
         </div>

@@ -7,7 +7,7 @@ import type { Scored } from "../engine/score";
 import { prettyW } from "../lib/dates";
 import { LIVE_MS, getState, refreshActiveEtf, refreshActiveLive, refreshLive, useStore } from "../store";
 import type { LiveQuote } from "../data/twLive";
-import { marketOpen } from "../data/twLive";
+import { isLiveNow, livePolling } from "../data/twLive";
 import { taipeiHour, taipeiToday } from "../lib/dates";
 import { cls, fmtPct, fmtPrice, Sheet } from "./common";
 
@@ -29,7 +29,7 @@ function RankList({ rows, side, open, live }: { rows: Row[]; side: "buy" | "sell
       {rows.map((r, i) => {
         // 盤中用證交所即時報價；沒有就顯示最近一個收盤
         const q = live[r.item.code];
-        const intraday = !!q && !q.final && q.date === taipeiToday() && marketOpen();
+        const intraday = !!q && isLiveNow(q, taipeiToday());
         const price = intraday ? q!.price : r.item.close;
         const chg = intraday && Number.isFinite(q!.prevClose) ? q!.price / q!.prevClose - 1 : r.item.chg1d;
         return (
@@ -59,7 +59,7 @@ function WhoSheet({ row, days, onClose, openDetail, live }: { row: Row; days: 1 
   const { rows, used } = useMemo(() => etfBreakdown(active?.data, row.item.code, days), [active, row.item.code, days]);
   const s = row.item;
   const q = live[s.code];
-  const intraday = !!q && !q.final && q.date === taipeiToday() && marketOpen();
+  const intraday = !!q && isLiveNow(q, taipeiToday());
   const price = intraday ? q!.price : s.close;
   const chg = intraday && Number.isFinite(q!.prevClose) ? q!.price / q!.prevClose - 1 : s.chg1d;
   const buyers = rows.filter((r) => r.delta > 0), sellers = rows.filter((r) => r.delta < 0);
@@ -155,7 +155,7 @@ export function EtfRankScreen({ open }: { open: (s: Scored) => void }) {
   useEffect(() => {
     if (!liveCodes.length) return;
     refreshLive(liveCodes);
-    const t = setInterval(() => { if (marketOpen()) refreshLive(liveCodes); }, LIVE_MS);
+    const t = setInterval(() => { if (livePolling()) refreshLive(liveCodes); }, LIVE_MS);
     return () => clearInterval(t);
   }, [liveKey]);
   // 主動式 ETF：點進去看是哪幾檔在買賣；投信全部沒有逐檔資料，直接開個股詳情

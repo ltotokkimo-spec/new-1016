@@ -17,7 +17,7 @@ import { isEtf } from "../data/tw";
 import { freeReport } from "../engine/freeReport";
 import { withLiveBar } from "../engine/liveBar";
 import { isUsSymbol, MACRO_SYMBOLS } from "../data/us";
-import { marketOpen, type LiveQuote } from "../data/twLive";
+import { isLiveNow, livePolling, marketOpen, type LiveQuote } from "../data/twLive";
 import { INDEX_CH } from "../data/twIndexLive";
 const US_INDEX_SYMBOLS = [".SPX", ".IXIC", ".SOX", ".DJI", ".VIX"]; // 數據頁可點進去看日 K 的國際指數（CNBC 代號）
 import { pretty, prettyW, taipeiToday, usQuoteHours } from "../lib/dates";
@@ -66,7 +66,7 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
     const us = market === "US";
     const pull = () => (us ? refreshUsLive(liveCodes) : refreshLive(liveCodes));
     pull();
-    const t = setInterval(() => { if (us ? usQuoteHours() : marketOpen()) pull(); }, LIVE_MS);
+    const t = setInterval(() => { if (us ? usQuoteHours() : livePolling()) pull(); }, LIVE_MS);
     return () => clearInterval(t);
   }, [liveKey]);
 
@@ -152,7 +152,7 @@ function StockRow({ s, q, turn, onClick }: { s: Scored; q?: LiveQuote; turn?: Tu
         </>}
       </div>
       <div class="px">
-        <div class="p num"><span class="lbl">{intraday ? `現價 ${q!.time.slice(0, 5)}` : "收盤"}</span>{fmtPrice(price, s.market)}</div>
+        <div class="p num"><span class="lbl">{q?.trial ? `試搓 ${q.time.slice(0, 5)}` : intraday ? `現價 ${q!.time.slice(0, 5)}` : "收盤"}</span>{fmtPrice(price, s.market)}</div>
         {chg !== undefined && Number.isFinite(chg) && <div class={`c num ${cls(chg)}`} data-testid="pick-day"><span class="lbl">今日</span>{fmtPct(chg)}</div>}
         {q?.ext && <div class={`c num ${cls(q.ext.chg)}`} data-testid="pick-ext"><span class="lbl">{q.ext.label} {q.ext.time}</span>{fmtPrice(q.ext.price, s.market)} {fmtPct(q.ext.chg)}</div>}
         <div class={`c num ${cls(s.ret1m)}`}><span class="lbl">近1月</span>{fmtPct(s.ret1m)}</div>
@@ -357,7 +357,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
       if (etf) refreshEtfNav();
     };
     pull();
-    const t = setInterval(() => { if (s.market === "US" || marketOpen()) pull(); }, LIVE_MS);
+    const t = setInterval(() => { if (s.market === "US" || livePolling()) pull(); }, LIVE_MS);
     return () => clearInterval(t);
   }, [s.code]);
   const price = lq ? lq.price : s.close;
@@ -410,7 +410,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
           <div class="price num" data-testid="detail-price">{fmtPrice(price, s.market)}</div>
           <div class="num" style={{ marginTop: "4px", fontSize: "13px" }} data-testid="detail-price-note">
             {lq
-              ? <><div class="muted">{s.market === "US" ? (lq.session ?? "收盤") : lq.final || !marketOpen() ? "收盤" : "盤中"}</div><div><span class="muted">昨收 {fmtPrice(lq.prevClose, s.market)}　</span><span class={cls(dayChg)}>{fmtPct(dayChg)}</span></div></>
+              ? <><div class="muted">{s.market === "US" ? (lq.session ?? "收盤") : lq.trial ? "試搓（開盤前試算價，還沒成交）" : lq.final || !marketOpen() ? "收盤" : "盤中"}</div><div><span class="muted">昨收 {fmtPrice(lq.prevClose, s.market)}　</span><span class={cls(dayChg)}>{fmtPct(dayChg)}</span></div></>
               : <span class="muted">收盤價 {snapAsOf ? pretty(snapAsOf) : ""}（還沒抓到即時價）</span>}
           </div>
           <div class="muted" style={{ marginTop: "6px", fontSize: "13px" }}>{s.sector}・{s.market === "US" ? "美股" : `${s.market === "TPEX" ? "上櫃" : "上市"}${isEtf(s.code) ? " ETF" : ""}`}</div>
@@ -618,7 +618,7 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
     if (twCodes.length) refreshLive(twCodes);
     if (usCodes.length) refreshUsLive(usCodes);
     const t = setInterval(() => {
-      if (twCodes.length && marketOpen()) refreshLive(twCodes);
+      if (twCodes.length && livePolling()) refreshLive(twCodes);
       if (usCodes.length && usQuoteHours()) refreshUsLive(usCodes);
     }, LIVE_MS);
     return () => clearInterval(t);
@@ -630,7 +630,7 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
     if (q && q.date && q.date >= ((isUs ? usAsOf : twAsOf) ?? "")) {
       const price = q.price;
       return { ...v, price, pnl: (price - v.cost) * v.shares, pnlPct: v.cost > 0 ? price / v.cost - 1 : NaN,
-        chg: Number.isFinite(q.prevClose) ? price / q.prevClose - 1 : NaN, liveLabel: isUs ? (q.session ?? "收盤") : !q.final && q.date === today && marketOpen() ? "盤中" : "收盤", ext: q.ext };
+        chg: Number.isFinite(q.prevClose) ? price / q.prevClose - 1 : NaN, liveLabel: isUs ? (q.session ?? "收盤") : q.trial && isLiveNow(q, today) ? "試搓" : !q.final && q.date === today && marketOpen() ? "盤中" : "收盤", ext: q.ext };
     }
     return { ...v, chg: v.scored?.chg1d ?? NaN, liveLabel: "收盤" };
   });

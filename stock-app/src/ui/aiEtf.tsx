@@ -9,7 +9,7 @@ import type { VirtualEtf } from "../engine/virtualEtf";
 import { type EtfTrade, comparePlans, DEFAULT_STOP, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { addWeekdays, orderDay, pretty, prettyW, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
-import { marketOpen, type LiveQuote } from "../data/twLive";
+import { livePolling, type LiveQuote } from "../data/twLive";
 import { cls, fmtMoney, fmtPct, fmtPrice, fmtSigned } from "./common";
 import { navStats } from "../engine/navStats";
 import { compareGroups, type GroupRow } from "../engine/compare";
@@ -857,7 +857,7 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
   useEffect(() => {
     if (!codes.length) return;
     refreshLive(codes);
-    const t = setInterval(() => { if (marketOpen()) refreshLive(codes); }, LIVE_MS);
+    const t = setInterval(() => { if (livePolling()) refreshLive(codes); }, LIVE_MS);
     return () => clearInterval(t);
   }, [codeKey]);
   const who = isAi ? "AI 供應鏈觀察組合" : isLead ? "權值強化觀察組合" : isRegime ? "攻守輪動觀察組合" : isWide ? "全個股觀察組合" : isWatch ? "N5 觀察組合" : "Claude 的虛擬操作";
@@ -894,7 +894,7 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
           </div>;
         })()}
         <SchedulePlanView v={v} isClaude={!isWatch} />
-        {intraday && <div class="date-hint" data-testid="virtual-live">⏱ 盤中即時估算（{intraday.time.slice(0, 5)}），每 30 秒更新；收盤後改用收盤價</div>}
+        {intraday && <div class="date-hint" data-testid="virtual-live">⏱ {intraday.trial ? "開盤前試搓價估算" : "盤中即時估算"}（{intraday.time.slice(0, 5)}），每 30 秒更新；收盤後改用收盤價</div>}
         <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
           {v.asOf ? <>資料日 {prettyW(v.asOf)} 收盤・</> : <>今天收盤後第一次更新・</>}{isAi
             ? "由規則自動計算（不需要 Claude），每個交易日收盤後更新（約 17:00）。全部是個股、不放 0050：只買 AI 供應鏈相關的 51 檔（AI 伺服器代工、晶圓代工與 IC 設計、封測與設備、載板與 PCB、散熱電源與連接、記憶體、網通與光通訊），依市值配置，單檔上限 35%（台積電通常會碰到上限），每 20 個交易日調整一次，差距小於淨值 0.5% 不動。成交規則：決定當天收盤後判斷，下一個交易日收盤價成交；已計手續費與證交稅。2 年回測年化 +118%（0050 為 +88%、一般電子股對照 +104%），但這份清單是用今天的眼光挑的，回測偏樂觀；波動也比 0050 大（最差一天 −7.8%、0050 為 −5.9%），夏普和 0050 差不多，AI 族群一起修正時會跌得更重。要靠接下來的實際觀察。"
@@ -944,7 +944,7 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
             {pos.map((p) => {
               const c = px(p.code);
               const q = fresh(p.code);
-              const label = q && !q.final && q.date === taipeiToday() ? `現價 ${q.time.slice(0, 5)}` : "收盤";
+              const label = q && !q.final && q.date === taipeiToday() ? `${q.trial ? "試搓" : "現價"} ${q.time.slice(0, 5)}` : "收盤";
               return (
                 <div class="item" style={{ cursor: "default" }}>
                   <div style={{ minWidth: 0 }}>

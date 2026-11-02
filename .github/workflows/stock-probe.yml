@@ -1,5 +1,8 @@
 name: Stock Data Probe
 
+permissions:
+  contents: write
+
 on:
   push:
     branches: [ 'claude/**' ]
@@ -14,4 +17,10 @@ jobs:
         with:
           node-version: '22'
       - name: 探測資料來源
-        run: for f in stock-app/tools/probe/*.mjs; do node "$f"; done
+        run: for f in stock-app/tools/probe/*.mjs; do node "$f"; done 2>&1 | tee probe-out.txt
+      # 輸出另存成 Releases 的檔案（stock-radar-data），不用登入 GitHub 也能下載來看
+      - name: 發布探測輸出
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload stock-radar-data probe-out.txt --clobber

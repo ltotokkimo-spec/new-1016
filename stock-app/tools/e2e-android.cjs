@@ -560,9 +560,18 @@ function check(ok, name, detail = "") {
   const cc = await page.evaluate(() => ({ svg: document.querySelectorAll('[data-testid="compare-chart"] svg path[stroke-width="2"]').length, dash: document.querySelectorAll('[data-testid="compare-chart"] svg path[stroke-dasharray="5 3"]').length, legend: [...document.querySelectorAll('[data-testid="compare-legend"]')].map((e) => e.innerText.replace(/\s+/g, " ")) }));
   log("總評比走勢圖", JSON.stringify(cc));
   check(cc.svg === 6 && cc.dash === 1 && cc.legend.length === 7 && cc.legend.every((t) => /[+-]?\d+\.\d\d%|—/.test(t)), "總評比有全部組合＋0050 的每天走勢圖（圖例標最新累積報酬）", JSON.stringify(cc).slice(0, 300));
-  await page.click('[data-testid="compare-legend"]');
-  check((await page.$$eval('[data-testid="compare-chart"] svg path[stroke-width="2"]', (e) => e.length)) === 5, "點圖例可隱藏那一組的線");
-  await page.click('[data-testid="compare-legend"]');
+  await page.click('[data-testid="compare-hide"]');
+  check((await page.$$eval('[data-testid="compare-chart"] svg path[stroke-width="2"]', (e) => e.length)) === 5, "點 👁 可隱藏那一組的線");
+  await page.click('[data-testid="compare-hide"]');
+  // 點組名：0050 虛線換成那一組自己的對照，圖例的 0050 數字要跟表格「同操作0050」一致
+  const dashEnd = async () => page.$eval('[data-testid="compare-chart"] svg path[stroke-dasharray="5 3"]', (e) => e.getAttribute("d"));
+  const d0 = await dashEnd();
+  await page.evaluate(() => document.querySelectorAll('[data-testid="compare-pick"]')[1].click());
+  await sleep(300);
+  const sel = await page.evaluate(() => ({ ref: document.querySelector('[data-testid="compare-legend"][data-ref]')?.innerText, bench: [...document.querySelectorAll('[data-testid="compare-legend"]')].at(-1)?.innerText, row: [...document.querySelectorAll('[data-testid="compare-all"] tbody tr')][1]?.innerText }));
+  log("點組名換 0050 對照", JSON.stringify(sel));
+  const rowNums = (sel.row || "").match(/[+-]?\d+\.\d\d%/g) || [];
+  check(/N5/.test(sel.ref || "") && (await dashEnd()) !== d0 && rowNums.length >= 2 && (sel.bench || "").includes(rowNums[1]), "點組名後虛線換成那一組自己的 0050 對照（數字和表格一致）", JSON.stringify(sel).slice(0, 300));
   await shot("05e-總評比");
   await page.click('[data-testid="mode-real"]');
   await page.waitForSelector('[data-testid="etf-summary"]', { timeout: 10000 });

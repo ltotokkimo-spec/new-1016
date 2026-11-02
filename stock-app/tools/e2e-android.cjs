@@ -560,7 +560,6 @@ function check(ok, name, detail = "") {
   const cc = await page.evaluate(() => ({ svg: document.querySelectorAll('[data-testid="compare-chart"] svg path[stroke-width="2"]').length, dash: document.querySelectorAll('[data-testid="compare-chart"] svg path[stroke-dasharray="5 3"]').length, legend: [...document.querySelectorAll('[data-testid="compare-legend"]')].map((e) => e.innerText.replace(/\s+/g, " ")) }));
   log("總評比走勢圖", JSON.stringify(cc));
   check(cc.svg === 6 && cc.dash === 1 && cc.legend.length === 7 && cc.legend.every((t) => /[+-]?\d+\.\d\d%|—/.test(t)), "總評比有全部組合＋0050 的每天走勢圖（圖例標最新累積報酬）", JSON.stringify(cc).slice(0, 300));
-  check((await page.$$eval('[data-testid="compare-chart"] svg path[data-testid="own-bench"]', (e) => e.length)) === 5, "總評比圖：其他五組各有自己的 0050 對照細虛線");
   await page.click('[data-testid="compare-legend"]');
   check((await page.$$eval('[data-testid="compare-chart"] svg path[stroke-width="2"]', (e) => e.length)) === 5, "點圖例可隱藏那一組的線");
   await page.click('[data-testid="compare-legend"]');

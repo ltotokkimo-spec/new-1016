@@ -110,7 +110,7 @@ export function parseCnbcQuotes(json: any): MacroQuote[] {
     .filter((q: MacroQuote) => Number.isFinite(q.last));
 }
 
-export const MACRO_SYMBOLS: { symbol: string; label: string; group: "美股" | "利率匯率" | "原物料" | "亞洲" }[] = [
+export const MACRO_SYMBOLS: { symbol: string; label: string; group: "美股" | "利率匯率" | "原物料" | "亞洲" | "虛擬幣" }[] = [
   { symbol: ".SPX", label: "S&P 500", group: "美股" },
   { symbol: ".IXIC", label: "那斯達克", group: "美股" },
   { symbol: ".SOX", label: "費城半導體", group: "美股" },
@@ -125,6 +125,8 @@ export const MACRO_SYMBOLS: { symbol: string; label: string; group: "美股" | "
   { symbol: "@GC.1", label: "黃金", group: "原物料" },
   { symbol: "@SI.1", label: "白銀", group: "原物料" },
   { symbol: "@HG.1", label: "銅", group: "原物料" },
+  { symbol: "BTC.CM=", label: "比特幣", group: "虛擬幣" },
+  { symbol: "ETH.CM=", label: "以太幣", group: "虛擬幣" },
   { symbol: ".N225", label: "日經 225", group: "亞洲" },
   { symbol: ".KS11", label: "韓國 KOSPI", group: "亞洲" },
   { symbol: ".HSI", label: "恆生指數", group: "亞洲" },

@@ -48,6 +48,8 @@ describe("CNBC 指標（實際資料）", () => {
     expect(by["@GC.1"].exchange).toContain("Commodities");
     // 殖利率的百分比符號要去掉
     expect(by["US10Y"]).toMatchObject({ open: 5.081, prevClose: 5.087 });
+    // 虛擬幣（CNBC 的 Coin Metrics 報價）
+    expect(by["BTC.CM="]).toMatchObject({ last: 82145.21, open: 82298.98, prevClose: 82354.74, yearHigh: 116361.05, yearLow: 57737.35, currency: "USD" });
   });
 });
 

@@ -5,6 +5,7 @@ import { fetchJson, fetchText, postJson, type Fetcher, type TextFetcher } from "
 import { TwLoader, TW_SNAPSHOT_VERSION, type TwSnapshot } from "./data/twLoader";
 import { isEtf, parseEsbLatest, twUrls, type EsbQuote } from "./data/tw";
 import { UsLoader, type UsSnapshot } from "./data/usLoader";
+import { FNG_URL, parseFng, type Fng } from "./data/fng";
 import { cnbcUrl, isUsSymbol, MACRO_SYMBOLS, parseCnbcQuotes, US_UNIVERSE, type MacroQuote, type UsExtra } from "./data/us";
 import { indexLiveUrl, parseIndexLive, type IndexLive } from "./data/twIndexLive";
 import { twTurnoverUrl, parseTurnover } from "./data/twTurnover";
@@ -74,6 +75,7 @@ export interface State {
   twBreadth?: TwSnapshot["breadth"]; // 收盤漲跌家數
   usSectorEtfs: UsSnapshot["sectorEtfs"];
   macro: { status: "idle" | "loading" | "ready" | "error"; quotes: MacroQuote[]; error?: string; at?: number };
+  fng?: Fng; // 虛擬幣恐懼貪婪指數
   twIndexLive: Record<string, IndexLive>; // 台股指數盤中即時（證交所 MIS）
   etfNav: Record<string, EtfNav>; // ETF 即時預估淨值與折溢價（證交所，詳情頁用）
   etfNavAt?: number;
@@ -161,7 +163,7 @@ async function initInner() {
     kv.get<TwSnapshot>("snap:tw"), kv.get<UsSnapshot>("snap:us"), kv.get<State["spend"]>("spend"),
     kv.get<EsbSnapshot>("snap:esb"),
   ]);
-  set({ usExtra: (await kv.get<UsExtra[]>("usExtra")) ?? [], aiEtf: (await kv.get<AiEtf>("aiEtf")) ?? emptyEtf() });
+  set({ usExtra: (await kv.get<UsExtra[]>("usExtra")) ?? [], aiEtf: (await kv.get<AiEtf>("aiEtf")) ?? emptyEtf(), fng: (await kv.get<Fng>("fng")) ?? undefined });
   const vt = await kv.get<State["virtual"]>("virtual");
   if (vt) set({ virtual: vt });
   const wt = await kv.get<State["watch"]>("watch");
@@ -393,7 +395,16 @@ export async function refreshFutures() {
   if (keepDay || night) set({ futures: { day: keepDay, night: night ?? state.futures.night, at: Date.now() } });
 }
 
+/** 虛擬幣恐懼貪婪指數：失敗就沿用上次的（不影響其他國際指標） */
+async function refreshFng() {
+  try {
+    const f = parseFng(await fetcher(`${FNG_URL}&t=${Date.now()}`));
+    if (f) { set({ fng: f }); await kv.set("fng", f); }
+  } catch { /* 留著上次的 */ }
+}
+
 export async function refreshMacro() {
+  void refreshFng();
   set({ macro: { ...state.macro, status: state.macro.quotes.length ? "ready" : "loading", error: undefined } });
   try {
     const quotes = parseCnbcQuotes(await fetcher(cnbcUrl(MACRO_SYMBOLS.map((m) => m.symbol))));

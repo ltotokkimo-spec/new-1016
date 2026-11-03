@@ -150,7 +150,7 @@ describe("指數歷史", () => {
 describe("CNBC 代號（指數與期貨）", () => {
   it("「.」開頭的指數與「@」開頭的期貨都走 CNBC 日 K；台股指數不是", async () => {
     const { isUsIndexSymbol } = await import("../src/data/indexHistory");
-    for (const s of [".SPX", ".KS11", ".N225", "@CL.1", "@GC.1"]) expect(isUsIndexSymbol(s)).toBe(true);
+    for (const s of [".SPX", ".KS11", ".N225", "@CL.1", "@GC.1", "BTC.CM=", "ETH.CM="]) expect(isUsIndexSymbol(s)).toBe(true);
     for (const s of ["加權指數", "櫃買指數", "電子類指數"]) expect(isUsIndexSymbol(s)).toBe(false);
   });
 });

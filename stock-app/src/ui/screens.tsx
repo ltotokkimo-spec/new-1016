@@ -9,7 +9,8 @@ import type { Holding, Rating, Scored, SectorStat } from "../engine/score";
 import { type AiReport, analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, parseUrls, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
 import { twHistory } from "../data/history";
 import { esbHistory } from "../data/esb";
-import { indexHistory, isUsIndexSymbol, type IndexHist } from "../data/indexHistory";
+import { indexHistory, isCryptoSymbol, isUsIndexSymbol, type IndexHist } from "../data/indexHistory";
+import type { Fng } from "../data/fng";
 import { CandleChart, type CandleBar } from "./candles";
 import { FlowsPanel } from "./flows";
 import { EtfHoldingsPanel, isActiveEtf } from "./etfHoldings";
@@ -21,7 +22,7 @@ import { isLiveNow, livePolling, marketOpen, type LiveQuote } from "../data/twLi
 import { INDEX_CH } from "../data/twIndexLive";
 // 數據頁可點進去看日 K 與詳細報價的國際指標（CNBC 代號）：美股指數、亞洲大盤、原物料期貨
 const US_INDEX_SYMBOLS = [".SPX", ".IXIC", ".SOX", ".DJI", ".VIX"];
-const CHART_SYMBOLS = new Set([...US_INDEX_SYMBOLS, ...MACRO_SYMBOLS.filter((m) => m.group === "亞洲" || m.group === "原物料").map((m) => m.symbol)]);
+const CHART_SYMBOLS = new Set([...US_INDEX_SYMBOLS, ...MACRO_SYMBOLS.filter((m) => m.group === "亞洲" || m.group === "原物料" || m.group === "虛擬幣").map((m) => m.symbol)]);
 import { pretty, prettyW, taipeiToday, usQuoteHours } from "../lib/dates";
 import { latestNotes } from "../lib/notes";
 import { fmtNtd, usdTwdRate } from "../lib/fx";
@@ -844,15 +845,33 @@ function ImportReview({ data, onDone }: { data: { rows: ImportedHolding[]; note:
   );
 }
 
+// ---------------- 虛擬幣恐懼貪婪指數 ----------------
+function FngCard({ f }: { f: Fng }) {
+  // 恐懼偏綠（跌）、貪婪偏紅（漲），和台股紅漲綠跌的配色一致
+  const c = f.value <= 44 ? "down" : f.value >= 56 ? "up" : "";
+  const diff = (x?: number) => (x === undefined ? "" : `${f.value - x >= 0 ? "+" : ""}${f.value - x}`);
+  return (
+    <div class="metric" data-testid="fng-card">
+      <div class="k">恐懼貪婪指數</div>
+      <div class={`v num ${c}`}>{f.value}　<span style={{ fontSize: "14px" }}>{f.label}</span></div>
+      <div class="d muted" style={{ fontSize: "11.5px", lineHeight: 1.5 }}>
+        {[f.prev !== undefined ? `昨天 ${f.prev}（${diff(f.prev)}）` : "", f.weekAgo !== undefined ? `一週前 ${f.weekAgo}` : "", f.monthAgo !== undefined ? `一個月前 ${f.monthAgo}` : ""].filter(Boolean).join("・")}
+        <div>0 極度恐懼～100 極度貪婪（alternative.me，每天更新）</div>
+      </div>
+    </div>
+  );
+}
+
 // ---------------- 國際指標詳細報價（今日開高低、52 週區間、區間報酬、均線位置） ----------------
 const fmtQ = (x: number | undefined) => (x !== undefined && Number.isFinite(x) ? x.toLocaleString("en-US", { maximumFractionDigits: 3 }) : "—");
-function QuotePanel({ q, bars }: { q: MacroQuote; bars: { date: string; open: number; high: number; low: number; close: number; volume: number }[] }) {
+function QuotePanel({ q, bars, crypto = false }: { crypto?: boolean; q: MacroQuote; bars: { date: string; open: number; high: number; low: number; close: number; volume: number }[] }) {
   const closes = bars.map((b) => ({ ...b }));
   const ret = (n: number) => { const r = retN(closes, n); return Number.isFinite(r) ? r : undefined; };
   const ma = (n: number) => { const m = sma(closes, n); return Number.isFinite(m) ? m : undefined; };
   const px = q.last;
   const range = q.yearHigh !== undefined && q.yearLow !== undefined && q.yearHigh > q.yearLow ? (px - q.yearLow) / (q.yearHigh - q.yearLow) : undefined;
-  const rr = [["近 1 週", ret(5)], ["近 1 月", ret(21)], ["近 3 月", ret(63)]] as const;
+  // 虛擬幣每天都有一根（含週末），一週 7 根；股市一週約 5 個交易日
+  const rr = (crypto ? [["近 1 週", ret(7)], ["近 1 月", ret(30)], ["近 3 月", ret(90)]] : [["近 1 週", ret(5)], ["近 1 月", ret(21)], ["近 3 月", ret(63)]]) as [string, number | undefined][];
   const mas = [["20 日線", ma(20)], ["60 日線", ma(60)]] as const;
   const pcts = (x: number | undefined) => (x === undefined ? "—" : fmtPct(x, 2));
   return (
@@ -940,8 +959,8 @@ function IndexDetail({ name, label, onClose }: { name: string; label?: string; o
       {shown && shown.length >= 2 && <CandleChart bars={shown} noVol />}
       {done && shown && shown.length < 2 && !err && <div class="muted" data-testid="idx-few">目前只累積到 {shown.length} 天的資料，之後每天打開 App 會自動增加。</div>}
       {hist && hist.kind === "close" && <div class="muted" data-testid="idx-note" style={{ fontSize: "12px", marginTop: "6px" }}>這個指數官方沒有提供歷史開高低收：K 棒的「開」用前一天收盤、「收」用當天收盤。歷史由每日排程累積（約 1 年），缺的日子手機自己補抓（證交所限制每 3 秒一次，會慢一點，抓過就存在手機裡）。</div>}
-      {us && mq && <QuotePanel q={mq} bars={shown ?? []} />}
-      {hist && us && <div class="muted" data-testid="idx-note" style={{ fontSize: "12px", marginTop: "6px" }}>日 K 來自 CNBC，約近 1 年；以該市場的交易日計。</div>}
+      {us && mq && <QuotePanel q={mq} bars={shown ?? []} crypto={isCryptoSymbol(name)} />}
+      {hist && us && <div class="muted" data-testid="idx-note" style={{ fontSize: "12px", marginTop: "6px" }}>日 K 來自 CNBC，約近 1 年；{isCryptoSymbol(name) ? "虛擬幣 24 小時交易，每天一根（含週末），以 UTC 日期計。" : "以該市場的交易日計。"}</div>}
       {hist && name === "櫃買指數" && <div class="muted" data-testid="idx-note" style={{ fontSize: "12px", marginTop: "6px" }}>櫃買中心只提供當月資料，更早的由每日排程累積（約 1 年）。</div>}
     </Sheet>
   );
@@ -950,7 +969,7 @@ function IndexDetail({ name, label, onClose }: { name: string; label?: string; o
 // ---------------- 數據（國內外指標＋AI 解讀） ----------------
 export function MacroScreen() {
   const [idxOpen, setIdxOpen] = useState<string | null>(null);
-  const st = useStore((s) => ({ macro: s.macro, tw: s.tw, us: s.us, idx: s.twIndices, breadth: s.twBreadth, idxLive: s.twIndexLive, fut: s.futures, turnover: s.twTurnover, etfs: s.usSectorEtfs, apiKey: s.settings.apiKey, reports: s.reports }));
+  const st = useStore((s) => ({ macro: s.macro, fng: s.fng, tw: s.tw, us: s.us, idx: s.twIndices, breadth: s.twBreadth, idxLive: s.twIndexLive, fut: s.futures, turnover: s.twTurnover, etfs: s.usSectorEtfs, apiKey: s.settings.apiKey, reports: s.reports }));
   // 台股指數盤中每 30 秒更新（收盤後 MIS 回傳收盤價，仍會顯示）
   useEffect(() => {
     refreshTwIndex(); refreshFutures(); refreshTurnover();
@@ -968,7 +987,7 @@ export function MacroScreen() {
   useEffect(() => { if (job?.status === "done") dismissAiJob(key); }, [job?.status]);
   const report = st.reports[key];
   const bySymbol = new Map(st.macro.quotes.map((q) => [q.symbol, q]));
-  const groups = ["亞洲", "美股", "利率匯率", "原物料"] as const;
+  const groups = ["亞洲", "美股", "利率匯率", "原物料", "虛擬幣"] as const;
 
   const runAi = () => {
     if (report && !confirmRerun(1)) return;
@@ -1036,7 +1055,8 @@ export function MacroScreen() {
       {st.macro.status === "loading" && <div class="empty">國際指標載入中…</div>}
       {groups.map((g) => {
         const items = MACRO_SYMBOLS.filter((m) => m.group === g && bySymbol.has(m.symbol));
-        if (!items.length) return null;
+        const fng = g === "虛擬幣" ? st.fng : undefined;
+        if (!items.length && !fng) return null;
         return (
           <>
             <div class="section-title"><span>{g}</span></div>
@@ -1047,6 +1067,7 @@ export function MacroScreen() {
                 if (!CHART_SYMBOLS.has(m.symbol)) return card;
                 return <div data-testid={`idx-card-${m.symbol}`} style={{ cursor: "pointer" }} onClick={() => setIdxOpen(`${m.symbol}|${m.label}`)}>{card}</div>;
               })}
+              {fng && <FngCard f={fng} />}
             </div>
           </>
         );

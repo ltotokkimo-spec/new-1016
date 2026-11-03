@@ -332,8 +332,8 @@ function check(ok, name, detail = "") {
   check(/台股(盤中 \d\d:\d\d|收盤)/.test(idxTitle), "台股指數改成盤中即時（或收盤）", idxTitle);
   check(["加權指數", "臺灣50指數", "半導體類指數", "金融保險類指數"].every((n) => macro.some((m) => m.includes(n))), "四大台股指數都顯示", JSON.stringify(macro.slice(0, 6)));
   // 點指數卡片 → 日 K 走勢（加權有真實開高低收；臺灣50等用收盤串成）
-  const IDX_LABEL = { ".SPX": "S&P 500", ".VIX": "VIX", ".KS11": "韓國 KOSPI", ".N225": "日經 225", "@CL.1": "WTI 原油", "@GC.1": "黃金", ".HSI": "恆生指數", ".SSEC": "上證指數", "@SI.1": "白銀", "@HG.1": "銅" };
-  for (const nm of ["加權指數", "臺灣50指數", "電子類指數", "櫃買指數", ".SPX", ".VIX", ".KS11", ".N225", ".HSI", ".SSEC", "@CL.1", "@GC.1", "@SI.1", "@HG.1"]) {
+  const IDX_LABEL = { ".SPX": "S&P 500", ".VIX": "VIX", ".KS11": "韓國 KOSPI", ".N225": "日經 225", "@CL.1": "WTI 原油", "@GC.1": "黃金", ".HSI": "恆生指數", ".SSEC": "上證指數", "@SI.1": "白銀", "@HG.1": "銅", "BTC.CM=": "比特幣", "ETH.CM=": "以太幣" };
+  for (const nm of ["加權指數", "臺灣50指數", "電子類指數", "櫃買指數", ".SPX", ".VIX", ".KS11", ".N225", ".HSI", ".SSEC", "@CL.1", "@GC.1", "@SI.1", "@HG.1", "BTC.CM=", "ETH.CM="]) {
     await page.evaluate(() => { window.__srIdxTrace = []; });
     await page.click(`[data-testid="idx-card-${nm}"]`);
     try {
@@ -351,7 +351,7 @@ function check(ok, name, detail = "") {
     check(ix.title.includes(IDX_LABEL[nm] ?? nm) && ix.chart, `${nm}：點進去有 K 線走勢圖`, JSON.stringify({ ...ix, text: ix.text.slice(0, 120) }));
     check(/開 [\d,.]+\s*高 [\d,.]+\s*低 [\d,.]+\s*收 [\d,.]+/.test(ix.info) && !/量 /.test(ix.info), `${nm}：K 線顯示開高低收、不顯示成交量`, ix.info);
     // 國際指標（美股、亞洲、原物料）：詳細報價（今日開高低昨收、52 週區間、區間報酬與均線）
-    if (/^[.@]/.test(nm)) {
+    if (/^[.@]|\.CM=$/.test(nm)) {
       const stats = await page.evaluate(() => ({ stats: document.querySelector('[data-testid="idx-stats"]')?.innerText.replace(/\s+/g, " ") || "", range: document.querySelector('[data-testid="idx-range"]')?.innerText || "", ret: document.querySelector('[data-testid="idx-returns"]')?.innerText.replace(/\s+/g, " ") || "" }));
       log(`指數詳細報價 ${nm}`, JSON.stringify(stats));
       check(/開盤 [\d,.]+/.test(stats.stats) && /昨收 [\d,.]+/.test(stats.stats) && /最高 [\d,.]+/.test(stats.stats) && /最低 [\d,.]+/.test(stats.stats), `${nm}：顯示今日開盤、昨收、最高、最低`, stats.stats.slice(0, 160));
@@ -360,10 +360,14 @@ function check(ok, name, detail = "") {
     }
     // 前後一致：圖上最新一根的漲跌（對前一根收盤）要和上方標題的漲跌幅一致，否則代表中間少了交易日
     const hp = /（([+-]?[\d.]+)%）/.exec(ix.text), ip = /([+-][\d.]+)%\s*$/.exec(ix.info);
-    if (!/^[.@]/.test(nm)) check(!!hp && !!ip && Math.abs(parseFloat(hp[1]) - parseFloat(ip[1])) <= 0.2, `${nm}：圖上最新漲跌與標題一致（沒有漏掉交易日）`, `標題 ${hp?.[1]}% / 圖 ${ip?.[1]}%`);
+    if (!/^[.@]|\.CM=$/.test(nm)) check(!!hp && !!ip && Math.abs(parseFloat(hp[1]) - parseFloat(ip[1])) <= 0.2, `${nm}：圖上最新漲跌與標題一致（沒有漏掉交易日）`, `標題 ${hp?.[1]}% / 圖 ${ip?.[1]}%`);
     await page.click('.sheet header button[aria-label="返回"]');
     await page.waitForFunction(() => !document.querySelector(".sheet"), null, { timeout: 5000 });
   }
+  // 虛擬幣恐懼貪婪指數（alternative.me）：分數 0～100 與中文分級
+  const fngTxt = await page.$eval('[data-testid="fng-card"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
+  log("恐懼貪婪指數", fngTxt);
+  check(/恐懼貪婪指數 \d{1,3} (極度恐懼|恐懼|中立|貪婪|極度貪婪)/.test(fngTxt) && /昨天 \d{1,3}/.test(fngTxt), "數據頁虛擬幣區顯示恐懼貪婪指數（分數、分級、昨天）", fngTxt);
   // 量能：只顯示最新交易日成交金額（億元，證交所統計）；不再顯示成交股數與成交筆數
   check(macro.some((m) => /^成交金額 [\d,]{3,} 億元/.test(m)) && !macro.some((m) => /成交筆數|成交股數/.test(m)), "顯示大盤成交金額（億元），沒有成交筆數與成交股數", JSON.stringify(macro.filter((m) => /成交/.test(m))));
   // 還沒開盤（台灣 09:00 前）：證交所即時資料四大指數漲跌都是 0.00

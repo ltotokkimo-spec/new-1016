@@ -113,8 +113,10 @@ export function parseCnbcBars(json: any): DayBar[] {
     .map((b: any) => ({ date: String(b?.tradeTime ?? "").slice(0, 8), open: n(b?.open), high: n(b?.high), low: n(b?.low), close: n(b?.close), volume: 0 }))
     .filter((b: DayBar) => /^\d{8}$/.test(b.date) && Number.isFinite(b.close) && Number.isFinite(b.open) && Number.isFinite(b.high) && Number.isFinite(b.low));
 }
-/** CNBC 代號：指數用「.」開頭（.SPX、.KS11），期貨用「@」開頭（@CL.1、@GC.1）；日 K 都從 CNBC 抓 */
-export const isUsIndexSymbol = (name: string) => name.startsWith(".") || name.startsWith("@");
+/** CNBC 代號：指數用「.」開頭（.SPX、.KS11），期貨用「@」開頭（@CL.1、@GC.1），虛擬幣用「.CM=」結尾（BTC.CM=）；日 K 都從 CNBC 抓 */
+export const isUsIndexSymbol = (name: string) => name.startsWith(".") || name.startsWith("@") || name.endsWith(".CM=");
+/** 虛擬幣 24 小時、週末也交易：日 K 一週是 7 根 */
+export const isCryptoSymbol = (name: string) => name.endsWith(".CM=");
 
 export interface IndexHist { bars: DayBar[]; kind: "ohlc" | "close" }
 

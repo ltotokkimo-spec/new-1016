@@ -9,17 +9,19 @@ import type { Holding, Rating, Scored, SectorStat } from "../engine/score";
 import { type AiReport, analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, parseUrls, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
 import { twHistory } from "../data/history";
 import { esbHistory } from "../data/esb";
-import { indexHistory, type IndexHist } from "../data/indexHistory";
+import { indexHistory, isUsIndexSymbol, type IndexHist } from "../data/indexHistory";
 import { CandleChart, type CandleBar } from "./candles";
 import { FlowsPanel } from "./flows";
 import { EtfHoldingsPanel, isActiveEtf } from "./etfHoldings";
 import { isEtf } from "../data/tw";
 import { freeReport } from "../engine/freeReport";
 import { withLiveBar } from "../engine/liveBar";
-import { isUsSymbol, MACRO_SYMBOLS } from "../data/us";
+import { isUsSymbol, MACRO_SYMBOLS, retN, sma, type MacroQuote } from "../data/us";
 import { isLiveNow, livePolling, marketOpen, type LiveQuote } from "../data/twLive";
 import { INDEX_CH } from "../data/twIndexLive";
-const US_INDEX_SYMBOLS = [".SPX", ".IXIC", ".SOX", ".DJI", ".VIX"]; // 數據頁可點進去看日 K 的國際指數（CNBC 代號）
+// 數據頁可點進去看日 K 與詳細報價的國際指標（CNBC 代號）：美股指數、亞洲大盤、原物料期貨
+const US_INDEX_SYMBOLS = [".SPX", ".IXIC", ".SOX", ".DJI", ".VIX"];
+const CHART_SYMBOLS = new Set([...US_INDEX_SYMBOLS, ...MACRO_SYMBOLS.filter((m) => m.group === "亞洲" || m.group === "原物料").map((m) => m.symbol)]);
 import { pretty, prettyW, taipeiToday, usQuoteHours } from "../lib/dates";
 import { latestNotes } from "../lib/notes";
 import { fmtNtd, usdTwdRate } from "../lib/fx";
@@ -842,9 +844,59 @@ function ImportReview({ data, onDone }: { data: { rows: ImportedHolding[]; note:
   );
 }
 
+// ---------------- 國際指標詳細報價（今日開高低、52 週區間、區間報酬、均線位置） ----------------
+const fmtQ = (x: number | undefined) => (x !== undefined && Number.isFinite(x) ? x.toLocaleString("en-US", { maximumFractionDigits: 3 }) : "—");
+function QuotePanel({ q, bars }: { q: MacroQuote; bars: { date: string; open: number; high: number; low: number; close: number; volume: number }[] }) {
+  const closes = bars.map((b) => ({ ...b }));
+  const ret = (n: number) => { const r = retN(closes, n); return Number.isFinite(r) ? r : undefined; };
+  const ma = (n: number) => { const m = sma(closes, n); return Number.isFinite(m) ? m : undefined; };
+  const px = q.last;
+  const range = q.yearHigh !== undefined && q.yearLow !== undefined && q.yearHigh > q.yearLow ? (px - q.yearLow) / (q.yearHigh - q.yearLow) : undefined;
+  const rr = [["近 1 週", ret(5)], ["近 1 月", ret(21)], ["近 3 月", ret(63)]] as const;
+  const mas = [["20 日線", ma(20)], ["60 日線", ma(60)]] as const;
+  const pcts = (x: number | undefined) => (x === undefined ? "—" : fmtPct(x, 2));
+  return (
+    <div data-testid="idx-stats">
+      <div class="section-title"><span>今日報價</span><span>{q.time ? q.time.slice(0, 10) : ""}</span></div>
+      <div class="grid2">
+        <Metric k="開盤" v={fmtQ(q.open)} />
+        <Metric k="昨收" v={fmtQ(q.prevClose)} />
+        <Metric k="最高" v={fmtQ(q.high)} />
+        <Metric k="最低" v={fmtQ(q.low)} />
+      </div>
+      {(q.yearHigh !== undefined || q.yearLow !== undefined) && (
+        <>
+          <div class="section-title"><span>52 週區間</span></div>
+          <div class="card" style={{ padding: "10px 12px" }}>
+            <div class="row" style={{ justifyContent: "space-between", fontSize: "13px" }}>
+              <span>低 <b class="num">{fmtQ(q.yearLow)}</b></span><span>52 週高 <b class="num">{fmtQ(q.yearHigh)}</b></span>
+            </div>
+            {range !== undefined && <>
+              <div style={{ position: "relative", height: "8px", borderRadius: "4px", background: "var(--line)", margin: "8px 0" }}>
+                <div style={{ position: "absolute", left: `calc(${Math.min(100, Math.max(0, range * 100)).toFixed(1)}% - 5px)`, top: "-2px", width: "12px", height: "12px", borderRadius: "50%", background: "var(--fg)" }} />
+              </div>
+              <div class="muted" style={{ fontSize: "12px" }} data-testid="idx-range">目前在 52 週區間的 {(range * 100).toFixed(0)}% 位置；距 52 週高 {fmtPct(px / q.yearHigh! - 1, 1)}、高於 52 週低 {fmtPct(px / q.yearLow! - 1, 1)}</div>
+            </>}
+          </div>
+        </>
+      )}
+      {bars.length >= 6 && (
+        <>
+          <div class="section-title"><span>區間報酬與均線</span></div>
+          <div class="card" style={{ padding: "6px 12px" }} data-testid="idx-returns">
+            {rr.map(([k, v]) => <div class="row" style={{ justifyContent: "space-between", padding: "4px 0" }}><span>{k}</span><b class={`num ${v === undefined ? "" : cls(v)}`}>{pcts(v)}</b></div>)}
+            {mas.map(([k, v]) => <div class="row" style={{ justifyContent: "space-between", padding: "4px 0" }}><span>{k}</span><span class="num">{v === undefined ? "資料不足" : <>{fmtQ(v)}　<b class={cls(px - v)}>{px >= v ? "站上" : "跌破"}（{fmtPct(px / v - 1, 1)}）</b></>}</span></div>)}
+          </div>
+        </>
+      )}
+      <div class="muted" style={{ fontSize: "12px", marginTop: "6px" }}>{[q.exchange, q.currency, q.status === "REG_MKT" ? "交易中" : q.status === "CLOSED" ? "已收盤" : ""].filter(Boolean).join("・")}</div>
+    </div>
+  );
+}
+
 // ---------------- 指數走勢（數據頁點指數卡片） ----------------
 function IndexDetail({ name, label, onClose }: { name: string; label?: string; onClose: () => void }) {
-  const us = name.startsWith("."); // 美股等國際指數用 CNBC 代號（.SPX）
+  const us = isUsIndexSymbol(name); // 美股、亞洲指數、原物料期貨用 CNBC 代號（.SPX、.KS11、@GC.1）
   const lq = useStore((st) => st.twIndexLive[name]);
   const mq = useStore((st) => (us ? st.macro.quotes.find((q) => q.symbol === name) : undefined));
   const [hist, setHist] = useState<IndexHist | null>(null);
@@ -888,7 +940,8 @@ function IndexDetail({ name, label, onClose }: { name: string; label?: string; o
       {shown && shown.length >= 2 && <CandleChart bars={shown} noVol />}
       {done && shown && shown.length < 2 && !err && <div class="muted" data-testid="idx-few">目前只累積到 {shown.length} 天的資料，之後每天打開 App 會自動增加。</div>}
       {hist && hist.kind === "close" && <div class="muted" data-testid="idx-note" style={{ fontSize: "12px", marginTop: "6px" }}>這個指數官方沒有提供歷史開高低收：K 棒的「開」用前一天收盤、「收」用當天收盤。歷史由每日排程累積（約 1 年），缺的日子手機自己補抓（證交所限制每 3 秒一次，會慢一點，抓過就存在手機裡）。</div>}
-      {hist && us && <div class="muted" data-testid="idx-note" style={{ fontSize: "12px", marginTop: "6px" }}>日 K 來自 CNBC，約近 1 年；以美股交易日計。</div>}
+      {us && mq && <QuotePanel q={mq} bars={shown ?? []} />}
+      {hist && us && <div class="muted" data-testid="idx-note" style={{ fontSize: "12px", marginTop: "6px" }}>日 K 來自 CNBC，約近 1 年；以該市場的交易日計。</div>}
       {hist && name === "櫃買指數" && <div class="muted" data-testid="idx-note" style={{ fontSize: "12px", marginTop: "6px" }}>櫃買中心只提供當月資料，更早的由每日排程累積（約 1 年）。</div>}
     </Sheet>
   );
@@ -991,7 +1044,7 @@ export function MacroScreen() {
               {items.map((m) => {
                 const q = bySymbol.get(m.symbol)!;
                 const card = <Metric k={m.label} v={q.last.toLocaleString("en-US", { maximumFractionDigits: 3 })} c={cls(q.change)} d={`${q.change > 0 ? "+" : ""}${q.change}（${q.changePct > 0 ? "+" : ""}${q.changePct}%）`} />;
-                if (!US_INDEX_SYMBOLS.includes(m.symbol)) return card;
+                if (!CHART_SYMBOLS.has(m.symbol)) return card;
                 return <div data-testid={`idx-card-${m.symbol}`} style={{ cursor: "pointer" }} onClick={() => setIdxOpen(`${m.symbol}|${m.label}`)}>{card}</div>;
               })}
             </div>

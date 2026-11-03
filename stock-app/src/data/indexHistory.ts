@@ -113,7 +113,8 @@ export function parseCnbcBars(json: any): DayBar[] {
     .map((b: any) => ({ date: String(b?.tradeTime ?? "").slice(0, 8), open: n(b?.open), high: n(b?.high), low: n(b?.low), close: n(b?.close), volume: 0 }))
     .filter((b: DayBar) => /^\d{8}$/.test(b.date) && Number.isFinite(b.close) && Number.isFinite(b.open) && Number.isFinite(b.high) && Number.isFinite(b.low));
 }
-export const isUsIndexSymbol = (name: string) => name.startsWith(".");
+/** CNBC 代號：指數用「.」開頭（.SPX、.KS11），期貨用「@」開頭（@CL.1、@GC.1）；日 K 都從 CNBC 抓 */
+export const isUsIndexSymbol = (name: string) => name.startsWith(".") || name.startsWith("@");
 
 export interface IndexHist { bars: DayBar[]; kind: "ohlc" | "close" }
 

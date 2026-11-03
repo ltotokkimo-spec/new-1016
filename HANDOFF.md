@@ -219,3 +219,8 @@
 - 修正：被擋住的要求改成排隊（`liveQueue`，合併代號），前一個結束立刻補抓一次；`test/liveQueue.test.ts` 用卡住的假網路驗證（拿掉修正會失敗）。持股頁在抓到即時價前、最多 60 秒內，標題旁顯示「即時價更新中…」（`data-testid="live-loading"`）。
 - 另外觀察（沒改）：盤中 MIS 的 `z`（成交價）常是 "-"（連 `pz` 也是），App 目前這時用最佳買價當價格，不是最後成交價；要改成「沿用上一次真正的成交價」需要另外設計，使用者沒要求。
 - **1.0.210 追加（同一天，使用者回報 1.0.209 之後打開仍是舊資料、標題一直顯示「更新中」）**：`refreshLive` 的單一請求原本最久會等 90 秒×3 次重試（約 4～5 分鐘），這段時間 `liveBusy` 一直卡著，整個即時更新停住且沒有提示；而且要所有批次都成功才一次寫入。現在：單一請求 15 秒逾時（`LIVE_FETCH_MS`）、失敗 4 秒後自動重試最多 2 次（`LIVE_RETRY_MS`）、每批抓到就先存、持股頁用 `priority`（`refreshLive(codes, [], true)`）排在選股頁前面、失敗原因存 `state.liveError` 並在持股頁標題旁顯示。**手機上真正卡住的原因沒有證實**（沒有手機日誌）；若 1.0.210 之後仍抓不到，標題旁的錯誤文字就是下一個線索（連線逾時＝證交所沒回應／可能被擋）。
+
+## 數據頁國際指標詳情（11/03）
+- 數據頁「亞洲」「原物料」卡片和美股指數一樣可點進去：`CHART_SYMBOLS`（`screens.tsx`）決定哪些卡片可點；日 K 走 CNBC bars（`indexHistory` 的 `isUsIndexSymbol`：「.」開頭指數、「@」開頭期貨，kv 鍵 `idx:us:<代號>`）；報價詳情 `QuotePanel` 用 `parseCnbcQuotes` 新增的欄位（open/high/low/prevClose/yearHigh/yearLow/volume/exchange/currency/status）。
+- 要新增亞洲或原物料項目：只要在 `MACRO_SYMBOLS`（`data/us.ts`）加一筆，group 填「亞洲」或「原物料」，卡片就自動可點；但 CNBC bars 對該代號有沒有日 K 要在 CI 模擬器（真網路）確認，這個環境連不到 CNBC。
+- 沒有成交量（CNBC 指數和期貨 bars 的量不可靠，K 線 `noVol`）。

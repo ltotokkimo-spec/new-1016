@@ -332,7 +332,8 @@ function check(ok, name, detail = "") {
   check(/台股(盤中 \d\d:\d\d|收盤)/.test(idxTitle), "台股指數改成盤中即時（或收盤）", idxTitle);
   check(["加權指數", "臺灣50指數", "半導體類指數", "金融保險類指數"].every((n) => macro.some((m) => m.includes(n))), "四大台股指數都顯示", JSON.stringify(macro.slice(0, 6)));
   // 點指數卡片 → 日 K 走勢（加權有真實開高低收；臺灣50等用收盤串成）
-  for (const nm of ["加權指數", "臺灣50指數", "電子類指數", "櫃買指數", ".SPX", ".VIX"]) {
+  const IDX_LABEL = { ".SPX": "S&P 500", ".VIX": "VIX", ".KS11": "韓國 KOSPI", ".N225": "日經 225", "@CL.1": "WTI 原油", "@GC.1": "黃金" };
+  for (const nm of ["加權指數", "臺灣50指數", "電子類指數", "櫃買指數", ".SPX", ".VIX", ".KS11", ".N225", "@CL.1", "@GC.1"]) {
     await page.evaluate(() => { window.__srIdxTrace = []; });
     await page.click(`[data-testid="idx-card-${nm}"]`);
     try {
@@ -347,11 +348,19 @@ function check(ok, name, detail = "") {
     });
     log(`指數走勢 ${nm}`, JSON.stringify({ ...ix, text: undefined }));
     await shot(`指數走勢 ${nm}`);
-    check(ix.title.includes(nm === ".SPX" ? "S&P 500" : nm === ".VIX" ? "VIX" : nm) && ix.chart, `${nm}：點進去有 K 線走勢圖`, JSON.stringify({ ...ix, text: ix.text.slice(0, 120) }));
+    check(ix.title.includes(IDX_LABEL[nm] ?? nm) && ix.chart, `${nm}：點進去有 K 線走勢圖`, JSON.stringify({ ...ix, text: ix.text.slice(0, 120) }));
     check(/開 [\d,.]+\s*高 [\d,.]+\s*低 [\d,.]+\s*收 [\d,.]+/.test(ix.info) && !/量 /.test(ix.info), `${nm}：K 線顯示開高低收、不顯示成交量`, ix.info);
+    // 國際指標（美股、亞洲、原物料）：詳細報價（今日開高低昨收、52 週區間、區間報酬與均線）
+    if (/^[.@]/.test(nm)) {
+      const stats = await page.evaluate(() => ({ stats: document.querySelector('[data-testid="idx-stats"]')?.innerText.replace(/\s+/g, " ") || "", range: document.querySelector('[data-testid="idx-range"]')?.innerText || "", ret: document.querySelector('[data-testid="idx-returns"]')?.innerText.replace(/\s+/g, " ") || "" }));
+      log(`指數詳細報價 ${nm}`, JSON.stringify(stats));
+      check(/開盤 [\d,.]+/.test(stats.stats) && /昨收 [\d,.]+/.test(stats.stats) && /最高 [\d,.]+/.test(stats.stats) && /最低 [\d,.]+/.test(stats.stats), `${nm}：顯示今日開盤、昨收、最高、最低`, stats.stats.slice(0, 160));
+      check(/52 週高 [\d,.]+/.test(stats.stats) && /目前在 52 週區間的 \d+% 位置/.test(stats.range), `${nm}：顯示 52 週高低與目前位置`, stats.range);
+      check(/近 1 週 [+-]?\d+\.\d+%/.test(stats.ret) && /近 1 月 [+-]?\d+\.\d+%/.test(stats.ret) && /20 日線 [\d,.]+/.test(stats.ret), `${nm}：顯示區間報酬與均線`, stats.ret);
+    }
     // 前後一致：圖上最新一根的漲跌（對前一根收盤）要和上方標題的漲跌幅一致，否則代表中間少了交易日
     const hp = /（([+-]?[\d.]+)%）/.exec(ix.text), ip = /([+-][\d.]+)%\s*$/.exec(ix.info);
-    if (!nm.startsWith(".")) check(!!hp && !!ip && Math.abs(parseFloat(hp[1]) - parseFloat(ip[1])) <= 0.2, `${nm}：圖上最新漲跌與標題一致（沒有漏掉交易日）`, `標題 ${hp?.[1]}% / 圖 ${ip?.[1]}%`);
+    if (!/^[.@]/.test(nm)) check(!!hp && !!ip && Math.abs(parseFloat(hp[1]) - parseFloat(ip[1])) <= 0.2, `${nm}：圖上最新漲跌與標題一致（沒有漏掉交易日）`, `標題 ${hp?.[1]}% / 圖 ${ip?.[1]}%`);
     await page.click('.sheet header button[aria-label="返回"]');
     await page.waitForFunction(() => !document.querySelector(".sheet"), null, { timeout: 5000 });
   }

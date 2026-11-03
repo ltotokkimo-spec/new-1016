@@ -41,6 +41,14 @@ describe("CNBC 指標（實際資料）", () => {
     expect(by["@GC.1"].last).toBe(4204.7);
     expect(by[".TWII"].last).toBe(47111.26);
   });
+  it("詳情頁用的欄位：今日開高低、昨收、52 週高低、交易所與幣別", () => {
+    const by = Object.fromEntries(parseCnbcQuotes(fx("cnbc_macro.json")).map((x) => [x.symbol, x]));
+    expect(by[".N225"]).toMatchObject({ open: 64925.29, high: 65712.3, low: 64800.9, prevClose: 64425.95, yearHigh: 72831.73, yearLow: 46544.05, currency: "JPY", status: "REG_MKT" });
+    expect(by["@GC.1"]).toMatchObject({ open: 4192.1, prevClose: 4170.1, yearHigh: 5586.2, volume: 48069, currency: "USD" });
+    expect(by["@GC.1"].exchange).toContain("Commodities");
+    // 殖利率的百分比符號要去掉
+    expect(by["US10Y"]).toMatchObject({ open: 5.081, prevClose: 5.087 });
+  });
 });
 
 describe("台股個股月資料（實際資料）", () => {

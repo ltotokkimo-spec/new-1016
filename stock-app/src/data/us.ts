@@ -71,7 +71,22 @@ export interface MacroQuote {
   change: number;
   changePct: number;
   time: string;
+  // 詳情頁用（CNBC 有給才有）
+  open?: number; high?: number; low?: number; prevClose?: number;
+  yearHigh?: number; yearLow?: number; volume?: number;
+  exchange?: string; currency?: string; status?: string;
 }
+
+/** 有值才放進去（"-"、空字串、沒給的欄位都略過） */
+const optNums = (o: Record<string, unknown>) => {
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(o)) {
+    if (v === undefined || v === null || v === "") continue;
+    const x = num(String(v).replace("%", ""));
+    if (Number.isFinite(x)) out[k] = x;
+  }
+  return out;
+};
 
 /** CNBC restQuote → 指標報價 */
 export function parseCnbcQuotes(json: any): MacroQuote[] {
@@ -87,6 +102,10 @@ export function parseCnbcQuotes(json: any): MacroQuote[] {
       change: num(String(q.change ?? "").replace("%", "")),
       changePct: num(String(q.change_pct ?? "").replace("%", "")),
       time: String(q.last_time ?? q.last_timedate ?? ""),
+      ...optNums({ open: q.open, high: q.high, low: q.low, prevClose: q.previous_day_closing, yearHigh: q.yrhiprice, yearLow: q.yrloprice, volume: q.volume }),
+      ...(q.exchange ? { exchange: String(q.exchange) } : {}),
+      ...(q.currencyCode ? { currency: String(q.currencyCode) } : {}),
+      ...(q.curmktstatus ? { status: String(q.curmktstatus) } : {}),
     }))
     .filter((q: MacroQuote) => Number.isFinite(q.last));
 }

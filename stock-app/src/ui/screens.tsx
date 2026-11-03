@@ -581,7 +581,7 @@ function EsbDetail({ h, onClose }: { h: { code: string; name: string; shares: nu
       <div class="row" style={{ justifyContent: "space-between", alignItems: "flex-end" }}>
         <div>
           <div class="big num" data-testid="esb-price">{fmtPrice(price)}</div>
-          {Number.isFinite(chg) && <div class={`num ${cls(chg)}`} data-testid="esb-chg">今日 {fmtPct(chg)}（對前日均價）</div>}
+          {Number.isFinite(chg) && <div class={`num ${cls(chg)}`} data-testid="esb-chg">今日 {fmtPct(chg)}</div>}
         </div>
         <div class="muted" style={{ fontSize: "12px", textAlign: "right" }} data-testid="esb-note">
           興櫃股票・{live ? `盤中 ${lq!.time.slice(0, 5)}` : "收盤"}<br />櫃買中心行情每分鐘更新
@@ -589,7 +589,6 @@ function EsbDetail({ h, onClose }: { h: { code: string; name: string; shares: nu
       </div>
       {lq && (
         <div class="grid2" style={{ marginTop: "10px" }} data-testid="esb-stats">
-          <div class="metric"><div class="k">前日均價</div><div class="v num">{fmtPrice(lq.prevClose)}</div></div>
           <div class="metric"><div class="k">今日高／低</div><div class="v num">{Number.isFinite(lq.high) ? fmtPrice(lq.high) : "—"} ／ {Number.isFinite(lq.low) ? fmtPrice(lq.low) : "—"}</div></div>
           <div class="metric"><div class="k">今日成交量</div><div class="v num">{lq.volume && lq.volume > 0 ? `${Math.round(lq.volume / 1000).toLocaleString()} 張` : "—"}</div></div>
         </div>

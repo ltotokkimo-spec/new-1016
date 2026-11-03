@@ -572,6 +572,14 @@ function check(ok, name, detail = "") {
   log("點組名換 0050 對照", JSON.stringify(sel));
   const rowNums = (sel.row || "").match(/[+-]?\d+\.\d\d%/g) || [];
   check(/N5/.test(sel.ref || "") && (await dashEnd()) !== d0 && rowNums.length >= 2 && (sel.bench || "").includes(rowNums[1]), "點組名後虛線換成那一組自己的 0050 對照（數字和表格一致）", JSON.stringify(sel).slice(0, 300));
+  // 全買抱著：虛線換成「起始日全買 0050」，圖例的 0050 數字要等於表格「全買0050」欄（同一列第 4 個百分比）
+  await page.click('[data-testid="bench-hold"]');
+  await sleep(300);
+  const hv = await page.evaluate(() => ({ bench: [...document.querySelectorAll('[data-testid="compare-legend"]')].at(-1)?.innerText, cell: document.querySelectorAll('[data-testid="compare-all"] tbody tr')[1]?.querySelector('[data-testid="hold-cell"]')?.innerText }));
+  log("全買0050", JSON.stringify(hv));
+  const holdNum = (hv.cell || "").match(/[+-]?\d+\.\d\d%/)?.[0];
+  check(!!holdNum && /全買抱著/.test(hv.bench || "") && (hv.bench || "").includes(holdNum), "「全買抱著」虛線的 0050 數字和表格「全買0050」一致", JSON.stringify(hv));
+  await page.click('[data-testid="bench-own"]');
   await shot("05e-總評比");
   await page.click('[data-testid="mode-real"]');
   await page.waitForSelector('[data-testid="etf-summary"]', { timeout: 10000 });

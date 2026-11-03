@@ -613,13 +613,14 @@ export function AiEtfScreen() {
 
 const SERIES_COLORS = ["#e5484d", "#3b8bef", "#2fb457", "#f0a020", "#a46be0", "#14b8c4"];
 /** 總評比的走勢圖：全部組合（各自累積報酬）加一條 0050 對照，一張圖看每天誰領先 */
-function CompareChart({ series }: { series: { label: string; pts: { date: string; r: number }[]; own: { date: string; r: number }[] }[] }) {
+function CompareChart({ series }: { series: { label: string; pts: { date: string; r: number }[]; own: { date: string; r: number }[]; hold: { date: string; r: number }[] }[] }) {
+  const [mode, setMode] = useState<"own" | "hold">("own");
   const [hide, setHide] = useState<Record<string, boolean>>({});
   const [sel, setSel] = useState("");
   const ok = series.filter((x) => x.pts.length >= 1);
   // 虛線 0050 是「被選取那一組」自己的對照（跟著該組買賣、現金一起算），預設第一組 Claude 虛擬
   const ref = ok.find((x) => x.label === sel) ?? ok[0];
-  const bench = ref?.own ?? [];
+  const bench = (mode === "hold" ? ref?.hold : ref?.own) ?? [];
   const dates = [...new Set([...ok.flatMap((x) => x.pts.map((p) => p.date)), ...bench.map((p) => p.date)])].sort();
   if (dates.length < 2) return <div class="card muted" style={{ fontSize: "13px" }} data-testid="compare-chart">走勢圖要至少兩天的資料，明天收盤後就會畫出來。</div>;
   const W = 340, H = 220, padL = 40, padR = 8, padT = 10, padB = 20, n = dates.length;
@@ -651,14 +652,19 @@ function CompareChart({ series }: { series: { label: string; pts: { date: string
         </g>)}
         {dateIdx.map((i) => <text key={i} x={Math.min(W - padR - 8, Math.max(padL + 6, padL + (i / (n - 1)) * (W - padL - padR)))} y={H - 4} font-size="10" fill="var(--muted)" text-anchor="middle">{pretty(dates[i])}</text>)}
       </svg>
-      <div class="muted" style={{ fontSize: "11px" }}>虛線 0050 是「目前選取那一組」自己的對照（跟著該組買賣、現金一起算）；點下面的組名就換成那一組的，實線在虛線上方＝贏過 0050，和表格紅字一致。按 👁 可以顯示／隱藏那條線。</div>
+      <div class="muted" style={{ fontSize: "11px" }}>虛線 0050 是「目前選取那一組」自己的對照（跟著該組買賣、現金一起算）；點下面的組名就換成那一組的；「同操作」＝跟著該組每次買賣、現金一起算的 0050，「全買抱著」＝該組起始日把全部資金買 0050 抱著（不含手續費）。實線在虛線上方＝贏過 0050，和表格紅字一致。按 👁 可以顯示／隱藏那條線。</div>
+      <div class="row" style={{ gap: "8px", alignItems: "center", fontSize: "12.5px" }} role="group" aria-label="0050 對照方式" data-testid="bench-mode">
+        <span class="muted">0050 虛線：</span>
+        <button class="chip" aria-pressed={mode === "own"} onClick={() => setMode("own")} data-testid="bench-own">同操作</button>
+        <button class="chip" aria-pressed={mode === "hold"} onClick={() => setMode("hold")} data-testid="bench-hold">全買抱著</button>
+      </div>
       <div class="row" style={{ gap: "8px 12px", flexWrap: "wrap", fontSize: "12.5px" }}>
         {legend.map((l) => {
           const isRef = !l.dash && l.label === ref?.label;
           return (
             <span key={l.label} class="chip" style={{ opacity: hide[l.label] ? 0.4 : 1, display: "inline-flex", alignItems: "center", gap: "6px", ...(isRef ? { outline: "2px solid var(--fg)", outlineOffset: "1px" } : {}) }} data-testid="compare-legend" data-ref={isRef ? "1" : undefined}>
               <button style={{ all: "unset", cursor: l.dash ? "default" : "pointer" }} onClick={() => { if (!l.dash) pickRef(l.label); }} data-testid="compare-pick" aria-pressed={isRef}>
-                <b style={{ color: l.color }}>{l.dash ? "┅" : "━"}</b> {l.dash ? `0050（${ref?.label ?? ""}的對照）` : l.label} <span class={`num ${l.v !== undefined ? cls(l.v) : ""}`}>{l.v !== undefined ? fmtPct(l.v, 2) : "—"}</span>
+                <b style={{ color: l.color }}>{l.dash ? "┅" : "━"}</b> {l.dash ? `0050（${ref?.label ?? ""}・${mode === "hold" ? "全買抱著" : "同操作"}）` : l.label} <span class={`num ${l.v !== undefined ? cls(l.v) : ""}`}>{l.v !== undefined ? fmtPct(l.v, 2) : "—"}</span>
               </button>
               <button style={{ all: "unset", cursor: "pointer", fontSize: "12px" }} onClick={() => setHide({ ...hide, [l.label]: !hide[l.label] })} aria-label={hide[l.label] ? `顯示 ${l.label}` : `隱藏 ${l.label}`} data-testid="compare-hide">👁</button>
             </span>
@@ -697,9 +703,10 @@ function CompareView() {
           <td class={`num ${cls(p.ret)}`} style={td}>{fmtPct(p.ret, 2)}</td>
           <td class={`num ${cls(p.bench)}`} style={td}>{fmtPct(p.bench, 2)}</td>
           <td class={`num ${cls(p.diff)}`} style={td}>{fmtPct(p.diff, 2)}</td>
+          <td class={`num ${cls(p.holdRet ?? 0)}`} style={td} data-testid="hold-cell">{p.holdRet !== undefined ? <>{fmtPct(p.holdRet, 2)}<div class={`num ${cls(p.holdDiff ?? 0)}`} style={{ fontSize: "11px" }}>{(p.holdDiff ?? 0) >= 0 ? "贏 " : "輸 "}{fmtPct(p.holdDiff ?? 0, 2)}</div></> : "—"}</td>
           <td class={`num ${cls(p.maxDd)}`} style={td}>{fmtPct(p.maxDd, 2)}</td>
           <td class="num muted" style={td}>{p.days}</td>
-        </> : <td colSpan={5} class="muted" style={{ ...td, textAlign: "left" }}>{r.ready ? "同期還沒有資料" : r.start ? `${prettyW(r.start)} 起算，第一批成交後開始累積` : "尚未下載"}</td>}
+        </> : <td colSpan={6} class="muted" style={{ ...td, textAlign: "left" }}>{r.ready ? "同期還沒有資料" : r.start ? `${prettyW(r.start)} 起算，第一批成交後開始累積` : "尚未下載"}</td>}
       </tr>
     );
   };
@@ -719,7 +726,7 @@ function CompareView() {
 
       <div class="section-title"><span>每天走勢圖</span><span>累積報酬</span></div>
       <CompareChart
-        series={groups.filter((g) => g.v && g.v.nav.length).map((g) => ({ label: g.short, pts: g.v!.nav.map((p) => ({ date: p.date, r: g.v!.budget ? p.nav / g.v!.budget - 1 : 0 })), own: g.v!.nav.map((p) => ({ date: p.date, r: g.v!.budget ? p.bench / g.v!.budget - 1 : 0 })) }))}
+        series={groups.filter((g) => g.v && g.v.nav.length).map((g) => ({ label: g.short, pts: g.v!.nav.map((p) => ({ date: p.date, r: g.v!.budget ? p.nav / g.v!.budget - 1 : 0 })), own: g.v!.nav.map((p) => ({ date: p.date, r: g.v!.budget ? p.bench / g.v!.budget - 1 : 0 })), hold: (() => { const c = cmp.closes, p0 = c.get(g.v!.nav[0].date); return p0 ? g.v!.nav.filter((p) => c.has(p.date)).map((p) => ({ date: p.date, r: c.get(p.date)! / p0 - 1 })) : []; })() }))}
       />
 
 <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, margin: "6px 4px 0" }}>圖上每條線都從自己的起始日 0% 出發；虛線 0050 預設是 Claude 虛擬組的對照（10/19 起）；點下面的組名，虛線會換成那一組自己的 0050 對照，實線在虛線上方＝贏過 0050（和表格紅字一致）。線的右端數字＝下面表格第一欄「報酬」。</div>
@@ -727,18 +734,18 @@ function CompareView() {
       <div class="section-title"><span>各組從自己的起始日算起</span><span>報酬為相對起始資金</span></div>
       <div class="card" style={{ padding: "6px 8px", overflowX: "auto" }} data-testid="compare-all">
         <table style={{ width: "100%", fontSize: "13px", borderCollapse: "collapse" }}>
-          <thead><tr class="muted"><th style={{ ...th, textAlign: "left" }}>組合</th><th style={th}>報酬</th><th style={th}>同操作0050</th><th style={th}>贏/輸</th><th style={th}>最大回檔</th><th style={th}>天數</th></tr></thead>
+          <thead><tr class="muted"><th style={{ ...th, textAlign: "left" }}>組合</th><th style={th}>報酬</th><th style={th}>同操作0050</th><th style={th}>贏/輸</th><th style={th}>全買0050</th><th style={th}>最大回檔</th><th style={th}>天數</th></tr></thead>
           <tbody>{cmp.rows.map((r) => <Row r={r} same={false} />)}</tbody>
         </table>
       </div>
 
-<div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, margin: "6px 4px 0" }}>「同操作0050」：每次買賣都把同樣金額同時買賣 0050，現金部分也一樣放著不動。所以現金放得多的組合，它的 0050 跌得比較少，每組的數字不會一樣；「贏/輸」是和這個對照比的，公平。</div>
+<div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, margin: "6px 4px 0" }}>「同操作0050」：每次買賣都把同樣金額同時買賣 0050，現金部分也一樣放著不動。所以每組買進的比例、買賣的時間不同，數字不會一樣；「贏/輸」是和這個對照比的。「全買0050」＝該組起始日把全部資金一次買 0050 抱著（不含手續費），下面小字是組合報酬和它的差，所有組用同一條 0050 價格，只差在起始日。</div>
 
       {cmp.commonFrom && cmp.rows.filter((r) => r.same).length >= 2 && <>
         <div class="section-title"><span>同期比較</span><span>{prettyW(cmp.commonFrom)} 起</span></div>
         <div class="card" style={{ padding: "6px 8px", overflowX: "auto" }} data-testid="compare-same">
           <table style={{ width: "100%", fontSize: "13px", borderCollapse: "collapse" }}>
-            <thead><tr class="muted"><th style={{ ...th, textAlign: "left" }}>組合</th><th style={th}>報酬</th><th style={th}>同操作0050</th><th style={th}>贏/輸</th><th style={th}>最大回檔</th><th style={th}>天數</th></tr></thead>
+            <thead><tr class="muted"><th style={{ ...th, textAlign: "left" }}>組合</th><th style={th}>報酬</th><th style={th}>同操作0050</th><th style={th}>贏/輸</th><th style={th}>全買0050</th><th style={th}>最大回檔</th><th style={th}>天數</th></tr></thead>
             <tbody>{cmp.rows.map((r) => <Row r={r} same />)}</tbody>
           </table>
         </div>

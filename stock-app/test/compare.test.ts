@@ -29,4 +29,19 @@ describe("虛擬 ETF 總評比", () => {
     expect(c.rows[3].ready).toBe(false);
     expect(compareGroups([]).rows).toEqual([]);
   });
+
+  it("全買 0050：從成交紀錄的淨值反推 0050 收盤價，算出起始日全買抱著的報酬", () => {
+    // 10/28 用 108.65 買股票 10 萬（對照組同時買 0050），10/29 對照組淨值反映 0050 收 107.25
+    const trade = { id: "1", date: "20261028", code: "2330", name: "台積電", side: "buy" as const, shares: 100, price: 1000, benchPrice: 108.65 };
+    const units = (100 * 1000) / 108.65;
+    const cash = 500000 - 100000 * 1.001425;
+    const v = { ...mk("20261023", [["20261028", 499000, Math.round(cash + units * 108.65)], ["20261029", 495000, Math.round(cash + units * 107.25)]]), trades: [trade] };
+    const r = compareGroups([{ key: "x", label: "X", v }]).rows[0].all!;
+    expect(r.holdRet).toBeCloseTo(107.25 / 108.65 - 1, 4);
+    expect(r.holdDiff).toBeCloseTo(r.ret - (107.25 / 108.65 - 1), 4);
+  });
+  it("沒有成交紀錄（反推不出 0050 價格）就不給全買 0050", () => {
+    const r = compareGroups([{ key: "x", label: "X", v: mk("20261023", [["20261028", 500000, 500000], ["20261029", 495000, 498000]]) }]).rows[0].all!;
+    expect(r.holdRet).toBeUndefined();
+  });
 });

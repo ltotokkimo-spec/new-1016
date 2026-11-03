@@ -415,9 +415,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
           <div class="price num" data-testid="detail-price"><LimitPx s={s.market !== "US" ? lq?.limit ?? limitFromChg(price, dayChg ?? s.chg1d, isEtf(s.code)) : undefined}>{fmtPrice(price, s.market)}</LimitPx></div>
           <div class="num" style={{ marginTop: "4px", fontSize: "13px" }} data-testid="detail-price-note">
             {lq
-              ? <><div class="muted" data-testid="detail-session">{s.market === "US" ? `${lq.session ?? "收盤"}${lq.date ? ` ${prettyW(lq.date)}` : ""}` : lq.trial ? "試搓（開盤前試算價，還沒成交）" : lq.final || !marketOpen() ? "收盤" : "盤中"}</div>{s.market === "US"
-                  ? <div data-testid="detail-chg"><span class={cls(dayChg)}>{fmtPct(dayChg)}</span></div>
-                  : <div><span class="muted">昨收 {fmtPrice(lq.prevClose, s.market)}　</span><span class={cls(dayChg)}>{fmtPct(dayChg)}</span></div>}</>
+              ? <><div class="muted" data-testid="detail-session">{s.market === "US" ? `${lq.session ?? "收盤"}${lq.date ? ` ${prettyW(lq.date)}` : ""}` : lq.trial ? "試搓（開盤前試算價，還沒成交）" : lq.final || !marketOpen() ? "收盤" : "盤中"}</div><div data-testid="detail-chg"><span class={cls(dayChg)}>{fmtPct(dayChg)}</span></div></>
               : <span class="muted">收盤價 {snapAsOf ? pretty(snapAsOf) : ""}（還沒抓到即時價）</span>}
           </div>
           <div class="muted" style={{ marginTop: "6px", fontSize: "13px" }}>{s.sector}・{s.market === "US" ? "美股" : `${s.market === "TPEX" ? "上櫃" : "上市"}${isEtf(s.code) ? " ETF" : ""}`}</div>

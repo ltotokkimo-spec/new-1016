@@ -265,7 +265,7 @@ function check(ok, name, detail = "") {
   await page.waitForFunction(() => /折溢價（即時）/.test(document.querySelector(".sheet")?.innerText || ""), null, { timeout: 30000 }).catch(() => {});
   const etfDetail = await page.evaluate(() => ({ note: document.querySelector('[data-testid="detail-price-note"]')?.innerText.replace(/\s+/g, " ") || "", sheet: (document.querySelector(".sheet")?.innerText || "").replace(/\s+/g, " ") }));
   log("ETF 詳情", JSON.stringify({ note: etfDetail.note, prem: /折溢價（即時）[^]{0,80}/.exec(etfDetail.sheet)?.[0] }));
-  check(/^(盤中|收盤|試搓（[^）]*）) 昨收|^收盤價 \d+\/\d+/.test(etfDetail.note), "詳情頁大字旁標明盤中／收盤（不顯示時間）或收盤價日期", etfDetail.note);
+  check((/^(盤中|收盤|試搓（[^）]*）) [+-]?\d+\.\d%/.test(etfDetail.note) && !/昨收/.test(etfDetail.note)) || /^收盤價 \d+\/\d+/.test(etfDetail.note), "詳情頁大字旁標明盤中／收盤與漲跌（不顯示昨收價）或收盤價日期", etfDetail.note);
   check(/折溢價（即時） [+-]?\d+\.\d\d% 預估淨值 [\d.]+(?!・\d\d:\d\d)/.test(etfDetail.sheet), "ETF 詳情頁有即時折溢價（預估淨值，不顯示時間；市價已在最上方現價）", /折溢價（即時）[^]{0,80}/.exec(etfDetail.sheet)?.[0] || "沒有折溢價");
   await page.click('button[aria-label="返回"]');
   // 主動式 ETF 詳情頁：看得到買賣的成份（買進／賣出）與目前持股

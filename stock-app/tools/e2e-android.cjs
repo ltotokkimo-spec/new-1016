@@ -242,6 +242,22 @@ function check(ok, name, detail = "") {
   await device.shell(`am start -n ${PKG}/.MainActivity`);
   await sleep(2000);
   check(await page.$('[data-testid="claude-app-copied"]').then((x) => !!x).catch(() => false), "按下 Claude App 解析時已複製提問");
+  // 個股頁的方塊可以點：近 1 週 → 詳細頁（漲跌、最高最低、每天收盤 5 列）；外資近 5 日 → 切到下方「法人」逐日表
+  await page.click('[data-testid="mx-1w"]');
+  await page.waitForSelector('[data-testid="mx-detail"]', { timeout: 10000 }).catch(() => {});
+  const mx1 = await page.evaluate(() => ({ title: [...document.querySelectorAll(".sheet h2")].at(-1)?.textContent || "", detail: document.querySelector('[data-testid="mx-detail"]')?.innerText.replace(/\s+/g, " ").slice(0, 200) || "", days: document.querySelectorAll('[data-testid="mx-days"] .row').length }));
+  log("近 1 週詳細", JSON.stringify(mx1));
+  await shot("02d-方塊詳細-近1週");
+  check(/近 1 週/.test(mx1.title) && /近 1 週漲跌 [+-]?\d+\.\d%/.test(mx1.detail) && /期間最高 [\d,.]+/.test(mx1.detail) && mx1.days === 5, "個股頁點「近 1 週」看詳細（漲跌、最高最低、每天收盤）", JSON.stringify(mx1));
+  await page.evaluate(() => [...document.querySelectorAll('.sheet header button[aria-label="返回"]')].at(-1)?.click());
+  await page.waitForFunction(() => !document.querySelector('[data-testid="mx-detail"]'), null, { timeout: 5000 }).catch(() => {});
+  if (await page.$('[data-testid="mx-f5"]')) {
+    await page.click('[data-testid="mx-f5"]');
+    await sleep(600);
+    const flowOn = await page.$eval('[data-testid="tab-flow"]', (e) => e.getAttribute("aria-pressed")).catch(() => "");
+    check(flowOn === "true", "個股頁點「外資近 5 日」切到法人逐日表", String(flowOn));
+    await page.click('[data-testid="tab-k"]').catch(() => {});
+  }
   // 個股頁右上的箭頭：切到選股清單的下一檔（清單第 2 列），頁面換成那一檔
   const nextName = await page.evaluate(() => { const r = document.querySelectorAll(".list .item")[1] || document.querySelectorAll(".item")[1]; return r ? (r.querySelector(".name")?.innerText || r.innerText).replace(/\s+/g, " ") : ""; });
   const title0 = await page.$eval(".sheet h2", (e) => e.textContent).catch(() => "");

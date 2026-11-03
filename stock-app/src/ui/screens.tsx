@@ -11,6 +11,7 @@ import { twHistory } from "../data/history";
 import { esbHistory } from "../data/esb";
 import { indexHistory, isCryptoSymbol, isUsIndexSymbol, type IndexHist } from "../data/indexHistory";
 import { fngLabel, type Fng } from "../data/fng";
+import type { EtfNav } from "../data/etfNav";
 import { findXStock, OKX_BARS, okxCandlesUrl, okxInstrumentsUrl, okxTickerUrl, parseOkxCandles, parseOkxTicker, type OkxBar, type OkxTicker } from "../data/okx";
 import { CandleChart, type CandleBar } from "./candles";
 import { FlowsPanel } from "./flows";
@@ -345,6 +346,9 @@ export function StockDetail({ s, onClose, onNext, nextName }: { s: Scored; onClo
   const [barsErr, setBarsErr] = useState("");
   const [barsMore, setBarsMore] = useState(true); // 更早的月份還在下載
   const [chartTab, setChartTab] = useState<"k" | "flow">("k");
+  // 點方塊看詳細：近 1 週／1 月／3 月、相對 S&P 500、折溢價開說明頁；法人的方塊直接切到下面的「法人」逐日表
+  const [mx, setMx] = useState<null | "1w" | "1m" | "3m" | "rs" | "nav">(null);
+  const goFlows = () => { setChartTab("flow"); setTimeout(() => document.querySelector('[data-testid="chart-tabs"]')?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); };
   const [adding, setAdding] = useState(false);
   const holding = holdings.find((h) => h.code === s.code);
   const isExtra = useStore((st) => st.usExtra.some((x) => x.symbol === s.code)) && !holding;
@@ -410,6 +414,7 @@ export function StockDetail({ s, onClose, onNext, nextName }: { s: Scored; onClo
   };
 
   return (
+    <>
     <Sheet title={`${s.name} ${s.code}`} onClose={onClose} actions={onNext && (
       <button class="iconbtn" aria-label={`下一檔${nextName ? `：${nextName}` : ""}`} title={nextName ? `下一檔：${nextName}` : "下一檔"} onClick={onNext} data-testid="detail-next">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6" /></svg>
@@ -432,16 +437,16 @@ export function StockDetail({ s, onClose, onNext, nextName }: { s: Scored; onClo
       </div>
 
       <div class="grid2" style={{ marginTop: "14px" }}>
-        <Metric k="近 1 週" v={fmtPct(s.ret1w)} c={cls(s.ret1w)} />
-        <Metric k="近 1 月" v={fmtPct(s.ret1m)} c={cls(s.ret1m)} />
-        <Metric k="近 3 月" v={fmtPct(s.ret3m)} c={cls(s.ret3m)} />
+        <Metric k="近 1 週" v={fmtPct(s.ret1w)} c={cls(s.ret1w)} onClick={() => setMx("1w")} id="mx-1w" />
+        <Metric k="近 1 月" v={fmtPct(s.ret1m)} c={cls(s.ret1m)} onClick={() => setMx("1m")} id="mx-1m" />
+        <Metric k="近 3 月" v={fmtPct(s.ret3m)} c={cls(s.ret3m)} onClick={() => setMx("3m")} id="mx-3m" />
         {s.market === "US"
-          ? <Metric k="相對 S&P 500（1月）" v={fmtPct(s.rsVsIndex1m)} c={cls(s.rsVsIndex1m)} />
-          : <Metric k="外資近 5 日" v={lots(s.foreign5)} c={cls(s.foreign5)} d={s.foreignStreak ? `${s.foreignStreak > 0 ? "連買" : "連賣"} ${Math.abs(s.foreignStreak)} 天` : ""} />}
-        {s.market !== "US" && <Metric k="投信近 5 日" v={lots(s.trust5)} c={cls(s.trust5)} />}
-        {s.market !== "US" && <Metric k="外資近 10 日" v={lots(s.foreign10)} c={cls(s.foreign10)} />}
+          ? <Metric k="相對 S&P 500（1月）" v={fmtPct(s.rsVsIndex1m)} c={cls(s.rsVsIndex1m)} onClick={() => setMx("rs")} id="mx-rs" />
+          : <Metric k="外資近 5 日" v={lots(s.foreign5)} c={cls(s.foreign5)} d={s.foreignStreak ? `${s.foreignStreak > 0 ? "連買" : "連賣"} ${Math.abs(s.foreignStreak)} 天` : ""} onClick={goFlows} id="mx-f5" />}
+        {s.market !== "US" && <Metric k="投信近 5 日" v={lots(s.trust5)} c={cls(s.trust5)} onClick={goFlows} id="mx-t5" />}
+        {s.market !== "US" && <Metric k="外資近 10 日" v={lots(s.foreign10)} c={cls(s.foreign10)} onClick={goFlows} id="mx-f10" />}
         {etf && etfNav && Number.isFinite(etfNav.premium) && (
-          <Metric k="折溢價（即時）" v={`${etfNav.premium > 0 ? "+" : ""}${etfNav.premium.toFixed(2)}%`}
+          <Metric k="折溢價（即時）" onClick={() => setMx("nav")} id="mx-nav" v={`${etfNav.premium > 0 ? "+" : ""}${etfNav.premium.toFixed(2)}%`}
             d={`預估淨值 ${fmtPrice(etfNav.nav)}${Math.abs(etfNav.premium) >= 1 ? (etfNav.premium > 0 ? "・溢價偏高" : "・折價偏深") : ""}`} />
         )}
       </div>
@@ -522,11 +527,18 @@ export function StockDetail({ s, onClose, onNext, nextName }: { s: Scored; onClo
       </div>
       {adding && <HoldingForm initial={{ code: s.code, name: s.name, market: s.market, shares: 1000, cost: s.close }} onDone={() => setAdding(false)} />}
     </Sheet>
+    {mx && <MetricDetail kind={mx} s={s} bars={bars} nav={etfNav} onClose={() => setMx(null)} />}
+    </>
   );
 }
 
-function Metric({ k, v, c = "", d = "" }: { k: string; v: string; c?: string; d?: string }) {
-  return <div class="metric"><div class="k">{k}</div><div class={`v num ${c}`}>{v}</div>{d && <div class="d muted">{d}</div>}</div>;
+function Metric({ k, v, c = "", d = "", onClick, id }: { k: string; v: string; c?: string; d?: string; onClick?: () => void; id?: string }) {
+  return (
+    <div class="metric" onClick={onClick} style={onClick ? { cursor: "pointer" } : undefined} data-testid={id} role={onClick ? "button" : undefined}>
+      <div class="k" style={onClick ? { display: "flex", justifyContent: "space-between" } : undefined}>{k}{onClick && <span class="muted" aria-hidden="true">›</span>}</div>
+      <div class={`v num ${c}`}>{v}</div>{d && <div class="d muted">{d}</div>}
+    </div>
+  );
 }
 
 export function AiReportView({ r }: { r: AiReport }) {
@@ -890,6 +902,80 @@ function FngGauge({ v }: { v: number }) {
       <text x={cx - r + 6} y={cy - r + 4} font-size="9" fill="#13834a">恐懼</text>
       <text x={cx + r - 6} y={cy - r + 4} font-size="9" fill="#d7263d" text-anchor="end">貪婪</text>
     </svg>
+  );
+}
+
+// ---------------- 個股頁方塊的詳細內容 ----------------
+function MetricDetail({ kind, s, bars, nav, onClose }: { kind: "1w" | "1m" | "3m" | "rs" | "nav"; s: Scored; bars: CandleBar[] | null; nav?: EtfNav; onClose: () => void }) {
+  const fp = (x: number) => fmtPrice(x, s.market);
+  const fd = (d: string) => prettyW(d);
+  if (kind === "nav") {
+    return (
+      <Sheet title={`${s.name} 折溢價`} onClose={onClose}>
+        {nav ? <>
+          <div class="grid2" data-testid="mx-detail">
+            <Metric k="市價" v={fp(nav.price)} />
+            <Metric k="預估淨值" v={fp(nav.nav)} />
+            <Metric k="折溢價" v={`${nav.premium > 0 ? "+" : ""}${nav.premium.toFixed(2)}%`} c={cls(nav.premium)} d={Math.abs(nav.premium) >= 1 ? (nav.premium > 0 ? "溢價偏高" : "折價偏深") : "在合理範圍（±1% 內）"} />
+            <Metric k="前一日淨值" v={Number.isFinite(nav.prevNav) ? fp(nav.prevNav) : "—"} d={nav.time ? `證交所 ${nav.time.slice(0, 5)} 更新` : ""} />
+          </div>
+          <div class="card" style={{ fontSize: "13px", lineHeight: 1.7, marginTop: "10px" }}>
+            折溢價＝（市價 − 預估淨值）÷ 預估淨值。<b>溢價</b>代表買的價格比 ETF 實際持有的資產價值貴，<b>折價</b>代表比較便宜。
+            溢價超過 1% 時買進，等於多付了這段差價，之後溢價縮小就會虧在這裡；主動式與熱門 ETF 常在搶購時出現溢價。預估淨值是證交所盤中依成分股即時價推算，收盤後以投信公布的淨值為準。
+          </div>
+        </> : <div class="muted">還沒抓到預估淨值。</div>}
+      </Sheet>
+    );
+  }
+  if (kind === "rs") {
+    const rs = s.rsVsIndex1m, r1 = s.ret1m;
+    const spx = rs !== undefined && Number.isFinite(rs) && Number.isFinite(r1) ? r1 - rs : undefined;
+    return (
+      <Sheet title={`${s.name} 相對 S&P 500`} onClose={onClose}>
+        <div class="grid2" data-testid="mx-detail">
+          <Metric k={`${s.code} 近 1 月`} v={fmtPct(r1)} c={cls(r1)} />
+          <Metric k="S&P 500 近 1 月" v={fmtPct(spx)} c={cls(spx ?? 0)} d="用 SPY 計算" />
+          <Metric k="相對表現（超額報酬）" v={fmtPct(rs)} c={cls(rs ?? 0)} d={rs === undefined ? "" : rs >= 0 ? "比大盤強" : "比大盤弱"} />
+        </div>
+        <div class="card" style={{ fontSize: "13px", lineHeight: 1.7, marginTop: "10px" }}>相對表現＝這檔近 1 個月（21 個交易日）的漲跌減去 S&P 500 同期的漲跌。正值代表跑贏大盤，評分的「動能」會參考這個數字；短期大幅落後大盤通常代表資金正在撤出。</div>
+      </Sheet>
+    );
+  }
+  const n = kind === "1w" ? 5 : kind === "1m" ? 21 : 63;
+  const label = kind === "1w" ? "近 1 週" : kind === "1m" ? "近 1 月" : "近 3 月";
+  const b = bars ?? [];
+  const ok = b.length > n;
+  const seg = ok ? b.slice(b.length - 1 - n) : [];
+  const base = seg[0], last = seg[seg.length - 1];
+  const ret = ok ? last.close / base.close - 1 : undefined;
+  const hi = ok ? seg.slice(1).reduce((m, x) => (x.high > m.high ? x : m), seg[1]) : undefined;
+  const lo = ok ? seg.slice(1).reduce((m, x) => (x.low < m.low ? x : m), seg[1]) : undefined;
+  let pk = base?.close ?? 0, dd = 0;
+  for (const x of seg.slice(1)) { pk = Math.max(pk, x.close); dd = Math.min(dd, x.close / pk - 1); }
+  const days = seg.slice(1).map((x, i) => ({ d: x.date, c: x.close, chg: x.close / seg[i].close - 1 }));
+  const up = days.filter((x) => x.chg > 0).length;
+  return (
+    <Sheet title={`${s.name} ${label}`} onClose={onClose}>
+      {!ok ? <div class="muted">走勢資料下載中，稍後再點一次。</div> : <>
+        <div class="grid2" data-testid="mx-detail">
+          <Metric k={`${label}漲跌`} v={fmtPct(ret)} c={cls(ret ?? 0)} d={`${fd(base.date)} 收 ${fp(base.close)} → ${fd(last.date)} 收 ${fp(last.close)}`} />
+          <Metric k="期間最大回檔" v={fmtPct(dd)} c={dd < 0 ? "down" : ""} d="從期間最高收盤往下最多跌多少" />
+          <Metric k="期間最高" v={fp(hi!.high)} d={fd(hi!.date)} />
+          <Metric k="期間最低" v={fp(lo!.low)} d={fd(lo!.date)} />
+          <Metric k="上漲天數" v={`${up}／${days.length} 天`} d={`下跌 ${days.filter((x) => x.chg < 0).length} 天`} />
+          <Metric k="目前距期間高點" v={fmtPct(last.close / hi!.high - 1)} c={cls(last.close / hi!.high - 1)} />
+        </div>
+        <div class="section-title"><span>每天收盤</span><span class="muted" style={{ fontSize: "12px" }}>新到舊</span></div>
+        <div class="card" style={{ padding: "4px 12px" }} data-testid="mx-days">
+          {[...days].reverse().map((x) => (
+            <div class="row" style={{ justifyContent: "space-between", padding: "5px 0", borderTop: "1px solid var(--line)", fontSize: "13px" }}>
+              <span>{fd(x.d)}</span><span class="num">{fp(x.c)} <span class={cls(x.chg)} style={{ display: "inline-block", minWidth: "62px", textAlign: "right" }}>{fmtPct(x.chg, 2)}</span></span>
+            </div>
+          ))}
+        </div>
+        <div class="muted" style={{ fontSize: "11.5px", marginTop: "6px" }}>{label}＝最近 {n} 個交易日；用日 K 收盤計算，和上方方塊（評分當天的資料）可能差一兩天。</div>
+      </>}
+    </Sheet>
   );
 }
 

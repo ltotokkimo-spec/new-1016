@@ -368,6 +368,21 @@ function check(ok, name, detail = "") {
   const fngTxt = await page.$eval('[data-testid="fng-card"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   log("恐懼貪婪指數", fngTxt);
   check(/恐懼貪婪指數 \d{1,3} (極度恐懼|恐懼|中立|貪婪|極度貪婪)/.test(fngTxt) && /昨天 \d{1,3}/.test(fngTxt), "數據頁虛擬幣區顯示恐懼貪婪指數（分數、分級、昨天）", fngTxt);
+  // RWA（總市值、主要分類、規模最大的代幣）與代幣化美股報價（CoinGecko；不同步，最多等 40 秒）
+  await page.waitForFunction(() => document.querySelector('[data-testid="rwa-total"]') && document.querySelector('[data-testid="tstock-row"]'), null, { timeout: 40000 }).catch(() => {});
+  const rwa = await page.evaluate(() => ({
+    total: document.querySelector('[data-testid="rwa-total"]')?.innerText.replace(/\s+/g, " ") || "",
+    cats: document.querySelector('[data-testid="rwa-cats"]')?.innerText.replace(/\s+/g, " ") || "",
+    top: document.querySelector('[data-testid="rwa-top"]')?.innerText.replace(/\s+/g, " ") || "",
+    card: document.querySelector('[data-testid="rwa-card"]')?.innerText.replace(/\s+/g, " ").slice(-200) || "",
+    stocks: [...document.querySelectorAll('[data-testid="tstock-row"]')].map((e) => e.innerText.replace(/\s+/g, " ")),
+    stockTitle: document.querySelector('[data-testid="tstock-card"] .k')?.innerText || "",
+  }));
+  log("RWA", JSON.stringify(rwa));
+  await shot("RWA與代幣化美股");
+  check(/[\d,.]+ (億|萬)美元/.test(rwa.total) && /24 小時 [+-]?\d/.test(rwa.total), "虛擬幣區顯示 RWA 總市值與 24 小時變化", JSON.stringify({ total: rwa.total, card: rwa.card }));
+  check(/代幣化(公債|黃金|商品|股票)/.test(rwa.cats) && /[\d,.]+ (億|萬)美元/.test(rwa.top), "RWA 顯示主要分類與規模最大的代幣", JSON.stringify({ cats: rwa.cats.slice(0, 160), top: rwa.top.slice(0, 120) }));
+  check(rwa.stocks.length >= 3 && rwa.stocks.every((r) => /\$[\d,.]+/.test(r)), "代幣化美股列出至少 3 檔報價", JSON.stringify({ title: rwa.stockTitle, rows: rwa.stocks.slice(0, 4) }));
   // 卡片整排寬，右邊儀表板的指針角度要對應分數（0 在左、100 在右）
   const fngG = await page.evaluate(() => {
     const card = document.querySelector('[data-testid="fng-card"]'), g = document.querySelector('[data-testid="fng-gauge"]'), n = document.querySelector('[data-testid="fng-needle"]');

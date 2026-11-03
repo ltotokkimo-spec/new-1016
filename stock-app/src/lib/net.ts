@@ -18,6 +18,7 @@ const GAP_MS: Record<string, number> = {
   "www.moneydj.com": 400,
   "api.nasdaq.com": 250,
   "quote.cnbc.com": 0,
+  "api.coingecko.com": 2500, // 免費版每分鐘約 30 次
 };
 const lastAt = new Map<string, Promise<void>>();
 

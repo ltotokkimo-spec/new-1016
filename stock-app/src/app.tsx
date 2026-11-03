@@ -33,6 +33,11 @@ export function App() {
   const [market, setMarket] = useState<Market>("TW");
   const [sector, setSector] = useState("");
   const [detail, setDetail] = useState<Scored | null>(null);
+  // 打開個股時記住是從哪份清單點進來的，個股頁右上的箭頭可以切到下一檔
+  const [detailList, setDetailList] = useState<Scored[]>([]);
+  const openDetail = (s: Scored, list?: Scored[]) => { setDetail(s); setDetailList(list ?? []); };
+  const nextIdx = detail && detailList.length > 1 ? detailList.findIndex((x) => x.code === detail.code && x.market === detail.market) : -1;
+  const next = nextIdx >= 0 ? detailList[(nextIdx + 1) % detailList.length] : undefined;
   const { tw, etf, us, loaded } = useStore((s) => ({ tw: s.tw, etf: s.etf, us: s.us, loaded: s.loaded, aiEtf: s.aiEtf, prices: s.prices }));
   // 已抓到今天的台股即時價（盤中、試搓或收盤後）：頂端日期顯示今天，不要停在上個交易日的收盤
   const liveToday = useStore((s): { date: string; final: boolean } | null => {
@@ -59,7 +64,7 @@ export function App() {
     if (j.kind === "brief") { setTab("macro"); return; }
     if (j.kind === "aietf") { setTab("aietf"); return; }
     const s = j.code ? findScored(j.code, j.market === "US" ? "US" : "TW") : undefined;
-    if (s) setDetail(s);
+    if (s) openDetail(s);
   };
   const refresh = () => { if (market === "US") refreshUs(); else { refreshTw(); refreshEsb(); } refreshMacro(); };
 
@@ -91,12 +96,12 @@ export function App() {
       <main ref={mainRef}>
         {tab !== "settings" && <UpdateBanner />}
         <AiJobBanner open={openJob} />
-        {tab === "picks" && <PicksScreen market={market} setMarket={setMarket} sector={sector} setSector={setSector} open={setDetail} />}
+        {tab === "picks" && <PicksScreen market={market} setMarket={setMarket} sector={sector} setSector={setSector} open={openDetail} />}
         {tab === "sectors" && <SectorsScreen market={market} setMarket={setMarket} pick={(s) => { setSector(s); setTab("picks"); }} />}
-        {tab === "holdings" && <HoldingsScreen open={setDetail} />}
+        {tab === "holdings" && <HoldingsScreen open={openDetail} />}
         {tab === "aietf" && <AiEtfScreen />}
         {tab === "macro" && <MacroScreen />}
-        {tab === "etfrank" && <EtfRankScreen open={setDetail} />}
+        {tab === "etfrank" && <EtfRankScreen open={openDetail} />}
         {tab === "settings" && <SettingsScreen />}
       </main>
       <nav class="tabs" aria-label="主選單">
@@ -108,7 +113,7 @@ export function App() {
           </button>
         ))}
       </nav>
-      {detail && <StockDetail s={detail} onClose={() => setDetail(null)} />}
+      {detail && <StockDetail key={`${detail.market}:${detail.code}`} s={detail} onClose={() => setDetail(null)} onNext={next ? () => setDetail(next) : undefined} nextName={next ? `${next.name} ${next.code}` : undefined} />}
     </div>
   );
 }

@@ -242,6 +242,16 @@ function check(ok, name, detail = "") {
   await device.shell(`am start -n ${PKG}/.MainActivity`);
   await sleep(2000);
   check(await page.$('[data-testid="claude-app-copied"]').then((x) => !!x).catch(() => false), "按下 Claude App 解析時已複製提問");
+  // 個股頁右上的箭頭：切到選股清單的下一檔（清單第 2 列），頁面換成那一檔
+  const nextName = await page.evaluate(() => { const r = document.querySelectorAll(".list .item")[1] || document.querySelectorAll(".item")[1]; return r ? (r.querySelector(".name")?.innerText || r.innerText).replace(/\s+/g, " ") : ""; });
+  const title0 = await page.$eval(".sheet h2", (e) => e.textContent).catch(() => "");
+  const hasNext = !!(await page.$('[data-testid="detail-next"]'));
+  if (hasNext) await page.click('[data-testid="detail-next"]');
+  await page.waitForFunction((t0) => document.querySelector(".sheet h2")?.textContent !== t0, { timeout: 10000 }, title0).catch(() => {});
+  const title1 = await page.$eval(".sheet h2", (e) => e.textContent).catch(() => "");
+  const code1 = /(\S+)$/.exec(title1 || "")?.[1] || "";
+  log("下一檔", JSON.stringify({ title0, title1, nextName }));
+  check(hasNext && title1 !== title0 && !!code1 && nextName.includes(code1), "個股頁右上箭頭切到清單的下一檔", JSON.stringify({ title0, title1, nextName }));
   await page.click('button[aria-label="返回"]');
 
   // ETF 分頁：證交所資料裡的 ETF 單獨評分（只有「全部」，不分評等）

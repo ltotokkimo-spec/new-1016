@@ -34,7 +34,7 @@ import { limitFromChg } from "../lib/limit";
 
 // ---------------- 選股 ----------------
 export function PicksScreen({ market, setMarket, sector, setSector, open }: {
-  market: Market; setMarket: (m: Market) => void; sector: string; setSector: (s: string) => void; open: (s: Scored) => void;
+  market: Market; setMarket: (m: Market) => void; sector: string; setSector: (s: string) => void; open: (s: Scored, list?: Scored[]) => void;
 }) {
   const ms = useStore((s) => (market === "TW" ? s.tw : market === "ETF" ? s.etf : s.us));
   const [filter0, setFilter] = useState<Rating | "全部" | "剛轉強">("買入");
@@ -112,7 +112,7 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
             </div>
           ) : (
             <div class="list">
-              {list.slice(0, 150).map((s) => <StockRow s={s} q={freshLive(s)} turn={filter === "剛轉強" ? turnMap.get(s.code) : undefined} onClick={() => open(s)} />)}
+              {list.slice(0, 150).map((s) => <StockRow s={s} q={freshLive(s)} turn={filter === "剛轉強" ? turnMap.get(s.code) : undefined} onClick={() => open(s, list.slice(0, 150))} />)}
             </div>
           )}
           <p class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
@@ -338,7 +338,8 @@ export function SectorsScreen({ market, setMarket, pick }: { market: Market; set
 }
 
 // ---------------- 個股詳細 ----------------
-export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) {
+/** onNext：切換到同一份清單的下一檔（選股、持股、ETF 排行）；最後一檔再按回到第一檔 */
+export function StockDetail({ s, onClose, onNext, nextName }: { s: Scored; onClose: () => void; onNext?: () => void; nextName?: string }) {
   const { holdings, apiKey, reports } = useStore((st) => ({ holdings: st.holdings, apiKey: st.settings.apiKey, reports: st.reports }));
   const [bars, setBars] = useState<CandleBar[] | null>(null);
   const [barsErr, setBarsErr] = useState("");
@@ -409,7 +410,11 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
   };
 
   return (
-    <Sheet title={`${s.name} ${s.code}`} onClose={onClose}>
+    <Sheet title={`${s.name} ${s.code}`} onClose={onClose} actions={onNext && (
+      <button class="iconbtn" aria-label={`下一檔${nextName ? `：${nextName}` : ""}`} title={nextName ? `下一檔：${nextName}` : "下一檔"} onClick={onNext} data-testid="detail-next">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6" /></svg>
+      </button>
+    )}>
       <div class="hero">
         <div>
           <div class="price num" data-testid="detail-price"><LimitPx s={s.market !== "US" ? lq?.limit ?? limitFromChg(price, dayChg ?? s.chg1d, isEtf(s.code)) : undefined}>{fmtPrice(price, s.market)}</LimitPx></div>
@@ -608,7 +613,7 @@ function EsbDetail({ h, onClose }: { h: { code: string; name: string; shares: nu
   );
 }
 
-export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
+export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) => void }) {
   useStore((s) => [s.holdings, s.tw.scored, s.etf.scored, s.us.scored, s.esb, s.prices]);
   const apiKey = useStore((s) => s.settings.apiKey);
   const fx = usdTwdRate(useStore((s) => s.macro.quotes)); // 美元兌台幣，美股損益換成台幣用
@@ -715,7 +720,7 @@ export function HoldingsScreen({ open }: { open: (s: Scored) => void }) {
         <div class="empty">還沒有持股。<br />拍一張證券 App 的「庫存」畫面，Claude 會自動辨識代號、股數與成本。</div>
       ) : (
         <div class="list">
-          {views.map((v) => <HoldingRow v={v} open={open} onEsb={setEsbOpen} fx={fx} />)}
+          {views.map((v) => <HoldingRow v={v} open={(s) => open(s, views.map((x) => x.scored).filter((x): x is Scored => !!x))} onEsb={setEsbOpen} fx={fx} />)}
         </div>
       )}
       {views.length > 0 && <HoldingsEditor />}

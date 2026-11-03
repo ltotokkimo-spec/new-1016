@@ -112,7 +112,7 @@ function WhoSheet({ row, days, onClose, openDetail, live }: { row: Row; days: 1 
   );
 }
 
-export function EtfRankScreen({ open }: { open: (s: Scored) => void }) {
+export function EtfRankScreen({ open }: { open: (s: Scored, list?: Scored[]) => void }) {
   const tw = useStore((s) => s.tw);
   const active = useStore((s) => s.activeEtf);
   const [src, setSrc] = useState<"active" | "trust">("active");
@@ -160,7 +160,7 @@ export function EtfRankScreen({ open }: { open: (s: Scored) => void }) {
     return () => clearInterval(t);
   }, [liveKey]);
   // 主動式 ETF：點進去看是哪幾檔在買賣；投信全部沒有逐檔資料，直接開個股詳情
-  const pick = (r: Row) => (src === "active" ? setWho(r) : open(r.item));
+  const pick = (r: Row) => (src === "active" ? setWho(r) : open(r.item, ((rank.buy as Row[]).some((x) => x.item.code === r.item.code) ? (rank.buy as Row[]) : (rank.sell as Row[])).map((x) => x.item)));
   const ready = tw.scored.length > 0 && (src === "trust" || !!active);
   const used = rank.used;
   const dataDay = src === "active" ? (used?.[0]?.date ?? active?.data.live ?? "") : (tw.flowDate ?? "");

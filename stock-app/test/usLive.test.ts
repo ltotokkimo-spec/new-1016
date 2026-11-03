@@ -83,3 +83,33 @@ describe("美股資料日與重抓", () => {
     expect(usQuoteHours(at("2026-10-20T01:00:00Z"))).toBe(false); // 紐約 21:00
   });
 });
+
+describe("美股交易時段（個股頁即時行情）", () => {
+  it("盤前／盤後成交即使現在不在那個時段也保留（xq），附紐約日期", () => {
+    // 收盤後狀態（POST_MKT 之後 CNBC 會變 CLOSED），盤後價仍要能顯示在個股頁的「盤後」那列
+    const f = structuredClone(post);
+    Object.assign(f.FormattedQuoteResult.FormattedQuote[0], { curmktstatus: "CLOSED" });
+    const q = parseUsLive(f).AAPL;
+    expect(q.ext).toBeUndefined(); // 列表只在盤後時段顯示
+    expect(q.xq).toMatchObject({ label: "盤後", price: 343.04, time: "07:59", date: "20261019" });
+  });
+  it("盤前：type PRE_MKT", () => {
+    const f = structuredClone(post);
+    Object.assign(f.FormattedQuoteResult.FormattedQuote[0], { curmktstatus: "PRE_MKT" });
+    Object.assign(f.FormattedQuoteResult.FormattedQuote[0].ExtendedMktQuote!, { type: "PRE_MKT", last: "345.10", last_time: "2026-10-20T08:15:00.000-0400" });
+    const q = parseUsLive(f).AAPL;
+    expect(q.xq).toMatchObject({ label: "盤前", price: 345.1, date: "20261020", time: "20:15" });
+    expect(q.ext).toMatchObject({ label: "盤前", price: 345.1 });
+  });
+  it("現在是哪個時段（紐約時間）", async () => {
+    const { usSession } = await import("../src/lib/dates");
+    const ny = (iso: string) => Date.parse(iso); // 帶時區的 ISO
+    expect(usSession(ny("2026-11-03T05:00:00-05:00"))).toBe("盤前");
+    expect(usSession(ny("2026-11-03T09:29:00-05:00"))).toBe("盤前");
+    expect(usSession(ny("2026-11-03T09:30:00-05:00"))).toBe("盤中");
+    expect(usSession(ny("2026-11-03T16:00:00-05:00"))).toBe("盤後");
+    expect(usSession(ny("2026-11-03T20:00:00-05:00"))).toBe("夜間");
+    expect(usSession(ny("2026-11-03T03:59:00-05:00"))).toBe("夜間");
+    expect(usSession(ny("2026-11-07T12:00:00-05:00"))).toBe("週末");
+  });
+});

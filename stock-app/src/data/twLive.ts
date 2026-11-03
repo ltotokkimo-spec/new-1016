@@ -14,6 +14,8 @@ export interface LiveQuote {
   session?: "盤中" | "收盤"; // 美股才有：price 是正常交易時段的最新價（盤中），或已經收盤的價格；盤前／盤後的成交在 ext
   // 美股才有：時間已換成台北時間；盤前／盤後的成交
   ext?: { label: "盤前" | "盤後"; price: number; chg: number; time: string };
+  // 美股才有：最近一筆盤前或盤後成交（現在不在盤前／盤後也保留；date 是紐約日期 YYYYMMDD）
+  xq?: { label: "盤前" | "盤後"; price: number; chg: number; time: string; date: string };
   volume?: number; // 當日累積成交量（股）；台股由證交所 mis 的 v（張）× 1000
 }
 

@@ -45,6 +45,8 @@ export function parseUsLive(json: any): Record<string, LiveQuote> {
     if ((status === "PRE_MKT" || status === "POST_MKT") && x?.type === status && xt && !xt.dateOnly && xp > 0)
       // 漲跌自己算（對照正常盤的價格），不用 CNBC 的 change_pct：避免盤後價低於收盤卻顯示成紅色
       lq.ext = { label: status === "PRE_MKT" ? "盤前" : "盤後", price: xp, chg: xp / price - 1, time: taipeiClock(xt.t) };
+    if ((x?.type === "PRE_MKT" || x?.type === "POST_MKT") && xt && !xt.dateOnly && xp > 0)
+      lq.xq = { label: x.type === "PRE_MKT" ? "盤前" : "盤後", price: xp, chg: xp / price - 1, time: taipeiClock(xt.t), date: xt.ymd };
     out[lq.code] = lq;
   }
   return out;

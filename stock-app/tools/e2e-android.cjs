@@ -801,6 +801,13 @@ function check(ok, name, detail = "") {
   const costTxt = await page.$eval('[data-testid="candle-cost"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   check(/我的均價 100(\.0+)?（現價 [\d,.]+，[+-]?\d+\.\d\d%）/.test(costTxt), "持股的 K 線圖標示我的均價線（均價與現價差）", costTxt);
   await shot("06b-持股K線均價線");
+  // 即時行情・交易時段：盤前／盤中（或收盤）／盤後／24 小時四列，正常盤那列要有價格，現在的時段標「進行中」；每幾秒自動更新
+  await page.waitForFunction(() => /[\d.]+/.test(document.querySelector('[data-testid="us-sess-reg"]')?.innerText || "") && /[\d.]+/.test(document.querySelector('[data-testid="us-sess-24h"]')?.innerText || ""), null, { timeout: 60000 }).catch(() => {});
+  const ss = await page.evaluate(() => ({ rows: ["pre", "reg", "post", "24h"].map((k) => document.querySelector(`[data-testid="us-sess-${k}"]`)?.innerText.replace(/\s+/g, " ") || ""), live: document.querySelectorAll('[data-testid="us-sess-live"]').length, title: [...document.querySelectorAll(".section-title")].map((e) => e.innerText).find((t) => /交易時段/.test(t)) || "" }));
+  log("AAPL 交易時段", JSON.stringify(ss));
+  await page.evaluate(() => document.querySelector('[data-testid="us-sessions"]')?.scrollIntoView());
+  await shot("06c0-美股交易時段");
+  check(ss.rows.every(Boolean) && /^盤前/.test(ss.rows[0]) && /^(盤中|收盤)/.test(ss.rows[1]) && /^盤後/.test(ss.rows[2]) && /^24 小時/.test(ss.rows[3]) && /[\d,]+\.\d+/.test(ss.rows[1]) && /[\d,]+\.\d+/.test(ss.rows[3]) && ss.live === 1, "美股個股頁：盤前／盤中／盤後／24 小時即時行情（目前時段標進行中）", JSON.stringify(ss));
   // 美股 24 小時行情（OKX xStocks）：AAPL 有 xStock，應該有報價與分時 K 線；切到 4 時再確認一次
   await page.waitForFunction(() => document.querySelector('[data-testid="us-24h"] canvas.chart') || document.querySelector('[data-testid="us-24h-none"]') || document.querySelector('[data-testid="us-24h-err"]'), null, { timeout: 60000 }).catch(() => {});
   const o1 = await page.evaluate(() => ({ title: [...document.querySelectorAll(".section-title")].map((e) => e.innerText).find((t) => /24 小時行情/.test(t)) || "", quote: document.querySelector('[data-testid="us-24h-quote"]')?.innerText.replace(/\s+/g, " ") || "", chart: !!document.querySelector('[data-testid="us-24h"] canvas.chart'), info: document.querySelector('[data-testid="us-24h"] [data-testid="candle-info"]')?.innerText || "", none: document.querySelector('[data-testid="us-24h-none"]')?.innerText || "", err: document.querySelector('[data-testid="us-24h-err"]')?.innerText || "" }));

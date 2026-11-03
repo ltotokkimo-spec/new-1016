@@ -125,6 +125,16 @@ export function usQuoteHours(now = Date.now()): boolean {
   return n.weekday >= 1 && n.weekday <= 5 && n.minutes >= 4 * 60 && n.minutes < 20 * 60;
 }
 
+/** 現在是美股哪個時段（紐約時間，平日）：盤前 4:00～9:30、盤中 9:30～16:00、盤後 16:00～20:00，其餘是夜間或週末 */
+export function usSession(now = Date.now()): "盤前" | "盤中" | "盤後" | "夜間" | "週末" {
+  const n = nyParts(now);
+  if (n.weekday === 0 || n.weekday === 6) return "週末";
+  if (n.minutes >= 4 * 60 && n.minutes < 9 * 60 + 30) return "盤前";
+  if (n.minutes >= 9 * 60 + 30 && n.minutes < 16 * 60) return "盤中";
+  if (n.minutes >= 16 * 60 && n.minutes < 20 * 60) return "盤後";
+  return "夜間";
+}
+
 /** 任意時間點的台北時間 HH:MM */
 export function taipeiClock(t: number): string {
   const d = new Date(t + 8 * 3600_000);

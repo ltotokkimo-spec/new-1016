@@ -382,7 +382,7 @@ function check(ok, name, detail = "") {
   if (fngTxt) {
     await page.click('[data-testid="fng-card"]');
     await page.waitForSelector('[data-testid="fng-detail"]', { timeout: 10000 });
-    await page.waitForFunction(() => document.querySelector('[data-testid="fng-btc-line"]') || document.querySelector('[data-testid="fng-line"]') && /下載中/.test(document.querySelector('[data-testid="fng-btc-toggle"]')?.innerText || "") === false, null, { timeout: 60000 }).catch(() => {});
+    await page.waitForSelector('[data-testid="fng-btc-line"]', { timeout: 60000 }).catch(() => {});
     const fd = await page.evaluate(() => ({ line: !!document.querySelector('[data-testid="fng-line"]'), btc: !!document.querySelector('[data-testid="fng-btc-line"]'), days: document.querySelector(".sheet")?.innerText.match(/近一年走勢\s*(\d+) 天/)?.[1], sum: document.querySelector('[data-testid="fng-summary"]')?.innerText.replace(/\s+/g, " ") || "", about: document.querySelector('[data-testid="fng-about"]')?.innerText || "" }));
     log("恐懼貪婪詳情", JSON.stringify(fd));
     await shot("恐懼貪婪詳情");
@@ -390,6 +390,21 @@ function check(ok, name, detail = "") {
     check(fd.btc, "恐懼貪婪詳情：走勢圖疊上比特幣價格", "");
     check(/昨天 \d+/.test(fd.sum) && /一週前 \d+/.test(fd.sum) && /一個月前 \d+/.test(fd.sum) && /一年內最高／最低 \d+／\d+/.test(fd.sum), "恐懼貪婪詳情：摘要（昨天、一週前、一個月前、一年內最高最低）", fd.sum);
     check(/波動度/.test(fd.about) && /Google/.test(fd.about), "恐懼貪婪詳情：有算法說明", fd.about.slice(0, 60));
+    // 期間切換：預設 3 個月（約 90 天），切到 1 年（300 天以上）；7 日平均線；點圖中間會換成那一天的數字
+    const nOf = () => page.$eval('[data-testid="fng-svg"]', (e) => +e.getAttribute("data-n"));
+    const n3 = await nOf();
+    await page.click('[data-testid="fng-range-400"]');
+    await sleep(300);
+    const n12 = await nOf();
+    const pick0 = await page.$eval('[data-testid="fng-pick"]', (e) => e.innerText.replace(/\s+/g, " "));
+    await page.click('[data-testid="fng-svg"]');
+    await sleep(300);
+    const pick1 = await page.$eval('[data-testid="fng-pick"]', (e) => e.innerText.replace(/\s+/g, " "));
+    const ma = await page.$('[data-testid="fng-ma"]');
+    log("恐懼貪婪圖表互動", JSON.stringify({ n3, n12, pick0, pick1 }));
+    await shot("恐懼貪婪詳情-1年-點選");
+    check(n3 >= 80 && n3 <= 92 && n12 >= 300 && !!ma, "恐懼貪婪詳情：期間切換（3 個月／1 年）與 7 日平均線", JSON.stringify({ n3, n12 }));
+    check(pick0 !== pick1 && /\d{4}\/\d+\/\d+\s?指數 \d+/.test(pick1), "恐懼貪婪詳情：點圖會顯示那一天的指數與比特幣價格", `${pick0} → ${pick1}`);
     await page.click('.sheet header button[aria-label="返回"]');
     await page.waitForFunction(() => !document.querySelector(".sheet"), null, { timeout: 5000 });
   }

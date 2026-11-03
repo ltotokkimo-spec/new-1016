@@ -888,61 +888,103 @@ function FngGauge({ v }: { v: number }) {
 
 // ---------------- 恐懼貪婪指數詳情：近一年走勢（疊比特幣）、摘要、算法說明 ----------------
 const FNG_BANDS = [[0, 25, "極度恐懼"], [25, 45, "恐懼"], [45, 56, "中立"], [56, 76, "貪婪"], [76, 101, "極度貪婪"]] as const;
+const FNG_RANGES = [["3 個月", 90], ["6 個月", 182], ["1 年", 400]] as const;
 function FngDetail({ f, onClose }: { f: Fng; onClose: () => void }) {
   const [btc, setBtc] = useState<{ date: string; close: number }[]>([]);
-  const [showBtc, setShowBtc] = useState(true);
+  const [range, setRange] = useState<number>(90);
+  const [pick, setPick] = useState<number | null>(null); // 點選的那一天（在 view 裡的位置）
   useEffect(() => {
     let alive = true;
     indexHistory(getFetcher(), getKv(), "BTC.CM=", 12, Date.now(), (h) => { if (alive) setBtc(h.bars); }).then((h) => { if (alive) setBtc(h.bars); }).catch(() => {});
     return () => { alive = false; };
   }, []);
-  const hist = f.hist ?? [];
-  const W = 340, H = 210, padL = 28, padR = 40, padT = 8, padB = 20, n = hist.length;
-  const x = (i: number) => padL + (n > 1 ? i / (n - 1) : 0) * (W - padL - padR);
-  const y = (v: number) => padT + (1 - v / 100) * (H - padT - padB);
-  const line = hist.map((h, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(h.value).toFixed(1)}`).join("");
+  const all = f.hist ?? [];
+  // 7 日平均：每天的數字跳很大，平均線比較看得出趨勢
+  const ma7 = all.map((_, k) => { const a = all.slice(Math.max(0, k - 6), k + 1); return a.reduce((t, h) => t + h.value, 0) / a.length; });
+  const start = Math.max(0, all.length - range);
+  const view = all.slice(start).map((h, k) => ({ ...h, ma: ma7[start + k] }));
+  const n = view.length;
   const btcBy = new Map(btc.map((b) => [b.date, b.close]));
-  const bpts = hist.map((h, i) => ({ i, v: btcBy.get(h.date) })).filter((p): p is { i: number; v: number } => p.v !== undefined);
-  const bLo = Math.min(...bpts.map((p) => p.v)), bHi = Math.max(...bpts.map((p) => p.v));
-  const by = (v: number) => padT + (1 - (v - bLo) / (bHi - bLo || 1)) * (H - padT - padB);
+  const W = 340, padL = 34, padR = 10;
+  const x = (i: number) => padL + (n > 1 ? i / (n - 1) : 0) * (W - padL - padR);
+  // 上：比特幣價格（自己的刻度）；下：恐懼貪婪指數（0～100 與分級底色）
+  const bH = 120, bT = 8, bB = 16;
+  const bpts = view.map((h, i) => ({ i, v: btcBy.get(h.date) })).filter((p): p is { i: number; v: number } => p.v !== undefined);
+  const bLo0 = Math.min(...bpts.map((p) => p.v)), bHi0 = Math.max(...bpts.map((p) => p.v)), bm = (bHi0 - bLo0) * 0.08;
+  const bLo = bLo0 - bm, bHi = bHi0 + bm;
+  const by = (v: number) => bT + (1 - (v - bLo) / (bHi - bLo || 1)) * (bH - bT - bB);
   const bline = bpts.map((p, k) => `${k ? "L" : "M"}${x(p.i).toFixed(1)},${by(p.v).toFixed(1)}`).join("");
-  const bandColor = (lo: number) => (lo < 25 ? "var(--down)" : lo < 45 ? "var(--down)" : lo < 56 ? "var(--muted)" : "var(--up)");
-  const bandOp = (lo: number) => (lo < 25 || lo >= 76 ? 0.16 : lo < 45 || lo >= 56 ? 0.07 : 0.04);
-  const dIdx = n > 1 ? [...new Set([0, Math.round((n - 1) / 3), Math.round((2 * (n - 1)) / 3), n - 1])] : [0];
+  const bTicks = [bLo0, (bLo0 + bHi0) / 2, bHi0];
+  const fH = 170, fT = 6, fB = 20;
+  const y = (v: number) => fT + (1 - v / 100) * (fH - fT - fB);
+  const raw = view.map((h, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(h.value).toFixed(1)}`).join("");
+  const avg = view.map((h, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(h.ma).toFixed(1)}`).join("");
+  const bandColor = (lo: number) => (lo < 45 ? "var(--down)" : lo < 56 ? "var(--muted)" : "var(--up)");
+  const bandOp = (lo: number) => (lo < 25 || lo >= 76 ? 0.2 : lo < 45 || lo >= 56 ? 0.09 : 0.05);
+  // 日期刻度：每個月 1 號（3 個月），6 個月和 1 年只標單數月
+  const ticks: number[] = [];
+  view.forEach((h, i) => { if (i > 0 && h.date.slice(4, 6) !== view[i - 1].date.slice(4, 6) && (range <= 90 || +h.date.slice(4, 6) % 2 === 1)) ticks.push(i); });
   const fmtD = (d?: string) => (d ? `${+d.slice(4, 6)}/${+d.slice(6)}` : "");
   const fmtY = (d?: string) => (d ? `${d.slice(0, 4)}/${+d.slice(4, 6)}/${+d.slice(6)}` : "");
   const c = (v: number) => (v <= 44 ? "down" : v >= 56 ? "up" : "");
+  const selI = pick !== null && view[pick] ? pick : n - 1;
+  const sel = view[selI];
+  const selBtc = sel ? btcBy.get(sel.date) : undefined;
+  // 點或拖曳圖：換成那一天
+  const onPoint = (e: PointerEvent) => {
+    const r = (e.currentTarget as SVGElement).getBoundingClientRect();
+    const px = ((e.clientX - r.left) / r.width) * W;
+    setPick(Math.max(0, Math.min(n - 1, Math.round(((px - padL) / (W - padL - padR)) * (n - 1)))));
+  };
+  const onMove = (e: PointerEvent) => { if (e.buttons || e.pointerType !== "mouse") onPoint(e); };
+  const cross = (h: number) => <line x1={x(selI)} x2={x(selI)} y1={0} y2={h} stroke="var(--fg)" stroke-opacity="0.35" stroke-dasharray="3 3" />;
   return (
     <Sheet title="虛擬幣恐懼貪婪指數" onClose={onClose}>
-      <div class="row" style={{ justifyContent: "space-between", alignItems: "flex-end" }} data-testid="fng-detail">
+      <div class="row" style={{ justifyContent: "space-between", alignItems: "center" }} data-testid="fng-detail">
         <div>
           <div class={`big num ${c(f.value)}`} data-testid="fng-value">{f.value}</div>
           <div class={c(f.value)}><b>{f.label}</b>{f.streak ? <span class="muted">・已連續 {f.streak} 天</span> : null}</div>
+          <div class="muted" style={{ fontSize: "12px" }}>{fmtY(f.date)}（UTC）・alternative.me</div>
         </div>
-        <div class="muted" style={{ fontSize: "12px", textAlign: "right" }}>{fmtY(f.date)}（UTC）<br />alternative.me</div>
+        <FngGauge v={f.value} />
       </div>
 
-      <div class="section-title"><span>近一年走勢</span><span>{n} 天</span></div>
+      <div class="section-title"><span>近一年走勢</span><span>{all.length} 天</span></div>
       {n >= 2 ? (
         <div class="card stack" style={{ padding: "10px" }} data-testid="fng-chart">
-          <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="恐懼貪婪指數近一年走勢">
-            {FNG_BANDS.map(([lo, hi]) => <rect x={padL} width={W - padL - padR} y={y(Math.min(hi, 100))} height={y(lo) - y(Math.min(hi, 100))} fill={bandColor(lo)} fill-opacity={bandOp(lo)} />)}
-            {[0, 25, 50, 75, 100].map((t) => <text x={padL - 4} y={y(t) + 3} font-size="9.5" fill="var(--muted)" text-anchor="end">{t}</text>)}
-            {showBtc && bpts.length >= 2 && <>
-              <path d={bline} fill="none" stroke="#e8a317" stroke-width="1.3" stroke-opacity="0.9" data-testid="fng-btc-line" />
-              <text x={W - padR + 3} y={by(bHi) + 3} font-size="9" fill="#e8a317">{Math.round(bHi / 1000)}k</text>
-              <text x={W - padR + 3} y={by(bLo) + 3} font-size="9" fill="#e8a317">{Math.round(bLo / 1000)}k</text>
-            </>}
-            <path d={line} fill="none" stroke="var(--fg)" stroke-width="1.6" data-testid="fng-line" />
-            {dIdx.map((i) => <text x={Math.min(W - padR - 8, Math.max(padL + 8, x(i)))} y={H - 4} font-size="9.5" fill="var(--muted)" text-anchor="middle">{fmtD(hist[i]?.date)}</text>)}
-          </svg>
-          <div class="row" style={{ gap: "8px", flexWrap: "wrap", fontSize: "12px" }}>
-            <span><b>━</b> 恐懼貪婪指數（左軸 0～100）</span>
-            <button class="chip" aria-pressed={showBtc} onClick={() => setShowBtc(!showBtc)} data-testid="fng-btc-toggle" style={{ fontSize: "12px" }}>
-              <b style={{ color: "#e8a317" }}>━</b> 比特幣價格（右軸）{bpts.length < 2 ? "・下載中…" : ""}
-            </button>
+          <div class="row" style={{ gap: "6px" }} role="group" aria-label="期間" data-testid="fng-range">
+            {FNG_RANGES.map(([lb, d]) => <button class="chip" aria-pressed={range === d} onClick={() => { setRange(d); setPick(null); }} data-testid={`fng-range-${d}`}>{lb}</button>)}
           </div>
-          <div class="muted" style={{ fontSize: "11.5px", lineHeight: 1.6 }}>背景：綠色越深越恐懼（0～24 極度恐懼、25～44 恐懼），紅色越深越貪婪（56～75 貪婪、76～100 極度貪婪）。比特幣價格縮放到同一張圖，只看方向和位置，不看刻度。</div>
+          <div class="row" style={{ justifyContent: "space-between", fontSize: "13px", alignItems: "baseline" }} data-testid="fng-pick">
+            <b>{fmtY(sel?.date)}</b>
+            <span>指數 <b class={`num ${c(sel?.value ?? 50)}`}>{sel?.value}</b> {sel ? fngLabel(sel.value) : ""}<span class="muted">・7 日平均 {sel ? Math.round(sel.ma) : ""}</span></span>
+          </div>
+          <div class="muted" style={{ fontSize: "12px", marginTop: "-4px" }}>比特幣 <b class="num" style={{ color: "#c98a0b" }}>{selBtc !== undefined ? `$${Math.round(selBtc).toLocaleString("en-US")}` : bpts.length ? "（那天沒有價格）" : "下載中…"}</b></div>
+
+          <div class="muted" style={{ fontSize: "12px" }}>比特幣價格（美元）</div>
+          <svg viewBox={`0 0 ${W} ${bH}`} width="100%" role="img" aria-label="比特幣價格" style={{ touchAction: "none" }} onPointerDown={onPoint} onPointerMove={onMove} data-testid="fng-btc-svg">
+            {bpts.length >= 2 ? <>
+              {bTicks.map((t) => <g><line x1={padL} x2={W - padR} y1={by(t)} y2={by(t)} stroke="var(--line)" /><text x={padL - 4} y={by(t) + 3} font-size="9.5" fill="var(--muted)" text-anchor="end">{t >= 10000 ? `${Math.round(t / 1000)}k` : Math.round(t)}</text></g>)}
+              <path d={bline} fill="none" stroke="#e8a317" stroke-width="1.8" data-testid="fng-btc-line" />
+              {cross(bH - bB)}
+              {selBtc !== undefined && <circle cx={x(selI)} cy={by(selBtc)} r="3.5" fill="#e8a317" />}
+            </> : <text x={W / 2} y={bH / 2} font-size="11" fill="var(--muted)" text-anchor="middle">比特幣價格下載中…</text>}
+          </svg>
+
+          <div class="muted" style={{ fontSize: "12px" }}>恐懼貪婪指數（細線＝每天、粗線＝7 日平均）</div>
+          <svg viewBox={`0 0 ${W} ${fH}`} width="100%" role="img" aria-label="恐懼貪婪指數走勢" style={{ touchAction: "none" }} onPointerDown={onPoint} onPointerMove={onMove} data-testid="fng-svg" data-n={n}>
+            {FNG_BANDS.map(([lo, hi, nm]) => <g>
+              <rect x={padL} width={W - padL - padR} y={y(Math.min(hi, 100))} height={y(lo) - y(Math.min(hi, 100))} fill={bandColor(lo)} fill-opacity={bandOp(lo)} />
+              <text x={W - padR - 3} y={(y(Math.min(hi, 100)) + y(lo)) / 2 + 3} font-size="9" fill={bandColor(lo)} text-anchor="end">{nm}</text>
+            </g>)}
+            {[0, 25, 50, 75, 100].map((t) => <text x={padL - 4} y={y(t) + 3} font-size="9.5" fill="var(--muted)" text-anchor="end">{t}</text>)}
+            <path d={raw} fill="none" stroke="var(--fg)" stroke-width="0.9" stroke-opacity="0.35" data-testid="fng-line" />
+            <path d={avg} fill="none" stroke="var(--fg)" stroke-width="2.2" data-testid="fng-ma" />
+            {cross(fH - fB)}
+            {sel && <circle cx={x(selI)} cy={y(sel.value)} r="3.5" fill="var(--fg)" />}
+            {ticks.map((i) => <text x={x(i)} y={fH - 5} font-size="9.5" fill="var(--muted)" text-anchor="middle">{fmtD(view[i].date)}</text>)}
+          </svg>
+          <div class="muted" style={{ fontSize: "11.5px", lineHeight: 1.6 }}>點或左右拖曳圖可以看那一天的數字。底色：綠＝恐懼（0～44）、灰＝中立（45～55）、紅＝貪婪（56～100），顏色越深越極端。</div>
         </div>
       ) : <div class="muted">歷史資料下載中…</div>}
 

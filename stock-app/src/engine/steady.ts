@@ -7,6 +7,36 @@ import { addDays } from "../lib/dates";
 import type { BtDay } from "./backtest";
 import { scoreStocks } from "./score";
 import { adjustedSeries } from "./turning";
+import { liquidityCut, pickCandidates } from "./aiEtf";
+
+/**
+ * 「我的實單」的選股規則（使用者 11/03 要求和其他組比較）：和 App「請 Claude 建議」用同一份候選清單，
+ * 也就是 App 評為「買入」的個股、依分數排序、每個產業最多 3 檔、最多 12 檔、只留成交金額達門檻的大型股；
+ * Claude 會從裡面挑 4～8 檔、單檔 ≤ 25%、留 3～5% 現金、每檔設停損。Claude 怎麼挑沒辦法回測，
+ * 這裡用固定規則代替：取分數最高的 8 檔平均分配（留 4% 現金）、跌破成本 10% 停損、每 5 個交易日重新選。
+ */
+export const REAL = { pick: 8, candidates: 12, perSector: 3, cashKeep: 0.04, maxWeight: 0.25, stop: 0.1, every: 5 } as const;
+
+/** 第 j 天（Ctx 索引，舊到新）收盤後，照實單規則算出的目標權重 */
+export function realTargets(days: BtDay[], companies: Company[], c: Ctx, j: number): Map<string, number> {
+  const N = c.N, i = N - 1 - j; // days 是新到舊
+  const dateIdx = new Map(days.map((d, k) => [d.date, k]));
+  const onOrBefore = (ymd: string) => { for (let k = 0; k < 10; k++) { const x = dateIdx.get(addDays(ymd, -k)); if (x !== undefined) return x; } return undefined; };
+  const s = days[i]?.date;
+  if (!s) return new Map();
+  const m1 = onOrBefore(addDays(s, -28)), m3 = onOrBefore(addDays(s, -88));
+  if (i + 5 >= N || m1 === undefined || m3 === undefined) return new Map();
+  const inputs = buildTwInputs({
+    latest: days[i].quotes, week: days[i + 5].quotes, month: days[m1].quotes, quarter: days[m3].quotes,
+    flows: days.slice(i, i + 10).map((d) => d.flows), companies, tpexCodes: days[i].tpexCodes,
+  });
+  const scored = scoreStocks(inputs.filter((x) => !isEtf(x.code))).scored;
+  const cands = pickCandidates(scored, new Set(), REAL.candidates, REAL.perSector, 6, liquidityCut(scored))
+    .sort((a, b) => b.score - a.score).slice(0, REAL.pick);
+  if (!cands.length) return new Map();
+  const w = Math.min(REAL.maxWeight, (1 - REAL.cashKeep) / cands.length);
+  return new Map(cands.map((x) => [x.code, w]));
+}
 
 /** 規則參數（改這裡就等於換一套規則，結果要重新看） */
 export const STEADY = {
@@ -379,11 +409,11 @@ export function regimeStep(c: Ctx, j: number, prevOn: boolean | undefined): { on
 }
 
 type Picker = (j: number) => Map<string, number>; // 目標權重（合計 ≤ 1，其餘現金）
-interface SimOpts { stops?: boolean; every?: number; band?: number }
+interface SimOpts { stops?: boolean; every?: number; band?: number; costStop?: number } // costStop：收盤跌破買進價這個比例就賣（實單規則用 0.1）
 
 /** 逐日模擬：第 j 天收盤決定，第 j+1 天收盤成交（從 j+2 起承擔漲跌），含手續費與證交稅 */
 function simulate(c: Ctx, j0: number, pick: Picker, opts: SimOpts = {}) {
-  const hold = new Map<string, { v: number; peak: number; atr: number }>();
+  const hold = new Map<string, { v: number; peak: number; atr: number; entry?: number }>();
   let cash = 1, traded = 0, holdN = 0, expo = 0;
   let pending: Map<string, number> | null = null; // 明天收盤要換成的目標
   const stopOut = new Set<string>(); // 明天收盤要停損賣出的
@@ -420,7 +450,7 @@ function simulate(c: Ctx, j0: number, pick: Picker, opts: SimOpts = {}) {
           cash -= buy * (1 + FEE); traded += buy;
           const s = c.series.get(code);
           const r20 = rets(s, j, 20);
-          const h = hold.get(code) ?? { v: 0, peak: px(s, j), atr: r20 ? mean(r20.map(Math.abs)) : 0.02 };
+          const h = hold.get(code) ?? { v: 0, peak: px(s, j), atr: r20 ? mean(r20.map(Math.abs)) : 0.02, entry: px(s, j) };
           h.v += buy; hold.set(code, h);
         }
       }
@@ -433,6 +463,10 @@ function simulate(c: Ctx, j0: number, pick: Picker, opts: SimOpts = {}) {
     if (opts.stops) for (const [code, h] of hold) {
       const s = c.series.get(code), p = px(s, j);
       if (p < ma(s, j, 60) || p < h.peak * (1 - STEADY.stopAtr * h.atr)) stopOut.add(code);
+    }
+    if (opts.costStop) for (const [code, h] of hold) {
+      const p = px(c.series.get(code), j);
+      if (h.entry && p < h.entry * (1 - opts.costStop)) stopOut.add(code);
     }
     if ((j - j0) % (opts.every ?? STEADY.rebalanceEvery) === 0 && j < c.N - 1) pending = pick(j);
   }
@@ -646,6 +680,7 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
   add("N4_half0050_bigMo", "N4 0050 五成＋大型股動能五成（月換）", mix(hold0050, 0.5, bigWk), { every: 20 });
   add("N5_half0050_A", "N5 0050 五成＋A 五成", mix(hold0050, 0.5, lowVolTrend));
   add("N6_half0050_etf", "N6 0050 五成＋ETF 輪動五成（月換）", mix(hold0050, 0.5, etfRotation), { every: 20 });
+  add("U1_real", "U1 我的實單規則（App 買入候選、每產業 ≤3 檔、分數前 8 檔等權、跌破成本 10% 停損、每週換）", (j) => realTargets(days, companies, c, j), { every: REAL.every, costStop: REAL.stop });
   add("N7_half0050_rs", "N7 0050 五成＋相對強度五成（月換）", mix(hold0050, 0.5, bigRs), { every: 20 });
   out.push(stats("0050", "買進持有 0050", c, j0, benchSim, benchSim.eq));
 

@@ -226,3 +226,4 @@
 - 沒有成交量（CNBC 指數和期貨 bars 的量不可靠，K 線 `noVol`）。
 - 虛擬幣（11/03）：`MACRO_SYMBOLS` 的「虛擬幣」組（CNBC `BTC.CM=`、`ETH.CM=`，`isCryptoSymbol` 判斷，區間報酬用 7／30／90 根）；恐懼貪婪指數 `data/fng.ts`（alternative.me `/fng/?limit=31`），`refreshMacro` 時順便抓、失敗沿用 kv `fng`。
 - 美股 24 小時行情（11/03）：`data/okx.ts`，OKX 公開 API（不需帳號）；`findXStock` 從現貨清單用「x＋代號」或「代號＋x」找交易對（清單一天抓一次存 kv `okx:inst`，只留 x 開頭或結尾的幣）；`UsOvernight`（`screens.tsx`）在美股個股頁；K 線日期用台北時間 YYYYMMDDHHmm，`CandleChart` 的 `intraday` 讓均線標成 MA5 並顯示時間。GitHub 的模擬器在美國，OKX 若擋美國 IP，CI 會驗證不到。
+- 實單規則觀察組合（11/03，使用者要比較「我的實單」的規則）：`steady.ts` 的 `REAL`／`realTargets`（App 買入候選 → 分數前 8 檔等權、留 4% 現金、單檔 ≤25%、每 5 個交易日換，`costStop` 跌破成本 10% 停損），回測鍵 `U1_real`；每日追蹤 `runWatch` mode `real`（10/23 起），產出 `real.json` 上傳 stock-radar-data；App 端 `refreshRule`／自組ETF「實單規則」分頁、總評比第 7 組。Claude 實際怎麼挑沒辦法回測，這是固定規則的近似。

@@ -91,3 +91,4 @@ jobs:
           if [ -f regime.json ]; then gh release upload stock-radar-data regime.json --clobber; fi
           if [ -f lead.json ]; then gh release upload stock-radar-data lead.json --clobber; fi
           if [ -f ai.json ]; then gh release upload stock-radar-data ai.json --clobber; fi
+          if [ -f real.json ]; then gh release upload stock-radar-data real.json --clobber; fi

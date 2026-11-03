@@ -195,3 +195,23 @@ describe("N5 觀察組合", () => {
     });
   });
 });
+
+describe("實單規則（我的實單的選股規則）", () => {
+  const r = runWatch(days, companies, { start: startAt, now: 0, mode: "real" });
+  it("每 5 個交易日重新判斷，說明寫出規則；不買 0050；現金不為負；結果穩定", () => {
+    expect(r.plan?.every).toBe(5);
+    expect(r.notes.some((n) => n.text.includes("本日判斷（每 5 個交易日）"))).toBe(true);
+    expect(r.trades.some((t) => t.code === "0050")).toBe(false);
+    const val = valuate(r, (c) => r.last[c]?.close);
+    expect(val.cash).toBeGreaterThanOrEqual(-1);
+    expect(runWatch(days, companies, { start: startAt, now: 0, mode: "real" }).trades).toEqual(r.trades);
+  });
+  it("最多 8 檔、單檔不超過淨值 25%（含成交後的價格變動，放寬到 30%）", () => {
+    const held = new Map<string, number>();
+    for (const t of r.trades) held.set(t.code, (held.get(t.code) ?? 0) + (t.side === "buy" ? t.shares : -t.shares));
+    const pos = [...held].filter(([, n]) => n > 0);
+    expect(pos.length).toBeLessThanOrEqual(8);
+    const val = valuate(r, (c) => r.last[c]?.close);
+    for (const [code, n] of pos) expect((n * (r.last[code]?.close ?? 0)) / val.nav).toBeLessThan(0.3);
+  });
+});

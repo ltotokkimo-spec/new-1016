@@ -33,6 +33,7 @@ export const WIDE_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/do
 export const REGIME_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/regime.json"; // 攻守輪動觀察組合
 export const ACTIVE_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/active-etf.json"; // 主動式 ETF 個股買賣超
 export const AI_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/ai.json"; // AI 供應鏈觀察組合
+export const RULE_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/real.json"; // 實單規則觀察組合（「我的實單」的選股規則）
 export const LEAD_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/lead.json"; // 權值強化觀察組合
 export const STEADY_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/steady.json"; // 觀察組合規則的 2 年回測結果
 export const BACKTEST_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/backtest.json";
@@ -97,6 +98,7 @@ export interface State {
   regime?: { data: VirtualEtf; fetchedAt: number; error?: string };
   lead?: { data: VirtualEtf; fetchedAt: number; error?: string };
   ai?: { data: VirtualEtf; fetchedAt: number; error?: string };
+  rule?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 實單規則觀察組合
   activeEtf?: { data: ActiveEtfData; fetchedAt: number; error?: string; liveAt?: number; liveProgress?: { done: number; total: number }; liveFound?: number; liveHoldings?: { code: string; name: string; date: string; shares: Record<string, number> }[] };
   steady?: { data: SteadyLite; fetchedAt: number };
   live: Record<string, LiveQuote>; // 證交所即時報價（盤中每 30 秒更新）
@@ -178,6 +180,8 @@ async function initInner() {
   if (ae) set({ activeEtf: ae });
   const ai0 = await kv.get<State["ai"]>("ai");
   if (ai0) set({ ai: ai0 });
+  const rule0 = await kv.get<State["rule"]>("rule");
+  if (rule0) set({ rule: rule0 });
   const sd = await kv.get<State["steady"]>("steady");
   if (sd) set({ steady: sd });
   const bt = await kv.get<State["backtest"]>("backtest");
@@ -653,6 +657,20 @@ export async function refreshLead() {
   } catch {
     if (state.lead) set({ lead: { ...state.lead, error: "這次沒下載到最新資料，顯示上次的內容" } });
     else set({ lead: undefined });
+  }
+}
+
+/** 下載實單規則觀察組合（「我的實單」的選股規則，用虛擬 50 萬照規則操作）；失敗就沿用上次下載的 */
+export async function refreshRule() {
+  try {
+    const data = (await fetcher(`${RULE_URL}?t=${Date.now()}`)) as VirtualEtf;
+    if (data?.version !== 1 || !Array.isArray(data.trades)) throw new Error("格式不對");
+    const v = { data, fetchedAt: Date.now() };
+    await kv.set("rule", v);
+    set({ rule: v });
+  } catch {
+    if (state.rule) set({ rule: { ...state.rule, error: "這次沒下載到最新資料，顯示上次的內容" } });
+    else set({ rule: undefined });
   }
 }
 

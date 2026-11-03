@@ -1,9 +1,9 @@
 // N5 觀察組合（使用者 2026-10-23 指定套用並觀察）：虛擬 50 萬，一半買 0050，一半照方案 A 選股，每天重新判斷（10/29 使用者從每 5 個交易日改成每天）。
 // 完全由規則自動算（不需要 Claude），每天回測工作流程跑完後輸出 n5.json（和 Claude 虛擬 ETF 同格式），App 直接顯示。
 // 成交規則和 2 年回測一致：第 j 天收盤後決定，第 j+1 天收盤價成交，已計手續費與證交稅。
-import { cashFlow, recordNav, valuate, type EtfTrade } from "./aiEtf";
+import { cashFlow, positions, recordNav, valuate, type EtfTrade } from "./aiEtf";
 import type { BtDay } from "./backtest";
-import { aiTargets, aPicks, buildCtx, LEAD, leadTargets, regimeStep, STEADY, wideTargets } from "./steady";
+import { aiTargets, aPicks, buildCtx, LEAD, leadTargets, REAL, realTargets, regimeStep, STEADY, wideTargets } from "./steady";
 import { addNote, newVirtual, type PendingOrder, type VirtualEtf } from "./virtualEtf";
 import type { Company } from "../data/tw";
 
@@ -23,8 +23,8 @@ const pc = (x: number, d = 1) => `${x >= 0 ? "+" : ""}${(x * 100).toFixed(d)}%`;
  * mode "n5"：0050 五成＋方案 A 五成，每天重新判斷（10/29 使用者從每 5 個交易日改成每天），差距小於淨值 0.2% 就不動。
  * mode "wide"：全個股（不放 0050）、不限檔數，條件同 A（見 wideTargets），每天重新判斷，只做局部修正。
  */
-export function runWatch(days: BtDay[], companies: Company[], opts: { start?: string; budget?: number; now?: number; mode?: "n5" | "wide" | "regime" | "lead" | "ai" } = {}): VirtualEtf {
-  const wide = opts.mode === "wide", regime = opts.mode === "regime", lead = opts.mode === "lead", ai = opts.mode === "ai";
+export function runWatch(days: BtDay[], companies: Company[], opts: { start?: string; budget?: number; now?: number; mode?: "n5" | "wide" | "regime" | "lead" | "ai" | "real" } = {}): VirtualEtf {
+  const wide = opts.mode === "wide", regime = opts.mode === "regime", lead = opts.mode === "lead", ai = opts.mode === "ai", real = opts.mode === "real";
   let regimeOn: boolean | undefined; // 攻守輪動目前的狀態
   const start = opts.start ?? WATCH.start, budget = opts.budget ?? WATCH.budget;
   let v: VirtualEtf = { ...newVirtual(start, budget), updatedAt: opts.now ?? Date.now(), stops: {} };
@@ -81,10 +81,30 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
     const val = valuate(v, (code) => close(code, j) ?? last[code]?.close);
     if (!val.missing.length) v = { ...v, ...recordNav(v, date, val) };
     // 3. 收盤後重新選股：全個股、N5、權值強化每天；攻守輪動每 5 個交易日；AI 供應鏈每 20 個交易日
-    const decide = wide || lead || !(regime || ai) || (j - j0) % (ai ? WATCH.aiEvery : WATCH.every) === 0;
+    const decide = wide || lead || !(regime || ai || real) || (j - j0) % (ai ? WATCH.aiEvery : real ? REAL.every : WATCH.every) === 0;
+    // 實單規則：每天收盤檢查停損（跌破成本 10%），跌破的明天賣出；其餘持股不動
+    const stopped = real ? positions(trades).filter((p) => p.shares > 0 && hold.has(p.code) && (close(p.code, j) ?? Infinity) < p.avgCost * (1 - REAL.stop)) : [];
     if (decide) lastDecision = date;
     let text = `資料日收盤：組合 ${pc(val.ret, 2)}，0050 對照 ${pc(val.benchRet, 2)}；股票 ${val.nav > 0 ? Math.round((val.marketValue / val.nav) * 100) : 0}%，持有 ${hold.size} 檔。`;
-    if (decide && wide) {
+    if (real && (decide || stopped.length)) {
+      const stopSet = new Set(stopped.map((p) => p.code));
+      let t: Map<string, number>;
+      if (decide) {
+        t = realTargets(days, companies, c, j);
+        for (const code of stopSet) t.delete(code);
+      } else {
+        // 不是換股日：只賣停損的，其他維持目前比重
+        let total = cash; const px = (code: string) => close(code, j) ?? last[code]?.close ?? 0;
+        for (const [code, sh] of hold) total += sh * px(code);
+        t = new Map([...hold].filter(([code]) => !stopSet.has(code)).map(([code, sh]) => [code, total > 0 ? (sh * px(code)) / total : 0]));
+      }
+      setTarget(t);
+      const list = [...t].sort((a, b) => b[1] - a[1]).map(([code, w]) => `${name(code, j)}${code} ${(w * 100).toFixed(1)}%`).join("、");
+      text += decide
+        ? `\n本日判斷（每 ${REAL.every} 個交易日）：App「買入」候選（每產業最多 ${REAL.perSector} 檔、成交金額達門檻）分數前 ${REAL.pick} 檔等權：${list || "目前沒有符合的，先放現金"}。下一個交易日收盤價調整。`
+        : "";
+      if (stopped.length) text += `\n停損：${stopped.map((p) => `${p.name}${p.code}（收盤跌破成本 ${Math.round(REAL.stop * 100)}%）`).join("、")}，下一個交易日收盤價賣出。`;
+    } else if (decide && wide) {
       const t = wideTargets(c, j, new Set(hold.keys()));
       setTarget(t);
       const adds = [...t.keys()].filter((code) => !hold.has(code)), drops = [...hold.keys()].filter((code) => !t.has(code));
@@ -117,7 +137,7 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
       const list = [...a].map(([code, w]) => `${name(code, j)}${code} ${(w * (1 - WATCH.core) * 100).toFixed(1)}%`).join("、");
       text += `\n本日重新選股：0050 目標 ${Math.round(WATCH.core * 100)}%；方案 A ${a.size} 檔（各佔淨值）${list || "：目前沒有符合的，這部分先放現金"}。下一個交易日收盤價調整。`;
     }
-    if (decide || j === c.N - 1) v = addNote(v, date, text);
+    if (decide || stopped.length || j === c.N - 1) v = addNote(v, date, text);
   }
   // 明天（下一個交易日）要調整的股票：最後一個資料日收盤後的目標，和目前持股的差距（數量用今天收盤價估算，實際以明天收盤價成交）
   const pending: PendingOrder[] = [];
@@ -140,7 +160,7 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
       if (n > 0) pending.push({ code, name: nm(code), side: "buy", shares: n, reason: have > 0 ? `加碼：目標 ${(w * 100).toFixed(1)}%，目前 ${((have / total) * 100).toFixed(1)}%` : `新增：目標 ${(w * 100).toFixed(1)}%`, placed: v.asOf });
     }
   }
-  const every = wide || lead || !(regime || ai) ? 1 : ai ? WATCH.aiEvery : WATCH.every;
+  const every = wide || lead || !(regime || ai || real) ? 1 : ai ? WATCH.aiEvery : real ? REAL.every : WATCH.every;
   const nextStock = lastDayTarget ? [...lastDayTarget.values()].reduce((a, b) => a + b, 0) : undefined; // 明天調整完的股票目標比重（其餘是現金）
   return { ...v, pending, plan: { every, lastDecision, nextStock, band: wide ? STEADY.wideBand : lead || ai ? LEAD.band : WATCH.minTrade } };
 }

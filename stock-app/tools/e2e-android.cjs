@@ -628,9 +628,9 @@ function check(ok, name, detail = "") {
   log("AI 供應鏈觀察組合", aiTxt.slice(0, 220));
   check(/AI 供應鏈觀察組合/.test(aiTxt) && /虛擬資金 50\.0 萬/.test(aiTxt) && /51 檔/.test(aiTxt) && /事後|今天的眼光/.test(aiTxt), "AI 供應鏈觀察組合顯示（虛擬 50 萬、51 檔清單、回測偏樂觀的提醒）", aiTxt.slice(0, 120));
   await shot("05d3-AI供應鏈觀察組合");
-  // 7 個模式按鈕要排成兩列（每列 4 個），文字不能被擠成直排
+  // 9 個模式按鈕排成三列（每列 4 個），文字不能被擠成直排
   const segRows = await page.$$eval('[data-testid^="mode-"]', (bs) => ({ tops: [...new Set(bs.map((b) => Math.round(b.getBoundingClientRect().top)))].length, maxH: Math.max(...bs.map((b) => b.getBoundingClientRect().height)) }));
-  check(segRows.tops === 2 && segRows.maxH < 60, "自組ETF 模式按鈕排成兩列、文字不擠成直排", JSON.stringify(segRows));
+  check(segRows.tops === 3 && segRows.maxH < 60, "自組ETF 模式按鈕排成三列、文字不擠成直排", JSON.stringify(segRows));
   // 總評比：第一組（Claude 虛擬）和三個規則組合放在一起
   await page.click('[data-testid="mode-compare"]');
   await page.waitForSelector('[data-testid="compare-all"]', { timeout: 30000 });
@@ -646,9 +646,9 @@ function check(ok, name, detail = "") {
   // 總評比的每天走勢圖：六組＋0050 都有一條線、圖例標最新累積報酬；點圖例可隱藏那條線
   const cc = await page.evaluate(() => ({ svg: document.querySelectorAll('[data-testid="compare-chart"] svg path[stroke-width="2"]').length, dash: document.querySelectorAll('[data-testid="compare-chart"] svg path[stroke-dasharray="5 3"]').length, legend: [...document.querySelectorAll('[data-testid="compare-legend"]')].map((e) => e.innerText.replace(/\s+/g, " ")) }));
   log("總評比走勢圖", JSON.stringify(cc));
-  check(cc.svg === 6 && cc.dash === 1 && cc.legend.length === 7 && cc.legend.every((t) => /[+-]?\d+\.\d\d%|—/.test(t)), "總評比有全部組合＋0050 的每天走勢圖（圖例標最新累積報酬）", JSON.stringify(cc).slice(0, 300));
+  check(cc.svg >= 6 && cc.dash === 1 && cc.legend.length === cc.svg + 1 && cc.legend.every((t) => /[+-]?\d+\.\d\d%|—/.test(t)), "總評比有全部組合＋0050 的每天走勢圖（圖例標最新累積報酬）", JSON.stringify(cc).slice(0, 300));
   await page.click('[data-testid="compare-hide"]');
-  check((await page.$$eval('[data-testid="compare-chart"] svg path[stroke-width="2"]', (e) => e.length)) === 5, "點 👁 可隱藏那一組的線");
+  check((await page.$$eval('[data-testid="compare-chart"] svg path[stroke-width="2"]', (e) => e.length)) === cc.svg - 1, "點 👁 可隱藏那一組的線");
   await page.click('[data-testid="compare-hide"]');
   // 點組名：0050 虛線換成那一組自己的對照，圖例的 0050 數字要跟表格「同操作0050」一致
   const dashEnd = async () => page.$eval('[data-testid="compare-chart"] svg path[stroke-dasharray="5 3"]', (e) => e.getAttribute("d"));

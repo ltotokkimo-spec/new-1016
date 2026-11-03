@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
-  refreshRwa,
   LIVE_MS,
   findScored, getFetcher, getKv, getState, holdingViews, refreshEsb, refreshMacro, refreshTw, refreshUs, saveHoldings, saveReport,
   saveSettings, clearCache, useStore, usBars, recordSpend, estimatedBalance, checkForUpdate, installUpdate,
@@ -12,8 +11,6 @@ import { twHistory } from "../data/history";
 import { esbHistory } from "../data/esb";
 import { indexHistory, isCryptoSymbol, isUsIndexSymbol, type IndexHist } from "../data/indexHistory";
 import { fngLabel, type Fng } from "../data/fng";
-import { fmtUsdYi, tokensForStock, zhCategory } from "../data/rwa";
-import type { RwaState } from "../store";
 import { CandleChart, type CandleBar } from "./candles";
 import { FlowsPanel } from "./flows";
 import { EtfHoldingsPanel, isActiveEtf } from "./etfHoldings";
@@ -442,8 +439,6 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
             d={`預估淨值 ${fmtPrice(etfNav.nav)}${Math.abs(etfNav.premium) >= 1 ? (etfNav.premium > 0 ? "・溢價偏高" : "・折價偏深") : ""}`} />
         )}
       </div>
-
-      {s.market === "US" && <StockRwa code={s.code} price={price} />}
 
       <div class="section-title">
         {s.market === "US"
@@ -891,98 +886,6 @@ function FngGauge({ v }: { v: number }) {
   );
 }
 
-// ---------------- 美股個股頁：這檔股票的代幣化版本（RWA） ----------------
-function StockRwa({ code, price }: { code: string; price: number }) {
-  const rwa = useStore((st) => st.rwa);
-  useEffect(() => { void refreshRwa(); }, []);
-  const all = rwa?.stocksAll ?? rwa?.stocks ?? [];
-  const list = tokensForStock(code, all);
-  return (
-    <>
-      <div class="section-title"><span>代幣化版本（RWA）</span><span class="muted" style={{ fontSize: "12px" }}>CoinGecko</span></div>
-      <div class="card" style={{ padding: "8px 12px" }} data-testid="stock-rwa">
-        {!rwa ? <div class="muted" style={{ fontSize: "13px" }}>代幣化股票資料下載中…</div>
-          : list.length === 0 ? <div class="muted" style={{ fontSize: "13px" }} data-testid="stock-rwa-none">目前沒有找到 {code} 的代幣化版本（CoinGecko 代幣化股票類別前 {all.length} 檔裡沒有）。大多只有大型股才有。</div>
-          : <>
-            <table style={{ width: "100%", fontSize: "13px", borderCollapse: "collapse" }}>
-              <thead><tr class="muted" style={{ fontSize: "11.5px" }}><th style={{ textAlign: "left", fontWeight: 500 }}>代幣</th><th style={{ textAlign: "right", fontWeight: 500 }}>價格</th><th style={{ textAlign: "right", fontWeight: 500 }}>和股價差</th><th style={{ textAlign: "right", fontWeight: 500 }}>24 小時</th></tr></thead>
-              <tbody>{list.map((t) => {
-                const prem = Number.isFinite(price) && price > 0 ? t.price / price - 1 : undefined;
-                return (
-                  <tr style={{ borderTop: "1px solid var(--line)" }} data-testid="stock-rwa-row">
-                    <td style={{ padding: "5px 0" }}><b>{t.symbol}</b><div class="muted" style={{ fontSize: "11px" }}>{t.name}{t.cap !== undefined ? `・市值 ${fmtUsdYi(t.cap)}` : ""}</div></td>
-                    <td class="num" style={{ textAlign: "right" }}>${t.price.toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>
-                    <td class={`num ${prem === undefined ? "" : cls(prem)}`} style={{ textAlign: "right" }}>{prem === undefined ? "—" : `${prem >= 0 ? "+" : ""}${(prem * 100).toFixed(2)}%`}</td>
-                    <td class={`num ${cls(t.chg24h ?? 0)}`} style={{ textAlign: "right" }}>{t.chg24h === undefined ? "—" : `${t.chg24h > 0 ? "+" : ""}${t.chg24h.toFixed(2)}%`}</td>
-                  </tr>
-                );
-              })}</tbody>
-            </table>
-            <div class="muted" style={{ fontSize: "11px", marginTop: "6px", lineHeight: 1.5 }}>代幣化股票在區塊鏈上 24 小時交易，價格會和美股有落差：「和股價差」是代幣價格對上方股價（{fmtPrice(price)}）的溢價（＋）或折價（－）。美股收盤後的差距，常反映盤後與週末的市場預期。</div>
-          </>}
-      </div>
-    </>
-  );
-}
-
-// ---------------- RWA（現實世界資產上鏈）與代幣化美股（CoinGecko） ----------------
-const pct2 = (x?: number) => (x === undefined ? "—" : `${x > 0 ? "+" : ""}${x.toFixed(2)}%`);
-function RwaCard({ r }: { r: RwaState }) {
-  const t = r.total;
-  const max = Math.max(1, ...r.cats.map((c) => c.cap));
-  return (
-    <div class="metric" style={{ gridColumn: "1 / -1" }} data-testid="rwa-card">
-      <div class="k">RWA 現實世界資產上鏈（總市值）</div>
-      {t ? <div class="v num" data-testid="rwa-total">{fmtUsdYi(t.cap)}　<span class={`num ${cls(t.chg24h ?? 0)}`} style={{ fontSize: "14px" }}>24 小時 {pct2(t.chg24h)}</span></div> : <div class="v muted">—</div>}
-      {r.cats.length > 0 && <div style={{ marginTop: "8px" }} data-testid="rwa-cats">
-        <div class="muted" style={{ fontSize: "12px", marginBottom: "4px" }}>主要分類</div>
-        {r.cats.map((c) => (
-          <div style={{ padding: "3px 0" }}>
-            <div class="row" style={{ justifyContent: "space-between", fontSize: "13px" }}>
-              <span>{zhCategory(c.name)}</span>
-              <span class="num">{fmtUsdYi(c.cap)} <span class={cls(c.chg24h ?? 0)}>{pct2(c.chg24h)}</span></span>
-            </div>
-            <div style={{ height: "4px", borderRadius: "2px", background: "var(--line)" }}><div style={{ width: `${(c.cap / max) * 100}%`, height: "100%", borderRadius: "2px", background: "var(--accent, #b77a07)" }} /></div>
-          </div>
-        ))}
-      </div>}
-      {r.top.length > 0 && <div style={{ marginTop: "8px" }} data-testid="rwa-top">
-        <div class="muted" style={{ fontSize: "12px", marginBottom: "2px" }}>規模最大的 RWA 代幣</div>
-        {r.top.map((x) => (
-          <div class="row" style={{ justifyContent: "space-between", fontSize: "13px", padding: "2px 0" }}>
-            <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.name} <span class="muted">{x.symbol}</span></span>
-            <span class="num" style={{ flex: "none" }}>{x.cap !== undefined ? fmtUsdYi(x.cap) : "—"}</span>
-          </div>
-        ))}
-      </div>}
-      <div class="muted" style={{ fontSize: "11px", marginTop: "6px", lineHeight: 1.5 }}>RWA＝把公債、黃金、股票、信貸等真實資產做成區塊鏈上的代幣。市值與分類來自 CoinGecko（約 30 分鐘更新一次）；類別之間可能重疊，加總不等於總市值。{r.error ? `（${r.error}）` : ""}</div>
-    </div>
-  );
-}
-
-function TokenStocksCard({ r }: { r: RwaState }) {
-  if (!r.stocks.length && !r.stockCat) return null;
-  return (
-    <div class="metric" style={{ gridColumn: "1 / -1" }} data-testid="tstock-card">
-      <div class="k">代幣化美股{r.stockCat ? `（總市值 ${fmtUsdYi(r.stockCat.cap)}）` : ""}</div>
-      {r.stocks.length ? (
-        <table style={{ width: "100%", fontSize: "13px", borderCollapse: "collapse", marginTop: "4px" }}>
-          <thead><tr class="muted" style={{ fontSize: "11.5px" }}><th style={{ textAlign: "left", fontWeight: 500 }}>代幣</th><th style={{ textAlign: "right", fontWeight: 500 }}>價格</th><th style={{ textAlign: "right", fontWeight: 500 }}>24 小時</th><th style={{ textAlign: "right", fontWeight: 500 }}>7 天</th></tr></thead>
-          <tbody>{r.stocks.map((x) => (
-            <tr style={{ borderTop: "1px solid var(--line)" }} data-testid="tstock-row">
-              <td style={{ padding: "4px 0", maxWidth: "130px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><b>{x.symbol}</b> <span class="muted" style={{ fontSize: "11.5px" }}>{x.name}</span></td>
-              <td class="num" style={{ textAlign: "right" }}>${x.price.toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>
-              <td class={`num ${cls(x.chg24h ?? 0)}`} style={{ textAlign: "right" }}>{pct2(x.chg24h)}</td>
-              <td class={`num ${cls(x.chg7d ?? 0)}`} style={{ textAlign: "right" }}>{pct2(x.chg7d)}</td>
-            </tr>
-          ))}</tbody>
-        </table>
-      ) : <div class="muted" style={{ fontSize: "12px" }}>報價下載中…</div>}
-      <div class="muted" style={{ fontSize: "11px", marginTop: "6px", lineHeight: 1.5 }}>在區塊鏈上交易、對應真實美股的代幣（例如 xStocks），週末和美股收盤後也能交易，價格可能和美股收盤不同。依市值排序，來自 CoinGecko。</div>
-    </div>
-  );
-}
-
 // ---------------- 恐懼貪婪指數詳情：近一年走勢（疊比特幣）、摘要、算法說明 ----------------
 const FNG_BANDS = [[0, 25, "極度恐懼"], [25, 45, "恐懼"], [45, 56, "中立"], [56, 76, "貪婪"], [76, 101, "極度貪婪"]] as const;
 const FNG_RANGES = [["3 個月", 90], ["6 個月", 182], ["1 年", 400]] as const;
@@ -1218,7 +1121,7 @@ function IndexDetail({ name, label, onClose }: { name: string; label?: string; o
 export function MacroScreen() {
   const [idxOpen, setIdxOpen] = useState<string | null>(null);
   const [fngOpen, setFngOpen] = useState(false);
-  const st = useStore((s) => ({ macro: s.macro, fng: s.fng, rwa: s.rwa, tw: s.tw, us: s.us, idx: s.twIndices, breadth: s.twBreadth, idxLive: s.twIndexLive, fut: s.futures, turnover: s.twTurnover, etfs: s.usSectorEtfs, apiKey: s.settings.apiKey, reports: s.reports }));
+  const st = useStore((s) => ({ macro: s.macro, fng: s.fng, tw: s.tw, us: s.us, idx: s.twIndices, breadth: s.twBreadth, idxLive: s.twIndexLive, fut: s.futures, turnover: s.twTurnover, etfs: s.usSectorEtfs, apiKey: s.settings.apiKey, reports: s.reports }));
   // 台股指數盤中每 30 秒更新（收盤後 MIS 回傳收盤價，仍會顯示）
   useEffect(() => {
     refreshTwIndex(); refreshFutures(); refreshTurnover();
@@ -1306,8 +1209,7 @@ export function MacroScreen() {
       {groups.map((g) => {
         const items = MACRO_SYMBOLS.filter((m) => m.group === g && bySymbol.has(m.symbol));
         const fng = g === "虛擬幣" ? st.fng : undefined;
-        const rwa = g === "虛擬幣" ? st.rwa : undefined;
-        if (!items.length && !fng && !rwa) return null;
+        if (!items.length && !fng) return null;
         return (
           <>
             <div class="section-title"><span>{g}</span></div>
@@ -1319,8 +1221,6 @@ export function MacroScreen() {
                 return <div data-testid={`idx-card-${m.symbol}`} style={{ cursor: "pointer" }} onClick={() => setIdxOpen(`${m.symbol}|${m.label}`)}>{card}</div>;
               })}
               {fng && <FngCard f={fng} onOpen={() => setFngOpen(true)} />}
-              {rwa && <RwaCard r={rwa} />}
-              {rwa && <TokenStocksCard r={rwa} />}
             </div>
           </>
         );

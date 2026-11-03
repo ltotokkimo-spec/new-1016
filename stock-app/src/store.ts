@@ -6,7 +6,6 @@ import { TwLoader, TW_SNAPSHOT_VERSION, type TwSnapshot } from "./data/twLoader"
 import { isEtf, parseEsbLatest, twUrls, type EsbQuote } from "./data/tw";
 import { UsLoader, type UsSnapshot } from "./data/usLoader";
 import { FNG_URL, parseFng, type Fng } from "./data/fng";
-import { cgCategoriesUrl, cgMarketsUrl, findRwaTotal, findStockCategory, parseCgCategories, parseCgMarkets, rwaSubcategories, type CgCategory, type CgToken } from "./data/rwa";
 import { cnbcUrl, isUsSymbol, MACRO_SYMBOLS, parseCnbcQuotes, US_UNIVERSE, type MacroQuote, type UsExtra } from "./data/us";
 import { indexLiveUrl, parseIndexLive, type IndexLive } from "./data/twIndexLive";
 import { twTurnoverUrl, parseTurnover } from "./data/twTurnover";
@@ -77,7 +76,6 @@ export interface State {
   usSectorEtfs: UsSnapshot["sectorEtfs"];
   macro: { status: "idle" | "loading" | "ready" | "error"; quotes: MacroQuote[]; error?: string; at?: number };
   fng?: Fng; // 虛擬幣恐懼貪婪指數
-  rwa?: RwaState; // RWA 總規模與分類、代幣化美股（CoinGecko）
   twIndexLive: Record<string, IndexLive>; // 台股指數盤中即時（證交所 MIS）
   etfNav: Record<string, EtfNav>; // ETF 即時預估淨值與折溢價（證交所，詳情頁用）
   etfNavAt?: number;
@@ -165,7 +163,7 @@ async function initInner() {
     kv.get<TwSnapshot>("snap:tw"), kv.get<UsSnapshot>("snap:us"), kv.get<State["spend"]>("spend"),
     kv.get<EsbSnapshot>("snap:esb"),
   ]);
-  set({ usExtra: (await kv.get<UsExtra[]>("usExtra")) ?? [], aiEtf: (await kv.get<AiEtf>("aiEtf")) ?? emptyEtf(), fng: (await kv.get<Fng>("fng")) ?? undefined, rwa: (await kv.get<RwaState>("rwa")) ?? undefined });
+  set({ usExtra: (await kv.get<UsExtra[]>("usExtra")) ?? [], aiEtf: (await kv.get<AiEtf>("aiEtf")) ?? emptyEtf(), fng: (await kv.get<Fng>("fng")) ?? undefined });
   const vt = await kv.get<State["virtual"]>("virtual");
   if (vt) set({ virtual: vt });
   const wt = await kv.get<State["watch"]>("watch");
@@ -397,29 +395,6 @@ export async function refreshFutures() {
   if (keepDay || night) set({ futures: { day: keepDay, night: night ?? state.futures.night, at: Date.now() } });
 }
 
-export interface RwaState { at: number; total?: CgCategory; cats: CgCategory[]; top: CgToken[]; stockCat?: CgCategory; stocks: CgToken[]; stocksAll?: CgToken[]; error?: string }
-
-/** RWA 與代幣化美股：CoinGecko 免費版有次數限制，30 分鐘內抓過就不重抓；失敗沿用上次的 */
-export async function refreshRwa() {
-  if (state.rwa && !state.rwa.error && Date.now() - state.rwa.at < 30 * 60_000) return;
-  try {
-    const cats = parseCgCategories(await fetcher(cgCategoriesUrl()));
-    if (!cats.length) throw new Error("沒有取得類別資料");
-    const total = findRwaTotal(cats), stockCat = findStockCategory(cats);
-    const subs = rwaSubcategories(cats, total);
-    let top: CgToken[] = state.rwa?.top ?? [], stocksAll: CgToken[] = state.rwa?.stocksAll ?? state.rwa?.stocks ?? [];
-    const errs: string[] = [];
-    if (total) { try { top = parseCgMarkets(await fetcher(cgMarketsUrl(total.id, 6))); } catch (e: any) { errs.push(`RWA 項目：${e?.message ?? e}`); } }
-    // 個股頁要找每檔美股有沒有代幣化版本，所以抓多一點（一次最多 250 檔）；數據頁卡片只顯示前 10
-    if (stockCat) { try { stocksAll = parseCgMarkets(await fetcher(cgMarketsUrl(stockCat.id, 250))); } catch (e: any) { errs.push(`代幣化美股：${e?.message ?? e}`); } }
-    const v: RwaState = { at: Date.now(), total, cats: subs, top, stockCat, stocks: stocksAll.slice(0, 10), stocksAll, ...(errs.length ? { error: errs.join("；") } : {}) };
-    set({ rwa: v });
-    await kv.set("rwa", v);
-  } catch (e: any) {
-    set({ rwa: { ...(state.rwa ?? { cats: [], top: [], stocks: [] }), at: state.rwa?.at ?? 0, error: `RWA 資料更新失敗：${e?.message ?? e}` } });
-  }
-}
-
 /** 虛擬幣恐懼貪婪指數：失敗就沿用上次的（不影響其他國際指標） */
 async function refreshFng() {
   try {
@@ -430,7 +405,6 @@ async function refreshFng() {
 
 export async function refreshMacro() {
   void refreshFng();
-  void refreshRwa();
   set({ macro: { ...state.macro, status: state.macro.quotes.length ? "ready" : "loading", error: undefined } });
   try {
     const quotes = parseCnbcQuotes(await fetcher(cnbcUrl(MACRO_SYMBOLS.map((m) => m.symbol))));

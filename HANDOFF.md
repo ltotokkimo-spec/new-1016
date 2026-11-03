@@ -225,4 +225,3 @@
 - 要新增亞洲或原物料項目：只要在 `MACRO_SYMBOLS`（`data/us.ts`）加一筆，group 填「亞洲」或「原物料」，卡片就自動可點；但 CNBC bars 對該代號有沒有日 K 要在 CI 模擬器（真網路）確認，這個環境連不到 CNBC。
 - 沒有成交量（CNBC 指數和期貨 bars 的量不可靠，K 線 `noVol`）。
 - 虛擬幣（11/03）：`MACRO_SYMBOLS` 的「虛擬幣」組（CNBC `BTC.CM=`、`ETH.CM=`，`isCryptoSymbol` 判斷，區間報酬用 7／30／90 根）；恐懼貪婪指數 `data/fng.ts`（alternative.me `/fng/?limit=31`），`refreshMacro` 時順便抓、失敗沿用 kv `fng`。
-- RWA 與代幣化美股（11/03）：`data/rwa.ts`，CoinGecko 免費 API（`/coins/categories` 取總市值與子分類、`/coins/markets?category=` 取代幣）；類別代號不寫死（`findRwaTotal`、`findStockCategory` 用 id 或名稱比對）；`refreshRwa` 30 分鐘內不重抓、kv `rwa`；`api.coingecko.com` 間隔 2.5 秒。

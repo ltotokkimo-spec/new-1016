@@ -370,8 +370,6 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
   const shownBars = useMemo(() => (bars ? (withLiveBar(bars, lq) as CandleBar[]) : bars), [bars, lq]);
   const liveBar = shownBars?.at(-1)?.live ? lq : undefined;
   const dayChg = lq && lq.prevClose > 0 ? lq.price / lq.prevClose - 1 : undefined;
-  // 美股「前一交易日」的日期：日 K 裡比即時報價那天早的最後一根（盤前時段看到的「收盤」是上一個交易日，所以要標日期才不會誤會）
-  const usPrevDay = s.market === "US" && lq?.date && bars ? [...bars].reverse().find((b) => b.date < lq.date)?.date : undefined;
 
   useEffect(() => {
     let alive = true;
@@ -417,7 +415,9 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
           <div class="price num" data-testid="detail-price"><LimitPx s={s.market !== "US" ? lq?.limit ?? limitFromChg(price, dayChg ?? s.chg1d, isEtf(s.code)) : undefined}>{fmtPrice(price, s.market)}</LimitPx></div>
           <div class="num" style={{ marginTop: "4px", fontSize: "13px" }} data-testid="detail-price-note">
             {lq
-              ? <><div class="muted" data-testid="detail-session">{s.market === "US" ? `${lq.session ?? "收盤"}${lq.date ? ` ${prettyW(lq.date)}` : ""}` : lq.trial ? "試搓（開盤前試算價，還沒成交）" : lq.final || !marketOpen() ? "收盤" : "盤中"}</div><div><span class="muted" data-testid="detail-prev">{s.market === "US" ? `前一交易日${usPrevDay ? ` ${prettyW(usPrevDay)}` : ""} 收盤` : "昨收"} {fmtPrice(lq.prevClose, s.market)}　</span><span class={cls(dayChg)}>{fmtPct(dayChg)}</span></div></>
+              ? <><div class="muted" data-testid="detail-session">{s.market === "US" ? `${lq.session ?? "收盤"}${lq.date ? ` ${prettyW(lq.date)}` : ""}` : lq.trial ? "試搓（開盤前試算價，還沒成交）" : lq.final || !marketOpen() ? "收盤" : "盤中"}</div>{s.market === "US"
+                  ? <div data-testid="detail-chg"><span class={cls(dayChg)}>{fmtPct(dayChg)}</span></div>
+                  : <div><span class="muted">昨收 {fmtPrice(lq.prevClose, s.market)}　</span><span class={cls(dayChg)}>{fmtPct(dayChg)}</span></div>}</>
               : <span class="muted">收盤價 {snapAsOf ? pretty(snapAsOf) : ""}（還沒抓到即時價）</span>}
           </div>
           <div class="muted" style={{ marginTop: "6px", fontSize: "13px" }}>{s.sector}・{s.market === "US" ? "美股" : `${s.market === "TPEX" ? "上櫃" : "上市"}${isEtf(s.code) ? " ETF" : ""}`}</div>
@@ -965,7 +965,7 @@ function UsOvernight({ code, close }: { code: string; close: number }) {
   const pctTxt = (x?: number) => (x === undefined || !Number.isFinite(x) ? "" : `${x >= 0 ? "+" : ""}${(x * 100).toFixed(2)}%`);
   const rows: { k: string; live: boolean; price?: number; chg?: number; note: string; id: string }[] = [
     { id: "pre", k: "盤前", live: sess === "盤前", price: pre?.price, chg: pre ? pre.price / reg - 1 : undefined, note: pre ? `台北 ${pre.time}・對照前一天收盤` : "美東 4:00～9:30（台北約 16:00／17:00 起）" },
-    { id: "reg", k: lq && !lq.final ? "盤中" : "收盤", live: sess === "盤中", price: reg, chg: regPrev ? reg / regPrev - 1 : undefined, note: lq ? [lq.time ? `台北 ${lq.time}` : "", regPrev ? `對照昨收 ${fmtPrice(regPrev)}` : ""].filter(Boolean).join("・") : "還沒抓到即時價" },
+    { id: "reg", k: lq && !lq.final ? "盤中" : "收盤", live: sess === "盤中", price: reg, chg: regPrev ? reg / regPrev - 1 : undefined, note: lq ? [lq.date ? prettyW(lq.date) : "", lq.time ? `台北 ${lq.time}` : ""].filter(Boolean).join("・") : "還沒抓到即時價" },
     { id: "post", k: "盤後", live: sess === "盤後", price: post?.price, chg: post ? post.chg : undefined, note: post ? `台北 ${post.time}・對照收盤` : "美東 16:00～20:00" },
     { id: "24h", k: "24 小時", live: sess === "夜間" || sess === "週末", price: tk?.last, chg: tk ? tk.last / reg - 1 : undefined, note: tk ? `OKX ${inst?.replace("-", "/")}・對照最近收盤` : err ? err : inst === null ? "OKX 沒有這檔的 24 小時交易" : inst === undefined ? "查詢 OKX 交易對中…" : "OKX 報價下載中…" },
   ];

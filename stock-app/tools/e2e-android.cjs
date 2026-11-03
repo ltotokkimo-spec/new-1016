@@ -807,9 +807,9 @@ function check(ok, name, detail = "") {
   const ss = await page.evaluate(() => ({ okx: document.querySelector('[data-testid="us-24h"]')?.innerText.replace(/\s+/g, " ").slice(0, 160) || "", rows: ["pre", "reg", "post", "24h"].map((k) => document.querySelector(`[data-testid="us-sess-${k}"]`)?.innerText.replace(/\s+/g, " ") || ""), live: document.querySelectorAll('[data-testid="us-sess-live"]').length, title: [...document.querySelectorAll(".section-title")].map((e) => e.innerText).find((t) => /交易時段/.test(t)) || "" }));
   log("AAPL 交易時段", JSON.stringify(ss));
   // 大字下方標日期：「收盤 11/2（一）」或「盤中 11/3（二）」，以及「前一交易日 10/30（五） 收盤 價格」，不再只寫「昨收」
-  const hdr = await page.evaluate(() => ({ sess: document.querySelector('[data-testid="detail-session"]')?.innerText || "", prev: document.querySelector('[data-testid="detail-prev"]')?.innerText || "", chg: document.querySelector('[data-testid="us-24h-chg"]')?.innerText || "" }));
+  const hdr = await page.evaluate(() => ({ sess: document.querySelector('[data-testid="detail-session"]')?.innerText || "", chg: document.querySelector('[data-testid="detail-chg"]')?.innerText || "", note: document.querySelector('[data-testid="detail-price-note"]')?.innerText || "" }));
   log("AAPL 大字日期", JSON.stringify(hdr));
-  check(/^(收盤|盤中) \d+\/\d+（[一二三四五六日]）/.test(hdr.sess) && /^前一交易日 \d+\/\d+（[一二三四五六日]） 收盤 [\d,.]+/.test(hdr.prev), "美股個股頁：收盤與前一交易日都標日期", JSON.stringify(hdr));
+  check(/^(收盤|盤中) \d+\/\d+（[一二三四五六日]）/.test(hdr.sess) && /^[+-]?\d+\.\d%$/.test(hdr.chg.trim()) && !/昨收|前一交易日/.test(hdr.note), "美股個股頁：只顯示最新收盤（標日期）與漲跌，不顯示昨收價", JSON.stringify(hdr));
   await page.evaluate(() => document.querySelector('[data-testid="us-sessions"]')?.scrollIntoView());
   await shot("06c0-美股交易時段");
   check(ss.rows.every(Boolean) && /^盤前/.test(ss.rows[0]) && /^(盤中|收盤)/.test(ss.rows[1]) && /^盤後/.test(ss.rows[2]) && /^24 小時/.test(ss.rows[3]) && /[\d,]+\.\d+/.test(ss.rows[1]) && /[\d,]+\.\d+/.test(ss.rows[3]) && ss.live === 1, "美股個股頁：盤前／盤中／盤後／24 小時即時行情（目前時段標進行中）", JSON.stringify(ss));

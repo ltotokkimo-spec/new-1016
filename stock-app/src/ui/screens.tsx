@@ -847,18 +847,42 @@ function ImportReview({ data, onDone }: { data: { rows: ImportedHolding[]; note:
 
 // ---------------- 虛擬幣恐懼貪婪指數 ----------------
 function FngCard({ f, onOpen }: { f: Fng; onOpen: () => void }) {
-  // 恐懼偏綠（跌）、貪婪偏紅（漲），和台股紅漲綠跌的配色一致
+  // 恐懼偏綠（跌）、貪婪偏紅（漲），和台股紅漲綠跌的配色一致；整排寬，左邊文字、右邊儀表板
   const c = f.value <= 44 ? "down" : f.value >= 56 ? "up" : "";
   const diff = (x?: number) => (x === undefined ? "" : `${f.value - x >= 0 ? "+" : ""}${f.value - x}`);
   return (
-    <div class="metric" data-testid="fng-card" style={{ cursor: "pointer" }} onClick={onOpen}>
-      <div class="k">恐懼貪婪指數</div>
-      <div class={`v num ${c}`}>{f.value}　<span style={{ fontSize: "14px" }}>{f.label}</span></div>
-      <div class="d muted" style={{ fontSize: "11.5px", lineHeight: 1.5 }}>
-        {[f.prev !== undefined ? `昨天 ${f.prev}（${diff(f.prev)}）` : "", f.weekAgo !== undefined ? `一週前 ${f.weekAgo}` : "", f.monthAgo !== undefined ? `一個月前 ${f.monthAgo}` : ""].filter(Boolean).join("・")}
-        <div>0 極度恐懼～100 極度貪婪（alternative.me，每天更新）・點進去看走勢</div>
+    <div class="metric" data-testid="fng-card" style={{ cursor: "pointer", gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: "10px" }} onClick={onOpen}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div class="k">恐懼貪婪指數</div>
+        <div class={`v num ${c}`}>{f.value}　<span style={{ fontSize: "14px" }}>{f.label}</span></div>
+        <div class="d muted" style={{ fontSize: "11.5px", lineHeight: 1.5 }}>
+          {[f.prev !== undefined ? `昨天 ${f.prev}（${diff(f.prev)}）` : "", f.weekAgo !== undefined ? `一週前 ${f.weekAgo}` : "", f.monthAgo !== undefined ? `一個月前 ${f.monthAgo}` : ""].filter(Boolean).join("・")}
+          <div>點進去看近一年走勢</div>
+        </div>
       </div>
+      <FngGauge v={f.value} />
     </div>
+  );
+}
+
+/** 半圓儀表板：左 0（極度恐懼）到右 100（極度貪婪），指針指到目前分數 */
+const GAUGE_SEGS = [[0, 25, "#13834a"], [25, 45, "#7cc49a"], [45, 56, "#b9b4a8"], [56, 76, "#ec8f97"], [76, 100, "#d7263d"]] as const;
+function FngGauge({ v }: { v: number }) {
+  const cx = 70, cy = 66, r = 54, w = 14;
+  const pt = (val: number, rad: number) => { const a = Math.PI * (1 - val / 100); return [cx + rad * Math.cos(a), cy - rad * Math.sin(a)]; };
+  const arc = (a: number, b: number) => { const [x1, y1] = pt(a, r), [x2, y2] = pt(b, r); return `M${x1.toFixed(1)},${y1.toFixed(1)} A${r},${r} 0 0 1 ${x2.toFixed(1)},${y2.toFixed(1)}`; };
+  const vv = Math.max(0, Math.min(100, v));
+  const [nx, ny] = pt(vv, r - 8);
+  return (
+    <svg viewBox="0 0 140 82" width="140" height="82" role="img" aria-label={`恐懼貪婪指數 ${v}`} data-testid="fng-gauge" data-value={v} style={{ flex: "none" }}>
+      {GAUGE_SEGS.map(([a, b, col]) => <path d={arc(a + 0.6, b - 0.6)} fill="none" stroke={col} stroke-width={w} />)}
+      <line x1={cx} y1={cy} x2={nx.toFixed(1)} y2={ny.toFixed(1)} stroke="var(--fg)" stroke-width="3" stroke-linecap="round" data-testid="fng-needle" />
+      <circle cx={cx} cy={cy} r="5" fill="var(--fg)" />
+      <text x={cx - r} y={cy + 14} font-size="9" fill="var(--muted)" text-anchor="middle">0</text>
+      <text x={cx + r} y={cy + 14} font-size="9" fill="var(--muted)" text-anchor="middle">100</text>
+      <text x={cx - r + 6} y={cy - r + 4} font-size="9" fill="#13834a">恐懼</text>
+      <text x={cx + r - 6} y={cy - r + 4} font-size="9" fill="#d7263d" text-anchor="end">貪婪</text>
+    </svg>
   );
 }
 

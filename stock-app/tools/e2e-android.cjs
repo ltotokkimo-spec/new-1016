@@ -368,6 +368,16 @@ function check(ok, name, detail = "") {
   const fngTxt = await page.$eval('[data-testid="fng-card"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   log("恐懼貪婪指數", fngTxt);
   check(/恐懼貪婪指數 \d{1,3} (極度恐懼|恐懼|中立|貪婪|極度貪婪)/.test(fngTxt) && /昨天 \d{1,3}/.test(fngTxt), "數據頁虛擬幣區顯示恐懼貪婪指數（分數、分級、昨天）", fngTxt);
+  // 卡片整排寬，右邊儀表板的指針角度要對應分數（0 在左、100 在右）
+  const fngG = await page.evaluate(() => {
+    const card = document.querySelector('[data-testid="fng-card"]'), g = document.querySelector('[data-testid="fng-gauge"]'), n = document.querySelector('[data-testid="fng-needle"]');
+    if (!card || !g || !n) return null;
+    const grid = card.parentElement.getBoundingClientRect(), cr = card.getBoundingClientRect(), gr = g.getBoundingClientRect();
+    const dx = +n.getAttribute("x2") - +n.getAttribute("x1"), dy = +n.getAttribute("y1") - +n.getAttribute("y2");
+    return { v: +g.getAttribute("data-value"), deg: Math.round(Math.atan2(dy, dx) * 180 / Math.PI), fullWidth: cr.width > grid.width * 0.9, rightSide: gr.left > cr.left + cr.width / 2 };
+  });
+  log("恐懼貪婪儀表板", JSON.stringify(fngG));
+  check(!!fngG && fngG.fullWidth && fngG.rightSide && Math.abs(fngG.deg - 180 * (1 - fngG.v / 100)) <= 3, "恐懼貪婪卡片整排寬、右邊儀表板指針對應分數", JSON.stringify(fngG));
   // 點進去：近一年走勢圖（疊比特幣）、摘要（昨天／一週前／一個月前／一年內最高最低）、算法說明
   if (fngTxt) {
     await page.click('[data-testid="fng-card"]');

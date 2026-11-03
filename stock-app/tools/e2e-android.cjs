@@ -268,6 +268,14 @@ function check(ok, name, detail = "") {
   const code1 = /(\S+)$/.exec(title1 || "")?.[1] || "";
   log("下一檔", JSON.stringify({ title0, title1, nextName }));
   check(hasNext && title1 !== title0 && !!code1 && nextName.includes(code1), "個股頁右上箭頭切到清單的下一檔", JSON.stringify({ title0, title1, nextName }));
+  // 上一檔：回到原本那一檔；中間顯示「第幾檔／共幾檔」
+  const pos1 = await page.$eval('[data-testid="detail-pos"]', (e) => e.textContent).catch(() => "");
+  if (await page.$('[data-testid="detail-prev-stock"]')) await page.click('[data-testid="detail-prev-stock"]');
+  await page.waitForFunction((t1) => document.querySelector(".sheet h2")?.textContent !== t1, { timeout: 10000 }, title1).catch(() => {});
+  const title2 = await page.$eval(".sheet h2", (e) => e.textContent).catch(() => "");
+  const pos2 = await page.$eval('[data-testid="detail-pos"]', (e) => e.textContent).catch(() => "");
+  log("上一檔", JSON.stringify({ pos1, title2, pos2 }));
+  check(/^2\/\d+$/.test(pos1 || "") && title2 === title0 && /^1\/\d+$/.test(pos2 || ""), "個股頁上一檔回到原本那一檔，並顯示第幾檔／共幾檔", JSON.stringify({ pos1, title2, pos2, title0 }));
   await page.click('button[aria-label="返回"]');
 
   // ETF 分頁：證交所資料裡的 ETF 單獨評分（只有「全部」，不分評等）
@@ -831,6 +839,8 @@ function check(ok, name, detail = "") {
   const costTxt = await page.$eval('[data-testid="candle-cost"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   check(/我的均價 100(\.0+)?（現價 [\d,.]+，[+-]?\d+\.\d\d%）/.test(costTxt), "持股的 K 線圖標示我的均價線（均價與現價差）", costTxt);
   await shot("06b-持股K線均價線");
+  const holdNav = await page.$eval('[data-testid="detail-pos"]', (e) => e.textContent).catch(() => "");
+  check(/^\d+\/\d+$/.test(holdNav || ""), "持股點進美股也能上一檔／下一檔（台股、ETF、美股一起切）", holdNav || "沒有箭頭");
   // 即時行情・交易時段：盤前／盤中（或收盤）／盤後／24 小時四列，正常盤那列要有價格，現在的時段標「進行中」；每幾秒自動更新
   // OKX 第一次要先抓交易對清單，最多等 2 分鐘；24 小時那列要出現價格（不是「下載中」或錯誤）
   await page.waitForFunction(() => /[\d,]+\.\d+/.test(document.querySelector('[data-testid="us-sess-reg"]')?.innerText || "") && /[\d,]+\.\d+/.test(document.querySelector('[data-testid="us-sess-24h"]')?.innerText || ""), null, { timeout: 120000 }).catch(() => {});

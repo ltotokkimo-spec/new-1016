@@ -339,8 +339,9 @@ export function SectorsScreen({ market, setMarket, pick }: { market: Market; set
 }
 
 // ---------------- 個股詳細 ----------------
-/** onNext：切換到同一份清單的下一檔（選股、持股、ETF 排行）；最後一檔再按回到第一檔 */
-export function StockDetail({ s, onClose, onNext, nextName }: { s: Scored; onClose: () => void; onNext?: () => void; nextName?: string }) {
+/** nav：切換到同一份清單的上一檔／下一檔（選股的台股、ETF、美股，持股，ETF 排行）；頭尾循環 */
+export interface DetailNav { pos: number; total: number; prev: () => void; next: () => void; prevName: string; nextName: string }
+export function StockDetail({ s, onClose, nav }: { s: Scored; onClose: () => void; nav?: DetailNav }) {
   const { holdings, apiKey, reports } = useStore((st) => ({ holdings: st.holdings, apiKey: st.settings.apiKey, reports: st.reports }));
   const [bars, setBars] = useState<CandleBar[] | null>(null);
   const [barsErr, setBarsErr] = useState("");
@@ -415,10 +416,16 @@ export function StockDetail({ s, onClose, onNext, nextName }: { s: Scored; onClo
 
   return (
     <>
-    <Sheet title={`${s.name} ${s.code}`} onClose={onClose} actions={onNext && (
-      <button class="iconbtn" aria-label={`下一檔${nextName ? `：${nextName}` : ""}`} title={nextName ? `下一檔：${nextName}` : "下一檔"} onClick={onNext} data-testid="detail-next">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6" /></svg>
-      </button>
+    <Sheet title={`${s.name} ${s.code}`} onClose={onClose} actions={nav && (
+      <div class="row" style={{ gap: "4px", alignItems: "center", flex: "none" }} data-testid="detail-nav">
+        <button class="iconbtn" aria-label={`上一檔：${nav.prevName}`} title={`上一檔：${nav.prevName}`} onClick={nav.prev} data-testid="detail-prev-stock">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 15l-6-6-6 6" /></svg>
+        </button>
+        <span class="muted num" style={{ fontSize: "11px", minWidth: "34px", textAlign: "center" }} data-testid="detail-pos">{nav.pos}/{nav.total}</span>
+        <button class="iconbtn" aria-label={`下一檔：${nav.nextName}`} title={`下一檔：${nav.nextName}`} onClick={nav.next} data-testid="detail-next">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" /></svg>
+        </button>
+      </div>
     )}>
       <div class="hero">
         <div>

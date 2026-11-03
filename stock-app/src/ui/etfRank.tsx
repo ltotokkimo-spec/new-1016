@@ -194,7 +194,7 @@ export function EtfRankScreen({ open }: { open: (s: Scored, list?: Scored[]) => 
           : !active.liveAt ? <>持股資料已是最新{cover ? `（${ymdW(cover.date)} 已公布 ${cover.n}／${cover.of} 檔）` : ""}，不用再等 <button class="linkbtn" onClick={() => refreshActiveLive()} data-testid="etfrank-recheck">重新檢查</button></>
           : <>已檢查最新持股（{new Date(active.liveAt!).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false })}，取得 {active.liveFound ?? 0} 檔）{active.data.live ? `，最新持股日 ${ymdW(active.data.live)}` : ""}{cover ? `，${ymdW(cover.date)} 已公布 ${cover.n}／${cover.of} 檔${cover.n < cover.of ? "（停在這頁每 5 分鐘自動檢查）" : ""}` : ""} <button class="linkbtn" onClick={() => refreshActiveLive()} data-testid="etfrank-recheck">重新檢查</button></>}
       </div>}
-      {who && <WhoSheet row={who} days={days} live={live} onClose={() => setWho(null)} openDetail={() => open(who.item)} />}
+      {who && <WhoSheet row={who} days={days} live={live} onClose={() => setWho(null)} openDetail={() => open(who.item, ((rank.buy as Row[]).some((x) => x.item.code === who.item.code) ? (rank.buy as Row[]) : (rank.sell as Row[])).map((x) => x.item))} />}
       {src === "active" && active?.error && <div class="card empty" style={{ marginBottom: "8px" }}>{active.error}</div>}
       {!ready ? <div class="card empty">{tw.status === "error" ? tw.error ?? "資料下載失敗" : "資料下載中…"}</div>
         : accumulating ? <div class="card empty" data-testid="etfrank-accum">資料累積中：已取得 {active!.data.etfs.length} 檔主動式 ETF 的持股{latestHold ? `（${ymdW(latestHold)}）` : ""}，下一份持股公布後就能比對出第一天的買賣超。</div>

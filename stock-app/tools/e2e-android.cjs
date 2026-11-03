@@ -816,6 +816,13 @@ function check(ok, name, detail = "") {
   const costTxt = await page.$eval('[data-testid="candle-cost"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   check(/我的均價 100(\.0+)?（現價 [\d,.]+，[+-]?\d+\.\d\d%）/.test(costTxt), "持股的 K 線圖標示我的均價線（均價與現價差）", costTxt);
   await shot("06b-持股K線均價線");
+  // 美股個股頁：這檔股票的代幣化版本（RWA）。AAPL 是最常被代幣化的美股，應該找得到（例如 AAPLx、AAPLon）
+  await page.waitForFunction(() => document.querySelector('[data-testid="stock-rwa-row"]') || document.querySelector('[data-testid="stock-rwa-none"]'), null, { timeout: 60000 }).catch(() => {});
+  const srwa = await page.evaluate(() => ({ rows: [...document.querySelectorAll('[data-testid="stock-rwa-row"]')].map((e) => e.innerText.replace(/\s+/g, " ")), text: document.querySelector('[data-testid="stock-rwa"]')?.innerText.replace(/\s+/g, " ").slice(0, 200) || "" }));
+  log("AAPL 代幣化版本", JSON.stringify(srwa));
+  await page.evaluate(() => document.querySelector('[data-testid="stock-rwa"]')?.scrollIntoView());
+  await shot("06c-美股代幣化版本");
+  check(srwa.rows.length >= 1 && srwa.rows.every((r) => /AAPL/i.test(r) && /\$[\d,.]+/.test(r) && /[+-]\d+\.\d\d%/.test(r)), "美股個股頁顯示代幣化版本（價格、和股價差）", JSON.stringify(srwa));
 
   // 重開 App：持股仍在（存在手機裡）
   const oldPid = webview.pid();

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
+  refreshRwa,
   LIVE_MS,
   findScored, getFetcher, getKv, getState, holdingViews, refreshEsb, refreshMacro, refreshTw, refreshUs, saveHoldings, saveReport,
   saveSettings, clearCache, useStore, usBars, recordSpend, estimatedBalance, checkForUpdate, installUpdate,
@@ -11,7 +12,7 @@ import { twHistory } from "../data/history";
 import { esbHistory } from "../data/esb";
 import { indexHistory, isCryptoSymbol, isUsIndexSymbol, type IndexHist } from "../data/indexHistory";
 import { fngLabel, type Fng } from "../data/fng";
-import { fmtUsdYi, zhCategory } from "../data/rwa";
+import { fmtUsdYi, tokensForStock, zhCategory } from "../data/rwa";
 import type { RwaState } from "../store";
 import { CandleChart, type CandleBar } from "./candles";
 import { FlowsPanel } from "./flows";
@@ -441,6 +442,8 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
             d={`預估淨值 ${fmtPrice(etfNav.nav)}${Math.abs(etfNav.premium) >= 1 ? (etfNav.premium > 0 ? "・溢價偏高" : "・折價偏深") : ""}`} />
         )}
       </div>
+
+      {s.market === "US" && <StockRwa code={s.code} price={price} />}
 
       <div class="section-title">
         {s.market === "US"
@@ -885,6 +888,40 @@ function FngGauge({ v }: { v: number }) {
       <text x={cx - r + 6} y={cy - r + 4} font-size="9" fill="#13834a">恐懼</text>
       <text x={cx + r - 6} y={cy - r + 4} font-size="9" fill="#d7263d" text-anchor="end">貪婪</text>
     </svg>
+  );
+}
+
+// ---------------- 美股個股頁：這檔股票的代幣化版本（RWA） ----------------
+function StockRwa({ code, price }: { code: string; price: number }) {
+  const rwa = useStore((st) => st.rwa);
+  useEffect(() => { void refreshRwa(); }, []);
+  const all = rwa?.stocksAll ?? rwa?.stocks ?? [];
+  const list = tokensForStock(code, all);
+  return (
+    <>
+      <div class="section-title"><span>代幣化版本（RWA）</span><span class="muted" style={{ fontSize: "12px" }}>CoinGecko</span></div>
+      <div class="card" style={{ padding: "8px 12px" }} data-testid="stock-rwa">
+        {!rwa ? <div class="muted" style={{ fontSize: "13px" }}>代幣化股票資料下載中…</div>
+          : list.length === 0 ? <div class="muted" style={{ fontSize: "13px" }} data-testid="stock-rwa-none">目前沒有找到 {code} 的代幣化版本（CoinGecko 代幣化股票類別前 {all.length} 檔裡沒有）。大多只有大型股才有。</div>
+          : <>
+            <table style={{ width: "100%", fontSize: "13px", borderCollapse: "collapse" }}>
+              <thead><tr class="muted" style={{ fontSize: "11.5px" }}><th style={{ textAlign: "left", fontWeight: 500 }}>代幣</th><th style={{ textAlign: "right", fontWeight: 500 }}>價格</th><th style={{ textAlign: "right", fontWeight: 500 }}>和股價差</th><th style={{ textAlign: "right", fontWeight: 500 }}>24 小時</th></tr></thead>
+              <tbody>{list.map((t) => {
+                const prem = Number.isFinite(price) && price > 0 ? t.price / price - 1 : undefined;
+                return (
+                  <tr style={{ borderTop: "1px solid var(--line)" }} data-testid="stock-rwa-row">
+                    <td style={{ padding: "5px 0" }}><b>{t.symbol}</b><div class="muted" style={{ fontSize: "11px" }}>{t.name}{t.cap !== undefined ? `・市值 ${fmtUsdYi(t.cap)}` : ""}</div></td>
+                    <td class="num" style={{ textAlign: "right" }}>${t.price.toLocaleString("en-US", { maximumFractionDigits: 2 })}</td>
+                    <td class={`num ${prem === undefined ? "" : cls(prem)}`} style={{ textAlign: "right" }}>{prem === undefined ? "—" : `${prem >= 0 ? "+" : ""}${(prem * 100).toFixed(2)}%`}</td>
+                    <td class={`num ${cls(t.chg24h ?? 0)}`} style={{ textAlign: "right" }}>{t.chg24h === undefined ? "—" : `${t.chg24h > 0 ? "+" : ""}${t.chg24h.toFixed(2)}%`}</td>
+                  </tr>
+                );
+              })}</tbody>
+            </table>
+            <div class="muted" style={{ fontSize: "11px", marginTop: "6px", lineHeight: 1.5 }}>代幣化股票在區塊鏈上 24 小時交易，價格會和美股有落差：「和股價差」是代幣價格對上方股價（{fmtPrice(price)}）的溢價（＋）或折價（－）。美股收盤後的差距，常反映盤後與週末的市場預期。</div>
+          </>}
+      </div>
+    </>
   );
 }
 

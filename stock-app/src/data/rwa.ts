@@ -68,6 +68,20 @@ export function rwaSubcategories(cats: CgCategory[], total?: CgCategory): CgCate
     .slice(0, 6);
 }
 
+/**
+ * 某檔美股的代幣化版本：在「代幣化股票」類別裡找代號對得上的代幣。
+ * 常見命名：xStocks 用「代號＋x」（NVDAx）、Ondo 用「代號＋on」（NVDAon）、Backed 用「b＋代號」（bNVDA），
+ * 也有直接用原代號的。BRK.B 這類去掉點再比。依市值排序。
+ */
+export function tokensForStock(usSymbol: string, tokens: CgToken[]): CgToken[] {
+  const s = usSymbol.toUpperCase().replace(/[.\-\/]/g, "");
+  if (!s) return [];
+  const want = new Set([s, `${s}X`, `${s}ON`, `B${s}`]);
+  return tokens
+    .filter((t) => want.has(t.symbol.toUpperCase().replace(/[.\-\/]/g, "")))
+    .sort((a, b) => (b.cap ?? 0) - (a.cap ?? 0));
+}
+
 /** 金額：美元 → 億美元（1 億 = 1e8） */
 export function fmtUsdYi(v: number): string {
   if (!Number.isFinite(v)) return "—";

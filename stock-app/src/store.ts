@@ -397,21 +397,22 @@ export async function refreshFutures() {
   if (keepDay || night) set({ futures: { day: keepDay, night: night ?? state.futures.night, at: Date.now() } });
 }
 
-export interface RwaState { at: number; total?: CgCategory; cats: CgCategory[]; top: CgToken[]; stockCat?: CgCategory; stocks: CgToken[]; error?: string }
+export interface RwaState { at: number; total?: CgCategory; cats: CgCategory[]; top: CgToken[]; stockCat?: CgCategory; stocks: CgToken[]; stocksAll?: CgToken[]; error?: string }
 
 /** RWA 與代幣化美股：CoinGecko 免費版有次數限制，30 分鐘內抓過就不重抓；失敗沿用上次的 */
-async function refreshRwa() {
+export async function refreshRwa() {
   if (state.rwa && !state.rwa.error && Date.now() - state.rwa.at < 30 * 60_000) return;
   try {
     const cats = parseCgCategories(await fetcher(cgCategoriesUrl()));
     if (!cats.length) throw new Error("沒有取得類別資料");
     const total = findRwaTotal(cats), stockCat = findStockCategory(cats);
     const subs = rwaSubcategories(cats, total);
-    let top: CgToken[] = state.rwa?.top ?? [], stocks: CgToken[] = state.rwa?.stocks ?? [];
+    let top: CgToken[] = state.rwa?.top ?? [], stocksAll: CgToken[] = state.rwa?.stocksAll ?? state.rwa?.stocks ?? [];
     const errs: string[] = [];
     if (total) { try { top = parseCgMarkets(await fetcher(cgMarketsUrl(total.id, 6))); } catch (e: any) { errs.push(`RWA 項目：${e?.message ?? e}`); } }
-    if (stockCat) { try { stocks = parseCgMarkets(await fetcher(cgMarketsUrl(stockCat.id, 10))); } catch (e: any) { errs.push(`代幣化美股：${e?.message ?? e}`); } }
-    const v: RwaState = { at: Date.now(), total, cats: subs, top, stockCat, stocks, ...(errs.length ? { error: errs.join("；") } : {}) };
+    // 個股頁要找每檔美股有沒有代幣化版本，所以抓多一點（一次最多 250 檔）；數據頁卡片只顯示前 10
+    if (stockCat) { try { stocksAll = parseCgMarkets(await fetcher(cgMarketsUrl(stockCat.id, 250))); } catch (e: any) { errs.push(`代幣化美股：${e?.message ?? e}`); } }
+    const v: RwaState = { at: Date.now(), total, cats: subs, top, stockCat, stocks: stocksAll.slice(0, 10), stocksAll, ...(errs.length ? { error: errs.join("；") } : {}) };
     set({ rwa: v });
     await kv.set("rwa", v);
   } catch (e: any) {

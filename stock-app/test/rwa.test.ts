@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findRwaTotal, findStockCategory, fmtUsdYi, parseCgCategories, parseCgMarkets, rwaSubcategories, zhCategory } from "../src/data/rwa";
+import { findRwaTotal, findStockCategory, fmtUsdYi, parseCgCategories, parseCgMarkets, rwaSubcategories, tokensForStock, zhCategory } from "../src/data/rwa";
 
 // CoinGecko /coins/categories 的回應格式（依官方文件的欄位）
 const cats = [
@@ -44,5 +44,20 @@ describe("RWA 與代幣化美股（CoinGecko）", () => {
     expect(fmtUsdYi(28_500_000_000)).toBe("285 億美元");
     expect(fmtUsdYi(600_000_000)).toBe("6.0 億美元");
     expect(fmtUsdYi(12_000_000)).toBe("1,200 萬美元");
+  });
+});
+
+describe("美股對應的代幣化版本", () => {
+  const tk = (symbol: string, cap: number) => ({ id: symbol.toLowerCase(), symbol, name: symbol, price: 100, cap });
+  const all = [tk("AAPLX", 5e7), tk("AAPLON", 9e7), tk("BAAPL", 1e6), tk("NVDAX", 2e8), tk("AAPLE", 1e9), tk("BRKBX", 3e6), tk("XAAPL", 1e9)];
+  it("xStocks（代號＋X）、Ondo（代號＋ON）、Backed（B＋代號），依市值排序", () => {
+    expect(tokensForStock("AAPL", all).map((t) => t.symbol)).toEqual(["AAPLON", "AAPLX", "BAAPL"]);
+  });
+  it("不會把名字相近的代幣誤認（AAPLE、XAAPL 不算）", () => {
+    expect(tokensForStock("AAPL", all).some((t) => t.symbol === "AAPLE" || t.symbol === "XAAPL")).toBe(false);
+  });
+  it("BRK.B 去掉點再比；沒有代幣化版本就回傳空陣列", () => {
+    expect(tokensForStock("BRK.B", all).map((t) => t.symbol)).toEqual(["BRKBX"]);
+    expect(tokensForStock("AXTI", all)).toEqual([]);
   });
 });

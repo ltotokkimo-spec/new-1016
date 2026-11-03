@@ -11,6 +11,7 @@ import { twHistory } from "../data/history";
 import { esbHistory } from "../data/esb";
 import { indexHistory, isCryptoSymbol, isUsIndexSymbol, type IndexHist } from "../data/indexHistory";
 import { fngLabel, type Fng } from "../data/fng";
+import { findXStock, OKX_BARS, okxCandlesUrl, okxInstrumentsUrl, okxTickerUrl, parseOkxCandles, parseOkxTicker, type OkxBar, type OkxTicker } from "../data/okx";
 import { CandleChart, type CandleBar } from "./candles";
 import { FlowsPanel } from "./flows";
 import { EtfHoldingsPanel, isActiveEtf } from "./etfHoldings";
@@ -439,6 +440,8 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
             d={`預估淨值 ${fmtPrice(etfNav.nav)}${Math.abs(etfNav.premium) >= 1 ? (etfNav.premium > 0 ? "・溢價偏高" : "・折價偏深") : ""}`} />
         )}
       </div>
+
+      {s.market === "US" && <UsOvernight code={s.code} />}
 
       <div class="section-title">
         {s.market === "US"
@@ -883,6 +886,79 @@ function FngGauge({ v }: { v: number }) {
       <text x={cx - r + 6} y={cy - r + 4} font-size="9" fill="#13834a">恐懼</text>
       <text x={cx + r - 6} y={cy - r + 4} font-size="9" fill="#d7263d" text-anchor="end">貪婪</text>
     </svg>
+  );
+}
+
+// ---------------- 美股 24 小時行情（OKX xStocks：美股的代幣版本，收盤後與週末也在交易） ----------------
+/** 美股代號 → OKX xStock 交易對；OKX 的商品清單一天抓一次存手機（約 1,000 筆） */
+async function okxInstId(code: string): Promise<string | undefined> {
+  const kv = getKv(), key = "okx:inst";
+  let saved = await kv.get<{ at: number; json: any }>(key);
+  if (!saved || Date.now() - saved.at > 24 * 3600_000) {
+    try { const json = await getFetcher()(okxInstrumentsUrl()); saved = { at: Date.now(), json: { code: "0", data: (json?.data ?? []).filter((d: any) => /^x|x$/i.test(String(d?.baseCcy ?? ""))).map((d: any) => ({ instId: d.instId, baseCcy: d.baseCcy, quoteCcy: d.quoteCcy, state: d.state })) } }; await kv.set(key, saved); }
+    catch (e) { if (!saved) throw e; }
+  }
+  return findXStock(saved.json, code);
+}
+
+function UsOvernight({ code }: { code: string }) {
+  const [inst, setInst] = useState<string | null | undefined>(undefined); // undefined＝查詢中、null＝沒有
+  const [bar, setBar] = useState<OkxBar>("1H");
+  const [tk, setTk] = useState<OkxTicker | undefined>();
+  const [bars, setBars] = useState<CandleBar[] | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    let alive = true;
+    okxInstId(code).then((id) => { if (alive) setInst(id ?? null); }).catch((e) => { if (alive) { setInst(null); setErr(`OKX 連線失敗：${e?.message ?? e}`); } });
+    return () => { alive = false; };
+  }, [code]);
+  useEffect(() => {
+    if (!inst) return;
+    let alive = true;
+    const pull = async () => {
+      try {
+        const [t, c] = await Promise.all([getFetcher()(okxTickerUrl(inst)), getFetcher()(okxCandlesUrl(inst, bar))]);
+        if (!alive) return;
+        setTk(parseOkxTicker(t)); setBars(parseOkxCandles(c) as CandleBar[]); setErr("");
+      } catch (e: any) { if (alive) setErr(`OKX 行情下載失敗：${e?.message ?? e}`); }
+    };
+    setBars(null); pull();
+    const t = setInterval(pull, 60_000); // 24 小時都在交易，開著就每分鐘更新
+    return () => { alive = false; clearInterval(t); };
+  }, [inst, bar]);
+  const chg = tk && tk.open24h ? tk.last / tk.open24h - 1 : undefined;
+  const sym = inst?.split("-")[0] ?? "";
+  return (
+    <>
+      <div class="section-title"><span>24 小時行情{inst ? `（OKX ${inst.replace("-", "/")}）` : ""}</span><span class="muted" style={{ fontSize: "12px" }}>隔夜・週末也交易</span></div>
+      <div class="card stack" style={{ padding: "10px" }} data-testid="us-24h">
+        {inst === undefined && !err && <div class="muted" style={{ fontSize: "13px" }}>查詢 OKX 有沒有 {code} 的 24 小時交易…</div>}
+        {inst === null && !err && <div class="muted" style={{ fontSize: "13px" }} data-testid="us-24h-none">OKX 目前沒有 {code} 的 xStock（24 小時交易版本），只有部分美股有。</div>}
+        {err && <div class="muted" style={{ fontSize: "13px" }} data-testid="us-24h-err">{err}</div>}
+        {inst && tk && (
+          <div class="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }} data-testid="us-24h-quote">
+            <div>
+              <div class={`big num ${cls(chg ?? 0)}`} style={{ fontSize: "28px" }}>{fmtPrice(tk.last)}</div>
+              <div class={`num ${cls(chg ?? 0)}`} style={{ fontSize: "13px" }}>{chg === undefined ? "" : `${chg >= 0 ? "+" : ""}${(chg * 100).toFixed(2)}%`}<span class="muted">（24 小時）</span></div>
+            </div>
+            <div style={{ fontSize: "12.5px", lineHeight: 1.7, textAlign: "right" }}>
+              <div><span class="muted">24 小時最高</span> <b class="num">{tk.high24h !== undefined ? fmtPrice(tk.high24h) : "—"}</b></div>
+              <div><span class="muted">24 小時最低</span> <b class="num">{tk.low24h !== undefined ? fmtPrice(tk.low24h) : "—"}</b></div>
+              <div><span class="muted">24 小時量（{sym}）</span> <b class="num">{tk.vol24h !== undefined ? tk.vol24h.toLocaleString("en-US", { maximumFractionDigits: 2 }) : "—"}</b></div>
+              <div><span class="muted">24 小時額（USDT）</span> <b class="num">{tk.amount24h !== undefined ? (tk.amount24h >= 1e4 ? `${(tk.amount24h / 1e4).toFixed(2)} 萬` : Math.round(tk.amount24h).toLocaleString("en-US")) : "—"}</b></div>
+            </div>
+          </div>
+        )}
+        {inst && (
+          <div class="seg" role="group" aria-label="K 線週期" data-testid="us-24h-bars">
+            {OKX_BARS.map((b) => <button aria-pressed={bar === b.bar} onClick={() => setBar(b.bar)} data-testid={`us-24h-bar-${b.bar}`}>{b.label}</button>)}
+          </div>
+        )}
+        {inst && (bars === null ? <div class="muted" style={{ fontSize: "13px" }}>K 線下載中…</div>
+          : bars.length >= 2 ? <CandleChart bars={bars} us intraday /> : <div class="muted" style={{ fontSize: "13px" }}>這個週期還沒有 K 線資料。</div>)}
+        {inst && <div class="muted" style={{ fontSize: "11px", lineHeight: 1.5 }}>xStock 是在 OKX 交易、對應 {code} 的代幣，美股收盤後與週末也能交易，所以能看到隔夜的價格變化；價格是 USDT 計價，可能和美股收盤價有落差。時間為台北時間，每分鐘更新。</div>}
+      </div>
+    </>
   );
 }
 

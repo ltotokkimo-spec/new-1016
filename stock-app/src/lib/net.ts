@@ -18,6 +18,7 @@ const GAP_MS: Record<string, number> = {
   "www.moneydj.com": 400,
   "api.nasdaq.com": 250,
   "quote.cnbc.com": 0,
+  "www.okx.com": 150,
 };
 const lastAt = new Map<string, Promise<void>>();
 

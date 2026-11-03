@@ -801,6 +801,20 @@ function check(ok, name, detail = "") {
   const costTxt = await page.$eval('[data-testid="candle-cost"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   check(/我的均價 100(\.0+)?（現價 [\d,.]+，[+-]?\d+\.\d\d%）/.test(costTxt), "持股的 K 線圖標示我的均價線（均價與現價差）", costTxt);
   await shot("06b-持股K線均價線");
+  // 美股 24 小時行情（OKX xStocks）：AAPL 有 xStock，應該有報價與分時 K 線；切到 4 時再確認一次
+  await page.waitForFunction(() => document.querySelector('[data-testid="us-24h"] canvas.chart') || document.querySelector('[data-testid="us-24h-none"]') || document.querySelector('[data-testid="us-24h-err"]'), null, { timeout: 60000 }).catch(() => {});
+  const o1 = await page.evaluate(() => ({ title: [...document.querySelectorAll(".section-title")].map((e) => e.innerText).find((t) => /24 小時行情/.test(t)) || "", quote: document.querySelector('[data-testid="us-24h-quote"]')?.innerText.replace(/\s+/g, " ") || "", chart: !!document.querySelector('[data-testid="us-24h"] canvas.chart'), info: document.querySelector('[data-testid="us-24h"] [data-testid="candle-info"]')?.innerText || "", none: document.querySelector('[data-testid="us-24h-none"]')?.innerText || "", err: document.querySelector('[data-testid="us-24h-err"]')?.innerText || "" }));
+  log("AAPL 24 小時行情", JSON.stringify(o1));
+  await page.evaluate(() => document.querySelector('[data-testid="us-24h"]')?.scrollIntoView());
+  await shot("06c-美股24小時行情");
+  check(o1.chart && /OKX/.test(o1.title) && /24 小時最高 [\d,.]+/.test(o1.quote) && /24 小時最低 [\d,.]+/.test(o1.quote), "美股 24 小時行情：OKX xStock 報價與分時 K 線", JSON.stringify(o1));
+  if (o1.chart) {
+    await page.click('[data-testid="us-24h-bar-4H"]');
+    await page.waitForFunction(() => document.querySelector('[data-testid="us-24h"] canvas.chart'), null, { timeout: 30000 }).catch(() => {});
+    const info4 = await page.$eval('[data-testid="us-24h"] [data-testid="candle-info"]', (e) => e.innerText).catch(() => "");
+    log("AAPL 24 小時行情 4 時", info4);
+    check(/\d+\/\d+ \d\d:\d\d/.test(info4) || /開 [\d,.]+/.test(info4), "美股 24 小時行情：切換 4 時 K 線，顯示時間", info4);
+  }
 
   // 重開 App：持股仍在（存在手機裡）
   const oldPid = webview.pid();

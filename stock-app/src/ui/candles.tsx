@@ -16,7 +16,8 @@ const DEFAULT_BARS = 90;
 
 const fmtP = (v: number) => (Number.isFinite(v) ? (v >= 1000 ? Math.round(v).toLocaleString() : v.toFixed(v >= 100 ? 1 : 2)) : "—");
 const fmtN = (v: number, d = 1) => (Number.isFinite(v) ? v.toFixed(d) : "—");
-const dstr = (s: string) => `${+s.slice(4, 6)}/${+s.slice(6, 8)}`;
+// 日 K 是 YYYYMMDD；24 小時行情的分時 K 是 YYYYMMDDHHmm（多顯示時間）
+const dstr = (s: string) => (s.length >= 12 ? `${+s.slice(4, 6)}/${+s.slice(6, 8)} ${s.slice(8, 10)}:${s.slice(10, 12)}` : `${+s.slice(4, 6)}/${+s.slice(6, 8)}`);
 // 台股成交量用「張」（1 張 = 1,000 股）；美股沒有張的概念，直接用股（萬股、億股）
 const fmtVol = (v: number, us: boolean) => (v >= 1e8 ? `${(v / 1e8).toFixed(2)} 億股` : us ? (v >= 1e4 ? `${Math.round(v / 1e4).toLocaleString()} 萬股` : `${v.toLocaleString()} 股`) : v >= 1e4 ? `${Math.round(v / 1e3).toLocaleString()} 張` : `${v} 股`);
 const volTag = (v: number, us: boolean) => {
@@ -32,7 +33,7 @@ const clampView = (v: View, n: number): View => {
   return { start, count };
 };
 
-export function CandleChart({ bars, us = false, cost, noVol = false }: { bars: CandleBar[]; us?: boolean; cost?: number; noVol?: boolean }) {
+export function CandleChart({ bars, us = false, cost, noVol = false, intraday = false }: { bars: CandleBar[]; us?: boolean; cost?: number; noVol?: boolean; intraday?: boolean }) {
   const costOk = cost !== undefined && Number.isFinite(cost) && cost > 0;
   const n = bars.length;
   const ref = useRef<HTMLCanvasElement>(null);
@@ -299,7 +300,7 @@ export function CandleChart({ bars, us = false, cost, noVol = false }: { bars: C
         {!noVol && <span>　量 {fmtVol(b.volume, us)}</span>}
       </div>
       <div class="row num" style={{ fontSize: "12px", gap: "10px", flexWrap: "wrap" }} data-testid="candle-ma">
-        {MA_DEFS.map((m, k) => <span key={m.n} style={{ color: m.color || "var(--accent)" }}>{m.label} {fmtP(ind.ma[k][idx])}</span>)}
+        {MA_DEFS.map((m, k) => <span key={m.n} style={{ color: m.color || "var(--accent)" }}>{intraday ? `MA${m.n}` : m.label} {fmtP(ind.ma[k][idx])}</span>)}
       </div>
       {costOk && <div class="num" style={{ fontSize: "12px", color: "#f0b23e" }} data-testid="candle-cost">┄ 我的均價 {fmtP(cost!)}（現價 {fmtP(bars[bars.length - 1].close)}，{bars[bars.length - 1].close >= cost! ? "+" : ""}{((bars[bars.length - 1].close / cost! - 1) * 100).toFixed(2)}%）</div>}
       <canvas ref={ref} class="chart candle" aria-label="K 線圖"

@@ -368,6 +368,21 @@ function check(ok, name, detail = "") {
   const fngTxt = await page.$eval('[data-testid="fng-card"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   log("恐懼貪婪指數", fngTxt);
   check(/恐懼貪婪指數 \d{1,3} (極度恐懼|恐懼|中立|貪婪|極度貪婪)/.test(fngTxt) && /昨天 \d{1,3}/.test(fngTxt), "數據頁虛擬幣區顯示恐懼貪婪指數（分數、分級、昨天）", fngTxt);
+  // 點進去：近一年走勢圖（疊比特幣）、摘要（昨天／一週前／一個月前／一年內最高最低）、算法說明
+  if (fngTxt) {
+    await page.click('[data-testid="fng-card"]');
+    await page.waitForSelector('[data-testid="fng-detail"]', { timeout: 10000 });
+    await page.waitForFunction(() => document.querySelector('[data-testid="fng-btc-line"]') || document.querySelector('[data-testid="fng-line"]') && /下載中/.test(document.querySelector('[data-testid="fng-btc-toggle"]')?.innerText || "") === false, null, { timeout: 60000 }).catch(() => {});
+    const fd = await page.evaluate(() => ({ line: !!document.querySelector('[data-testid="fng-line"]'), btc: !!document.querySelector('[data-testid="fng-btc-line"]'), days: document.querySelector(".sheet")?.innerText.match(/近一年走勢\s*(\d+) 天/)?.[1], sum: document.querySelector('[data-testid="fng-summary"]')?.innerText.replace(/\s+/g, " ") || "", about: document.querySelector('[data-testid="fng-about"]')?.innerText || "" }));
+    log("恐懼貪婪詳情", JSON.stringify(fd));
+    await shot("恐懼貪婪詳情");
+    check(fd.line && Number(fd.days) >= 300, "恐懼貪婪詳情：近一年走勢圖（300 天以上）", JSON.stringify({ line: fd.line, days: fd.days }));
+    check(fd.btc, "恐懼貪婪詳情：走勢圖疊上比特幣價格", "");
+    check(/昨天 \d+/.test(fd.sum) && /一週前 \d+/.test(fd.sum) && /一個月前 \d+/.test(fd.sum) && /一年內最高／最低 \d+／\d+/.test(fd.sum), "恐懼貪婪詳情：摘要（昨天、一週前、一個月前、一年內最高最低）", fd.sum);
+    check(/波動度/.test(fd.about) && /Google/.test(fd.about), "恐懼貪婪詳情：有算法說明", fd.about.slice(0, 60));
+    await page.click('.sheet header button[aria-label="返回"]');
+    await page.waitForFunction(() => !document.querySelector(".sheet"), null, { timeout: 5000 });
+  }
   // 量能：只顯示最新交易日成交金額（億元，證交所統計）；不再顯示成交股數與成交筆數
   check(macro.some((m) => /^成交金額 [\d,]{3,} 億元/.test(m)) && !macro.some((m) => /成交筆數|成交股數/.test(m)), "顯示大盤成交金額（億元），沒有成交筆數與成交股數", JSON.stringify(macro.filter((m) => /成交/.test(m))));
   // 還沒開盤（台灣 09:00 前）：證交所即時資料四大指數漲跌都是 0.00

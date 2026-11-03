@@ -332,8 +332,8 @@ function check(ok, name, detail = "") {
   check(/台股(盤中 \d\d:\d\d|收盤)/.test(idxTitle), "台股指數改成盤中即時（或收盤）", idxTitle);
   check(["加權指數", "臺灣50指數", "半導體類指數", "金融保險類指數"].every((n) => macro.some((m) => m.includes(n))), "四大台股指數都顯示", JSON.stringify(macro.slice(0, 6)));
   // 點指數卡片 → 日 K 走勢（加權有真實開高低收；臺灣50等用收盤串成）
-  const IDX_LABEL = { ".SPX": "S&P 500", ".VIX": "VIX", ".KS11": "韓國 KOSPI", ".N225": "日經 225", "@CL.1": "WTI 原油", "@GC.1": "黃金" };
-  for (const nm of ["加權指數", "臺灣50指數", "電子類指數", "櫃買指數", ".SPX", ".VIX", ".KS11", ".N225", "@CL.1", "@GC.1"]) {
+  const IDX_LABEL = { ".SPX": "S&P 500", ".VIX": "VIX", ".KS11": "韓國 KOSPI", ".N225": "日經 225", "@CL.1": "WTI 原油", "@GC.1": "黃金", ".HSI": "恆生指數", ".SSEC": "上證指數", "@SI.1": "白銀", "@HG.1": "銅" };
+  for (const nm of ["加權指數", "臺灣50指數", "電子類指數", "櫃買指數", ".SPX", ".VIX", ".KS11", ".N225", ".HSI", ".SSEC", "@CL.1", "@GC.1", "@SI.1", "@HG.1"]) {
     await page.evaluate(() => { window.__srIdxTrace = []; });
     await page.click(`[data-testid="idx-card-${nm}"]`);
     try {

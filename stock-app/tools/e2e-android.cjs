@@ -802,8 +802,9 @@ function check(ok, name, detail = "") {
   check(/我的均價 100(\.0+)?（現價 [\d,.]+，[+-]?\d+\.\d\d%）/.test(costTxt), "持股的 K 線圖標示我的均價線（均價與現價差）", costTxt);
   await shot("06b-持股K線均價線");
   // 即時行情・交易時段：盤前／盤中（或收盤）／盤後／24 小時四列，正常盤那列要有價格，現在的時段標「進行中」；每幾秒自動更新
-  await page.waitForFunction(() => /[\d.]+/.test(document.querySelector('[data-testid="us-sess-reg"]')?.innerText || "") && /[\d.]+/.test(document.querySelector('[data-testid="us-sess-24h"]')?.innerText || ""), null, { timeout: 60000 }).catch(() => {});
-  const ss = await page.evaluate(() => ({ rows: ["pre", "reg", "post", "24h"].map((k) => document.querySelector(`[data-testid="us-sess-${k}"]`)?.innerText.replace(/\s+/g, " ") || ""), live: document.querySelectorAll('[data-testid="us-sess-live"]').length, title: [...document.querySelectorAll(".section-title")].map((e) => e.innerText).find((t) => /交易時段/.test(t)) || "" }));
+  // OKX 第一次要先抓交易對清單，最多等 2 分鐘；24 小時那列要出現價格（不是「下載中」或錯誤）
+  await page.waitForFunction(() => /[\d,]+\.\d+/.test(document.querySelector('[data-testid="us-sess-reg"]')?.innerText || "") && /[\d,]+\.\d+/.test(document.querySelector('[data-testid="us-sess-24h"]')?.innerText || ""), null, { timeout: 120000 }).catch(() => {});
+  const ss = await page.evaluate(() => ({ okx: document.querySelector('[data-testid="us-24h"]')?.innerText.replace(/\s+/g, " ").slice(0, 160) || "", rows: ["pre", "reg", "post", "24h"].map((k) => document.querySelector(`[data-testid="us-sess-${k}"]`)?.innerText.replace(/\s+/g, " ") || ""), live: document.querySelectorAll('[data-testid="us-sess-live"]').length, title: [...document.querySelectorAll(".section-title")].map((e) => e.innerText).find((t) => /交易時段/.test(t)) || "" }));
   log("AAPL 交易時段", JSON.stringify(ss));
   await page.evaluate(() => document.querySelector('[data-testid="us-sessions"]')?.scrollIntoView());
   await shot("06c0-美股交易時段");

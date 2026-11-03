@@ -964,7 +964,7 @@ function UsOvernight({ code, close }: { code: string; close: number }) {
     { id: "pre", k: "盤前", live: sess === "盤前", price: pre?.price, chg: pre ? pre.price / reg - 1 : undefined, note: pre ? `台北 ${pre.time}・對照前一天收盤` : "美東 4:00～9:30（台北約 16:00／17:00 起）" },
     { id: "reg", k: lq && !lq.final ? "盤中" : "收盤", live: sess === "盤中", price: reg, chg: regPrev ? reg / regPrev - 1 : undefined, note: lq ? [lq.time ? `台北 ${lq.time}` : "", regPrev ? `對照昨收 ${fmtPrice(regPrev)}` : ""].filter(Boolean).join("・") : "還沒抓到即時價" },
     { id: "post", k: "盤後", live: sess === "盤後", price: post?.price, chg: post ? post.chg : undefined, note: post ? `台北 ${post.time}・對照收盤` : "美東 16:00～20:00" },
-    { id: "24h", k: "24 小時", live: sess === "夜間" || sess === "週末", price: tk?.last, chg: tk ? tk.last / reg - 1 : undefined, note: tk ? `OKX ${inst?.replace("-", "/")}・對照最近收盤` : inst === null ? "OKX 沒有這檔的 24 小時交易" : "OKX 下載中…" },
+    { id: "24h", k: "24 小時", live: sess === "夜間" || sess === "週末", price: tk?.last, chg: tk ? tk.last / reg - 1 : undefined, note: tk ? `OKX ${inst?.replace("-", "/")}・對照最近收盤` : err ? err : inst === null ? "OKX 沒有這檔的 24 小時交易" : inst === undefined ? "查詢 OKX 交易對中…" : "OKX 報價下載中…" },
   ];
   const sym = inst?.split("-")[0] ?? "";
   return (

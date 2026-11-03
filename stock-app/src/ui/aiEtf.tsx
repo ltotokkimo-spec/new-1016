@@ -6,7 +6,7 @@ import {
 import { aiEtfPrompt, claudeAppUrl, explainError, holdingsFromImage, shrinkImage } from "../ai/claude";
 import type { Scored } from "../engine/score";
 import type { VirtualEtf } from "../engine/virtualEtf";
-import { type EtfTrade, comparePlans, DEFAULT_STOP, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
+import { dailyHoldingCheck, type HoldCheck, type EtfTrade, comparePlans, DEFAULT_STOP, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { addWeekdays, orderDay, pretty, prettyW, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
 import { livePolling, type LiveQuote } from "../data/twLive";
@@ -1016,11 +1016,52 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
   );
 }
 
+/** 我的實單：今日持股建議（規則自動檢查，免費） */
+function HoldCheckCard({ checks, asOf, priceNote }: { checks: HoldCheck[]; asOf?: string; priceNote: string }) {
+  const color: Record<string, string> = { 出場: "exit", 減碼: "hold", 可加碼: "buy", 續抱: "none" };
+  const count = (k: string) => checks.filter((c) => c.verdict === k).length;
+  return (
+    <div class="card stack" data-testid="hold-check">
+      <div class="row" style={{ justifyContent: "space-between" }}>
+        <b>今日持股建議（規則自動檢查）</b>
+        <span class="muted" style={{ fontSize: "12px" }}>{asOf ? `評分 ${prettyW(asOf)}` : ""}</span>
+      </div>
+      <div class="muted" style={{ fontSize: "12px" }}>出場 {count("出場")}・減碼 {count("減碼")}・可加碼 {count("可加碼")}・續抱 {count("續抱")}{priceNote ? `　價格：${priceNote}` : ""}</div>
+      {checks.map((c) => (
+        <div style={{ borderTop: "1px solid var(--line)", paddingTop: "8px" }} data-testid="hold-check-row">
+          <div class="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
+            <span><b>{c.name}</b> <span class="muted num" style={{ fontSize: "12px" }}>{c.code}</span></span>
+            <span class={`pill ${color[c.verdict]}`} style={{ fontWeight: 700 }} data-testid="hold-check-verdict">{c.verdict}</span>
+          </div>
+          <div class="muted num" style={{ fontSize: "12px" }}>{c.shares.toLocaleString()} 股・均價 {fmtPrice(c.avgCost)}{c.price !== undefined ? `・現價 ${fmtPrice(c.price)}` : ""}{c.pnl !== undefined ? `（${c.pnl >= 0 ? "+" : ""}${(c.pnl * 100).toFixed(1)}%）` : ""}・停損 {fmtPrice(c.stop)}</div>
+          <ul style={{ margin: "4px 0 0 18px", padding: 0, fontSize: "13px", lineHeight: 1.6 }}>{c.reasons.map((r) => <li>{r}</li>)}</ul>
+        </div>
+      ))}
+      <div class="muted" style={{ fontSize: "11px", lineHeight: 1.6 }}>每天收盤後 App 更新評分時自動重算，不花錢、不呼叫 Claude。規則：跌破停損或評為「離場」→ 出場；外資連賣 3 天且一週下跌、虧損超過 8%、近 1 月跌超過 10%、單一持股超過淨值 30% → 減碼；評為「買入」70 分以上且賺錢、一週沒漲過 15% → 可加碼。要更深入的建議再按「請 Claude 建議」。</div>
+    </div>
+  );
+}
+
 function RealEtfScreen() {
   const st = useStore((s) => ({ asOf: s.tw.asOf, etf: s.aiEtf, prices: s.prices, scored: s.tw.scored, reports: s.reports, jobs: s.aiJobs, apiKey: s.settings.apiKey, twReady: s.tw.status === "ready" }));
   const { etf } = st;
-  const v = valuate(etf, etfPrice);
-  const tradePnl = tradePnls(etf.trades, etfPrice);
+  // 價格：盤中（或今天收盤後）用證交所即時價，沒有就用最近收盤；開著這頁每 30 秒更新
+  const live = useStore((s) => s.live);
+  const livePx = (c: string) => { const q = live[c]; return q && q.date && q.date >= (st.asOf ?? "") && q.price > 0 ? q.price : etfPrice(c); };
+  const liveCodes = positions(etf.trades).filter((p) => p.shares > 0).map((p) => p.code);
+  const codeKey = liveCodes.join(",");
+  useEffect(() => {
+    if (!liveCodes.length) return;
+    refreshLive([...liveCodes, "0050"]);
+    const t = setInterval(() => { if (livePolling()) refreshLive([...liveCodes, "0050"]); }, LIVE_MS);
+    return () => clearInterval(t);
+  }, [codeKey]);
+  const liveQ = liveCodes.map((c) => live[c]).find((q) => q && q.date && q.date >= (st.asOf ?? ""));
+  const priceNote = liveQ ? (liveQ.final ? `${prettyW(liveQ.date)} 收盤價` : `盤中 ${liveQ.time?.slice(0, 5) ?? ""} 即時價`) : st.asOf ? `${prettyW(st.asOf)} 收盤價` : "";
+  const v = valuate(etf, livePx);
+  const tradePnl = tradePnls(etf.trades, livePx);
+  // 每天的持股規則檢查（免費）：評分資料每天收盤後更新，打開就重算
+  const checks = dailyHoldingCheck(etf, livePx, (c) => { const s = getState().tw.scored.find((x) => x.code === c) ?? getState().etf.scored.find((x) => x.code === c); return s && { rating: s.refOnly ? undefined : s.rating, score: s.score, ret1w: s.ret1w, ret1m: s.ret1m, foreignStreak: s.foreignStreak, foreign5: s.foreign5, refOnly: s.refOnly }; });
   const pos = positions(etf.trades).filter((p) => p.shares > 0);
   const job = etf.planKey ? st.jobs[etf.planKey] : undefined;
   const busy = job?.status === "running";
@@ -1050,6 +1091,7 @@ function RealEtfScreen() {
     <div>
       <ProResume />
       <AlertCard alerts={alerts} onAsk={ask} canAsk={!busy && !!st.apiKey && st.twReady} asOf={st.asOf} />
+      {checks.length > 0 && <HoldCheckCard checks={checks} asOf={st.asOf} priceNote={priceNote} />}
       <div class="card stack" data-testid="etf-summary">
         <div class="row" style={{ justifyContent: "space-between" }}>
           <b>我的自組 ETF</b>
@@ -1091,7 +1133,7 @@ function RealEtfScreen() {
           <div class="section-title"><span>目前持股</span><span>{pos.length} 檔</span></div>
           <div class="list">
             {pos.map((p) => {
-              const px = etfPrice(p.code);
+              const px = livePx(p.code);
               const mv = px ? p.shares * px : NaN;
               const rating = etfRating(p.code);
               return (

@@ -674,6 +674,10 @@ function check(ok, name, detail = "") {
   check(/現金/.test(etfSum) && /股票市值/.test(etfSum), "自組ETF 成交後顯示現金與市值");
   check(/報酬 [+-]?[\d.]+% 總損益 [+-]?[\d,]+/.test(etfSum) && (etfSum.match(/總損益/g) || []).length === 2, "實單紀錄淨值與 0050 兩格都在報酬後面顯示總損益", etfSum.slice(0, 200));
   check(!!(await page.$("text=台積電")), "自組ETF 持股列出台積電");
+  // 今日持股建議（規則自動檢查，免費）：每檔持股一列，判斷是出場／減碼／可加碼／續抱並寫理由
+  const hc = await page.evaluate(() => ({ head: document.querySelector('[data-testid="hold-check"]')?.innerText.replace(/\s+/g, " ").slice(0, 120) || "", rows: [...document.querySelectorAll('[data-testid="hold-check-row"]')].map((e) => e.innerText.replace(/\s+/g, " ").slice(0, 140)) }));
+  log("今日持股建議", JSON.stringify(hc));
+  check(/今日持股建議/.test(hc.head) && hc.rows.some((r) => /2330/.test(r) && /(出場|減碼|可加碼|續抱)/.test(r) && /均價 [\d,.]+/.test(r)), "我的實單顯示今日持股建議（規則自動檢查）", JSON.stringify(hc));
   // 持股列的「賣出」按鈕：帶入代號、全部股數，表單切到賣出
   await page.click('[data-testid="sell-btn-2330"]');
   await page.waitForSelector('[data-testid="etf-trade-form"]', { timeout: 5000 });

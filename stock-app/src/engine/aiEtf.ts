@@ -365,3 +365,53 @@ export function comparePlans(api: PlanItem[], pro: PlanItem[]): PlanCompare[] {
     return { code, api: a, pro: b, same };
   });
 }
+
+// ---------- 我的實單：每天自動的持股規則檢查（免費，不呼叫 Claude） ----------
+export type HoldVerdict = "出場" | "減碼" | "續抱" | "可加碼";
+export interface HoldCheck {
+  code: string; name: string; shares: number; avgCost: number; price?: number;
+  pnl?: number; weight?: number; stop: number; verdict: HoldVerdict; reasons: string[];
+}
+/** 評分資料（只用到這幾個欄位） */
+export interface HoldScore { rating?: string; score?: number; ret1w?: number; ret1m?: number; foreignStreak?: number; foreign5?: number; refOnly?: boolean }
+
+const VERDICT_ORDER: Record<HoldVerdict, number> = { 出場: 0, 減碼: 1, 可加碼: 2, 續抱: 3 };
+
+/**
+ * 規則：
+ * - 出場：收盤（或即時價）跌破停損價，或 App 評為「離場」
+ * - 減碼：外資連賣 3 天以上且近 1 週下跌、虧損超過 8%（接近預設 10% 停損）、近 1 月跌超過 10%、單一持股超過淨值 30%
+ * - 可加碼：App 評為「買入」、分數 70 以上、目前賺錢、近 1 週漲幅還沒超過 15%
+ * - 其餘續抱
+ * 依嚴重程度排序（出場、減碼、可加碼、續抱）。
+ */
+export function dailyHoldingCheck(
+  etf: AiEtf,
+  price: (code: string) => number | undefined,
+  score: (code: string) => HoldScore | undefined,
+): HoldCheck[] {
+  const v = valuate(etf, price);
+  const out: HoldCheck[] = [];
+  for (const p of positions(etf.trades)) {
+    if (p.shares <= 0) continue;
+    const px = price(p.code);
+    const has = px !== undefined && Number.isFinite(px);
+    const { stop } = stopOf(p, etf.stops);
+    const s = score(p.code);
+    const pnl = has && p.avgCost > 0 ? px! / p.avgCost - 1 : undefined;
+    const weight = has && v.nav > 0 ? (px! * p.shares) / v.nav : undefined;
+    const pct = (x: number) => `${x > 0 ? "+" : ""}${(x * 100).toFixed(1)}%`;
+    const out1: string[] = [], warn: string[] = [], good: string[] = [];
+    if (has && px! <= stop) out1.push(`價格 ${px} 跌破停損 ${stop}`);
+    if (s?.rating === "離場") out1.push("App 評為「離場」（動能或籌碼轉弱）");
+    if ((s?.foreignStreak ?? 0) <= -3 && (s?.ret1w ?? 0) < 0) warn.push(`外資連賣 ${-(s!.foreignStreak!)} 天、近 1 週 ${pct(s!.ret1w!)}`);
+    if (pnl !== undefined && pnl <= -0.08 && !(has && px! <= stop)) warn.push(`虧損 ${pct(pnl)}，接近停損`);
+    if ((s?.ret1m ?? 0) <= -0.1) warn.push(`近 1 月 ${pct(s!.ret1m!)}`);
+    if (weight !== undefined && weight > 0.3) warn.push(`佔淨值 ${(weight * 100).toFixed(0)}%，太集中`);
+    if (s?.rating === "買入" && (s.score ?? 0) >= 70 && (pnl ?? -1) > 0 && (s.ret1w ?? 1) < 0.15) good.push(`App 評為「買入」（${s.score} 分）、目前獲利 ${pct(pnl!)}、近 1 週還沒過熱`);
+    const verdict: HoldVerdict = out1.length ? "出場" : warn.length ? "減碼" : good.length ? "可加碼" : "續抱";
+    const reasons = out1.length ? [...out1, ...warn] : warn.length ? warn : good.length ? good : [s?.rating ? `App 評為「${s.rating}」${s.score !== undefined ? `（${s.score} 分）` : ""}，沒有觸發出場或減碼條件` : "沒有評分資料，只檢查停損"];
+    out.push({ code: p.code, name: p.name, shares: p.shares, avgCost: p.avgCost, price: has ? px : undefined, pnl, weight, stop, verdict, reasons });
+  }
+  return out.sort((a, b) => VERDICT_ORDER[a.verdict] - VERDICT_ORDER[b.verdict] || (b.weight ?? 0) - (a.weight ?? 0));
+}

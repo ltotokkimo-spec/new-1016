@@ -806,6 +806,10 @@ function check(ok, name, detail = "") {
   await page.waitForFunction(() => /[\d,]+\.\d+/.test(document.querySelector('[data-testid="us-sess-reg"]')?.innerText || "") && /[\d,]+\.\d+/.test(document.querySelector('[data-testid="us-sess-24h"]')?.innerText || ""), null, { timeout: 120000 }).catch(() => {});
   const ss = await page.evaluate(() => ({ okx: document.querySelector('[data-testid="us-24h"]')?.innerText.replace(/\s+/g, " ").slice(0, 160) || "", rows: ["pre", "reg", "post", "24h"].map((k) => document.querySelector(`[data-testid="us-sess-${k}"]`)?.innerText.replace(/\s+/g, " ") || ""), live: document.querySelectorAll('[data-testid="us-sess-live"]').length, title: [...document.querySelectorAll(".section-title")].map((e) => e.innerText).find((t) => /交易時段/.test(t)) || "" }));
   log("AAPL 交易時段", JSON.stringify(ss));
+  // 大字下方標日期：「收盤 11/2（一）」或「盤中 11/3（二）」，以及「前一交易日 10/30（五） 收盤 價格」，不再只寫「昨收」
+  const hdr = await page.evaluate(() => ({ sess: document.querySelector('[data-testid="detail-session"]')?.innerText || "", prev: document.querySelector('[data-testid="detail-prev"]')?.innerText || "", chg: document.querySelector('[data-testid="us-24h-chg"]')?.innerText || "" }));
+  log("AAPL 大字日期", JSON.stringify(hdr));
+  check(/^(收盤|盤中) \d+\/\d+（[一二三四五六日]）/.test(hdr.sess) && /^前一交易日 \d+\/\d+（[一二三四五六日]） 收盤 [\d,.]+/.test(hdr.prev), "美股個股頁：收盤與前一交易日都標日期", JSON.stringify(hdr));
   await page.evaluate(() => document.querySelector('[data-testid="us-sessions"]')?.scrollIntoView());
   await shot("06c0-美股交易時段");
   check(ss.rows.every(Boolean) && /^盤前/.test(ss.rows[0]) && /^(盤中|收盤)/.test(ss.rows[1]) && /^盤後/.test(ss.rows[2]) && /^24 小時/.test(ss.rows[3]) && /[\d,]+\.\d+/.test(ss.rows[1]) && /[\d,]+\.\d+/.test(ss.rows[3]) && ss.live === 1, "美股個股頁：盤前／盤中／盤後／24 小時即時行情（目前時段標進行中）", JSON.stringify(ss));
@@ -815,6 +819,8 @@ function check(ok, name, detail = "") {
   log("AAPL 24 小時行情", JSON.stringify(o1));
   await page.evaluate(() => document.querySelector('[data-testid="us-24h"]')?.scrollIntoView());
   await shot("06c-美股24小時行情");
+  const c24 = await page.$eval('[data-testid="us-24h-chg"]', (e) => e.innerText).catch(() => "");
+  check(/[+-]\d+\.\d\d%（對照最近收盤 [\d,.]+）/.test(c24), "24 小時行情的漲跌對照最近收盤（和交易時段表一致）", c24);
   check(o1.chart && /OKX/.test(o1.title) && /24 小時最高 [\d,.]+/.test(o1.quote) && /24 小時最低 [\d,.]+/.test(o1.quote), "美股 24 小時行情：OKX xStock 報價與分時 K 線", JSON.stringify(o1));
   if (o1.chart) {
     await page.click('[data-testid="us-24h-bar-4H"]');

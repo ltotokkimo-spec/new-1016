@@ -370,6 +370,8 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
   const shownBars = useMemo(() => (bars ? (withLiveBar(bars, lq) as CandleBar[]) : bars), [bars, lq]);
   const liveBar = shownBars?.at(-1)?.live ? lq : undefined;
   const dayChg = lq && lq.prevClose > 0 ? lq.price / lq.prevClose - 1 : undefined;
+  // 美股「前一交易日」的日期：日 K 裡比即時報價那天早的最後一根（盤前時段看到的「收盤」是上一個交易日，所以要標日期才不會誤會）
+  const usPrevDay = s.market === "US" && lq?.date && bars ? [...bars].reverse().find((b) => b.date < lq.date)?.date : undefined;
 
   useEffect(() => {
     let alive = true;
@@ -415,7 +417,7 @@ export function StockDetail({ s, onClose }: { s: Scored; onClose: () => void }) 
           <div class="price num" data-testid="detail-price"><LimitPx s={s.market !== "US" ? lq?.limit ?? limitFromChg(price, dayChg ?? s.chg1d, isEtf(s.code)) : undefined}>{fmtPrice(price, s.market)}</LimitPx></div>
           <div class="num" style={{ marginTop: "4px", fontSize: "13px" }} data-testid="detail-price-note">
             {lq
-              ? <><div class="muted">{s.market === "US" ? (lq.session ?? "收盤") : lq.trial ? "試搓（開盤前試算價，還沒成交）" : lq.final || !marketOpen() ? "收盤" : "盤中"}</div><div><span class="muted">昨收 {fmtPrice(lq.prevClose, s.market)}　</span><span class={cls(dayChg)}>{fmtPct(dayChg)}</span></div></>
+              ? <><div class="muted" data-testid="detail-session">{s.market === "US" ? `${lq.session ?? "收盤"}${lq.date ? ` ${prettyW(lq.date)}` : ""}` : lq.trial ? "試搓（開盤前試算價，還沒成交）" : lq.final || !marketOpen() ? "收盤" : "盤中"}</div><div><span class="muted" data-testid="detail-prev">{s.market === "US" ? `前一交易日${usPrevDay ? ` ${prettyW(usPrevDay)}` : ""} 收盤` : "昨收"} {fmtPrice(lq.prevClose, s.market)}　</span><span class={cls(dayChg)}>{fmtPct(dayChg)}</span></div></>
               : <span class="muted">收盤價 {snapAsOf ? pretty(snapAsOf) : ""}（還沒抓到即時價）</span>}
           </div>
           <div class="muted" style={{ marginTop: "6px", fontSize: "13px" }}>{s.sector}・{s.market === "US" ? "美股" : `${s.market === "TPEX" ? "上櫃" : "上市"}${isEtf(s.code) ? " ETF" : ""}`}</div>
@@ -950,11 +952,12 @@ function UsOvernight({ code, close }: { code: string; close: number }) {
     const last = bars[bars.length - 1];
     return [...bars.slice(0, -1), { ...last, close: tk.last, high: Math.max(last.high, tk.last), low: Math.min(last.low, tk.last) }];
   }, [bars, tk]);
-  const chg = tk && tk.open24h ? tk.last / tk.open24h - 1 : undefined;
+  const chg = tk && tk.open24h ? tk.last / tk.open24h - 1 : undefined; // 對照 24 小時前
   // 交易時段表：盤前／盤中（或收盤）／盤後／24 小時（OKX）。漲跌都對照「最近一次正常盤收盤」或昨收
   const sess = usSession();
   const nyToday = nyParts().ymd;
   const reg = lq?.price ?? close;
+  const chgReg = tk && reg > 0 ? tk.last / reg - 1 : undefined; // 24 小時價對照最近一次正常盤收盤（和交易時段表一致）
   const regPrev = lq?.prevClose;
   const xq = lq?.xq;
   const pre = xq?.label === "盤前" && xq.date === nyToday ? xq : undefined;
@@ -994,8 +997,9 @@ function UsOvernight({ code, close }: { code: string; close: number }) {
         {inst && tk && (
           <div class="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }} data-testid="us-24h-quote">
             <div>
-              <div class={`big num ${cls(chg ?? 0)}`} style={{ fontSize: "28px" }}>{fmtPrice(tk.last)}</div>
-              <div class={`num ${cls(chg ?? 0)}`} style={{ fontSize: "13px" }}>{chg === undefined ? "" : `${chg >= 0 ? "+" : ""}${(chg * 100).toFixed(2)}%`}<span class="muted">（24 小時）</span></div>
+              <div class={`big num ${cls(chgReg ?? 0)}`} style={{ fontSize: "28px" }} data-testid="us-24h-last">{fmtPrice(tk.last)}</div>
+              <div class={`num ${cls(chgReg ?? 0)}`} style={{ fontSize: "13px" }} data-testid="us-24h-chg">{pctTxt(chgReg)}<span class="muted">（對照最近收盤 {fmtPrice(reg)}）</span></div>
+              {chg !== undefined && <div class="muted num" style={{ fontSize: "11.5px" }}>24 小時前起算 <span class={cls(chg)}>{pctTxt(chg)}</span></div>}
             </div>
             <div style={{ fontSize: "12.5px", lineHeight: 1.7, textAlign: "right" }}>
               <div><span class="muted">24 小時最高</span> <b class="num">{tk.high24h !== undefined ? fmtPrice(tk.high24h) : "—"}</b></div>

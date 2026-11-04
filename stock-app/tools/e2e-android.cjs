@@ -679,7 +679,7 @@ function check(ok, name, detail = "") {
   await page.fill("#etf-shares", "10");
   await page.waitForFunction(() => Number(document.querySelector("#etf-price").value) > 0, null, { timeout: 5000 }).catch(() => page.fill("#etf-price", "1000"));
   await page.click('[data-testid="etf-trade-save"]');
-  await page.waitForFunction(() => /贏過 0050|落後 0050/.test(document.querySelector('[data-testid="etf-summary"]').innerText), null, { timeout: 10000 });
+  await page.waitForFunction(() => /贏過 0050|落後 0050/.test(document.querySelector('[data-testid="etf-summary"]').innerText), null, { timeout: 45000 });
   const etfSum = await page.$eval('[data-testid="etf-summary"]', (e) => e.innerText.replace(/\s+/g, " "));
   log("自組ETF", etfSum);
   check(/現金/.test(etfSum) && /股票市值/.test(etfSum), "自組ETF 成交後顯示現金與市值");

@@ -142,6 +142,8 @@ let kv: KV = indexedKV();
 let fetcher: Fetcher = fetchJson;
 /** 測試用：換掉儲存與網路 */
 export function _inject(k: KV, f: Fetcher) { kv = k; fetcher = f; }
+/** 測試用：直接改狀態 */
+export function _setState(p: Partial<State>) { set(p); }
 let textFetcher: TextFetcher = fetchText;
 export function _injectText(f: TextFetcher) { textFetcher = f; }
 
@@ -540,9 +542,25 @@ const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T> => {
 // 上一次還沒抓完時，新的要求先排隊，前一個一結束就補抓（合併成一次）；持股（priority）排在前面，
 // 前一個還有幾批沒抓時也會先停下來處理持股。以前是直接略過：開 App 時選股頁正在抓 60 檔，切到持股頁的要求被丟掉，要等 30 秒才有即時價。
 let liveQueue: { codes: Set<string>; esb: Set<string>; hi: Set<string> } | null = null;
+let liveWait: ReturnType<typeof setInterval> | undefined;
 export async function refreshLive(codes: string[], esbHint: string[] = [], priority = false, retry = 0) {
   const list = [...new Set(codes.filter((c) => /^[0-9A-Z]{4,6}$/.test(c)))];
   if (!list.length) return;
+  // 第一次下載台股資料時（還沒有任何評分）先不抓即時價：證交所會把同一個 IP 太頻繁的請求封鎖（請求一直不回應），
+  // 即時價每 30 秒 3 批再加上三大法人逐日下載，常卡在「下載中：三大法人」好幾分鐘。先排隊，下載完再一次補抓。
+  if (state.tw.status === "loading" && !state.tw.scored.length) {
+    const q = (liveQueue ??= { codes: new Set(), esb: new Set(), hi: new Set() });
+    list.forEach((c) => { q.codes.add(c); if (priority) q.hi.add(c); });
+    esbHint.forEach((c) => q.esb.add(c));
+    liveWait ??= setInterval(() => {
+      if (state.tw.status === "loading" && !state.tw.scored.length) return;
+      clearInterval(liveWait!); liveWait = undefined;
+      const next = liveQueue; liveQueue = null;
+      if (next && !liveBusy.tw) void refreshLive([...next.hi, ...[...next.codes].filter((c) => !next.hi.has(c))], [...next.esb], true);
+      else if (next) liveQueue = next;
+    }, 2000);
+    return;
+  }
   if (liveBusy.tw) {
     const q = (liveQueue ??= { codes: new Set(), esb: new Set(), hi: new Set() });
     list.forEach((c) => { q.codes.add(c); if (priority) q.hi.add(c); });

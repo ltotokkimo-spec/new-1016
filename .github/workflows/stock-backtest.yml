@@ -82,14 +82,9 @@ jobs:
         run: |
           gh release view stock-radar-data >/dev/null 2>&1 || \
             gh release create stock-radar-data --title "股市雷達回測資料" --prerelease --notes "App 自動下載的回測結果，不需要手動下載。" --target "${{ github.sha }}"
-          gh release upload stock-radar-data backtest.json --clobber
-          if [ -f factors.json ]; then gh release upload stock-radar-data factors.json --clobber; fi
-          if [ -f scorecompare.json ]; then gh release upload stock-radar-data scorecompare.json --clobber; fi
-          if [ -f steady.json ]; then gh release upload stock-radar-data steady.json --clobber; fi
-          if [ -f n5.json ]; then gh release upload stock-radar-data n5.json --clobber; fi
-          if [ -f wide.json ]; then gh release upload stock-radar-data wide.json --clobber; fi
-          if [ -f regime.json ]; then gh release upload stock-radar-data regime.json --clobber; fi
-          if [ -f lead.json ]; then gh release upload stock-radar-data lead.json --clobber; fi
-          if [ -f ai.json ]; then gh release upload stock-radar-data ai.json --clobber; fi
-          if [ -f real.json ]; then gh release upload stock-radar-data real.json --clobber; fi
-          if [ -f turn.json ]; then gh release upload stock-radar-data turn.json --clobber; fi
+          # GitHub 的上傳 API 偶爾回 HTTP 500（11/04 連續發生），每個檔案最多試 4 次，間隔 5、10、15 秒
+          up() { for i in 1 2 3 4; do gh release upload stock-radar-data "$1" --clobber && return 0; echo "上傳 $1 失敗（第 $i 次），稍後重試"; sleep $((i*5)); done; return 1; }
+          up backtest.json
+          for f in factors.json scorecompare.json steady.json n5.json wide.json regime.json lead.json ai.json real.json turn.json; do
+            if [ -f "$f" ]; then up "$f"; fi
+          done

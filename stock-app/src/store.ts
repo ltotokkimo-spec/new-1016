@@ -927,6 +927,28 @@ export async function setEtfBudget(budget: number) {
   await saveAiEtf({ ...etf, budget, nav: etf.nav.map((x) => ({ ...x, nav: x.nav + d, bench: x.bench + d })) });
 }
 
+/** 我的實單中途存入（amount > 0）或提領（amount < 0）資金；記在目前的資料日，0050 對照組同時加減同樣的錢 */
+export async function addEtfFlow(amount: number) {
+  const etf = state.aiEtf;
+  if (!Number.isFinite(amount) || !amount) return;
+  const date = state.tw.asOf ?? taipeiToday();
+  const flow = { id: `f${Date.now()}`, date, amount: Math.round(amount) };
+  // 同一天已經記過的淨值是存提款前的，先加上這筆（價格到齊後 snapshot 會用新的覆蓋），免得那天看起來像大漲大跌
+  const nav = etf.nav.map((x) => (x.date >= date ? { ...x, nav: x.nav + flow.amount, bench: x.bench + flow.amount } : x));
+  await saveAiEtf({ ...etf, flows: [...(etf.flows ?? []), flow], nav });
+  await snapshotEtfNav();
+}
+
+/** 刪掉一筆存提款紀錄（當作沒發生過：之後的淨值紀錄也扣回這筆錢） */
+export async function removeEtfFlow(id: string) {
+  const etf = state.aiEtf;
+  const f = (etf.flows ?? []).find((x) => x.id === id);
+  if (!f) return;
+  const nav = etf.nav.map((x) => (x.date >= f.date ? { ...x, nav: x.nav - f.amount, bench: x.bench - f.amount } : x));
+  await saveAiEtf({ ...etf, flows: (etf.flows ?? []).filter((x) => x.id !== id), nav });
+  await snapshotEtfNav();
+}
+
 export async function resetAiEtf() {
   await saveAiEtf(emptyEtf(state.aiEtf.budget));
 }
@@ -945,7 +967,7 @@ export function etfAdviceInput(): EtfAdviceInput {
   const today = taipeiToday();
   const asOf = state.tw.asOf;
   return {
-    today: `${today.slice(0, 4)}/${today.slice(4, 6)}/${today.slice(6)}`, budget: etf.budget, cash: v.cash, nav: v.nav, holdings, candidates, minValue,
+    today: `${today.slice(0, 4)}/${today.slice(4, 6)}/${today.slice(6)}`, budget: v.invested, cash: v.cash, nav: v.nav, holdings, candidates, minValue,
     dataDate: asOf ? prettyW(asOf) : undefined, orderDate: asOf ? prettyW(orderDay(asOf)) : undefined,
   };
 }

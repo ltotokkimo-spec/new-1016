@@ -698,6 +698,32 @@ function check(ok, name, detail = "") {
   check(ol.top < ol.summaryTop && (tsmcVerdict === "出場" || tsmcVerdict === "減碼"
     ? ol.rows.some((r) => /^賣\s?台積電 2330/.test(r) && /\b\d+\b/.test(r) && /[\d,.]+/.test(r)) && /賣出 [\d,.]+/.test(ol.total) && /下單後現金約 [\d,.]+/.test(ol.total)
     : ol.rows.length > 0 || /沒有要賣的持股/.test(ol.empty)), "我的實單最上方顯示今日下單清單（買賣、股數、參考價、金額、合計）", JSON.stringify({ tsmcVerdict, ...ol }));
+  // 中途存入／提領資金：存入 5 萬 → 投入本金 15 萬、現金多 5 萬、報酬率與總損益不變；刪掉這筆後恢復原狀（不影響後面的測試）
+  const fsum = async () => page.evaluate(() => { const t = document.querySelector('[data-testid="etf-summary"]').innerText.replace(/\s+/g, " "); return { t: t.slice(0, 260), ret: (t.match(/報酬 ([+-]?[\d.]+%)/) || [])[1], pnl: (t.match(/總損益 ([+-]?[\d,]+)/) || [])[1], cash: (t.match(/現金 ([\d.]+) 萬/) || [])[1] }; });
+  const fl0 = await fsum();
+  await page.click('[data-testid="flow-open"]');
+  await page.fill('[data-testid="flow-amount"]', "50000");
+  await page.click('[data-testid="flow-save"]');
+  await page.waitForSelector('[data-testid="flow-row"]', { timeout: 5000 });
+  await sleep(500);
+  const fl1 = await fsum();
+  log("存入資金", JSON.stringify({ fl0, fl1 }));
+  await page.evaluate(() => document.querySelector('[data-testid="flow-list"]')?.scrollIntoView({ block: "center" }));
+  await shot("05b3-存入資金");
+  check(/投入本金 15\.0 萬/.test(fl1.t) && Math.abs(Number(fl1.cash) - Number(fl0.cash) - 5) < 0.15 && Math.abs(Number(String(fl1.pnl).replace(/,/g, "")) - Number(String(fl0.pnl).replace(/,/g, ""))) < 500 && (fl1.ret === fl0.ret || Math.abs(parseFloat(fl1.ret) - parseFloat(fl0.ret)) < 0.05),
+    "存入資金後投入本金變 15 萬、現金多 5 萬，報酬率與總損益不變（時間加權）", JSON.stringify({ fl0, fl1 }));
+  await page.click('[data-testid="flow-open"]');
+  await page.click('[data-testid="flow-out"]');
+  await page.fill('[data-testid="flow-amount"]', "99999999");
+  await page.click('[data-testid="flow-save"]');
+  const ferr = await page.waitForSelector('[data-testid="flow-error"]', { timeout: 3000 }).then((e) => e.innerText()).catch(() => "");
+  check(/提領不能超過現金/.test(ferr), "提領超過現金會擋下並說明要先賣股票", ferr);
+  await page.click('[data-testid="flow-editor"] >> text=取消');
+  page.once("dialog", (d) => d.accept());
+  await page.click('[data-testid="flow-row"] button');
+  await page.waitForFunction(() => !document.querySelector('[data-testid="flow-row"]'), null, { timeout: 5000 });
+  const fl2 = await fsum();
+  check(!/投入本金/.test(fl2.t) && fl2.cash === fl0.cash, "刪除存提款紀錄後恢復原本的現金與本金", JSON.stringify(fl2));
   // 持股列的「賣出」按鈕：帶入代號、全部股數，表單切到賣出
   await page.click('[data-testid="sell-btn-2330"]');
   await page.waitForSelector('[data-testid="etf-trade-form"]', { timeout: 5000 });

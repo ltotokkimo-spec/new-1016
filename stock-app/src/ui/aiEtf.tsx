@@ -1,12 +1,12 @@
 // 「自組ETF」分頁：請 Claude 建議要買什麼、買幾股，照著實際下單後填入成交，追蹤淨值並和 0050 比較。
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
-  LIVE_MS, addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
+  LIVE_MS, addEtfFlow, removeEtfFlow, addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError, holdingsFromImage, shrinkImage } from "../ai/claude";
 import type { Scored } from "../engine/score";
 import type { VirtualEtf } from "../engine/virtualEtf";
-import { dailyHoldingCheck, type HoldCheck, type EtfTrade, comparePlans, DEFAULT_STOP, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
+import { dailyHoldingCheck, type HoldCheck, type EtfTrade, type EtfFlow, comparePlans, DEFAULT_STOP, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { addWeekdays, orderDay, pretty, prettyW, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
 import { livePolling, type LiveQuote } from "../data/twLive";
@@ -49,10 +49,56 @@ function TradeLine({ t, pnl }: { t: EtfTrade; pnl?: number }) {
 const TRADE_HINT = "賣出的損益是這筆已實現的賺賠（已扣手續費與證交稅）；買進的損益用現價計算，這檔賣光後就不顯示。";
 
 /** 報酬走勢：兩條線（我的組合 vs 0050，報酬率 %）＋重點數字＋逐日表，看得出「到底賺賠多少、贏不贏 0050」 */
-function NavChart({ points, budget, mine = "我的自組 ETF" }: { points: { date: string; nav: number; bench: number }[]; budget: number; mine?: string }) {
+/** 我的實單：中途存入／提領資金（記在目前的資料日；提領不能超過現金，要先賣股票） */
+function FlowEditor({ cash, flows }: { cash: number; flows: EtfFlow[] }) {
+  const [open, setOpen] = useState(false);
+  const [side, setSide] = useState<"in" | "out">("in");
+  const [text, setText] = useState("");
+  const [err, setErr] = useState("");
+  const amt = Number(text.replace(/,/g, ""));
+  const submit = async () => {
+    if (!(amt >= 1)) { setErr("請輸入金額"); return; }
+    if (side === "out" && amt > Math.floor(cash)) { setErr(`現金只有 ${fmtMoney(cash)}，提領不能超過現金；要領更多請先賣出股票`); return; }
+    await addEtfFlow(side === "in" ? amt : -amt);
+    setText(""); setErr(""); setOpen(false);
+  };
+  return (
+    <div class="stack" style={{ gap: "6px" }} data-testid="flow-editor">
+      {!open && <button class="linkbtn" style={{ alignSelf: "flex-start" }} onClick={() => setOpen(true)} data-testid="flow-open">存入／提領資金 ＋</button>}
+      {open && (
+        <div class="stack" style={{ gap: "6px", padding: "10px", border: "1px solid var(--line)", borderRadius: "10px" }}>
+          <div class="seg" role="group" aria-label="存入或提領">
+            <button aria-pressed={side === "in"} onClick={() => { setSide("in"); setErr(""); }} data-testid="flow-in">存入資金</button>
+            <button aria-pressed={side === "out"} onClick={() => { setSide("out"); setErr(""); }} data-testid="flow-out">提領資金</button>
+          </div>
+          <div class="row">
+            <label class="field" style={{ flex: 1 }}>{side === "in" ? "存入" : "提領"}金額（元）<input inputMode="numeric" value={text} onInput={(e) => { setText((e.target as HTMLInputElement).value); setErr(""); }} data-testid="flow-amount" /></label>
+            <button class="btn" style={{ alignSelf: "flex-end" }} onClick={submit} data-testid="flow-save">確定</button>
+            <button class="btn secondary" style={{ alignSelf: "flex-end" }} onClick={() => { setOpen(false); setErr(""); }}>取消</button>
+          </div>
+          <div class="muted" style={{ fontSize: "11.5px", lineHeight: 1.6 }}>{side === "in" ? "存入的錢先變成現金，之後買股票就從現金扣。" : `提領從現金扣（目前現金 ${fmtMoney(cash)}）；現金不夠要先賣出股票。`}起始資金不變，另外記一筆，報酬率不會因為存提款而跳動。</div>
+          {err && <div class="error" data-testid="flow-error">{err}</div>}
+        </div>
+      )}
+      {flows.length > 0 && (
+        <div class="stack" style={{ gap: "2px" }} data-testid="flow-list">
+          <div class="muted" style={{ fontSize: "12px" }}>資金紀錄</div>
+          {[...flows].sort((a, b) => b.date.localeCompare(a.date)).map((f) => (
+            <div class="row" style={{ justifyContent: "space-between", fontSize: "13px" }} data-testid="flow-row">
+              <span><span class="num">{prettyW(f.date)}</span> {f.amount > 0 ? "存入" : "提領"} <b class="num">{fmtMoney(Math.abs(f.amount))}</b></span>
+              <button class="iconbtn" style={{ width: "28px", height: "28px" }} aria-label="刪除這筆存提款" onClick={() => { if (confirm(`刪除 ${prettyW(f.date)} ${f.amount > 0 ? "存入" : "提領"} ${fmtMoney(Math.abs(f.amount))} 這筆紀錄？（當作沒發生過，現金與損益會跟著改）`)) void removeEtfFlow(f.id); }}>✕</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NavChart({ points, budget, mine = "我的自組 ETF", flows }: { points: { date: string; nav: number; bench: number }[]; budget: number; mine?: string; flows?: EtfFlow[] }) {
   const [all, setAll] = useState(false);
   if (points.length < 2) return null;
-  const st = navStats(points, budget)!;
+  const st = navStats(points, budget, flows)!;
   const W = 340, H = 190, padL = 40, padR = 46, padT = 10, padB = 20;
   const a = st.rows.map((r) => r.mineCum), b = st.rows.map((r) => r.benchCum);
   let lo = Math.min(...a, ...b, 0), hi = Math.max(...a, ...b, 0);
@@ -85,6 +131,11 @@ function NavChart({ points, budget, mine = "我的自組 ETF" }: { points: { dat
         <line x1={padL} x2={W - padR} y1={y(0)} y2={y(0)} stroke="var(--fg)" stroke-opacity="0.5" stroke-dasharray="3 3" />
         <text x={padL - 4} y={y(0) + 3} font-size="10" font-weight="700" fill="var(--fg)" text-anchor="end">0%</text>
         {gaps}
+        {/* 存提款那天：直虛線＋「存」「領」 */}
+        {(flows ?? []).map((f) => { const i = points.findIndex((p) => p.date >= f.date); return i < 0 ? null : <g key={f.id} data-testid="flow-mark">
+          <line x1={x(i)} x2={x(i)} y1={padT} y2={H - padB} stroke="var(--warn, #b7791f)" stroke-dasharray="2 3" />
+          <text x={x(i)} y={padT + 9} font-size="10" font-weight="700" fill="var(--warn, #b7791f)" text-anchor="middle">{f.amount > 0 ? "存" : "領"}</text>
+        </g>; })}
         <path d={line(b)} fill="none" stroke="var(--muted)" stroke-width="1.6" />
         <path d={line(a)} fill="none" stroke="var(--accent)" stroke-width="2.4" />
         {a.map((v, i) => <circle key={`a${i}`} cx={x(i)} cy={y(v)} r={n > 20 ? 0 : 2.8} fill="var(--accent)" />)}
@@ -1163,11 +1214,11 @@ function RealEtfScreen() {
       <div class="card stack" data-testid="etf-summary">
         <div class="row" style={{ justifyContent: "space-between" }}>
           <b>我的自組 ETF</b>
-          <span class="muted" style={{ fontSize: "12px" }}>起始資金 {fmtMoney(etf.budget)}</span>
+          <span class="muted" style={{ fontSize: "12px", textAlign: "right" }}>起始資金 {fmtMoney(etf.budget)}{etf.flows?.length ? <><br /><span data-testid="invested">投入本金 {fmtMoney(v.invested)}</span></> : null}</span>
         </div>
         <div class="grid2">
-          <div class="metric"><div class="k">淨值（現金＋股票）</div><div class="v num">{fmtMoney(v.nav)}</div><div class={`d num ${cls(v.ret)}`}>報酬 {fmtPct(v.ret, 2)}<TotalPnl now={v.nav} budget={etf.budget} /></div></div>
-          <div class="metric"><div class="k">同樣的錢買 0050</div><div class="v num">{fmtMoney(v.bench)}</div><div class={`d num ${cls(v.benchRet)}`}>報酬 {fmtPct(v.benchRet, 2)}<TotalPnl now={v.bench} budget={etf.budget} /></div></div>
+          <div class="metric"><div class="k">淨值（現金＋股票）</div><div class="v num">{fmtMoney(v.nav)}</div><div class={`d num ${cls(v.ret)}`}>報酬 {fmtPct(v.ret, 2)}<TotalPnl now={v.nav} budget={v.invested} /></div></div>
+          <div class="metric"><div class="k">同樣的錢買 0050</div><div class="v num">{fmtMoney(v.bench)}</div><div class={`d num ${cls(v.benchRet)}`}>報酬 {fmtPct(v.benchRet, 2)}<TotalPnl now={v.bench} budget={v.invested} /></div></div>
         </div>
         {etf.trades.length > 0 && (
           <div style={{ fontSize: "14px" }}>
@@ -1191,10 +1242,11 @@ function RealEtfScreen() {
             <button class="btn secondary" style={{ alignSelf: "flex-end" }} onClick={() => { const n = Number(budgetText.replace(/,/g, "")); if (n >= 1000) { setEtfBudget(n); setEditBudget(false); } }}>設定</button>
           </div>
         )}
-        <div class="muted" style={{ fontSize: "11px", lineHeight: 1.6 }}>已估算手續費 0.1425% 與賣出證交稅 0.3%（未計券商折扣）。對照組：每次買賣時，用同樣金額買賣 0050。</div>
+        {etf.trades.length > 0 && <FlowEditor cash={v.cash} flows={etf.flows ?? []} />}
+        <div class="muted" style={{ fontSize: "11px", lineHeight: 1.6 }}>已估算手續費 0.1425% 與賣出證交稅 0.3%（未計券商折扣）。對照組：每次買賣時，用同樣金額買賣 0050。{etf.flows?.length ? "有中途存入／提領：總損益＝淨值－投入本金；報酬率用時間加權（基金常用的算法），存提款的錢不算賺賠，報酬率只反映操作好壞；0050 對照組同一天存提同樣的錢。" : ""}</div>
       </div>
 
-      {etf.nav.length >= 2 && <><div class="section-title"><span>報酬走勢</span><span>{etf.nav.length} 天</span></div><NavChart points={etf.nav} budget={etf.budget} /></>}
+      {etf.nav.length >= 2 && <><div class="section-title"><span>報酬走勢</span><span>{etf.nav.length} 天</span></div><NavChart points={etf.nav} budget={etf.budget} flows={etf.flows} /></>}
 
       {pos.length > 0 && (
         <>

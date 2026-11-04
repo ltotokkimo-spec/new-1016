@@ -1,5 +1,5 @@
 // 自組 ETF／虛擬 ETF「報酬走勢」的說明用數字：累積報酬、落後或贏過 0050 多少、最大回檔、每天的報酬與贏過 0050 的天數。
-import type { NavPoint } from "./aiEtf";
+import { twrSeries, type NavPoint } from "./aiEtf";
 
 export interface NavRow {
   date: string; nav: number; bench: number;
@@ -21,24 +21,26 @@ const maxDrawdown = (series: number[]) => {
   return dd;
 };
 
-export function navStats(points: NavPoint[], budget: number): NavStats | undefined {
+/** flows：中途存入／提領（選用）。有的話報酬率用時間加權，存提款那天不會跳動；損益金額＝淨值－實際投入的本金 */
+export function navStats(points: NavPoint[], budget: number, flows: { date: string; amount: number }[] = []): NavStats | undefined {
   if (!points.length || !(budget > 0)) return undefined;
-  const rows: NavRow[] = points.map((p, i) => {
-    const prevNav = i ? points[i - 1].nav : budget, prevBench = i ? points[i - 1].bench : budget;
-    return {
-      date: p.date, nav: p.nav, bench: p.bench,
-      mineCum: p.nav / budget - 1, benchCum: p.bench / budget - 1,
-      mineDay: p.nav / prevNav - 1, benchDay: p.bench / prevBench - 1,
-    };
-  });
+  const mine = twrSeries(points.map((p) => ({ date: p.date, v: p.nav })), budget, flows);
+  const bench = twrSeries(points.map((p) => ({ date: p.date, v: p.bench })), budget, flows);
+  const rows: NavRow[] = points.map((p, i) => ({
+    date: p.date, nav: p.nav, bench: p.bench,
+    mineCum: mine[i].cum, benchCum: bench[i].cum,
+    mineDay: mine[i].day, benchDay: bench[i].day,
+  }));
   const last = rows[rows.length - 1];
+  const invested = budget + flows.filter((f) => f.date <= last.date).reduce((a, f) => a + f.amount, 0);
   const byDay = [...rows].sort((a, b) => a.mineDay - b.mineDay);
   return {
     rows,
     mine: last.mineCum, bench: last.benchCum, diff: last.mineCum - last.benchCum,
-    pnl: last.nav - budget,
-    maxDd: maxDrawdown([budget, ...points.map((p) => p.nav)]),
-    benchMaxDd: maxDrawdown([budget, ...points.map((p) => p.bench)]),
+    pnl: last.nav - invested,
+    // 最大回檔用時間加權的累積淨值（存提款不會被當成漲跌）
+    maxDd: maxDrawdown([1, ...rows.map((r) => 1 + r.mineCum)]),
+    benchMaxDd: maxDrawdown([1, ...rows.map((r) => 1 + r.benchCum)]),
     days: rows.length, winDays: rows.filter((r) => r.mineDay > r.benchDay).length,
     best: byDay[byDay.length - 1], worst: byDay[0],
   };

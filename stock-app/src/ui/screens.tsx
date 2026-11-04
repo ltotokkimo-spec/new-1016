@@ -14,6 +14,7 @@ import { fngLabel, type Fng } from "../data/fng";
 import type { EtfNav } from "../data/etfNav";
 import { findXStock, OKX_BARS, okxCandlesUrl, okxInstrumentsUrl, okxTickerUrl, parseOkxCandles, parseOkxTicker, type OkxBar, type OkxTicker } from "../data/okx";
 import { CandleChart, type CandleBar } from "./candles";
+import { IntradayChart } from "./intraday";
 import { FlowsPanel } from "./flows";
 import { EtfHoldingsPanel, isActiveEtf } from "./etfHoldings";
 import { isEtf } from "../data/tw";
@@ -346,7 +347,9 @@ export function StockDetail({ s, onClose, nav }: { s: Scored; onClose: () => voi
   const [bars, setBars] = useState<CandleBar[] | null>(null);
   const [barsErr, setBarsErr] = useState("");
   const [barsMore, setBarsMore] = useState(true); // 更早的月份還在下載
-  const [chartTab, setChartTab] = useState<"k" | "flow">("k");
+  // 圖表分頁：台股預設「走勢」（當日分時），記住上次選的（美股只有 K 線）
+  const [chartTab, setChartTab0] = useState<"intra" | "k" | "flow">(() => { if (s.market === "US") return "k"; try { const v = localStorage.getItem("detailChart"); return v === "k" || v === "flow" ? v : "intra"; } catch { return "intra"; } });
+  const setChartTab = (t: "intra" | "k" | "flow") => { setChartTab0(t); try { localStorage.setItem("detailChart", t); } catch { /* 不重要 */ } };
   // 點方塊看詳細：近 1 週／1 月／3 月、相對 S&P 500、折溢價開說明頁；法人的方塊直接切到下面的「法人」逐日表
   const [mx, setMx] = useState<null | "1w" | "1m" | "3m" | "rs" | "nav">(null);
   const goFlows = () => { setChartTab("flow"); setTimeout(() => document.querySelector('[data-testid="chart-tabs"]')?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); };
@@ -454,12 +457,15 @@ export function StockDetail({ s, onClose, nav }: { s: Scored; onClose: () => voi
         {s.market === "US"
           ? <span>K 線圖（日）</span>
           : <div class="seg" role="group" aria-label="圖表" data-testid="chart-tabs">
+              <button aria-pressed={chartTab === "intra"} onClick={() => setChartTab("intra")} data-testid="tab-intra">走勢</button>
               <button aria-pressed={chartTab === "k"} onClick={() => setChartTab("k")} data-testid="tab-k">K 線圖</button>
               <button aria-pressed={chartTab === "flow"} onClick={() => setChartTab("flow")} data-testid="tab-flow">法人</button>
             </div>}
       </div>
       <div class="card">
-        {chartTab === "flow" && s.market !== "US"
+        {chartTab === "intra" && s.market !== "US"
+          ? <IntradayChart code={s.code} market={s.market} />
+          : chartTab === "flow" && s.market !== "US"
           ? (bars ? <FlowsPanel code={s.code} market={s.market === "TPEX" ? "TPEX" : "TWSE"} bars={bars} livePrice={lq?.price} /> : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>)
           : shownBars ? (shownBars.length > 1 ? <>
               <CandleChart bars={shownBars} us={s.market === "US"} cost={holding?.cost} />

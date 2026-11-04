@@ -148,6 +148,26 @@ function check(ok, name, detail = "") {
   // 個股詳細：真實日K走勢
   await page.click(".item");
   await page.waitForSelector(".sheet", { timeout: 10000 });
+  // 即時走勢（當日分時，11/04 新增，台股預設分頁）：Yahoo 1 分鐘線＋證交所即時價
+  const intra = await page.waitForFunction(() => {
+    const c = document.querySelector('[data-testid="intraday-chart"]'), e = document.querySelector('[data-testid="intra-empty"]');
+    if (!c && !e) return null;
+    return { ok: !!c, head: document.querySelector('[data-testid="intra-head"]')?.innerText.replace(/\s+/g, " ") || "", stats: document.querySelector('[data-testid="intra-stats"]')?.innerText.replace(/\s+/g, " ") || "", note: document.querySelector('[data-testid="intra-note"]')?.innerText || "", empty: e?.innerText || "", pts: (document.querySelector('[data-testid="intra-line"]')?.getAttribute("d")?.match(/[ML]/g) || []).length, avg: !!document.querySelector('[data-testid="intra-avg"]'), tabOn: document.querySelector('[data-testid="tab-intra"]')?.getAttribute("aria-pressed") };
+  }, null, { timeout: 60000 }).then((h) => h.jsonValue()).catch(() => ({ ok: false, empty: "逾時" }));
+  log("即時走勢", JSON.stringify(intra));
+  await shot("03a-即時走勢");
+  check(intra.ok && intra.tabOn === "true" && intra.pts >= 5 && intra.avg && /[▲▼]?[\d,.]+（[+-]\d+\.\d\d%）/.test(intra.head) && /昨收 [\d,.]+/.test(intra.stats) && /最高 [\d,.]+/.test(intra.stats) && /總量 [\d,]+ 張/.test(intra.stats) && /漲停 [\d,.]+/.test(intra.stats),
+    "個股頁預設「走勢」分頁：當日分時線、均價線、漲跌幅、昨收／高低／總量／漲跌停", JSON.stringify(intra).slice(0, 300));
+  // 點圖看某一分鐘
+  if (intra.ok) {
+    const box = await page.$eval('[data-testid="intraday-chart"] svg', (e) => { const r = e.getBoundingClientRect(); return { x: r.left + r.width * 0.3, y: r.top + r.height * 0.4 }; });
+    await page.mouse.click(box.x, box.y);
+    await sleep(300);
+    const selTxt = await page.$eval('[data-testid="intraday-chart"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
+    check(/\d\d:\d\d・量 [\d,]+ 張/.test(selTxt), "點即時走勢看那一分鐘的時間與成交量", selTxt.slice(0, 120));
+  }
+  // 切到 K 線圖（會記住，之後打開個股都是 K 線圖，下面的檢查照舊）
+  await page.click('[data-testid="tab-k"]');
   await page.waitForFunction(() => document.querySelector("canvas.chart") || /走勢圖下載失敗|沒有走勢資料/.test(document.body.innerText), null, { timeout: 120000 });
   const detail = await page.evaluate(() => ({ title: document.querySelector(".sheet h2")?.textContent, text: document.querySelector(".sheet .body").innerText.slice(0, 400), chart: !!document.querySelector("canvas.chart") }));
   log("個股", JSON.stringify(detail));

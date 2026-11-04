@@ -693,7 +693,7 @@ function check(ok, name, detail = "") {
   await shot("05b2-今日下單清單");
   const tsmcVerdict = (hc.rows.find((r) => /2330/.test(r)) || "").match(/出場|減碼|可加碼|續抱/)?.[0];
   check(ol.top < ol.summaryTop && (tsmcVerdict === "出場" || tsmcVerdict === "減碼"
-    ? ol.rows.some((r) => /^賣 台積電 2330/.test(r) && /\b\d+\b/.test(r) && /[\d,.]+/.test(r)) && /賣出 [\d,.]+/.test(ol.total) && /下單後現金約 [\d,.]+/.test(ol.total)
+    ? ol.rows.some((r) => /^賣\s?台積電 2330/.test(r) && /\b\d+\b/.test(r) && /[\d,.]+/.test(r)) && /賣出 [\d,.]+/.test(ol.total) && /下單後現金約 [\d,.]+/.test(ol.total)
     : ol.rows.length > 0 || /沒有要賣的持股/.test(ol.empty)), "我的實單最上方顯示今日下單清單（買賣、股數、參考價、金額、合計）", JSON.stringify({ tsmcVerdict, ...ol }));
   // 持股列的「賣出」按鈕：帶入代號、全部股數，表單切到賣出
   await page.click('[data-testid="sell-btn-2330"]');

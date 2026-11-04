@@ -6,7 +6,7 @@ import { isCommonStock, isEtf, type Company } from "../data/tw";
 import { addDays } from "../lib/dates";
 import type { BtDay } from "./backtest";
 import { scoreStocks } from "./score";
-import { adjustedSeries } from "./turning";
+import { adjustedSeries, indicators, type Indicators } from "./turning";
 import { liquidityCut, pickCandidates } from "./aiEtf";
 
 /**
@@ -408,7 +408,82 @@ export function regimeStep(c: Ctx, j: number, prevOn: boolean | undefined): { on
   return { on, targets };
 }
 
-type Picker = (j: number) => Map<string, number>; // 目標權重（合計 ≤ 1，其餘現金）
+type Picker = (j: number) => Map<string, number>;
+
+/**
+ * 「剛轉強」虛擬 ETF 候選規則（使用者 11/04 要求，先回測再決定是否新增）：
+ *   strict=false（T1 原版）：App 的剛轉強條件（站上 20 日線 0～5%、MACD 5 天內翻正、RSI<70、外資＋投信 5 日買超），持有 20 天或跌 8% 出場。
+ *   strict=true（T2／T3）：只做上升趨勢中的轉強＋大成交金額＋外資連買＋不過熱；出場：-7% 停損、跌破 20 日線 2%、RSI>75 後跌破 5 日線先賣一半、20 天沒賺 5% 換掉。
+ *   regime=true：0050 跌破 60 日線時不開新倉（T2），false 不看大盤（T3）。
+ * 每檔 9%、最多 10 檔、每產業最多 3 檔、每天最多新增 2 檔，其餘現金。
+ */
+export const TURN2 = { weight: 0.09, maxN: 10, perSector: 3, newPerDay: 2, minValue: 5e8, stop: 0.07, below20: 0.02, timeDays: 20, timeGain: 0.05, maxRet1m: 0.2, band: 0.03 } as const;
+export function turnPicker(c: Ctx, o: { strict: boolean; regime: boolean }): Picker {
+  const ind = new Map<string, Indicators>();
+  const get = (code: string) => { let x = ind.get(code); if (!x) { const s = c.series.get(code); if (!s) return undefined; x = indicators(s.adj); ind.set(code, x); } return x; };
+  const held = new Map<string, { j: number; entry: number; half: boolean; hot: boolean }>();
+  const bench = c.series.get(BENCH);
+  return (j) => {
+    // 1. 出場
+    for (const [code, h] of [...held]) {
+      const s = c.series.get(code), x = get(code); if (!s || !x) { held.delete(code); continue; }
+      const p = j - s.start, cl = s.adj[p];
+      if (!(cl > 0)) continue;
+      if (o.strict) {
+        const ma5 = ma(s, j, 5);
+        if (x.rsi[p] > 75) h.hot = true;
+        if (cl < h.entry * (1 - TURN2.stop) || cl < x.ma20[p] * (1 - TURN2.below20) || (j - h.j >= TURN2.timeDays && cl < h.entry * (1 + TURN2.timeGain))) { held.delete(code); continue; }
+        if (h.hot && !h.half && cl < ma5) h.half = true;
+      } else if (cl < h.entry * 0.92 || j - h.j >= 20) held.delete(code);
+    }
+    // 2. 進場
+    const regimeOk = !o.regime || !(px(bench, j) < ma(bench, j, 60));
+    if (regimeOk && held.size < TURN2.maxN) {
+      const cands: { code: string; value: number; sector: string }[] = [];
+      for (const [code, row] of c.rows[j]) {
+        if (held.has(code) || isEtf(code) || !isCommonStock(code)) continue;
+        const value = row[4];
+        if (!(value >= (o.strict ? TURN2.minValue : 5e7))) continue;
+        const s = c.series.get(code); if (!s) continue;
+        const p = j - s.start; if (p < 80 || p >= s.adj.length) continue;
+        const x = get(code)!; const cl = s.adj[p];
+        const gap = cl / x.ma20[p] - 1;
+        if (!(gap > 0 && gap <= 0.05) || !(x.osc[p] > 0)) continue;
+        const within = o.strict ? 3 : 5;
+        let k = 1; while (k <= within && x.osc[p - k] > 0) k++;
+        if (k > within) continue;
+        const f = (jj: number) => c.flows[jj]?.get(code);
+        if (o.strict) {
+          if (!(x.rsi[p] >= 50 && x.rsi[p] <= 65) || !(cl > x.ma60[p])) continue;
+          let crossed = false; for (let q = 1; q <= 3; q++) if (s.adj[p - q] <= x.ma20[p - q]) crossed = true;
+          if (!crossed) continue;
+          if (!(cl / s.adj[p - 20] - 1 < TURN2.maxRet1m)) continue;
+          let f5 = 0; for (let q = 0; q < 5; q++) f5 += f(j - q)?.[1] ?? 0;
+          if (!(f5 > 0) || !((f(j)?.[1] ?? 0) > 0) || !((f(j - 1)?.[1] ?? 0) > 0)) continue;
+        } else {
+          if (!(x.rsi[p] < 70) || !(cl >= x.ma60[p] * 0.98)) continue;
+          let f5 = 0; for (let q = 0; q < 5; q++) { const r = f(j - q); f5 += (r?.[1] ?? 0) + (r?.[2] ?? 0); }
+          if (!(f5 > 0)) continue;
+        }
+        cands.push({ code, value, sector: c.sector.get(code) ?? "其他" });
+      }
+      cands.sort((a, b) => b.value - a.value); // 成交金額大的優先
+      const per = new Map<string, number>();
+      for (const code of held.keys()) { const sec = c.sector.get(code) ?? "其他"; per.set(sec, (per.get(sec) ?? 0) + 1); }
+      let added = 0;
+      for (const x of cands) {
+        if (held.size >= TURN2.maxN || added >= TURN2.newPerDay) break;
+        if ((per.get(x.sector) ?? 0) >= TURN2.perSector) continue;
+        const s = c.series.get(x.code)!;
+        const nx = px(s, j + 1);
+        held.set(x.code, { j, entry: nx > 0 ? nx : px(s, j), half: false, hot: false });
+        per.set(x.sector, (per.get(x.sector) ?? 0) + 1); added++;
+      }
+    }
+    return new Map([...held].map(([code, h]) => [code, h.half ? TURN2.weight / 2 : TURN2.weight]));
+  };
+}
+ // 目標權重（合計 ≤ 1，其餘現金）
 interface SimOpts { stops?: boolean; every?: number; band?: number; costStop?: number } // costStop：收盤跌破買進價這個比例就賣（實單規則用 0.1）
 
 /** 逐日模擬：第 j 天收盤決定，第 j+1 天收盤成交（從 j+2 起承擔漲跌），含手續費與證交稅 */
@@ -682,6 +757,10 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
   add("N6_half0050_etf", "N6 0050 五成＋ETF 輪動五成（月換）", mix(hold0050, 0.5, etfRotation), { every: 20 });
   add("U1_real", "U1 我的實單規則（App 買入候選、每產業 ≤3 檔、分數前 8 檔等權、跌破成本 10% 停損、每週換）", (j) => realTargets(days, companies, c, j), { every: REAL.every, costStop: REAL.stop });
   // 使用者 11/04 問：實單規則改成每天微調（像全個股那樣，差距小於淨值 0.5% 就不動）會怎樣
+  // 使用者 11/04：「剛轉強」虛擬 ETF 候選規則，先回測再決定是否新增
+  add("T1_turnRaw", "T1 原版剛轉強（站上 20 日線、MACD 翻正、法人買超；持有 20 天或跌 8% 出場，每檔 9%）", turnPicker(c, { strict: false, regime: false }), { every: 1, band: TURN2.band });
+  add("T2_turnPlus", "T2 轉強精選（上升趨勢＋成交金額 ≥5 億＋外資連買＋不過熱；-7% 停損、跌破 20 日線、停利、時間停損；0050 跌破 60 日線不開新倉）", turnPicker(c, { strict: true, regime: true }), { every: 1, band: TURN2.band });
+  add("T3_turnPlusNoRegime", "T3 轉強精選但不看大盤", turnPicker(c, { strict: true, regime: false }), { every: 1, band: TURN2.band });
   add("U2_realDaily", "U2 實單規則改成每天微調（差距 <0.5% 不動，其餘同 U1）", (j) => realTargets(days, companies, c, j), { every: 1, band: STEADY.wideBand, costStop: REAL.stop });
   add("U3_realDailyFull", "U3 實單規則每天完全照目標換（不留差距，看手續費拖累）", (j) => realTargets(days, companies, c, j), { every: 1, costStop: REAL.stop });
   add("N7_half0050_rs", "N7 0050 五成＋相對強度五成（月換）", mix(hold0050, 0.5, bigRs), { every: 20 });

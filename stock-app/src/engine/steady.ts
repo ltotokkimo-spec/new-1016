@@ -681,6 +681,9 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
   add("N5_half0050_A", "N5 0050 五成＋A 五成", mix(hold0050, 0.5, lowVolTrend));
   add("N6_half0050_etf", "N6 0050 五成＋ETF 輪動五成（月換）", mix(hold0050, 0.5, etfRotation), { every: 20 });
   add("U1_real", "U1 我的實單規則（App 買入候選、每產業 ≤3 檔、分數前 8 檔等權、跌破成本 10% 停損、每週換）", (j) => realTargets(days, companies, c, j), { every: REAL.every, costStop: REAL.stop });
+  // 使用者 11/04 問：實單規則改成每天微調（像全個股那樣，差距小於淨值 0.5% 就不動）會怎樣
+  add("U2_realDaily", "U2 實單規則改成每天微調（差距 <0.5% 不動，其餘同 U1）", (j) => realTargets(days, companies, c, j), { every: 1, band: STEADY.wideBand, costStop: REAL.stop });
+  add("U3_realDailyFull", "U3 實單規則每天完全照目標換（不留差距，看手續費拖累）", (j) => realTargets(days, companies, c, j), { every: 1, costStop: REAL.stop });
   add("N7_half0050_rs", "N7 0050 五成＋相對強度五成（月換）", mix(hold0050, 0.5, bigRs), { every: 20 });
   out.push(stats("0050", "買進持有 0050", c, j0, benchSim, benchSim.eq));
 

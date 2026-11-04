@@ -71,4 +71,14 @@ describe("我的實單：中途存入／提領資金", () => {
     const st = navStats([{ date: "20261103", nav: Math.round(after.nav), bench: Math.round(after.bench) }], 100_000, flows)!;
     expect(st.mine).toBeCloseTo(before.ret, 4);
   });
+
+  it("還沒有任何成交時也能存入／提領：現金與本金跟著變，報酬 0%", () => {
+    const etf: AiEtf = { ...emptyEtf(500_000), flows: [{ id: "a", date: "20261104", amount: 100_000, navBefore: 500_000, benchBefore: 500_000 }] };
+    const v = valuate(etf, () => undefined);
+    expect(v.cash).toBe(600_000);
+    expect(v.invested).toBe(600_000);
+    expect(v.bench).toBe(600_000);
+    expect(v.ret).toBeCloseTo(0, 10);
+    expect(v.benchRet).toBeCloseTo(0, 10);
+  });
 });

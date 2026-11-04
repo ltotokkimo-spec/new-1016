@@ -1242,7 +1242,7 @@ function RealEtfScreen() {
             <button class="btn secondary" style={{ alignSelf: "flex-end" }} onClick={() => { const n = Number(budgetText.replace(/,/g, "")); if (n >= 1000) { setEtfBudget(n); setEditBudget(false); } }}>設定</button>
           </div>
         )}
-        {etf.trades.length > 0 && <FlowEditor cash={v.cash} flows={etf.flows ?? []} nav={v.nav} bench={v.bench} />}
+        <FlowEditor cash={v.cash} flows={etf.flows ?? []} nav={v.nav} bench={v.bench} />
         <div class="muted" style={{ fontSize: "11px", lineHeight: 1.6 }}>已估算手續費 0.1425% 與賣出證交稅 0.3%（未計券商折扣）。對照組：每次買賣時，用同樣金額買賣 0050。{etf.flows?.length ? "有中途存入／提領：總損益＝淨值－投入本金；報酬率用時間加權（基金常用的算法），存提款的錢不算賺賠，報酬率只反映操作好壞；0050 對照組同一天存提同樣的錢。" : ""}</div>
       </div>
 

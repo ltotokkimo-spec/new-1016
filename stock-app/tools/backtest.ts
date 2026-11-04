@@ -13,7 +13,7 @@ import { adjustedSeries, indicators } from "../src/engine/turning";
 import { taipeiToday, weekdaysBack } from "../src/lib/dates";
 import type { KV } from "../src/lib/kv";
 
-const [cacheDir = ".bt-cache", outFile = "backtest.json", factorsFile = "factors.json", compareFile = "scorecompare.json", steadyFile = "steady.json", watchFile = "n5.json", wideFile = "wide.json", regimeFile = "regime.json", leadFile = "lead.json", aiFile = "ai.json", realFile = "real.json"] = process.argv.slice(2);
+const [cacheDir = ".bt-cache", outFile = "backtest.json", factorsFile = "factors.json", compareFile = "scorecompare.json", steadyFile = "steady.json", watchFile = "n5.json", wideFile = "wide.json", regimeFile = "regime.json", leadFile = "lead.json", aiFile = "ai.json", realFile = "real.json", turnFile = "turn.json"] = process.argv.slice(2);
 fs.mkdirSync(cacheDir, { recursive: true });
 
 const fileKV = (dir: string): KV => {
@@ -152,6 +152,13 @@ try {
   log(`AI 供應鏈試跑（${trial.start} 起）：成交 ${trial.trades.length} 筆，淨值 ${tv?.nav}（${tv ? ((tv.nav / trial.budget - 1) * 100).toFixed(2) : "—"}%）0050 對照 ${tv?.bench}（${tv ? ((tv.bench / trial.budget - 1) * 100).toFixed(2) : "—"}%）`);
   log("AI 供應鏈試跑最後說明：", trial.notes.at(-1)?.text);
 } catch (e) { log("AI 供應鏈觀察組合失敗（不影響回測）：", e); }
+// 剛轉強觀察組合（使用者 11/04 看完回測選 T1-混合：剛轉強訊號、每檔 9%、跌 8% 停損、滿 20 天後還在 20 日線上就續抱；和其他組一樣 10/23 起算）
+try {
+  const w = runWatch(days, companies, { mode: "turn" });
+  fs.writeFileSync(turnFile, JSON.stringify(w));
+  log(`剛轉強觀察組合：${w.start} 起，資料日 ${w.asOf || "（尚未開始）"}，成交 ${w.trades.length} 筆，淨值 ${w.nav.at(-1)?.nav ?? WATCH.budget}（0050 對照 ${w.nav.at(-1)?.bench ?? WATCH.budget}）`);
+  log("剛轉強最後說明：", w.notes.at(-1)?.text);
+} catch (e) { log("剛轉強觀察組合失敗（不影響回測）：", e); }
 // 實單規則觀察組合（使用者 11/03 要求：「我的實單」的選股規則沒比較過，和其他組同一天 10/23 起算同場比）
 try {
   const w = runWatch(days, companies, { mode: "real" });

@@ -636,6 +636,12 @@ function check(ok, name, detail = "") {
   log("AI 供應鏈觀察組合", aiTxt.slice(0, 220));
   check(/AI 供應鏈觀察組合/.test(aiTxt) && /虛擬資金 50\.0 萬/.test(aiTxt) && /51 檔/.test(aiTxt) && /事後|今天的眼光/.test(aiTxt), "AI 供應鏈觀察組合顯示（虛擬 50 萬、51 檔清單、回測偏樂觀的提醒）", aiTxt.slice(0, 120));
   await shot("05d3-AI供應鏈觀察組合");
+  // 剛轉強觀察組合（11/04 新增）：每天規則自動算；turn.json 由同一次推送的回測產生，偶爾還沒上傳完，就等一下再重新下載
+  await page.click('[data-testid="mode-turn"]');
+  const turnTxt = await page.waitForFunction(() => { const t = document.querySelector('[data-testid="virtual-view"]')?.innerText || ""; return /剛轉強觀察組合/.test(t) && /虛擬資金 50\.0 萬/.test(t) ? t.replace(/\s+/g, " ") : null; }, null, { timeout: 60000 }).then((h) => h.jsonValue()).catch(async () => (await page.$eval('[data-testid="aietf"], body', (e) => e.innerText.replace(/\s+/g, " "))).slice(0, 300));
+  log("剛轉強觀察組合", String(turnTxt).slice(0, 260));
+  check(/剛轉強觀察組合/.test(turnTxt) && /虛擬資金 50\.0 萬/.test(turnTxt) && /滿 20 個交易日後/.test(turnTxt), "剛轉強觀察組合顯示（虛擬 50 萬、出場規則說明）", String(turnTxt).slice(0, 200));
+  await shot("05d4-剛轉強觀察組合");
   // 9 個模式按鈕排成三列（每列 4 個），文字不能被擠成直排
   const segRows = await page.$$eval('[data-testid^="mode-"]', (bs) => ({ tops: [...new Set(bs.map((b) => Math.round(b.getBoundingClientRect().top)))].length, maxH: Math.max(...bs.map((b) => b.getBoundingClientRect().height)) }));
   check(segRows.tops === 3 && segRows.maxH < 60, "自組ETF 模式按鈕排成三列、文字不擠成直排", JSON.stringify(segRows));

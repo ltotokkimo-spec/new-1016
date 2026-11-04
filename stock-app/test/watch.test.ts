@@ -215,3 +215,18 @@ describe("實單規則（我的實單的選股規則）", () => {
     for (const [code, n] of pos) expect((n * (r.last[code]?.close ?? 0)) / val.nav).toBeLessThan(0.3);
   });
 });
+
+describe("剛轉強觀察組合（11/04 使用者選 T1-混合）", () => {
+  const r = runWatch(days, companies, { start: startAt, now: 0, mode: "turn" });
+  it("每天判斷、說明寫出規則；不買 0050；現金不為負；最多 10 檔；結果穩定", () => {
+    expect(r.plan?.every).toBe(1);
+    expect(r.notes.some((n) => n.text.includes("剛轉強訊號"))).toBe(true);
+    expect(r.trades.some((t) => t.code === "0050")).toBe(false);
+    const val = valuate(r, (c) => r.last[c]?.close);
+    expect(val.cash).toBeGreaterThanOrEqual(-1);
+    const held = new Map<string, number>();
+    for (const t of r.trades) held.set(t.code, (held.get(t.code) ?? 0) + (t.side === "buy" ? t.shares : -t.shares));
+    expect([...held].filter(([, n]) => n > 0).length).toBeLessThanOrEqual(10);
+    expect(runWatch(days, companies, { start: startAt, now: 0, mode: "turn" }).trades).toEqual(r.trades);
+  });
+});

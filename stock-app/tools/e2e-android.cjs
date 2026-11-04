@@ -582,7 +582,7 @@ function check(ok, name, detail = "") {
   {
     const us = await page.$$eval('[data-testid="update-stamp"]', (es) => es.map((e) => e.innerText.replace(/\s+/g, " ")));
     log("更新時間（Claude 虛擬）", JSON.stringify(us));
-    check(us.length > 0 && us.every((t) => /資料日 \d+\/\d+（.）收盤/.test(t) && /更新於 (今天|\d+\/\d+（.）) \d\d:\d\d/.test(t) && /(下次更新：約 (今天|\d+\/\d+（.）) 17:00～17:30|比平常晚)/.test(t)), "Claude 虛擬頁面顯示資料日、更新時間與下次更新時間", JSON.stringify(us));
+    check(us.length > 0 && us.every((t) => /資料日 \d+\/\d+（.）\s?收盤/.test(t) && /更新於 (今天|\d+\/\d+（.）) \d\d:\d\d/.test(t) && /(下次更新：約 (今天|\d+\/\d+（.）) 17:00～17:30|比平常晚)/.test(t)), "Claude 虛擬頁面顯示資料日、更新時間與下次更新時間", JSON.stringify(us));
   }
   // N5 觀察組合（0050 五成＋方案 A 五成）：由 Release 的 n5.json 顯示
   await page.click('[data-testid="mode-watch"]');
@@ -679,7 +679,7 @@ function check(ok, name, detail = "") {
   {
     const us = await page.$$eval('[data-testid="update-stamp"]', (es) => es.map((e) => e.innerText.replace(/\s+/g, " ")));
     log("更新時間（總評比）", JSON.stringify(us));
-    check(us.length > 0 && us.every((t) => /資料日 \d+\/\d+（.）收盤/.test(t) && /更新於 (今天|\d+\/\d+（.）) \d\d:\d\d/.test(t) && /(下次更新：約 (今天|\d+\/\d+（.）) 17:00～17:30|比平常晚)/.test(t)), "總評比頁面顯示資料日、更新時間與下次更新時間", JSON.stringify(us));
+    check(us.length > 0 && us.every((t) => /資料日 \d+\/\d+（.）\s?收盤/.test(t) && /更新於 (今天|\d+\/\d+（.）) \d\d:\d\d/.test(t) && /(下次更新：約 (今天|\d+\/\d+（.）) 17:00～17:30|比平常晚)/.test(t)), "總評比頁面顯示資料日、更新時間與下次更新時間", JSON.stringify(us));
   }
   await page.click('[data-testid="mode-real"]');
   await page.waitForSelector('[data-testid="etf-summary"]', { timeout: 10000 });

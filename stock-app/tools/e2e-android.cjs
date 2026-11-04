@@ -686,6 +686,15 @@ function check(ok, name, detail = "") {
   const hc = await page.evaluate(() => ({ head: document.querySelector('[data-testid="hold-check"]')?.innerText.replace(/\s+/g, " ").slice(0, 120) || "", rows: [...document.querySelectorAll('[data-testid="hold-check-row"]')].map((e) => e.innerText.replace(/\s+/g, " ").slice(0, 140)) }));
   log("今日持股建議", JSON.stringify(hc));
   check(/今日持股建議/.test(hc.head) && hc.rows.some((r) => /2330/.test(r) && /(出場|減碼|可加碼|續抱)/.test(r) && /均價 [\d,.]+/.test(r)), "我的實單顯示今日持股建議（規則自動檢查）", JSON.stringify(hc));
+  // 今日下單清單（最上方）：每檔一列「買／賣、股票、股數、參考價、金額、停損」，下面有買賣合計與下單後現金
+  const ol = await page.evaluate(() => ({ top: document.querySelector('[data-testid="order-list"]')?.getBoundingClientRect().top ?? 9999, summaryTop: document.querySelector('[data-testid="etf-summary"]')?.getBoundingClientRect().top ?? 0, rows: [...document.querySelectorAll('[data-testid="order-row"]')].map((e) => e.innerText.replace(/\s+/g, " ")), empty: document.querySelector('[data-testid="order-empty"]')?.innerText || "", total: document.querySelector('[data-testid="order-total"]')?.innerText.replace(/\s+/g, " ") || "" }));
+  log("今日下單清單", JSON.stringify(ol));
+  await page.evaluate(() => document.querySelector('[data-testid="order-list"]')?.scrollIntoView());
+  await shot("05b2-今日下單清單");
+  const tsmcVerdict = (hc.rows.find((r) => /2330/.test(r)) || "").match(/出場|減碼|可加碼|續抱/)?.[0];
+  check(ol.top < ol.summaryTop && (tsmcVerdict === "出場" || tsmcVerdict === "減碼"
+    ? ol.rows.some((r) => /^賣 台積電 2330/.test(r) && /\b\d+\b/.test(r) && /[\d,.]+/.test(r)) && /賣出 [\d,.]+/.test(ol.total) && /下單後現金約 [\d,.]+/.test(ol.total)
+    : ol.rows.length > 0 || /沒有要賣的持股/.test(ol.empty)), "我的實單最上方顯示今日下單清單（買賣、股數、參考價、金額、合計）", JSON.stringify({ tsmcVerdict, ...ol }));
   // 持股列的「賣出」按鈕：帶入代號、全部股數，表單切到賣出
   await page.click('[data-testid="sell-btn-2330"]');
   await page.waitForSelector('[data-testid="etf-trade-form"]', { timeout: 5000 });

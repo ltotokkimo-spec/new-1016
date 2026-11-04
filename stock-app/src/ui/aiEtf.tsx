@@ -1021,6 +1021,56 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
   );
 }
 
+/** 我的實單：今日下單清單（一眼看懂要買賣哪幾檔、幾股、多少錢） */
+interface OrderRow { side: "buy" | "sell"; code: string; name: string; shares: number; price?: number; stop?: number; reason: string; src: string }
+function OrderList({ rows, cash, asOf, planAsOf, hasPlan, canAsk, busy, onAsk }: { rows: OrderRow[]; cash: number; asOf?: string; planAsOf?: string; hasPlan: boolean; canAsk: boolean; busy: boolean; onAsk: () => void }) {
+  const amt = (r: OrderRow) => (r.price ? r.shares * r.price : NaN);
+  const buy = rows.filter((r) => r.side === "buy").reduce((a, r) => a + (amt(r) || 0), 0);
+  const sell = rows.filter((r) => r.side === "sell").reduce((a, r) => a + (amt(r) || 0), 0);
+  const day = asOf ? prettyW(orderDay(asOf)) : "";
+  const th = { textAlign: "right" as const, fontWeight: 500, padding: "4px 2px", whiteSpace: "nowrap" as const };
+  const td = { textAlign: "right" as const, padding: "6px 2px", whiteSpace: "nowrap" as const };
+  return (
+    <div class="card stack" data-testid="order-list">
+      <div class="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
+        <b style={{ fontSize: "16px" }}>今日下單清單</b>
+        <span class="muted" style={{ fontSize: "12px" }}>{day ? `建議 ${day} 盤中下單` : ""}</span>
+      </div>
+      {rows.length === 0 ? (
+        <div class="muted" style={{ fontSize: "13px", lineHeight: 1.6 }} data-testid="order-empty">今天沒有要賣的持股（規則檢查都沒觸發出場或減碼）{hasPlan ? "" : "，也還沒有買進建議"}。{!hasPlan && "要買進建議可以按下面「請 Claude 建議」。"}</div>
+      ) : (
+        <>
+          <table style={{ width: "100%", fontSize: "13.5px", borderCollapse: "collapse" }}>
+            <thead><tr class="muted" style={{ fontSize: "11.5px" }}>
+              <th style={{ ...th, textAlign: "left" }}>動作／股票</th><th style={th}>股數</th><th style={th}>參考價</th><th style={th}>金額</th><th style={th}>停損</th>
+            </tr></thead>
+            <tbody>{rows.map((r) => (
+              <tr style={{ borderTop: "1px solid var(--line)", verticalAlign: "top" }} data-testid="order-row">
+                <td style={{ padding: "6px 2px" }}>
+                  <span class={`pill ${r.side === "buy" ? "buy" : "exit"}`} style={{ minWidth: "auto", padding: "2px 6px", marginRight: "6px" }}>{r.side === "buy" ? "買" : "賣"}</span>
+                  <b>{r.name}</b> <span class="muted num" style={{ fontSize: "11.5px" }}>{r.code}</span>
+                  <div class="muted" style={{ fontSize: "11px", lineHeight: 1.4, marginTop: "2px", whiteSpace: "normal" }}>{r.src}：{r.reason}</div>
+                </td>
+                <td class="num" style={td}><b>{r.shares.toLocaleString()}</b></td>
+                <td class="num" style={td}>{r.price ? fmtPrice(r.price) : "—"}</td>
+                <td class="num" style={td}>{Number.isFinite(amt(r)) ? fmtMoney(amt(r)) : "—"}</td>
+                <td class="num" style={td}>{r.stop ? fmtPrice(r.stop) : r.side === "buy" ? "—" : ""}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+          <div class="row" style={{ justifyContent: "space-between", fontSize: "13px", flexWrap: "wrap", gap: "4px 12px" }} data-testid="order-total">
+            <span>買進 <b class="num up">{fmtMoney(buy)}</b>（{rows.filter((r) => r.side === "buy").length} 檔）</span>
+            <span>賣出 <b class="num down">{fmtMoney(sell)}</b>（{rows.filter((r) => r.side === "sell").length} 檔）</span>
+            <span>下單後現金約 <b class="num">{fmtMoney(cash - buy * 1.001425 + sell * (1 - 0.001425 - 0.003))}</b></span>
+          </div>
+          <div class="muted" style={{ fontSize: "11.5px", lineHeight: 1.6 }}>參考價是最新價{planAsOf ? `（Claude 建議依 ${prettyW(planAsOf)} 收盤）` : ""}；建議用限價單，買進不要高於參考價 1.5%。賣出的「規則」是下方「今日持股建議」的出場（全部賣）或減碼（賣一半）。成交後到下方「填入實際成交」記錄。</div>
+        </>
+      )}
+      {!hasPlan && <button class="btn secondary block" disabled={!canAsk} onClick={onAsk} data-testid="order-ask">{busy ? "Claude 建議產生中…" : "請 Claude 建議要買哪些（約台幣 20～30 元）"}</button>}
+    </div>
+  );
+}
+
 /** 我的實單：今日持股建議（規則自動檢查，免費） */
 function HoldCheckCard({ checks, asOf, priceNote }: { checks: HoldCheck[]; asOf?: string; priceNote: string }) {
   const color: Record<string, string> = { 出場: "exit", 減碼: "hold", 可加碼: "buy", 續抱: "none" };
@@ -1091,12 +1141,25 @@ function RealEtfScreen() {
   };
 
   const alerts = etfAlertsNow();
+  // 今日下單清單：買進＝最近一份還沒填成交的 Claude 建議（依現金調整股數）；賣出＝Claude 建議的賣出＋規則檢查的出場／減碼
+  const orderRows: OrderRow[] = (() => {
+    const nm = (c: string) => getState().prices[c]?.name ?? pos.find((p) => p.code === c)?.name ?? c;
+    const out: OrderRow[] = [];
+    if (showFill && fillParsed) for (const it of fitBudget(fillParsed.items, livePx, v.cash))
+      out.push({ side: it.side, code: it.code, name: nm(it.code), shares: it.shares, price: livePx(it.code), stop: it.side === "buy" ? it.stop : undefined, reason: it.reason, src: fillSrc === "pro" ? "Claude Pro" : "Claude" });
+    for (const c of checks) {
+      if (out.some((r) => r.code === c.code)) continue;
+      if (c.verdict === "出場") out.push({ side: "sell", code: c.code, name: c.name, shares: c.shares, price: c.price, reason: c.reasons[0], src: "規則" });
+      else if (c.verdict === "減碼") out.push({ side: "sell", code: c.code, name: c.name, shares: Math.max(1, Math.floor(c.shares / 2)), price: c.price, reason: c.reasons[0], src: "規則" });
+    }
+    return out.sort((a, b) => (a.side === b.side ? 0 : a.side === "sell" ? -1 : 1));
+  })();
 
   return (
     <div>
       <ProResume />
+      <OrderList rows={orderRows} cash={v.cash} asOf={st.asOf} planAsOf={fillSrc === "pro" ? etf.proAsOf : etf.planAsOf} hasPlan={showFill} canAsk={!busy && !!st.apiKey && st.twReady} busy={busy} onAsk={ask} />
       <AlertCard alerts={alerts} onAsk={ask} canAsk={!busy && !!st.apiKey && st.twReady} asOf={st.asOf} />
-      {checks.length > 0 && <HoldCheckCard checks={checks} asOf={st.asOf} priceNote={priceNote} />}
       <div class="card stack" data-testid="etf-summary">
         <div class="row" style={{ justifyContent: "space-between" }}>
           <b>我的自組 ETF</b>
@@ -1161,6 +1224,7 @@ function RealEtfScreen() {
       )}
 
       <div style={{ marginTop: "12px" }}><CandidateCard /></div>
+      {checks.length > 0 && <HoldCheckCard checks={checks} asOf={st.asOf} priceNote={priceNote} />}
       <div class="section-title"><span>Claude 建議</span>{(plan || pro) && <span>{fmtAt(Math.max(plan?.at ?? 0, pro?.at ?? 0))}</span>}</div>
       {job?.status === "error" && <div class="error">{job.error}</div>}
       {busy && <AiProgressView job={job!} />}

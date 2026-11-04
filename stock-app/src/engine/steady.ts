@@ -418,7 +418,8 @@ type Picker = (j: number) => Map<string, number>;
  * 每檔 9%、最多 10 檔、每產業最多 3 檔、每天最多新增 2 檔，其餘現金。
  */
 export const TURN2 = { weight: 0.09, maxN: 10, perSector: 3, newPerDay: 2, minValue: 5e8, stop: 0.07, below20: 0.02, timeDays: 20, timeGain: 0.05, maxRet1m: 0.2, band: 0.03 } as const;
-export function turnPicker(c: Ctx, o: { strict: boolean; regime: boolean }): Picker {
+/** exit（只用在原版 strict=false）：days＝持有 hold 天到期出場；trend＝收盤跌破 20 日線才出場；hybrid＝滿 hold 天後還在 20 日線上就續抱 */
+export function turnPicker(c: Ctx, o: { strict: boolean; regime: boolean; exit?: "days" | "trend" | "hybrid"; hold?: number }): Picker {
   const ind = new Map<string, Indicators>();
   const get = (code: string) => { let x = ind.get(code); if (!x) { const s = c.series.get(code); if (!s) return undefined; x = indicators(s.adj); ind.set(code, x); } return x; };
   const held = new Map<string, { j: number; entry: number; half: boolean; hot: boolean }>();
@@ -434,7 +435,11 @@ export function turnPicker(c: Ctx, o: { strict: boolean; regime: boolean }): Pic
         if (x.rsi[p] > 75) h.hot = true;
         if (cl < h.entry * (1 - TURN2.stop) || cl < x.ma20[p] * (1 - TURN2.below20) || (j - h.j >= TURN2.timeDays && cl < h.entry * (1 + TURN2.timeGain))) { held.delete(code); continue; }
         if (h.hot && !h.half && cl < ma5) h.half = true;
-      } else if (cl < h.entry * 0.92 || j - h.j >= 20) held.delete(code);
+      } else {
+        const hold = o.hold ?? 20, age = j - h.j, below = cl < x.ma20[p];
+        const out = o.exit === "trend" ? below : o.exit === "hybrid" ? age >= hold && below : age >= hold;
+        if (cl < h.entry * 0.92 || out) held.delete(code);
+      }
     }
     // 2. 進場
     const regimeOk = !o.regime || !(px(bench, j) < ma(bench, j, 60));
@@ -759,6 +764,10 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
   // 使用者 11/04 問：實單規則改成每天微調（像全個股那樣，差距小於淨值 0.5% 就不動）會怎樣
   // 使用者 11/04：「剛轉強」虛擬 ETF 候選規則，先回測再決定是否新增
   add("T1_turnRaw", "T1 原版剛轉強（站上 20 日線、MACD 翻正、法人買超；持有 20 天或跌 8% 出場，每檔 9%）", turnPicker(c, { strict: false, regime: false }), { every: 1, band: TURN2.band });
+  add("T1_hold10", "T1-10 原版剛轉強，持有 10 天或跌 8% 出場", turnPicker(c, { strict: false, regime: false, hold: 10 }), { every: 1, band: TURN2.band });
+  add("T1_hold40", "T1-40 原版剛轉強，持有 40 天或跌 8% 出場", turnPicker(c, { strict: false, regime: false, hold: 40 }), { every: 1, band: TURN2.band });
+  add("T1_trend", "T1-趨勢 原版剛轉強，不限天數，收盤跌破 20 日線或跌 8% 才出場", turnPicker(c, { strict: false, regime: false, exit: "trend" }), { every: 1, band: TURN2.band });
+  add("T1_hybrid", "T1-混合 原版剛轉強，滿 20 天後還在 20 日線上就續抱，跌破或跌 8% 才出場", turnPicker(c, { strict: false, regime: false, exit: "hybrid" }), { every: 1, band: TURN2.band });
   add("T2_turnPlus", "T2 轉強精選（上升趨勢＋成交金額 ≥5 億＋外資連買＋不過熱；-7% 停損、跌破 20 日線、停利、時間停損；0050 跌破 60 日線不開新倉）", turnPicker(c, { strict: true, regime: true }), { every: 1, band: TURN2.band });
   add("T3_turnPlusNoRegime", "T3 轉強精選但不看大盤", turnPicker(c, { strict: true, regime: false }), { every: 1, band: TURN2.band });
   add("U2_realDaily", "U2 實單規則改成每天微調（差距 <0.5% 不動，其餘同 U1）", (j) => realTargets(days, companies, c, j), { every: 1, band: STEADY.wideBand, costStop: REAL.stop });

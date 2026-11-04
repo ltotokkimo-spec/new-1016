@@ -579,6 +579,11 @@ function check(ok, name, detail = "") {
   const dailyV = await page.$eval('[data-testid="daily-today"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   check(/組合 [+-]?[\d,]+ 元（[+-]?\d+\.\d\d%）・0050 [+-]?[\d,]+ 元/.test(dailyV), "Claude 虛擬操作也顯示每日損益 vs 0050", dailyV.slice(0, 160));
   await shot("05a-Claude虛擬操作");
+  {
+    const us = await page.$$eval('[data-testid="update-stamp"]', (es) => es.map((e) => e.innerText.replace(/\s+/g, " ")));
+    log("更新時間（Claude 虛擬）", JSON.stringify(us));
+    check(us.length > 0 && us.every((t) => /資料日 \d+\/\d+（.）收盤/.test(t) && /更新於 (今天|\d+\/\d+（.）) \d\d:\d\d/.test(t) && /(下次更新：約 (今天|\d+\/\d+（.）) 17:00～17:30|比平常晚)/.test(t)), "Claude 虛擬頁面顯示資料日、更新時間與下次更新時間", JSON.stringify(us));
+  }
   // N5 觀察組合（0050 五成＋方案 A 五成）：由 Release 的 n5.json 顯示
   await page.click('[data-testid="mode-watch"]');
   await page.waitForSelector('[data-testid="virtual-summary"]', { timeout: 30000 });
@@ -671,6 +676,11 @@ function check(ok, name, detail = "") {
   check(!!holdNum && /全買抱著/.test(hv.bench || "") && (hv.bench || "").includes(holdNum), "「全買抱著」虛線的 0050 數字和表格「全買0050」一致", JSON.stringify(hv));
   await page.click('[data-testid="bench-own"]');
   await shot("05e-總評比");
+  {
+    const us = await page.$$eval('[data-testid="update-stamp"]', (es) => es.map((e) => e.innerText.replace(/\s+/g, " ")));
+    log("更新時間（總評比）", JSON.stringify(us));
+    check(us.length > 0 && us.every((t) => /資料日 \d+\/\d+（.）收盤/.test(t) && /更新於 (今天|\d+\/\d+（.）) \d\d:\d\d/.test(t) && /(下次更新：約 (今天|\d+\/\d+（.）) 17:00～17:30|比平常晚)/.test(t)), "總評比頁面顯示資料日、更新時間與下次更新時間", JSON.stringify(us));
+  }
   await page.click('[data-testid="mode-real"]');
   await page.waitForSelector('[data-testid="etf-summary"]', { timeout: 10000 });
   check(/起始資金 10\.0 萬/.test(await page.$eval('[data-testid="etf-summary"]', (e) => e.innerText)), "自組ETF 起始資金 10 萬");

@@ -7,7 +7,7 @@ import { aiEtfPrompt, claudeAppUrl, explainError, holdingsFromImage, shrinkImage
 import type { Scored } from "../engine/score";
 import type { VirtualEtf } from "../engine/virtualEtf";
 import { dailyHoldingCheck, type HoldCheck, type EtfTrade, type EtfFlow, comparePlans, DEFAULT_STOP, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
-import { addWeekdays, orderDay, pretty, prettyW, taipeiToday } from "../lib/dates";
+import { addWeekdays, orderDay, pretty, prettyW, taipeiClock, taipeiHour, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
 import { livePolling, type LiveQuote } from "../data/twLive";
 import { cls, fmtMoney, fmtPct, fmtPrice, fmtSigned, LimitPx } from "./common";
@@ -727,6 +727,28 @@ function CompareChart({ series }: { series: { label: string; pts: { date: string
   );
 }
 
+/** 虛擬 ETF 的更新時間：資料日、雲端什麼時候算好、手機什麼時候下載的、下次大約幾點更新 */
+function UpdateStamp({ asOf, updatedAt, fetchedAt, lagging }: { asOf?: string; updatedAt?: number; fetchedAt?: number; lagging?: string[] }) {
+  const today = taipeiToday();
+  const stamp = (t: number) => `${taipeiToday(t) === today ? "今天" : prettyW(taipeiToday(t))} ${taipeiClock(t)}`;
+  const weekday = (ymd: string) => { const d = new Date(Date.UTC(+ymd.slice(0, 4), +ymd.slice(4, 6) - 1, +ymd.slice(6))).getUTCDay(); return d > 0 && d < 6; };
+  // 今天是交易日、資料還停在之前：17:00 前說「今天約 17:00～17:30」，18:00 後還沒有就是延遲
+  const todayPending = !!asOf && asOf < today && weekday(today);
+  const late = todayPending && taipeiHour() >= 18;
+  const next = todayPending ? "今天" : asOf ? prettyW(addWeekdays(asOf, 1)) : "今天";
+  return (
+    <div class="date-hint" style={{ lineHeight: 1.6 }} data-testid="update-stamp">
+      🕒 {asOf ? <>資料日 <b>{prettyW(asOf)}</b> 收盤</> : "還沒有收盤資料"}
+      {updatedAt ? <>・更新於 <b class="num">{stamp(updatedAt)}</b></> : null}
+      {fetchedAt ? <span class="muted">（手機下載 {stamp(fetchedAt)}）</span> : null}
+      <br />
+      {late ? <span class="warn">今天的收盤更新比平常晚（通常 17:00～17:30），可以稍後按 ↻ 或「重新下載」</span>
+        : <>下次更新：約 <b>{next} 17:00～17:30</b>（遇國定假日順延）</>}
+      {lagging?.length ? <><br /><span class="muted">還沒更新到最新資料日：{lagging.join("、")}</span></> : null}
+    </div>
+  );
+}
+
 /** 總評比：Claude 虛擬操作（第一組）和三個規則自動計算的觀察組合放在一起看，也和 0050 比 */
 function CompareView() {
   const ruleG = useStore((s) => s.rule);
@@ -770,6 +792,7 @@ function CompareView() {
     <div data-testid="compare-view">
       <div class="card stack" data-testid="compare-summary">
         <b>虛擬 ETF 總評比</b>
+        <UpdateStamp asOf={asOf} updatedAt={Math.max(0, ...groups.map((g) => g.v?.updatedAt ?? 0)) || undefined} fetchedAt={Math.max(0, ...[virtual, watch, wide, regime, leadG, aiG, ruleG].map((x) => x?.fetchedAt ?? 0)) || undefined} lagging={groups.filter((g) => g.v?.asOf && asOf && g.v.asOf < asOf).map((g) => `${g.short}（${prettyW(g.v!.asOf)}）`)} />
         <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
           七組各用虛擬 50 萬，每組也和「同樣的錢買 0050」比。{asOf ? <>資料日 {prettyW(asOf)} 收盤。</> : null}
           {lead && readyAll.length > 1 ? <> 目前比 0050 領先最多的是 <b>{lead.label}</b>（{fmtPct(lead.all!.diff, 2)}）。</> : null}
@@ -954,6 +977,7 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
           <b>{isRule ? "實單規則觀察組合（我的實單的選股規則）" : isAi ? "AI 供應鏈觀察組合（Claude 設計，不放 0050）" : isLead ? "權值強化觀察組合（Claude 設計，不放 0050）" : isRegime ? "攻守輪動觀察組合（Claude 自訂規則）" : isWide ? "全個股觀察組合（不放 0050、不限檔數）" : isWatch ? "N5 觀察組合（0050 五成＋方案 A 五成）" : "Claude 虛擬自組 ETF"}</b>
           <span class="muted" style={{ fontSize: "12px" }}>虛擬資金 {fmtMoney(v.budget)}・{pretty(v.start)} 開始</span>
         </div>
+        <UpdateStamp asOf={v.asOf || undefined} updatedAt={v.updatedAt} fetchedAt={vt?.fetchedAt} />
         <div class="grid2">
           <div class="metric"><div class="k">淨值（現金＋股票）</div><div class="v num">{fmtMoney(val.nav)}</div><div class={`d num ${cls(val.ret)}`}>報酬 {fmtPct(val.ret, 2)}<TotalPnl now={val.nav} budget={v.budget} /></div></div>
           <div class="metric"><div class="k">同樣的錢買 0050</div><div class="v num">{fmtMoney(val.bench)}</div><div class={`d num ${cls(val.benchRet)}`}>報酬 {fmtPct(val.benchRet, 2)}<TotalPnl now={val.bench} budget={v.budget} /></div></div>

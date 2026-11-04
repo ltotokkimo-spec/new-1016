@@ -416,17 +416,7 @@ export function StockDetail({ s, onClose, nav }: { s: Scored; onClose: () => voi
 
   return (
     <>
-    <Sheet title={`${s.name} ${s.code}`} onClose={onClose} actions={nav && (
-      <div class="row" style={{ gap: "4px", alignItems: "center", flex: "none" }} data-testid="detail-nav">
-        <button class="iconbtn" aria-label={`上一檔：${nav.prevName}`} title={`上一檔：${nav.prevName}`} onClick={nav.prev} data-testid="detail-prev-stock">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 15l-6-6-6 6" /></svg>
-        </button>
-        <span class="muted num" style={{ fontSize: "11px", minWidth: "34px", textAlign: "center" }} data-testid="detail-pos">{nav.pos}/{nav.total}</span>
-        <button class="iconbtn" aria-label={`下一檔：${nav.nextName}`} title={`下一檔：${nav.nextName}`} onClick={nav.next} data-testid="detail-next">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6" /></svg>
-        </button>
-      </div>
-    )}>
+    <Sheet title={`${s.name} ${s.code}`} onClose={onClose} titleNav={nav && { ...nav, name: s.name, sub: s.code }}>
       <div class="hero">
         <div>
           <div class="price num" data-testid="detail-price"><LimitPx s={s.market !== "US" ? lq?.limit ?? limitFromChg(price, dayChg ?? s.chg1d, isEtf(s.code)) : undefined}>{fmtPrice(price, s.market)}</LimitPx></div>

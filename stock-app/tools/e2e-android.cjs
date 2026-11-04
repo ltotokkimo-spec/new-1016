@@ -268,6 +268,9 @@ function check(ok, name, detail = "") {
   const code1 = /(\S+)$/.exec(title1 || "")?.[1] || "";
   log("下一檔", JSON.stringify({ title0, title1, nextName }));
   check(hasNext && title1 !== title0 && !!code1 && nextName.includes(code1), "個股頁右上箭頭切到清單的下一檔", JSON.stringify({ title0, title1, nextName }));
+  // 版面：箭頭在股票名稱左右兩側（◀ 名稱／代號 ▶），名稱與代號分兩行
+  const lay = await page.evaluate(() => { const r = (q) => document.querySelector(q)?.getBoundingClientRect(); const p = r('[data-testid="detail-prev-stock"]'), h = r(".sheet h2"), n = r('[data-testid="detail-next"]'); return p && h && n ? { left: p.right <= h.left + 1, right: n.left >= h.right - 1, sameRow: Math.abs((p.top + p.bottom) / 2 - (n.top + n.bottom) / 2) < 4, twoLines: h.height > 30 } : null; });
+  check(!!lay && lay.left && lay.right && lay.sameRow && lay.twoLines, "個股頁股票名稱左右各一個箭頭（名稱、代號分兩行）", JSON.stringify(lay));
   // 上一檔：回到原本那一檔；中間顯示「第幾檔／共幾檔」
   const pos1 = await page.$eval('[data-testid="detail-pos"]', (e) => e.textContent).catch(() => "");
   if (await page.$('[data-testid="detail-prev-stock"]')) await page.click('[data-testid="detail-prev-stock"]');

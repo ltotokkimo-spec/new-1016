@@ -56,7 +56,9 @@ export function Progress({ p }: { p?: { done: number; total: number; label: stri
   );
 }
 
-export function Sheet({ title, onClose, children, actions }: { title: string; onClose: () => void; children: ComponentChildren; actions?: ComponentChildren }) {
+/** titleNav：個股頁「◀ 名稱／代號 ▶」切換上一檔、下一檔（名稱與代號分兩行置中） */
+export interface TitleNav { name: string; sub: string; prev: () => void; next: () => void; prevName: string; nextName: string; pos: number; total: number }
+export function Sheet({ title, onClose, children, actions, titleNav }: { title: string; onClose: () => void; children: ComponentChildren; actions?: ComponentChildren; titleNav?: TitleNav }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
@@ -68,7 +70,21 @@ export function Sheet({ title, onClose, children, actions }: { title: string; on
         <button class="iconbtn" aria-label="返回" onClick={onClose}>
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6" /></svg>
         </button>
-        <h2>{title}</h2>
+        {titleNav ? (
+          <div class="row" style={{ flex: 1, minWidth: 0, alignItems: "center", justifyContent: "center", gap: "2px" }} data-testid="detail-nav">
+            <button class="iconbtn" style={{ border: 0, background: "none", flex: "none" }} aria-label={`上一檔：${titleNav.prevName}`} title={`上一檔：${titleNav.prevName}`} onClick={titleNav.prev} data-testid="detail-prev-stock">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M15 5l-8 7 8 7z" /></svg>
+            </button>
+            <div style={{ minWidth: 0, textAlign: "center", flex: "0 1 auto" }}>
+              <h2 style={{ flex: "none", lineHeight: 1.25 }}>{titleNav.name} <span class="num" style={{ display: "block", fontSize: "15px", fontWeight: 600 }}>{titleNav.sub}</span></h2>
+              <div class="muted num" style={{ fontSize: "10.5px", lineHeight: 1.2 }} data-testid="detail-pos">{titleNav.pos}/{titleNav.total}</div>
+            </div>
+            <button class="iconbtn" style={{ border: 0, background: "none", flex: "none" }} aria-label={`下一檔：${titleNav.nextName}`} title={`下一檔：${titleNav.nextName}`} onClick={titleNav.next} data-testid="detail-next">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M9 5l8 7-8 7z" /></svg>
+            </button>
+          </div>
+        ) : <h2>{title}</h2>}
+        {titleNav && !actions && <span style={{ width: "38px", flex: "none" }} aria-hidden="true" />}{/* 和左邊返回鍵同寬，讓名稱置中 */}
         {actions}
       </header>
       <div class="body">{children}</div>

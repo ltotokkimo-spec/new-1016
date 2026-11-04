@@ -1,5 +1,5 @@
 // 自組 ETF／虛擬 ETF「報酬走勢」的說明用數字：累積報酬、落後或贏過 0050 多少、最大回檔、每天的報酬與贏過 0050 的天數。
-import { twrSeries, type NavPoint } from "./aiEtf";
+import { flowsFor, twrSeries, type EtfFlow, type NavPoint } from "./aiEtf";
 
 export interface NavRow {
   date: string; nav: number; bench: number;
@@ -22,10 +22,10 @@ const maxDrawdown = (series: number[]) => {
 };
 
 /** flows：中途存入／提領（選用）。有的話報酬率用時間加權，存提款那天不會跳動；損益金額＝淨值－實際投入的本金 */
-export function navStats(points: NavPoint[], budget: number, flows: { date: string; amount: number }[] = []): NavStats | undefined {
+export function navStats(points: NavPoint[], budget: number, flows: EtfFlow[] = []): NavStats | undefined {
   if (!points.length || !(budget > 0)) return undefined;
-  const mine = twrSeries(points.map((p) => ({ date: p.date, v: p.nav })), budget, flows);
-  const bench = twrSeries(points.map((p) => ({ date: p.date, v: p.bench })), budget, flows);
+  const mine = twrSeries(points.map((p) => ({ date: p.date, v: p.nav })), budget, flowsFor(flows, "nav"));
+  const bench = twrSeries(points.map((p) => ({ date: p.date, v: p.bench })), budget, flowsFor(flows, "bench"));
   const rows: NavRow[] = points.map((p, i) => ({
     date: p.date, nav: p.nav, bench: p.bench,
     mineCum: mine[i].cum, benchCum: bench[i].cum,

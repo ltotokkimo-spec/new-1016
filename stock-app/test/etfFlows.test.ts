@@ -43,7 +43,7 @@ describe("我的實單：中途存入／提領資金", () => {
       { date: "20261103", nav: 176_000, bench: 152_000 }, // +10%
       { date: "20261104", nav: 126_000, bench: 102_000 }, // 提領 5 萬、當天持平
     ];
-    const flows = [{ date: "20261102", amount: 50_000 }, { date: "20261104", amount: -50_000 }];
+    const flows = [{ id: "a", date: "20261102", amount: 50_000 }, { id: "b", date: "20261104", amount: -50_000 }];
     const st = navStats(pts, 100_000, flows)!;
     expect(st.rows[1].mineDay).toBeCloseTo(0, 6);
     expect(st.rows[3].mineDay).toBeCloseTo(0, 6);
@@ -52,5 +52,23 @@ describe("我的實單：中途存入／提領資金", () => {
     expect(st.maxDd).toBeCloseTo(0, 6);
     // 沒有 flows 時和以前一樣
     expect(navStats(pts.slice(0, 1), 100_000)!.mine).toBeCloseTo(0.1, 10);
+  });
+
+  it("存入前沒有任何淨值紀錄、當天已經有賺賠：用存入前一刻的淨值切段，報酬率不被稀釋（模擬器實測抓到的問題）", () => {
+    // 起始 10 萬，存入前淨值 99,517（-0.48%），存入 5 萬後淨值 149,517
+    const etf: AiEtf = { ...emptyEtf(100_000), trades: [buy("20261103", "2330", 10, 2300)], nav: [] };
+    const px = (c: string) => (c === "2330" ? 2252 : 100);
+    const before = valuate(etf, px);
+    const flows = [{ id: "a", date: "20261103", amount: 50_000, navBefore: before.nav, benchBefore: before.bench }];
+    const after = valuate({ ...etf, flows }, px);
+    expect(after.ret).toBeCloseTo(before.ret, 6);
+    expect(after.benchRet).toBeCloseTo(before.benchRet, 6);
+    // 存入後記了當天的淨值，之後再漲：報酬照常累積
+    const withPoint = valuate({ ...etf, flows, nav: [{ date: "20261103", nav: Math.round(after.nav), bench: Math.round(after.bench) }] }, (c) => (c === "2330" ? 2300 : 100));
+    const expected = (before.nav / 100_000) * (withPoint.nav / (before.nav + 50_000)) - 1;
+    expect(withPoint.ret).toBeCloseTo(expected, 4);
+    // 走勢圖那天的報酬也一樣
+    const st = navStats([{ date: "20261103", nav: Math.round(after.nav), bench: Math.round(after.bench) }], 100_000, flows)!;
+    expect(st.mine).toBeCloseTo(before.ret, 4);
   });
 });

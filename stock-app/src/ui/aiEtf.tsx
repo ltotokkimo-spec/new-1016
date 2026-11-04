@@ -50,7 +50,7 @@ const TRADE_HINT = "賣出的損益是這筆已實現的賺賠（已扣手續費
 
 /** 報酬走勢：兩條線（我的組合 vs 0050，報酬率 %）＋重點數字＋逐日表，看得出「到底賺賠多少、贏不贏 0050」 */
 /** 我的實單：中途存入／提領資金（記在目前的資料日；提領不能超過現金，要先賣股票） */
-function FlowEditor({ cash, flows }: { cash: number; flows: EtfFlow[] }) {
+function FlowEditor({ cash, flows, nav, bench }: { cash: number; flows: EtfFlow[]; nav: number; bench: number }) {
   const [open, setOpen] = useState(false);
   const [side, setSide] = useState<"in" | "out">("in");
   const [text, setText] = useState("");
@@ -59,7 +59,7 @@ function FlowEditor({ cash, flows }: { cash: number; flows: EtfFlow[] }) {
   const submit = async () => {
     if (!(amt >= 1)) { setErr("請輸入金額"); return; }
     if (side === "out" && amt > Math.floor(cash)) { setErr(`現金只有 ${fmtMoney(cash)}，提領不能超過現金；要領更多請先賣出股票`); return; }
-    await addEtfFlow(side === "in" ? amt : -amt);
+    await addEtfFlow(side === "in" ? amt : -amt, { nav, bench });
     setText(""); setErr(""); setOpen(false);
   };
   return (
@@ -1242,7 +1242,7 @@ function RealEtfScreen() {
             <button class="btn secondary" style={{ alignSelf: "flex-end" }} onClick={() => { const n = Number(budgetText.replace(/,/g, "")); if (n >= 1000) { setEtfBudget(n); setEditBudget(false); } }}>設定</button>
           </div>
         )}
-        {etf.trades.length > 0 && <FlowEditor cash={v.cash} flows={etf.flows ?? []} />}
+        {etf.trades.length > 0 && <FlowEditor cash={v.cash} flows={etf.flows ?? []} nav={v.nav} bench={v.bench} />}
         <div class="muted" style={{ fontSize: "11px", lineHeight: 1.6 }}>已估算手續費 0.1425% 與賣出證交稅 0.3%（未計券商折扣）。對照組：每次買賣時，用同樣金額買賣 0050。{etf.flows?.length ? "有中途存入／提領：總損益＝淨值－投入本金；報酬率用時間加權（基金常用的算法），存提款的錢不算賺賠，報酬率只反映操作好壞；0050 對照組同一天存提同樣的錢。" : ""}</div>
       </div>
 

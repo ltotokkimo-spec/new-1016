@@ -928,11 +928,13 @@ export async function setEtfBudget(budget: number) {
 }
 
 /** 我的實單中途存入（amount > 0）或提領（amount < 0）資金；記在目前的資料日，0050 對照組同時加減同樣的錢 */
-export async function addEtfFlow(amount: number) {
+export async function addEtfFlow(amount: number, before?: { nav: number; bench: number }) {
   const etf = state.aiEtf;
   if (!Number.isFinite(amount) || !amount) return;
   const date = state.tw.asOf ?? taipeiToday();
-  const flow = { id: `f${Date.now()}`, date, amount: Math.round(amount) };
+  // before：畫面上存提款前一刻的淨值（用即時價），沒給就用目前的價格算
+  const b = before ?? valuate(etf, etfPrice);
+  const flow = { id: `f${Date.now()}`, date, amount: Math.round(amount), navBefore: Math.round(b.nav), benchBefore: Math.round(b.bench) };
   // 同一天已經記過的淨值是存提款前的，先加上這筆（價格到齊後 snapshot 會用新的覆蓋），免得那天看起來像大漲大跌
   const nav = etf.nav.map((x) => (x.date >= date ? { ...x, nav: x.nav + flow.amount, bench: x.bench + flow.amount } : x));
   await saveAiEtf({ ...etf, flows: [...(etf.flows ?? []), flow], nav });

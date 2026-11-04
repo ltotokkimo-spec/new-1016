@@ -17,7 +17,10 @@ export interface NavPoint { date: string; nav: number; bench: number }
 /** 配息入帳（選用：沒有這個欄位的組合，算出來的數字和以前完全一樣）。date 是除息日；amount = 除息日前一天收盤持有的股數 × 每股配息 */
 export interface EtfDividend { id: string; date: string; code: string; name: string; perShare: number; shares: number; amount: number }
 /** 中途存入（amount > 0）或提領（amount < 0）的資金；date 和淨值紀錄用同一個資料日，報酬率用時間加權，存提款不影響報酬率 */
-export interface EtfFlow { id: string; date: string; amount: number }
+export interface EtfFlow {
+  id: string; date: string; amount: number;
+  navBefore?: number; benchBefore?: number; // 存提款前一刻的淨值（自組 ETF、0050 對照）：把當天切成前後兩段，前一段的賺賠不會被存入的錢稀釋
+}
 export interface AiEtf {
   budget: number; // 起始資金
   flows?: EtfFlow[]; // 中途存入／提領資金（選用：沒有就和以前完全一樣）
@@ -110,19 +113,27 @@ export interface Valuation {
   invested: number; // 實際投入的本金＝起始資金＋存入－提領
 }
 
+/** 時間加權報酬用的存提款（自組 ETF 用 navBefore、0050 對照用 benchBefore） */
+export const flowsFor = (flows: EtfFlow[] = [], which: "nav" | "bench") =>
+  flows.map((f) => ({ date: f.date, amount: f.amount, before: which === "nav" ? f.navBefore : f.benchBefore }));
+
 /**
  * 時間加權報酬：把每次存提款前後切成一段一段，各段的漲跌連乘。存入、提領的錢不算賺賠，報酬率只反映操作好壞。
  * 存提款算在「該日（含）之後第一筆淨值紀錄」那天：那天的報酬＝當天淨值 ÷（前一筆淨值＋存提款）。
  * 沒有存提款時，連乘會剛好等於 淨值 ÷ 起始資金，和以前的算法完全一樣。
  */
-export function twrSeries(points: { date: string; v: number }[], budget: number, flows: { date: string; amount: number }[] = []): { date: string; cum: number; day: number }[] {
+export function twrSeries(points: { date: string; v: number }[], budget: number, flows: { date: string; amount: number; before?: number }[] = []): { date: string; cum: number; day: number }[] {
   const fl = [...flows].sort((a, b) => a.date.localeCompare(b.date));
   let k = 0, prev = budget, growth = 1;
   return points.map((p) => {
-    let f = 0;
-    while (k < fl.length && fl[k].date <= p.date) f += fl[k++].amount;
-    const base = prev + f;
-    const day = base > 0 ? p.v / base - 1 : 0;
+    // 有記下存提款前一刻的淨值：前一段＝前一刻淨值 ÷ 上一筆，後一段＝今天淨值 ÷（前一刻淨值＋存提款）
+    let base = prev, factor = 1;
+    while (k < fl.length && fl[k].date <= p.date) {
+      const f = fl[k++];
+      if (f.before !== undefined && f.before > 0 && base > 0) { factor *= f.before / base; base = f.before + f.amount; }
+      else base += f.amount;
+    }
+    const day = base > 0 ? (factor * p.v) / base - 1 : 0;
     growth *= 1 + day;
     prev = p.v;
     return { date: p.date, cum: growth - 1, day };
@@ -184,8 +195,8 @@ export function valuate(etf: AiEtf, price: (code: string) => number | undefined)
   if (!etf.flows?.length) return { cash, marketValue, nav, ret: nav / etf.budget - 1, bench, benchRet: bench / etf.budget - 1, missing, invested };
   // 有存提款：用時間加權報酬（過去每天的淨值紀錄，加上現在這一刻）
   const now = "99999999";
-  const ret = twrSeries([...etf.nav.map((p) => ({ date: p.date, v: p.nav })), { date: now, v: nav }], etf.budget, etf.flows).at(-1)!.cum;
-  const benchRet = twrSeries([...etf.nav.map((p) => ({ date: p.date, v: p.bench })), { date: now, v: bench }], etf.budget, etf.flows).at(-1)!.cum;
+  const ret = twrSeries([...etf.nav.map((p) => ({ date: p.date, v: p.nav })), { date: now, v: nav }], etf.budget, flowsFor(etf.flows, "nav")).at(-1)!.cum;
+  const benchRet = twrSeries([...etf.nav.map((p) => ({ date: p.date, v: p.bench })), { date: now, v: bench }], etf.budget, flowsFor(etf.flows, "bench")).at(-1)!.cum;
   return { cash, marketValue, nav, ret, bench, benchRet, missing, invested };
 }
 

@@ -1,5 +1,6 @@
 // 「自組ETF」分頁：請 Claude 建議要買什麼、買幾股，照著實際下單後填入成交，追蹤淨值並和 0050 比較。
 import { useEffect, useMemo, useState } from "preact/hooks";
+import { Fragment } from "preact";
 import {
   LIVE_MS, addEtfFlow, removeEtfFlow, addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshTurn, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
@@ -1107,8 +1108,9 @@ function OrderList({ rows, cash, asOf, planAsOf, hasPlan, canAsk, busy, onAsk }:
   const buy = rows.filter((r) => r.side === "buy").reduce((a, r) => a + (amt(r) || 0), 0);
   const sell = rows.filter((r) => r.side === "sell").reduce((a, r) => a + (amt(r) || 0), 0);
   const day = asOf ? prettyW(orderDay(asOf)) : "";
-  const th = { textAlign: "right" as const, fontWeight: 500, padding: "4px 2px", whiteSpace: "nowrap" as const };
-  const td = { textAlign: "right" as const, padding: "6px 2px", whiteSpace: "nowrap" as const };
+  // 數字欄靠右、彼此留 12px 間距；理由放到下一行跨滿整列，讓股票名那欄不會把數字擠在一起（不需要左右捲動）
+  const th = { textAlign: "right" as const, fontWeight: 500, padding: "4px 0 4px 12px", whiteSpace: "nowrap" as const };
+  const td = { textAlign: "right" as const, padding: "8px 0 2px 12px", whiteSpace: "nowrap" as const };
   return (
     <div class="card stack" data-testid="order-list">
       <div class="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
@@ -1121,20 +1123,22 @@ function OrderList({ rows, cash, asOf, planAsOf, hasPlan, canAsk, busy, onAsk }:
         <>
           <table style={{ width: "100%", fontSize: "13.5px", borderCollapse: "collapse" }}>
             <thead><tr class="muted" style={{ fontSize: "11.5px" }}>
-              <th style={{ ...th, textAlign: "left" }}>動作／股票</th><th style={th}>股數</th><th style={th}>參考價</th><th style={th}>金額</th><th style={th}>停損</th>
+              <th style={{ ...th, textAlign: "left", padding: "4px 0" }}>動作／股票</th><th style={th}>股數</th><th style={th}>參考價</th><th style={th}>金額</th><th style={th}>停損</th>
             </tr></thead>
             <tbody>{rows.map((r) => (
-              <tr style={{ borderTop: "1px solid var(--line)", verticalAlign: "top" }} data-testid="order-row">
-                <td style={{ padding: "6px 2px" }}>
-                  <span class={`pill ${r.side === "buy" ? "buy" : "exit"}`} style={{ minWidth: "auto", padding: "2px 6px", marginRight: "6px" }}>{r.side === "buy" ? "買" : "賣"}</span>
-                  <b>{r.name}</b> <span class="muted num" style={{ fontSize: "11.5px" }}>{r.code}</span>
-                  <div class="muted" style={{ fontSize: "11px", lineHeight: 1.4, marginTop: "2px", whiteSpace: "normal" }}>{r.src}：{r.reason}</div>
-                </td>
-                <td class="num" style={td}><b>{r.shares.toLocaleString()}</b></td>
-                <td class="num" style={td}>{r.price ? fmtPrice(r.price) : "—"}</td>
-                <td class="num" style={td}>{Number.isFinite(amt(r)) ? fmtMoney(amt(r)) : "—"}</td>
-                <td class="num" style={td}>{r.stop ? fmtPrice(r.stop) : r.side === "buy" ? "—" : ""}</td>
-              </tr>
+              <Fragment key={`${r.side}-${r.code}`}>
+                <tr style={{ borderTop: "1px solid var(--line)", verticalAlign: "baseline" }} data-testid="order-row">
+                  <td style={{ padding: "8px 0 2px" }}>
+                    <span class={`pill ${r.side === "buy" ? "buy" : "exit"}`} style={{ minWidth: "auto", padding: "2px 6px", marginRight: "6px" }}>{r.side === "buy" ? "買" : "賣"}</span>
+                    <b>{r.name}</b> <span class="muted num" style={{ fontSize: "11.5px" }}>{r.code}</span>
+                  </td>
+                  <td class="num" style={td}><b>{r.shares.toLocaleString()}</b></td>
+                  <td class="num" style={td}>{r.price ? fmtPrice(r.price) : "—"}</td>
+                  <td class="num" style={td}>{Number.isFinite(amt(r)) ? fmtMoney(amt(r)) : "—"}</td>
+                  <td class="num" style={td}>{r.stop ? fmtPrice(r.stop) : r.side === "buy" ? "—" : ""}</td>
+                </tr>
+                <tr data-testid="order-reason"><td colSpan={5} class="muted" style={{ fontSize: "11.5px", lineHeight: 1.45, padding: "0 0 8px" }}>{r.src}：{r.reason}</td></tr>
+              </Fragment>
             ))}</tbody>
           </table>
           <div class="row" style={{ justifyContent: "space-between", fontSize: "13px", flexWrap: "wrap", gap: "4px 12px" }} data-testid="order-total">

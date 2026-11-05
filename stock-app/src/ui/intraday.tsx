@@ -70,7 +70,7 @@ export function IntradayChart({ code, market }: { code: string; market: string }
   const md = d.date.length === 8 ? `${d.date.slice(4, 6)}/${d.date.slice(6)} ` : "";
   const lag = d.lastYahoo !== undefined && last.m - d.lastYahoo > 1;
   return (
-    <div data-testid="intraday-chart" data-date={d.date} data-yahoo={yd ? yd.points.length : 0} data-err={err}>
+    <div data-testid="intraday-chart" data-date={d.date} data-yahoo={yd ? yd.points.length : 0} data-src={(yd as any)?.src ?? ""} data-err={err}>
       <div class="row num" style={{ justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: "2px 10px" }}>
         <span data-testid="intra-head">
           <b class={cc} style={{ fontSize: "20px" }}>{fmtPrice(cur.price)}</b>{" "}

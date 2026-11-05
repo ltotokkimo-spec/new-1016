@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { avgLine, intradayUrl, mergeLive, minuteOf, parseIntraday } from "../src/data/intraday";
+import { avgLine, fetchIntraday, intradayUrl, intradayUrlTw, mergeLive, minuteOf, parseIntraday } from "../src/data/intraday";
 
 // 台北 09:00 = UTC 01:00；2026-11-04
 const t0 = Date.UTC(2026, 10, 4, 1, 0) / 1000;
@@ -38,6 +38,24 @@ describe("即時走勢（分時）", () => {
   it("開盤前（07:50）證交所回今天日期＋昨收：不覆蓋上一個交易日的走勢", () => {
     const d = parseIntraday(yahoo([101, 102], [1000, 1000]))!;
     expect(mergeLive(d, { date: "20261105", time: "07:50:00", price: 102, prevClose: 102 })).toBe(d);
+  });
+  it("也看得懂奇摩股市的格式（陣列包著 chart）", () => {
+    const y = yahoo([101, 102], [1000, 1000]).chart.result[0];
+    const d = parseIntraday([{ chart: { meta: { previousClose: 100 }, timestamp: y.timestamp, indicators: y.indicators } }])!;
+    expect(d.prevClose).toBe(100);
+    expect(d.points.length).toBe(2);
+  });
+  it("奇摩股市與國際版都抓，取分鐘比較新的；一個失敗用另一個", async () => {
+    const tw = yahoo([101, 102, 103], [1, 1, 1]), intl = yahoo([101], [1]);
+    const f = async (u: string) => (u.includes("tw.stock.yahoo.com") ? tw : intl);
+    expect((await fetchIntraday(f, "2330", "TWSE"))!.src).toBe("tw");
+    const g = async (u: string) => { if (u.includes("tw.stock.yahoo.com")) throw new Error("x"); return intl; };
+    expect((await fetchIntraday(g, "2330", "TWSE"))!.src).toBe("intl");
+    expect(intradayUrlTw("6182", "TPEX")).toContain(encodeURIComponent('["6182.TWO"]'));
+  });
+  it("累計成交量換成每分鐘的量", () => {
+    const d = parseIntraday(yahoo(Array(10).fill(100), [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]))!;
+    expect(d.points.map((p) => p.vol)).toEqual([10, 10, 10, 10, 10, 10, 10, 10, 10, 10]);
   });
   it("均價線是成交量加權", () => {
     expect(avgLine([{ m: 0, price: 100, vol: 1 }, { m: 1, price: 110, vol: 3 }, { m: 2, price: 120, vol: 0 }])).toEqual([100, 107.5, 107.5]);

@@ -13,12 +13,17 @@ export const intradayUrl = (code: string, market: string) =>
 const taipei = (t: number) => new Date(t * 1000 + 8 * 3600e3);
 const ymd = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, "");
 
-/** Yahoo chart API（1 分鐘）→ 當日分時；沒有資料回 null */
+/** Yahoo 奇摩股市網頁用的即時分時（不延遲）；國際版 query1 的台股分鐘線盤中常延遲約 20 分鐘 */
+export const intradayUrlTw = (code: string, market: string) =>
+  `https://tw.stock.yahoo.com/_td-stock/api/resource/FinanceChartService.ApacheChartVOL;period=1d;symbols=${encodeURIComponent(JSON.stringify([`${code}.${market === "TPEX" ? "TWO" : "TW"}`]))}?intl=tw&lang=zh-Hant-TW&region=TW`;
+
+/** Yahoo chart API（1 分鐘）→ 當日分時；沒有資料回 null。也接受奇摩股市的格式（陣列包著 { chart: { meta, timestamp, indicators } }） */
 export function parseIntraday(json: any): Intraday | null {
-  const r = json?.chart?.result?.[0];
+  const j = Array.isArray(json) ? json[0] : json;
+  const r = j?.chart?.result?.[0] ?? (j?.chart?.timestamp ? j.chart : j?.timestamp ? j : undefined);
   const ts: number[] | undefined = r?.timestamp;
   const q = r?.indicators?.quote?.[0];
-  const prevClose = Number(r?.meta?.chartPreviousClose ?? r?.meta?.previousClose);
+  const prevClose = Number(r?.meta?.chartPreviousClose ?? r?.meta?.previousClose ?? r?.meta?.regularMarketPreviousClose);
   if (!ts?.length || !q || !(prevClose > 0)) return null;
   const byMin = new Map<number, IntraPoint>();
   let date = "";
@@ -35,11 +40,25 @@ export function parseIntraday(json: any): Intraday | null {
   });
   const points = [...byMin.values()].sort((a, b) => a.m - b.m);
   if (!points.length) return null;
+  // 有的來源給的是「累計成交量」：整段都沒有變少就換成每分鐘的量
+  if (points.length >= 10 && points.every((p, i) => !i || p.vol >= points[i - 1].vol) && points.at(-1)!.vol > points[0].vol * 5) {
+    for (let i = points.length - 1; i > 0; i--) points[i] = { ...points[i], vol: points[i].vol - points[i - 1].vol };
+  }
   return { date, prevClose, points, lastYahoo: points[points.length - 1].m };
 }
 
-export async function fetchIntraday(fetcher: Fetcher, code: string, market: string): Promise<Intraday | null> {
-  return parseIntraday(await fetcher(intradayUrl(code, market)));
+/** 兩個來源都抓，取比較新的（日期較新、或同一天分鐘較晚）；src 記下用了哪個（除錯用） */
+export async function fetchIntraday(fetcher: Fetcher, code: string, market: string): Promise<(Intraday & { src?: string }) | null> {
+  const [tw, intl] = await Promise.allSettled([fetcher(intradayUrlTw(code, market)).then(parseIntraday), fetcher(intradayUrl(code, market)).then(parseIntraday)]);
+  const a = tw.status === "fulfilled" ? tw.value : null, b = intl.status === "fulfilled" ? intl.value : null;
+  if (!a && !b) {
+    const e = [tw, intl].find((x) => x.status === "rejected") as PromiseRejectedResult | undefined;
+    if (e) throw e.reason;
+    return null;
+  }
+  const newer = (x: Intraday, y: Intraday) => x.date !== y.date ? x.date > y.date : (x.lastYahoo ?? -1) >= (y.lastYahoo ?? -1);
+  if (a && (!b || newer(a, b))) return { ...a, src: "tw" };
+  return { ...b!, src: "intl" };
 }
 
 /** 即時價的分鐘（09:00 起），收盤後的時間算 270 */

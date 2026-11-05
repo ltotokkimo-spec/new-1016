@@ -45,3 +45,30 @@ describe("虛擬 ETF 總評比", () => {
     expect(r.holdRet).toBeUndefined();
   });
 });
+
+describe("我的實單加入總評比", () => {
+  it("從第一筆成交起算、存入資金不算報酬；不影響其他組的同期起點", async () => {
+    const { realAsGroup, compareGroups } = await import("../src/engine/compare");
+    const etf: any = {
+      budget: 100000,
+      trades: [{ id: "a", date: "20261103", code: "2330", name: "台積電", side: "buy", shares: 10, price: 2000 }],
+      flows: [{ id: "f", date: "20261105", amount: 50000, navBefore: 110000, benchBefore: 102000 }],
+      nav: [
+        { date: "20261101", nav: 100000, bench: 100000 }, // 成交前：不算
+        { date: "20261103", nav: 100000, bench: 100000 },
+        { date: "20261104", nav: 110000, bench: 102000 },
+        { date: "20261105", nav: 160000, bench: 152000 }, // 存入 5 萬當天沒有漲跌
+      ],
+    };
+    const g = realAsGroup(etf)!;
+    expect(g.start).toBe("20261103");
+    expect(g.nav.map((p) => p.date)).toEqual(["20261103", "20261104", "20261105"]);
+    expect(g.nav.at(-1)!.nav).toBe(110000); // +10%，存入的 5 萬不算報酬
+    expect(g.nav.at(-1)!.bench).toBe(102000);
+    expect(realAsGroup({ ...etf, trades: [] })).toBeUndefined();
+    const other: any = { version: 1, start: "20261023", asOf: "20261105", updatedAt: 0, budget: 500000, trades: [], pending: [], notes: [], last: {}, nav: [{ date: "20261023", nav: 500000, bench: 500000 }, { date: "20261105", nav: 510000, bench: 505000 }] };
+    const c = compareGroups([{ key: "x", label: "X", v: other }, { key: "real", label: "我的實單", v: g, noCommon: true }]);
+    expect(c.commonFrom).toBe("20261023");
+    expect(c.rows[1].all!.ret).toBeCloseTo(0.1);
+  });
+});

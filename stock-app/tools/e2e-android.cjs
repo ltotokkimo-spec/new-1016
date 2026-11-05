@@ -758,6 +758,14 @@ function check(ok, name, detail = "") {
   check(ol.top < ol.summaryTop && (tsmcVerdict === "出場" || tsmcVerdict === "減碼"
     ? ol.rows.some((r) => /^賣\s?台積電 2330/.test(r) && /\b\d+\b/.test(r) && /[\d,.]+/.test(r)) && /賣出 [\d,.]+/.test(ol.total) && /下單後現金約 [\d,.]+/.test(ol.total)
     : ol.rows.length > 0 || /沒有要賣的持股/.test(ol.empty)), "我的實單最上方顯示今日下單清單（買賣、股數、參考價、金額、合計）", JSON.stringify({ tsmcVerdict, ...ol }));
+  // 我的實單加入總評比：有成交後，總評比最後多一列「我的實單」（從第一筆成交起算），看完切回我的實單
+  await page.click('[data-testid="mode-compare"]');
+  await page.waitForSelector('[data-testid="compare-all"]', { timeout: 30000 }).catch(() => {});
+  const realRow = await page.evaluate(() => ({ rows: [...document.querySelectorAll('[data-testid="compare-all"] tbody tr')].map((tr) => tr.innerText.replace(/\s+/g, " ")), note: document.querySelector('[data-testid="compare-summary"]')?.innerText.replace(/\s+/g, " ") || "" }));
+  log("總評比我的實單", JSON.stringify(realRow).slice(0, 400));
+  check(realRow.rows.some((r) => /^我的實單/.test(r)) && /我的實單」是你實際的買賣，從第一筆成交/.test(realRow.note), "總評比加入「我的實單」（依實際第一筆成交日起算）", JSON.stringify(realRow.rows.filter((r) => /我的實單/.test(r))));
+  await page.click('[data-testid="mode-real"]');
+  await page.waitForSelector('[data-testid="etf-summary"]', { timeout: 30000 });
   // 中途存入／提領資金：存入 5 萬 → 投入本金 15 萬、現金多 5 萬、報酬率與總損益不變；刪掉這筆後恢復原狀（不影響後面的測試）
   const fsum = async () => page.evaluate(() => { const t = document.querySelector('[data-testid="etf-summary"]').innerText.replace(/\s+/g, " "); return { t: t.slice(0, 260), ret: (t.match(/報酬 ([+-]?[\d.]+%)/) || [])[1], pnl: (t.match(/總損益 ([+-]?[\d,]+)/) || [])[1], cash: (t.match(/現金 ([\d.]+) 萬/) || [])[1] }; });
   const fl0 = await fsum();

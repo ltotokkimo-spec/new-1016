@@ -12,7 +12,7 @@ import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan 
 import { livePolling, type LiveQuote } from "../data/twLive";
 import { cls, fmtMoney, fmtPct, fmtPrice, fmtSigned, LimitPx } from "./common";
 import { navStats } from "../engine/navStats";
-import { compareGroups, type GroupRow } from "../engine/compare";
+import { compareGroups, realAsGroup, type GroupRow } from "../engine/compare";
 import { AiProgressView, AiReportView, BalanceHint, copyText } from "./screens";
 
 /** 帶正負號的台幣金額：+1,234／-567／0 */
@@ -664,7 +664,7 @@ export function AiEtfScreen() {
 }
 
 
-const SERIES_COLORS = ["#e5484d", "#3b8bef", "#2fb457", "#f0a020", "#a46be0", "#14b8c4", "#d9468f", "#8a7a2e"];
+const SERIES_COLORS = ["#e5484d", "#3b8bef", "#2fb457", "#f0a020", "#a46be0", "#14b8c4", "#d9468f", "#8a7a2e", "#111111"];
 /** 總評比的走勢圖：全部組合（各自累積報酬）加一條 0050 對照，一張圖看每天誰領先 */
 function CompareChart({ series }: { series: { label: string; pts: { date: string; r: number }[]; own: { date: string; r: number }[]; hold: { date: string; r: number }[] }[] }) {
   const [mode, setMode] = useState<"own" | "hold">("own");
@@ -753,6 +753,8 @@ function UpdateStamp({ asOf, updatedAt, fetchedAt, lagging }: { asOf?: string; u
 /** 總評比：Claude 虛擬操作（第一組）和三個規則自動計算的觀察組合放在一起看，也和 0050 比 */
 function CompareView() {
   const ruleG = useStore((s) => s.rule), turnG = useStore((s) => s.turn);
+  const myEtf = useStore((s) => s.aiEtf);
+  const realG = useMemo(() => realAsGroup(myEtf), [myEtf]);
   const virtual = useStore((s) => s.virtual), watch = useStore((s) => s.watch), wide = useStore((s) => s.wide), regime = useStore((s) => s.regime), leadG = useStore((s) => s.lead), aiG = useStore((s) => s.ai), steady = useStore((s) => s.steady);
   const [busy, setBusy] = useState(false);
   const reload = async () => { setBusy(true); await Promise.all([refreshVirtual(), refreshWatch(), refreshWide(), refreshRegime(), refreshLead(), refreshAi(), refreshRule(), refreshTurn(), refreshSteady()]); setBusy(false); };
@@ -766,9 +768,10 @@ function CompareView() {
     { key: "ai", label: "AI 供應鏈（Claude 設計，不放 0050）", short: "AI 供應鏈", v: aiG?.data, bt: "AI2_cap" },
     { key: "rule", label: "實單規則（我的實單的選股規則）", short: "實單規則", v: ruleG?.data, bt: "U1_real" },
     { key: "turn", label: "剛轉強（跌 8% 停損、滿 20 天後在 20 日線上續抱）", short: "剛轉強", v: turnG?.data, bt: "T1_hybrid" },
-  ];
-  const cmp = compareGroups(groups.map((g) => ({ key: g.key, label: g.short, v: g.v })));
-  const asOf = [...cmp.rows].map((r) => r.asOf ?? "").sort().at(-1);
+    { key: "real", label: "我的實單（你實際的買賣，從第一筆成交起算）", short: "我的實單", v: realG, bt: undefined as string | undefined, real: true },
+  ].filter((g) => g.key !== "real" || g.v) as { key: string; label: string; short: string; v?: VirtualEtf; bt?: string; real?: boolean }[];
+  const cmp = compareGroups(groups.map((g) => ({ key: g.key, label: g.short, v: g.v, noCommon: g.real })));
+  const asOf = cmp.rows.filter((r) => r.key !== "real").map((r) => r.asOf ?? "").sort().at(-1);
   const bt = (key?: string) => steady?.data.strategies.find((x) => x.key === key);
   const th = { padding: "4px 6px", textAlign: "right" as const, fontWeight: 600, whiteSpace: "nowrap" as const };
   const td = { padding: "6px", textAlign: "right" as const, whiteSpace: "nowrap" as const };
@@ -794,9 +797,9 @@ function CompareView() {
     <div data-testid="compare-view">
       <div class="card stack" data-testid="compare-summary">
         <b>虛擬 ETF 總評比</b>
-        <UpdateStamp asOf={asOf} updatedAt={Math.max(0, ...groups.map((g) => g.v?.updatedAt ?? 0)) || undefined} fetchedAt={Math.max(0, ...[virtual, watch, wide, regime, leadG, aiG, ruleG].map((x) => x?.fetchedAt ?? 0)) || undefined} lagging={groups.filter((g) => g.v?.asOf && asOf && g.v.asOf < asOf).map((g) => `${g.short}（${prettyW(g.v!.asOf)}）`)} />
+        <UpdateStamp asOf={asOf} updatedAt={Math.max(0, ...groups.filter((g) => !g.real).map((g) => g.v?.updatedAt ?? 0)) || undefined} fetchedAt={Math.max(0, ...[virtual, watch, wide, regime, leadG, aiG, ruleG].map((x) => x?.fetchedAt ?? 0)) || undefined} lagging={groups.filter((g) => !g.real && g.v?.asOf && asOf && g.v.asOf < asOf).map((g) => `${g.short}（${prettyW(g.v!.asOf)}）`)} />
         <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
-          八組各用虛擬 50 萬，每組也和「同樣的錢買 0050」比。{asOf ? <>資料日 {prettyW(asOf)} 收盤。</> : null}
+          八組虛擬組合各用虛擬 50 萬，每組也和「同樣的錢買 0050」比。{realG ? <>最後一列「我的實單」是你實際的買賣，從第一筆成交 {prettyW(realG.start)} 起算（中途存提款用時間加權報酬扣掉，淨值是你打開 App 時記下的，沒打開的日子會跳過）。</> : <>「我的實單」有成交紀錄後會一起列進來。</>}{asOf ? <>資料日 {prettyW(asOf)} 收盤。</> : null}
           {lead && readyAll.length > 1 ? <> 目前比 0050 領先最多的是 <b>{lead.label}</b>（{fmtPct(lead.all!.diff, 2)}）。</> : null}
           起算日不同（Claude 虛擬 10/19、其他七組 10/23 起、第一批成交約 10/26），累積天數少時差距主要是雜訊，不要當結論。
         </div>

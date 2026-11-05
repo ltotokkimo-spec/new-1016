@@ -2,9 +2,9 @@
 // 價格線以昨收為界上紅下綠、灰色均價線（只算盤中）、下方每分鐘成交量；點圖看那一分鐘。時間是美東時間，旁邊附台北時間。
 import { useEffect, useState } from "preact/hooks";
 import { avgLine } from "../data/intraday";
-import { fetchUsIntraday, usClock, usSessionOf, usSessionStats, usToTaipei, US_SPAN, type UsIntraday } from "../data/usIntraday";
+import { fixPrevClose, fetchUsIntraday, usClock, usSessionOf, usSessionStats, usToTaipei, US_SPAN, type UsIntraday } from "../data/usIntraday";
 import { nyParts, usQuoteHours, usSession } from "../lib/dates";
-import { getFetcher } from "../store";
+import { getFetcher, useStore } from "../store";
 import { fmtPrice } from "./common";
 
 const cache = new Map<string, { at: number; d: UsIntraday | null }>(); // 切到別檔再回來不用重抓（交易時段 50 秒、其他 30 分鐘）
@@ -13,8 +13,9 @@ const cls = (x: number) => (x > 0 ? "up" : x < 0 ? "down" : "");
 const vol = (v: number) => (v >= 1e6 ? `${(v / 1e6).toFixed(2)} 百萬股` : v >= 1e4 ? `${(v / 1e4).toFixed(1)} 萬股` : `${Math.round(v).toLocaleString()} 股`);
 
 export function UsIntradayChart({ code }: { code: string }) {
+  const live = useStore((st) => st.live[code]);
   const c0 = cache.get(code);
-  const [d, setD] = useState<UsIntraday | null>(c0?.d ?? null);
+  const [d0, setD] = useState<UsIntraday | null>(c0?.d ?? null);
   const [loading, setLoading] = useState(!c0);
   const [err, setErr] = useState("");
   const [sel, setSel] = useState<number | null>(null);
@@ -34,8 +35,9 @@ export function UsIntradayChart({ code }: { code: string }) {
     return () => { alive = false; clearInterval(t); };
   }, [code]);
 
-  if (loading && !d) return <div class="empty" data-testid="us-intra-loading">即時走勢載入中…</div>;
-  if (!d) return <div class="empty" data-testid="us-intra-empty">{err ? `即時走勢下載失敗（${err}）` : "還沒有今天的分時資料"}</div>;
+  if (loading && !d0) return <div class="empty" data-testid="us-intra-loading">即時走勢載入中…</div>;
+  if (!d0) return <div class="empty" data-testid="us-intra-empty">{err ? `即時走勢下載失敗（${err}）` : "還沒有今天的分時資料"}</div>;
+  const { d, src: refSrc } = fixPrevClose(d0, live);
 
   const pts = d.points, ref = d.prevClose;
   const st = usSessionStats(d);
@@ -84,7 +86,7 @@ export function UsIntradayChart({ code }: { code: string }) {
   };
 
   return (
-    <div data-testid="us-intraday-chart" data-pts={pts.length} data-loaded={loading ? "0" : "1"}>
+    <div data-testid="us-intraday-chart" data-pts={pts.length} data-loaded={loading ? "0" : "1"} data-ref={refSrc} data-prev={ref}>
       <div class="row num" style={{ justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: "2px 10px" }}>
         <span data-testid="us-intra-head">
           <b class={cls(chg)} style={{ fontSize: "20px" }}>{fmtPrice(cur.price)}</b>{" "}

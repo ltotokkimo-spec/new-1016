@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseUsIntraday, usClock, usIntradayUrl, usSessionOf, usSessionStats, usToTaipei } from "../src/data/usIntraday";
+import { fixPrevClose, parseUsIntraday, usClock, usIntradayUrl, usSessionOf, usSessionStats, usToTaipei } from "../src/data/usIntraday";
 
 // 2026-11-05 美東（冬令 UTC-5）：04:00 ET = 09:00 UTC
 const t0 = Date.UTC(2026, 10, 5, 9, 0) / 1000;
@@ -36,6 +36,12 @@ describe("美股即時走勢（盤前、盤中、盤後）", () => {
     expect(usClock(330)).toBe("09:30");
     expect(usToTaipei(330, -18000)).toBe("22:30");
     expect(usToTaipei(0, -14400)).toBe("16:00"); // 夏令 04:00 ET＝台北 16:00
+  });
+  it("昨收校正：盤前用 CNBC 停在前一交易日的收盤；同一天用 CNBC 的昨收；沒有就用 Yahoo", () => {
+    const d = parseUsIntraday(yahoo([[at(7, 20), 352.8, 10]]))!; // Yahoo 昨收 100（錯的）
+    expect(fixPrevClose(d, { date: "20261104", price: 349.5, prevClose: 331.9, final: true }).d.prevClose).toBe(349.5);
+    expect(fixPrevClose(d, { date: "20261105", price: 351, prevClose: 349.5, final: false }).d.prevClose).toBe(349.5);
+    expect(fixPrevClose(d, undefined)).toEqual({ d, src: "yahoo" });
   });
   it("沒有資料回 null", () => {
     expect(parseUsIntraday({ chart: { result: [] } })).toBeNull();

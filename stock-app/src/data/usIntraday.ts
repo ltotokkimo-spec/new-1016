@@ -81,3 +81,14 @@ export const usToTaipei = (m: number, tz: number) => {
   // tz 是美東相對 UTC（例如 -18000＝-5 小時）：台北＝美東 −tz＋8 小時
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 };
+
+/**
+ * 昨收校正：Yahoo 的 chartPreviousClose 在盤前常常是「前兩天」的收盤（11/5 AAPL 實測給 331.9，實際昨收 349.5），
+ * 改用 App 的美股即時報價（CNBC）：同一天就用它的昨收；它還停在前一個交易日的收盤時（盤前），那個收盤就是昨收。
+ */
+export function fixPrevClose(d: UsIntraday, live?: { date: string; price: number; prevClose: number; final?: boolean }): { d: UsIntraday; src: "cnbc" | "yahoo" } {
+  if (!live || !live.date) return { d, src: "yahoo" };
+  if (live.date === d.date && live.prevClose > 0) return { d: { ...d, prevClose: live.prevClose }, src: "cnbc" };
+  if (live.date < d.date && live.final && live.price > 0) return { d: { ...d, prevClose: live.price }, src: "cnbc" };
+  return { d, src: "yahoo" };
+}

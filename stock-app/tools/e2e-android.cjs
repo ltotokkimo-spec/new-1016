@@ -964,12 +964,12 @@ function check(ok, name, detail = "") {
       const c = document.querySelector('[data-testid="us-intraday-chart"]'), e = document.querySelector('[data-testid="us-intra-empty"]');
       if (!c && !e) return null;
       const t = (q) => document.querySelector(q)?.innerText.replace(/\s+/g, " ") || "";
-      return { ok: !!c, pts: Number(c?.getAttribute("data-pts") || 0), head: t('[data-testid="us-intra-head"]'), sess: t('[data-testid="us-intra-sessions"]'), stats: t('[data-testid="us-intra-stats"]'), empty: e?.innerText || "", line: !!document.querySelector('[data-testid="us-intra-line"]') };
+      return { ok: !!c, pts: Number(c?.getAttribute("data-pts") || 0), head: t('[data-testid="us-intra-head"]'), sess: t('[data-testid="us-intra-sessions"]'), stats: t('[data-testid="us-intra-stats"]'), empty: e?.innerText || "", line: !!document.querySelector('[data-testid="us-intra-line"]'), ref: c?.getAttribute("data-ref"), prev: c?.getAttribute("data-prev") };
     }, null, { timeout: 60000 }).then((h) => h.jsonValue()).catch(() => ({ ok: false, empty: "逾時" }));
     log("美股即時走勢", JSON.stringify(ui));
     await page.evaluate(() => document.querySelector('[data-testid="chart-tabs"]')?.scrollIntoView());
     await shot("06c2-美股即時走勢");
-    check(ui.ok && ui.line && ui.pts >= 5 && /[\d,.]+ [▲▼]?[\d,.]+（[+-]\d+\.\d\d%）/.test(ui.head) && /盤前/.test(ui.sess) && /盤中/.test(ui.sess) && /盤後/.test(ui.sess) && /昨收 [\d,.]+/.test(ui.stats), "美股個股頁「走勢（盤前後）」：盤前／盤中／盤後分時圖與各時段漲跌", JSON.stringify(ui).slice(0, 300));
+    check(ui.ok && ui.line && ui.pts >= 5 && /[\d,.]+ [▲▼]?[\d,.]+（[+-]\d+\.\d\d%）/.test(ui.head) && /盤前/.test(ui.sess) && /盤中/.test(ui.sess) && /盤後/.test(ui.sess) && /昨收 [\d,.]+/.test(ui.stats) && ui.ref === "cnbc", "美股個股頁「走勢（盤前後）」：盤前／盤中／盤後分時圖與各時段漲跌", JSON.stringify(ui).slice(0, 300));
     await page.click('[data-testid="tab-k"]').catch(() => {});
   }
   const c24 = await page.$eval('[data-testid="us-24h-chg"]', (e) => e.innerText).catch(() => "");

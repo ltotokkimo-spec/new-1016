@@ -484,7 +484,7 @@ const n = (x: number) => px2(x).toLocaleString("zh-TW", { maximumFractionDigits:
 export function buyConds(ref: number, stop?: number): string[] {
   const out = [`開盤高於 ${n(ref * 1.015)}（+1.5%）→ 不追，今天不買`];
   if (stop) out.push(`成交後收盤跌破 ${n(stop)} → 隔天開盤停損賣出`);
-  out.push(`漲到 ${n(ref * 1.1)} 以上 → 停損上移到 ${n(ref)}（保本）`);
+  out.push(`漲到 ${n(ref * 1.1)} 以上 → 停損價調高到買進價 ${n(ref)}：之後跌回這裡就賣，至少不虧`);
   return out;
 }
 
@@ -507,6 +507,9 @@ export function holdConds(o: { price?: number; avgCost: number; stop: number; ve
   const out = [`收盤跌破 ${n(o.stop)} → 隔天開盤全部賣出`];
   if (o.verdict === "可加碼" && o.price) out.push(`想加碼：限價不高於 ${n(o.price * 1.015)}，加碼後停損一樣 ${n(o.stop)}`);
   else out.push(`外資連賣 3 天且近 1 週下跌，或虧損達 8%（${n(o.avgCost * 0.92)}）→ 減碼一半`);
-  if (o.price) { const up = o.price * 1.1, ns = Math.max(o.stop, o.price); if (ns > o.stop * 1.005) out.push(`漲到 ${n(up)} 以上 → 停損上移到 ${n(ns)}`); }
+  if (o.price) {
+    const up = o.price * 1.1, ns = Math.max(o.stop, o.price);
+    if (ns > o.stop * 1.005) out.push(`漲到 ${n(up)} 以上 → 停損價從 ${n(o.stop)} 調高到 ${n(ns)}（現在的價格）：之後跌回這裡就賣，${ns >= o.avgCost ? "鎖住獲利" : "少虧一點"}`);
+  }
   return out;
 }

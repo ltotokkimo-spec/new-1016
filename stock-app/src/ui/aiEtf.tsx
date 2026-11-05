@@ -1172,7 +1172,7 @@ export function OrderList({ rows, holds, cash, asOf, planAsOf, hasPlan, canAsk, 
           {holds.length > 0 && <span>不動 {holds.length} 檔</span>}
           <span>下單後現金約 <b class="num">{fmtMoney(cash - buy * 1.001425 + sell * (1 - 0.001425 - 0.003))}</b></span>
         </div>
-        <div class="muted" style={{ fontSize: "11.5px", lineHeight: 1.6 }}>{buys.some((r) => r.rank) ? "買進依 Claude 的優先順位排（黑底數字，1＝最先買），只想先買幾檔就從上往下買。" : ""}參考價是最新價{planAsOf ? `（Claude 建議依 ${prettyW(planAsOf)} 收盤）` : ""}；「如果…」的條件一部分是 Claude 寫的，其餘是 App 規則自動算的（限價 +1.5% 不追、停損、保本）。成交後到下方「填入實際成交」記錄。</div>
+        <div class="muted" style={{ fontSize: "11.5px", lineHeight: 1.6 }}>{buys.some((r) => r.rank) ? "買進依 Claude 的優先順位排（黑底數字，1＝最先買），只想先買幾檔就從上往下買。" : ""}參考價是最新價{planAsOf ? `（Claude 建議依 ${prettyW(planAsOf)} 收盤）` : ""}；「如果…」的條件一部分是 Claude 寫的，其餘是 App 規則自動算的（限價 +1.5% 不追、停損、漲多後把停損價調高）。成交後到下方「填入實際成交」記錄。</div>
       </>}
       {!hasPlan && <button class="btn secondary block" disabled={!canAsk} onClick={onAsk} data-testid="order-ask">{busy ? "Claude 建議產生中…" : "請 Claude 建議要買哪些（約台幣 20～30 元）"}</button>}
     </div>

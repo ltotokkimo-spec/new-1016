@@ -74,13 +74,13 @@ describe("Claude 建議清單", () => {
     expect(r.holds["1476"]).toEqual({ why: "法說前續抱", cond: [] });
   });
   it("規則條件：買進不追高、停損、保本；賣出不殺低與剩餘股數；續抱的停損與減碼", () => {
-    expect(buyConds(73.7, 66.5)).toEqual(["開盤高於 74.8（+1.5%）→ 不追，今天不買", "成交後收盤跌破 66.5 → 隔天開盤停損賣出", "漲到 81.05 以上 → 停損上移到 73.7（保本）"]);
+    expect(buyConds(73.7, 66.5)).toEqual(["開盤高於 74.8（+1.5%）→ 不追，今天不買", "成交後收盤跌破 66.5 → 隔天開盤停損賣出", "漲到 81.05 以上 → 停損價調高到買進價 73.7：之後跌回這裡就賣，至少不虧"]);
     expect(sellConds({ ref: 80.9, byRule: false, stopHit: false, held: 600, shares: 400, stop: 76.5 })).toEqual(["開盤漲到 82.1 以上 → 照賣，等於賣在相對高點", "開盤跌到 79.3 以下（−2%）→ 先不賣，收盤再看，不殺低", "剩下 200 股續抱，停損 76.5"]);
     expect(sellConds({ ref: 2260, byRule: true, stopHit: true, held: 10, shares: 10 })).toEqual(["已跌破停損：開盤直接賣出，不等反彈", "全部賣出"]);
     const h = holdConds({ price: 161.5, avgCost: 160, stop: 152, verdict: "續抱" });
     expect(h[0]).toBe("收盤跌破 152 → 隔天開盤全部賣出");
     expect(h[1]).toMatch(/外資連賣 3 天.*（147）/);
-    expect(h[2]).toBe("漲到 177.5 以上 → 停損上移到 161.5");
+    expect(h[2]).toBe("漲到 177.5 以上 → 停損價從 152 調高到 161.5（現在的價格）：之後跌回這裡就賣，鎖住獲利");
   });
   it("壞掉或沒有 JSON 時只回傳文字", () => {
     expect(parsePlan("沒有清單").items).toEqual([]);

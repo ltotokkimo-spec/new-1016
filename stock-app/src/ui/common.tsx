@@ -56,20 +56,21 @@ export function Progress({ p }: { p?: { done: number; total: number; label: stri
   );
 }
 
-/** 個股頁切換箭頭：金色三角形，光帶往箭頭方向掃（左箭頭往左、右箭頭往右）；手機開「減少動態效果」時不動 */
-const reduceMotion = () => { try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
+/**
+ * 個股頁切換箭頭：金色三角形，一條白金光帶往箭頭方向掃（左箭頭往左、右箭頭往右）。
+ * 光帶用 CSS transform 平移（不用 SVG 漸層動畫、不用濾鏡），手機和模擬器都不會卡；「減少動態效果」時不動。
+ */
 export function FlowArrow({ dir }: { dir: "l" | "r" }) {
-  const id = `navflow-${dir}`, l = dir === "l";
+  const l = dir === "l", tri = l ? "M17 3 L5 12 L17 21 Z" : "M7 3 L19 12 L7 21 Z";
   return (
-    <svg viewBox="0 0 24 24" width="60" height="60" aria-hidden="true" data-testid={`flow-arrow-${dir}`}>
+    <svg viewBox="0 0 24 24" width="60" height="60" aria-hidden="true" data-testid={`flow-arrow-${dir}`} class={`flowarrow ${l ? "to-left" : "to-right"}`}>
       <defs>
-        <linearGradient id={id} x1={l ? 1 : -1} x2={l ? 2 : 0} y1="0" y2="0">
-          <stop offset="0" stop-color="#7a4f00" /><stop offset=".42" stop-color="#b77a07" /><stop offset=".5" stop-color="#fff2b8" /><stop offset=".58" stop-color="#b77a07" /><stop offset="1" stop-color="#7a4f00" />
-          {!reduceMotion() && <animate attributeName="x1" values={l ? "1;-1" : "-1;1"} dur="1.8s" repeatCount="indefinite" />}
-          {!reduceMotion() && <animate attributeName="x2" values={l ? "2;0" : "0;2"} dur="1.8s" repeatCount="indefinite" />}
-        </linearGradient>
+        <linearGradient id="navgold" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#9a6400" /><stop offset=".5" stop-color="#c48a12" /><stop offset="1" stop-color="#7a4f00" /></linearGradient>
+        <linearGradient id="navshine" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#fff2b8" stop-opacity="0" /><stop offset=".5" stop-color="#fff2b8" stop-opacity=".95" /><stop offset="1" stop-color="#fff2b8" stop-opacity="0" /></linearGradient>
+        <clipPath id={`navclip-${dir}`}><path d={tri} /></clipPath>
       </defs>
-      <path d={l ? "M17 3 L5 12 L17 21 Z" : "M7 3 L19 12 L7 21 Z"} fill={`url(#${id})`} />
+      <path d={tri} fill="url(#navgold)" />
+      <g clip-path={`url(#navclip-${dir})`}><rect class="shine" x="-8" y="0" width="8" height="24" fill="url(#navshine)" /></g>
     </svg>
   );
 }

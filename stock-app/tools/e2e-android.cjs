@@ -749,9 +749,9 @@ function check(ok, name, detail = "") {
   const ol = await page.evaluate(() => ({ top: document.querySelector('[data-testid="order-list"]')?.getBoundingClientRect().top ?? 9999, summaryTop: document.querySelector('[data-testid="etf-summary"]')?.getBoundingClientRect().top ?? 0, rows: [...document.querySelectorAll('[data-testid="order-row"]')].map((e) => e.innerText.replace(/\s+/g, " ")), empty: document.querySelector('[data-testid="order-empty"]')?.innerText || "", total: document.querySelector('[data-testid="order-total"]')?.innerText.replace(/\s+/g, " ") || "" }));
   log("今日下單清單", JSON.stringify(ol));
   // 版面：數字欄不擠在一起（欄距 ≥ 10px）、整頁不用左右捲動、理由在下一行
-  const olLay = await page.evaluate(() => { const r = document.querySelector('[data-testid="order-row"]'); if (!r) return null; const c = [...r.querySelectorAll("td")].slice(1).map((t) => t.getBoundingClientRect()); const gaps = c.slice(1).map((x, i) => Math.round(x.left - c[i].right)); return { gaps, overflow: document.documentElement.scrollWidth - window.innerWidth, reason: !!document.querySelector('[data-testid="order-reason"]') }; });
+  const olLay = await page.evaluate(() => { const r = document.querySelector('[data-testid="order-row"]') || document.querySelector('[data-testid="order-hold"]'); if (!r) return null; return { why: r.querySelector('[data-testid="order-why"]')?.innerText.replace(/\s+/g, " ") || "", cond: (r.querySelector('[data-testid="order-cond"]')?.innerText || "").replace(/\s+/g, " ").slice(0, 160), holds: document.querySelectorAll('[data-testid="order-hold"]').length, overflow: document.documentElement.scrollWidth - window.innerWidth }; });
   log("下單清單版面", JSON.stringify(olLay));
-  if (olLay) check(olLay.overflow <= 1 && olLay.reason, "今日下單清單：數字欄往右排開、理由在下一行、不用左右捲動", JSON.stringify(olLay));
+  if (olLay) check(olLay.overflow <= 1 && /^為什麼/.test(olLay.why) && /如果|之後|注意/.test(olLay.cond), "今日下單清單：每檔有「為什麼」與「如果…就…」條件、不用左右捲動", JSON.stringify(olLay));
   await page.evaluate(() => document.querySelector('[data-testid="order-list"]')?.scrollIntoView());
   await shot("05b2-今日下單清單");
   const tsmcVerdict = (hc.rows.find((r) => /2330/.test(r)) || "").match(/出場|減碼|可加碼|續抱/)?.[0];

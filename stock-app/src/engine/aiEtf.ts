@@ -210,7 +210,7 @@ export function recordNav(etf: AiEtf, date: string, v: Valuation): AiEtf {
 }
 
 // ---------- Claude 建議的格式 ----------
-export interface PlanItem { code: string; side: "buy" | "sell"; shares: number; reason: string; stop?: number; rank?: number } // rank＝買進優先順位（1＝最先買）
+export interface PlanItem { code: string; side: "buy" | "sell"; shares: number; reason: string; stop?: number; rank?: number; cond?: string[] } // cond＝Claude 寫的「如果…就…」 // rank＝買進優先順位（1＝最先買）
 
 /** 從 index 開始的 { 或 [ 往後找到對應的結尾（字串裡的括號不算），找不到回傳 -1 */
 function matchEnd(text: string, start: number): number {
@@ -246,9 +246,13 @@ function findPlanJson(text: string): { json: string; start: number; end: number 
 }
 
 /** 從 Claude 回覆取出買賣清單；回傳清單與去掉 JSON 後的說明文字 */
-export function parsePlan(text: string): { items: PlanItem[]; body: string; stops: Record<string, number> } {
+export interface HoldNote { why?: string; cond: string[] }
+const condList = (v: unknown): string[] => (Array.isArray(v) ? v : typeof v === "string" && v.trim() ? [v] : []).map((x) => String(x).trim().replace(/^(如果|假如|若)\s*/, "")).filter(Boolean).slice(0, 3);
+
+export function parsePlan(text: string): { items: PlanItem[]; body: string; stops: Record<string, number>; holds: Record<string, HoldNote> } {
   const last = findPlanJson(text);
-  if (!last) return { items: [], body: text, stops: {} };
+  const holds: Record<string, HoldNote> = {};
+  if (!last) return { items: [], body: text, stops: {}, holds };
   let items: PlanItem[] = [];
   const stops: Record<string, number> = {};
   try {
@@ -263,6 +267,7 @@ export function parsePlan(text: string): { items: PlanItem[]; body: string; stop
         reason: String(x.reason ?? ""),
         stop: Number(x.stop) > 0 ? Number(x.stop) : undefined,
         rank: Number(x.rank ?? x.priority ?? x.順位) > 0 ? Math.round(Number(x.rank ?? x.priority ?? x.順位)) : undefined,
+        cond: condList(x.cond ?? x.if ?? x.條件),
       }))
       .filter((x: PlanItem) => x.code && x.shares > 0);
     // 買進優先順位：有給 rank 就照 rank 排，沒給的照 JSON 裡的先後（Claude 被要求依優先順序列）；賣出排在前面
@@ -274,8 +279,14 @@ export function parsePlan(text: string): { items: PlanItem[]; body: string; stop
     if (j && typeof j.stops === "object" && !Array.isArray(j.stops))
       for (const [k, v] of Object.entries(j.stops)) if (Number(v) > 0) stops[k.trim().toUpperCase()] = Number(v);
     for (const it of items) if (it.stop) stops[it.code] = it.stop;
+    // 不動的持股：Claude 寫的續抱理由與條件 {"holds":{"2412":{"why":"…","cond":["如果…就…"]}}}
+    if (j && typeof j.holds === "object" && !Array.isArray(j.holds))
+      for (const [k, v] of Object.entries(j.holds as Record<string, any>)) {
+        const why = typeof v === "string" ? v : String(v?.why ?? v?.reason ?? "").trim() || undefined;
+        holds[k.trim().toUpperCase()] = { why, cond: typeof v === "object" ? condList(v?.cond ?? v?.if) : [] };
+      }
   } catch { /* JSON 壞掉就只顯示文字 */ }
-  return { items, body: (text.slice(0, last.start) + text.slice(last.end)).trim(), stops };
+  return { items, body: (text.slice(0, last.start) + text.slice(last.end)).trim(), stops, holds };
 }
 
 /** 給 Claude 的候選股：只取 App「買入」且成交金額在前一半的高分股，每個產業最多 perSector 檔、全部最多 max 檔，已持有的不重複列（持股那邊已有最新價格）。不夠 minCount 檔時用高分的「觀望」補 */
@@ -463,4 +474,39 @@ export function dailyHoldingCheck(
     out.push({ code: p.code, name: p.name, shares: p.shares, avgCost: p.avgCost, price: has ? px : undefined, pnl, weight, stop, verdict, reasons });
   }
   return out.sort((a, b) => VERDICT_ORDER[a.verdict] - VERDICT_ORDER[b.verdict] || (b.weight ?? 0) - (a.weight ?? 0));
+}
+
+// ---------- 今日下單清單的「條件」：規則自動算的「如果…就…」 ----------
+const px2 = (x: number) => (x >= 100 ? Math.round(x * 2) / 2 : x >= 10 ? Math.round(x * 20) / 20 : Math.round(x * 100) / 100);
+const n = (x: number) => px2(x).toLocaleString("zh-TW", { maximumFractionDigits: 2 });
+
+/** 買進：限價不追、停損、漲多後停損上移保本 */
+export function buyConds(ref: number, stop?: number): string[] {
+  const out = [`開盤高於 ${n(ref * 1.015)}（+1.5%）→ 不追，今天不買`];
+  if (stop) out.push(`成交後收盤跌破 ${n(stop)} → 隔天開盤停損賣出`);
+  out.push(`漲到 ${n(ref * 1.1)} 以上 → 停損上移到 ${n(ref)}（保本）`);
+  return out;
+}
+
+/** 賣出：規則觸發的出場直接賣；Claude 建議的賣出遇到開盤急跌先不殺低；有剩下的寫續抱與停損 */
+export function sellConds(o: { ref?: number; byRule: boolean; stopHit: boolean; held?: number; shares: number; stop?: number }): string[] {
+  const out: string[] = [];
+  if (o.stopHit) out.push("已跌破停損：開盤直接賣出，不等反彈");
+  else if (o.ref && !o.byRule) {
+    out.push(`開盤漲到 ${n(o.ref * 1.015)} 以上 → 照賣，等於賣在相對高點`);
+    out.push(`開盤跌到 ${n(o.ref * 0.98)} 以下（−2%）→ 先不賣，收盤再看，不殺低`);
+  } else if (o.ref) out.push(`規則減碼：開盤照賣；之後收盤站回 ${n(o.ref * 1.05)} 以上可考慮買回`);
+  const left = (o.held ?? 0) - o.shares;
+  if (left > 0) out.push(`剩下 ${left.toLocaleString()} 股續抱${o.stop ? `，停損 ${n(o.stop)}` : ""}`);
+  else if (o.held !== undefined) out.push("全部賣出");
+  return out;
+}
+
+/** 不動（續抱）：跌破停損賣出、接近停損或外資連賣減碼、漲多停損上移 */
+export function holdConds(o: { price?: number; avgCost: number; stop: number; verdict: string }): string[] {
+  const out = [`收盤跌破 ${n(o.stop)} → 隔天開盤全部賣出`];
+  if (o.verdict === "可加碼" && o.price) out.push(`想加碼：限價不高於 ${n(o.price * 1.015)}，加碼後停損一樣 ${n(o.stop)}`);
+  else out.push(`外資連賣 3 天且近 1 週下跌，或虧損達 8%（${n(o.avgCost * 0.92)}）→ 減碼一半`);
+  if (o.price) { const up = o.price * 1.1, ns = Math.max(o.stop, o.price); if (ns > o.stop * 1.005) out.push(`漲到 ${n(up)} 以上 → 停損上移到 ${n(ns)}`); }
+  return out;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cashFlow, comparePlans, reconcilePhoto, emptyEtf, etfAlerts, fitBudget, groupBySector, isOffList, isOwnPrompt, looksLikePlanReply, parsePlan, liquidityCut, pickCandidates, tradePnls, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
+import { buyConds, sellConds, holdConds, cashFlow, comparePlans, reconcilePhoto, emptyEtf, etfAlerts, fitBudget, groupBySector, isOffList, isOwnPrompt, looksLikePlanReply, parsePlan, liquidityCut, pickCandidates, tradePnls, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
 
 const t = (code: string, side: "buy" | "sell", shares: number, price: number, benchPrice = 100, date = "20261017") =>
   ({ id: code + side + date, date, code, name: code, side, shares, price, benchPrice });
@@ -55,8 +55,8 @@ describe("Claude 建議清單", () => {
   it("取出 JSON 清單並移除 JSON 區塊", () => {
     const { items, body } = parsePlan(reply);
     expect(items).toEqual([
-      { code: "2330", side: "buy", shares: 30, reason: "龍頭", rank: 1 },
-      { code: "6515", side: "buy", shares: 5, reason: "探針卡", rank: 2 },
+      { code: "2330", side: "buy", shares: 30, reason: "龍頭", rank: 1, cond: [] },
+      { code: "6515", side: "buy", shares: 5, reason: "探針卡", rank: 2, cond: [] },
     ]);
     expect(body).not.toMatch(/```/);
     expect(body).toMatch(/非投資建議/);
@@ -65,6 +65,22 @@ describe("Claude 建議清單", () => {
     const t = '```json\n{"trades":[{"code":"1216","side":"buy","shares":1,"rank":2},{"code":"2412","side":"buy","shares":1,"rank":1},{"code":"2409","side":"sell","shares":5},{"code":"5880","side":"buy","shares":1}]}\n```';
     const { items } = parsePlan(t);
     expect(items.map((x) => `${x.code}:${x.rank ?? "-"}`)).toEqual(["2409:-", "2412:1", "1216:2", "5880:3"]);
+  });
+  it("Claude 寫的條件 cond 與不動持股 holds（續抱理由＋條件）", () => {
+    const t = '```json\n{"trades":[{"code":"5904","side":"buy","shares":650,"stop":66.5,"rank":1,"reason":"獲利成長","cond":["如果開盤高於 74.8 → 不追"]}],"holds":{"2412":{"why":"防禦股","cond":["跌破 152 → 賣出","站上 170 → 停損上移"]},"1476":"法說前續抱"}}\n```';
+    const r = parsePlan(t);
+    expect(r.items[0].cond).toEqual(["開盤高於 74.8 → 不追"]);
+    expect(r.holds["2412"]).toEqual({ why: "防禦股", cond: ["跌破 152 → 賣出", "站上 170 → 停損上移"] });
+    expect(r.holds["1476"]).toEqual({ why: "法說前續抱", cond: [] });
+  });
+  it("規則條件：買進不追高、停損、保本；賣出不殺低與剩餘股數；續抱的停損與減碼", () => {
+    expect(buyConds(73.7, 66.5)).toEqual(["開盤高於 74.8（+1.5%）→ 不追，今天不買", "成交後收盤跌破 66.5 → 隔天開盤停損賣出", "漲到 81.05 以上 → 停損上移到 73.7（保本）"]);
+    expect(sellConds({ ref: 80.9, byRule: false, stopHit: false, held: 600, shares: 400, stop: 76.5 })).toEqual(["開盤漲到 82.1 以上 → 照賣，等於賣在相對高點", "開盤跌到 79.3 以下（−2%）→ 先不賣，收盤再看，不殺低", "剩下 200 股續抱，停損 76.5"]);
+    expect(sellConds({ ref: 2260, byRule: true, stopHit: true, held: 10, shares: 10 })).toEqual(["已跌破停損：開盤直接賣出，不等反彈", "全部賣出"]);
+    const h = holdConds({ price: 161.5, avgCost: 160, stop: 152, verdict: "續抱" });
+    expect(h[0]).toBe("收盤跌破 152 → 隔天開盤全部賣出");
+    expect(h[1]).toMatch(/外資連賣 3 天.*（147）/);
+    expect(h[2]).toBe("漲到 177.5 以上 → 停損上移到 161.5");
   });
   it("壞掉或沒有 JSON 時只回傳文字", () => {
     expect(parsePlan("沒有清單").items).toEqual([]);

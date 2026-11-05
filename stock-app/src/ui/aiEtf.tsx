@@ -1,13 +1,12 @@
 // 「自組ETF」分頁：請 Claude 建議要買什麼、買幾股，照著實際下單後填入成交，追蹤淨值並和 0050 比較。
 import { useEffect, useMemo, useState } from "preact/hooks";
-import { Fragment } from "preact";
 import {
   LIVE_MS, addEtfFlow, removeEtfFlow, addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshTurn, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError, holdingsFromImage, shrinkImage } from "../ai/claude";
 import type { Scored } from "../engine/score";
 import type { VirtualEtf } from "../engine/virtualEtf";
-import { dailyHoldingCheck, type HoldCheck, type EtfTrade, type EtfFlow, comparePlans, DEFAULT_STOP, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
+import { buyConds, sellConds, holdConds, dailyHoldingCheck, type HoldCheck, type EtfTrade, type EtfFlow, comparePlans, DEFAULT_STOP, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { addWeekdays, orderDay, pretty, prettyW, taipeiClock, taipeiHour, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
 import { livePolling, type LiveQuote } from "../data/twLive";
@@ -1101,55 +1100,80 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
   );
 }
 
-/** 我的實單：今日下單清單（一眼看懂要買賣哪幾檔、幾股、多少錢） */
-interface OrderRow { side: "buy" | "sell"; code: string; name: string; shares: number; price?: number; stop?: number; reason: string; src: string; rank?: number }
-function OrderList({ rows, cash, asOf, planAsOf, hasPlan, canAsk, busy, onAsk }: { rows: OrderRow[]; cash: number; asOf?: string; planAsOf?: string; hasPlan: boolean; canAsk: boolean; busy: boolean; onAsk: () => void }) {
+/** 我的實單：今日下單清單（做什麼＋為什麼＋「如果…就…」條件；不動的持股也列出續抱理由與條件） */
+interface OrderRow { side: "buy" | "sell"; code: string; name: string; shares: number; price?: number; stop?: number; reason: string; src: string; rank?: number; cond: string[]; note?: string }
+interface HoldRow { code: string; name: string; shares: number; price?: number; stop: number; why: string; cond: string[]; src: string }
+
+function OrderItem({ kind, rank, name, code, main, sub, whyLabel, why, cond, src, testid }: { kind: "buy" | "sell" | "hold"; rank?: number; name: string; code: string; main: string; sub: string; whyLabel: string; why: string; cond: string[]; src: string; testid: string }) {
+  const pill = kind === "buy" ? { cls: "pill buy", t: "買" } : kind === "sell" ? { cls: "pill exit", t: "賣" } : { cls: "pill none", t: "不動" };
+  return (
+    <div style={{ borderTop: "1px solid var(--line)", padding: "10px 0" }} data-testid={testid}>
+      <div class="row" style={{ flexWrap: "nowrap", gap: "6px", alignItems: "center" }}>
+        <span class={pill.cls} style={{ minWidth: "auto", padding: "2px 7px", flex: "none" }}>{pill.t}</span>
+        {rank ? <span class="num" style={{ flex: "none", display: "inline-block", width: "19px", height: "19px", lineHeight: "19px", borderRadius: "50%", background: "var(--fg)", color: "var(--bg)", fontSize: "11px", fontWeight: 700, textAlign: "center" }} title={`買進優先第 ${rank} 順位`} data-testid="order-rank">{rank}</span> : null}
+        <span style={{ minWidth: 0 }}><b style={{ fontSize: "15px" }}>{name}</b> <span class="muted num" style={{ fontSize: "12px" }}>{code}</span></span>
+        <span class="num" style={{ marginLeft: "auto", textAlign: "right", whiteSpace: "nowrap", fontSize: "13.5px", flex: "none" }}>{main}<span class="muted" style={{ display: "block", fontSize: "11px" }}>{sub}</span></span>
+      </div>
+      <div style={{ fontSize: "12.5px", lineHeight: 1.55, margin: "6px 0 4px" }} data-testid="order-why"><span class="muted" style={{ fontWeight: 600, marginRight: "4px" }}>{whyLabel}</span>{why}</div>
+      {cond.length > 0 && (
+        <div style={{ background: "var(--surface-2, rgba(183,122,7,0.07))", borderRadius: "10px", padding: "6px 8px", fontSize: "12px", lineHeight: 1.6 }} data-testid="order-cond">
+          {cond.map((c) => <div class="row" style={{ flexWrap: "nowrap", gap: "6px", alignItems: "flex-start" }}><span style={{ color: "#b77a07", fontWeight: 700, flex: "none" }}>{/^(剩下|全部賣出)/.test(c) ? "之後" : /^已跌破/.test(c) ? "注意" : "如果"}</span><span>{c}</span></div>)}
+        </div>
+      )}
+      <div class="muted" style={{ fontSize: "11px", marginTop: "3px" }}>{src}</div>
+    </div>
+  );
+}
+
+export function OrderList({ rows, holds, cash, asOf, planAsOf, hasPlan, canAsk, busy, onAsk }: { rows: OrderRow[]; holds: HoldRow[]; cash: number; asOf?: string; planAsOf?: string; hasPlan: boolean; canAsk: boolean; busy: boolean; onAsk: () => void }) {
   const amt = (r: OrderRow) => (r.price ? r.shares * r.price : NaN);
-  const buy = rows.filter((r) => r.side === "buy").reduce((a, r) => a + (amt(r) || 0), 0);
-  const sell = rows.filter((r) => r.side === "sell").reduce((a, r) => a + (amt(r) || 0), 0);
+  const sells = rows.filter((r) => r.side === "sell"), buys = rows.filter((r) => r.side === "buy");
+  const buy = buys.reduce((a, r) => a + (amt(r) || 0), 0);
+  const sell = sells.reduce((a, r) => a + (amt(r) || 0), 0);
   const day = asOf ? prettyW(orderDay(asOf)) : "";
-  // 數字欄靠右、彼此留 12px 間距；理由放到下一行跨滿整列，讓股票名那欄不會把數字擠在一起（不需要左右捲動）
-  const th = { textAlign: "right" as const, fontWeight: 500, padding: "4px 0 4px 12px", whiteSpace: "nowrap" as const };
-  const td = { textAlign: "right" as const, padding: "8px 0 2px 12px", whiteSpace: "nowrap" as const };
+  const sec = (t: string) => <div class="muted" style={{ fontSize: "12px", fontWeight: 600, margin: "12px 0 2px" }}>{t}</div>;
+  const money = (r: OrderRow) => (Number.isFinite(amt(r)) ? `約 ${fmtMoney(amt(r))}` : "");
+  const item = (r: OrderRow) => (
+    <OrderItem key={`${r.side}-${r.code}`} kind={r.side} rank={r.rank} name={r.name} code={r.code} testid="order-row"
+      main={`${r.shares.toLocaleString()} 股・${r.side === "buy" ? "限價 " : ""}${r.price ? fmtPrice(r.price) : "—"}`}
+      sub={[money(r), r.note, r.side === "buy" && r.stop ? `停損 ${fmtPrice(r.stop)}` : ""].filter(Boolean).join("・")}
+      whyLabel="為什麼" why={r.reason} cond={r.cond} src={r.src} />
+  );
+  const holdItem = (h: HoldRow) => (
+    <OrderItem key={`hold-${h.code}`} kind="hold" name={h.name} code={h.code} testid="order-hold"
+      main={`${h.shares.toLocaleString()} 股・${h.price ? fmtPrice(h.price) : "—"}`} sub={`停損 ${fmtPrice(h.stop)}`}
+      whyLabel="為什麼續抱" why={h.why} cond={h.cond} src={h.src} />
+  );
   return (
     <div class="card stack" data-testid="order-list">
       <div class="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
         <b style={{ fontSize: "16px" }}>今日下單清單</b>
         <span class="muted" style={{ fontSize: "12px" }}>{day ? `建議 ${day} 盤中下單` : ""}</span>
       </div>
-      {rows.length === 0 ? (
-        <div class="muted" style={{ fontSize: "13px", lineHeight: 1.6 }} data-testid="order-empty">今天沒有要賣的持股（規則檢查都沒觸發出場或減碼）{hasPlan ? "" : "，也還沒有買進建議"}。{!hasPlan && "要買進建議可以按下面「請 Claude 建議」。"}</div>
-      ) : (
-        <>
-          <table style={{ width: "100%", fontSize: "13.5px", borderCollapse: "collapse" }}>
-            <thead><tr class="muted" style={{ fontSize: "11.5px" }}>
-              <th style={{ ...th, textAlign: "left", padding: "4px 0" }}>動作／股票</th><th style={th}>股數</th><th style={th}>參考價</th><th style={th}>金額</th><th style={th}>停損</th>
-            </tr></thead>
-            <tbody>{rows.map((r) => (
-              <Fragment key={`${r.side}-${r.code}`}>
-                <tr style={{ borderTop: "1px solid var(--line)", verticalAlign: "baseline" }} data-testid="order-row">
-                  <td style={{ padding: "8px 0 2px" }}>
-                    <span class={`pill ${r.side === "buy" ? "buy" : "exit"}`} style={{ minWidth: "auto", padding: "2px 6px", marginRight: "6px" }}>{r.side === "buy" ? "買" : "賣"}</span>
-                    {r.rank ? <span class="num" style={{ display: "inline-block", minWidth: "18px", height: "18px", lineHeight: "18px", borderRadius: "9px", background: "var(--fg)", color: "var(--bg)", fontSize: "11px", fontWeight: 700, textAlign: "center", marginRight: "5px" }} title={`買進優先第 ${r.rank} 順位`} data-testid="order-rank">{r.rank}</span> : null}
-                    <b>{r.name}</b> <span class="muted num" style={{ fontSize: "11.5px" }}>{r.code}</span>
-                  </td>
-                  <td class="num" style={td}><b>{r.shares.toLocaleString()}</b></td>
-                  <td class="num" style={td}>{r.price ? fmtPrice(r.price) : "—"}</td>
-                  <td class="num" style={td}>{Number.isFinite(amt(r)) ? fmtMoney(amt(r)) : "—"}</td>
-                  <td class="num" style={td}>{r.stop ? fmtPrice(r.stop) : r.side === "buy" ? "—" : ""}</td>
-                </tr>
-                <tr data-testid="order-reason"><td colSpan={5} class="muted" style={{ fontSize: "11.5px", lineHeight: 1.45, padding: "0 0 8px" }}>{r.src}：{r.reason}</td></tr>
-              </Fragment>
-            ))}</tbody>
-          </table>
-          <div class="row" style={{ justifyContent: "space-between", fontSize: "13px", flexWrap: "wrap", gap: "4px 12px" }} data-testid="order-total">
-            <span>買進 <b class="num up">{fmtMoney(buy)}</b>（{rows.filter((r) => r.side === "buy").length} 檔）</span>
-            <span>賣出 <b class="num down">{fmtMoney(sell)}</b>（{rows.filter((r) => r.side === "sell").length} 檔）</span>
-            <span>下單後現金約 <b class="num">{fmtMoney(cash - buy * 1.001425 + sell * (1 - 0.001425 - 0.003))}</b></span>
-          </div>
-          <div class="muted" style={{ fontSize: "11.5px", lineHeight: 1.6 }}>{rows.some((r) => r.rank) ? "買進依 Claude 的優先順位排（黑底數字，1＝最先買），只想先買幾檔就從上往下買。" : ""}參考價是最新價{planAsOf ? `（Claude 建議依 ${prettyW(planAsOf)} 收盤）` : ""}；建議用限價單，買進不要高於參考價 1.5%。賣出的「規則」是下方「今日持股建議」的出場（全部賣）或減碼（賣一半）。成交後到下方「填入實際成交」記錄。</div>
-        </>
-      )}
+      {rows.length === 0 && <div class="muted" style={{ fontSize: "13px", lineHeight: 1.6 }} data-testid="order-empty">今天沒有要賣的持股（規則檢查都沒觸發出場或減碼）{hasPlan ? "" : "，也還沒有買進建議"}。{!hasPlan && "要買進建議可以按下面「請 Claude 建議」。"}</div>}
+      <div>
+        {sells.length > 0 && <>{sec("賣出（先做，賣出的錢拿來買）")}{sells.map(item)}</>}
+        {buys.length > 0 && <>{sec("買進（依優先順位，1＝最先買）")}{buys.map(item)}</>}
+        {holds.length > 0 && <>
+          {sec("不動（續抱，今天不用下單）")}
+          {holdItem(holds[0])}
+          {holds.length > 1 && (
+            <details data-testid="order-holds-more">
+              <summary style={{ cursor: "pointer", color: "#b77a07", fontSize: "12.5px", margin: "2px 0 6px" }}>其他 {holds.length - 1} 檔不動持股（{holds.slice(1, 4).map((h) => h.name).join("、")}{holds.length > 4 ? "…" : ""}）</summary>
+              {holds.slice(1).map(holdItem)}
+            </details>
+          )}
+        </>}
+      </div>
+      {rows.length > 0 && <>
+        <div class="row" style={{ justifyContent: "space-between", fontSize: "13px", flexWrap: "wrap", gap: "4px 12px", borderTop: "1px solid var(--line)", paddingTop: "10px" }} data-testid="order-total">
+          <span>賣出 <b class="num down">{fmtMoney(sell)}</b>（{sells.length} 檔）</span>
+          <span>買進 <b class="num up">{fmtMoney(buy)}</b>（{buys.length} 檔）</span>
+          {holds.length > 0 && <span>不動 {holds.length} 檔</span>}
+          <span>下單後現金約 <b class="num">{fmtMoney(cash - buy * 1.001425 + sell * (1 - 0.001425 - 0.003))}</b></span>
+        </div>
+        <div class="muted" style={{ fontSize: "11.5px", lineHeight: 1.6 }}>{buys.some((r) => r.rank) ? "買進依 Claude 的優先順位排（黑底數字，1＝最先買），只想先買幾檔就從上往下買。" : ""}參考價是最新價{planAsOf ? `（Claude 建議依 ${prettyW(planAsOf)} 收盤）` : ""}；「如果…」的條件一部分是 Claude 寫的，其餘是 App 規則自動算的（限價 +1.5% 不追、停損、保本）。成交後到下方「填入實際成交」記錄。</div>
+      </>}
       {!hasPlan && <button class="btn secondary block" disabled={!canAsk} onClick={onAsk} data-testid="order-ask">{busy ? "Claude 建議產生中…" : "請 Claude 建議要買哪些（約台幣 20～30 元）"}</button>}
     </div>
   );
@@ -1225,25 +1249,36 @@ function RealEtfScreen() {
   };
 
   const alerts = etfAlertsNow();
-  // 今日下單清單：買進＝最近一份還沒填成交的 Claude 建議（依現金調整股數）；賣出＝Claude 建議的賣出＋規則檢查的出場／減碼
+  // 今日下單清單：買進＝最近一份還沒填成交的 Claude 建議（依現金調整股數）；賣出＝Claude 建議的賣出＋規則檢查的出場／減碼；
+  // 每檔附「為什麼」與「如果…就…」條件（Claude 寫的優先，不足的用規則自動補，最多 3 句）；其他持股列在「不動」
+  const top3 = (a: string[], b: string[]) => [...a.slice(0, 2), ...b].filter((x, i, arr) => arr.indexOf(x) === i).slice(0, 3);
   const orderRows: OrderRow[] = (() => {
     const nm = (c: string) => getState().prices[c]?.name ?? pos.find((p) => p.code === c)?.name ?? c;
     const out: OrderRow[] = [];
-    if (showFill && fillParsed) for (const it of fitBudget(fillParsed.items, livePx, v.cash))
-      out.push({ side: it.side, code: it.code, name: nm(it.code), shares: it.shares, price: livePx(it.code), stop: it.side === "buy" ? it.stop : undefined, reason: it.reason, src: fillSrc === "pro" ? "Claude Pro" : "Claude", rank: it.side === "buy" ? it.rank : undefined });
+    if (showFill && fillParsed) for (const it of fitBudget(fillParsed.items, livePx, v.cash)) {
+      const px = livePx(it.code), ck = checks.find((c) => c.code === it.code);
+      const auto = it.side === "buy" ? (px ? buyConds(px, it.stop) : []) : sellConds({ ref: px, byRule: false, stopHit: !!ck && !!px && px <= ck.stop, held: ck?.shares, shares: it.shares, stop: ck?.stop });
+      const half = it.side === "sell" && ck && it.shares < ck.shares ? `減碼（持有 ${ck.shares.toLocaleString()} 股）` : undefined;
+      out.push({ side: it.side, code: it.code, name: nm(it.code), shares: it.shares, price: px, stop: it.side === "buy" ? it.stop : undefined, reason: it.reason, src: fillSrc === "pro" ? "Claude Pro 建議" : "Claude 建議", rank: it.side === "buy" ? it.rank : undefined, cond: top3(it.cond ?? [], auto), note: half });
+    }
     for (const c of checks) {
       if (out.some((r) => r.code === c.code)) continue;
-      if (c.verdict === "出場") out.push({ side: "sell", code: c.code, name: c.name, shares: c.shares, price: c.price, reason: c.reasons[0], src: "規則" });
-      else if (c.verdict === "減碼") out.push({ side: "sell", code: c.code, name: c.name, shares: Math.max(1, Math.floor(c.shares / 2)), price: c.price, reason: c.reasons[0], src: "規則" });
+      if (c.verdict !== "出場" && c.verdict !== "減碼") continue;
+      const shares = c.verdict === "出場" ? c.shares : Math.max(1, Math.floor(c.shares / 2));
+      out.push({ side: "sell", code: c.code, name: c.name, shares, price: c.price, reason: c.reasons.join("；"), src: `App 規則檢查：${c.verdict}`, cond: sellConds({ ref: c.price, byRule: true, stopHit: !!c.price && c.price <= c.stop, held: c.shares, shares, stop: c.stop }), note: c.verdict === "減碼" ? "減碼一半" : undefined });
     }
     // 賣出在前；買進依 Claude 給的優先順位（1＝最先買）
     return out.sort((a, b) => (a.side !== b.side ? (a.side === "sell" ? -1 : 1) : (a.rank ?? 999) - (b.rank ?? 999)));
   })();
+  const holdRows: HoldRow[] = checks.filter((c) => !orderRows.some((r) => r.code === c.code)).map((c) => {
+    const note = showFill ? fillParsed?.holds?.[c.code] : undefined;
+    return { code: c.code, name: c.name, shares: c.shares, price: c.price, stop: c.stop, why: note?.why || c.reasons[0], cond: top3(note?.cond ?? [], holdConds({ price: c.price, avgCost: c.avgCost, stop: c.stop, verdict: c.verdict })), src: note ? `Claude 建議＋App 規則檢查：${c.verdict}` : `App 規則檢查：${c.verdict}` };
+  });
 
   return (
     <div>
       <ProResume />
-      <OrderList rows={orderRows} cash={v.cash} asOf={st.asOf} planAsOf={fillSrc === "pro" ? etf.proAsOf : etf.planAsOf} hasPlan={showFill} canAsk={!busy && !!st.apiKey && st.twReady} busy={busy} onAsk={ask} />
+      <OrderList rows={orderRows} holds={holdRows} cash={v.cash} asOf={st.asOf} planAsOf={fillSrc === "pro" ? etf.proAsOf : etf.planAsOf} hasPlan={showFill} canAsk={!busy && !!st.apiKey && st.twReady} busy={busy} onAsk={ask} />
       <AlertCard alerts={alerts} onAsk={ask} canAsk={!busy && !!st.apiKey && st.twReady} asOf={st.asOf} />
       <div class="card stack" data-testid="etf-summary">
         <div class="row" style={{ justifyContent: "space-between" }}>

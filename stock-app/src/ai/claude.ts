@@ -386,9 +386,9 @@ ${cand}
 4. 風險與出場條件（一兩句）
 不要長篇新聞摘要。
 
-最後附上 JSON 區塊（trades 只放要執行的買賣，買進依優先順序排、每筆買進都要給順位 rank（1＝最先買）與停損價 stop${review ? "；stops 放「不動」持股要更新的停損價，不用更新就省略" : ""}）：
+最後附上 JSON 區塊（trades 只放要執行的買賣，買進依優先順序排、每筆買進都要給順位 rank（1＝最先買）與停損價 stop；每筆都加 cond：1～2 句「如果…→…」的條件，例如開盤跳空怎麼辦、到什麼價位調整${review ? "；holds 放「不動」持股，每檔一句續抱理由 why 與 1～2 句條件 cond" : ""}${review ? "；stops 放「不動」持股要更新的停損價，不用更新就省略" : ""}）：
 \`\`\`json
-{"trades":[{"code":"2330","side":"buy","shares":10,"stop":900,"rank":1,"reason":"一句話"}]${review ? ',"stops":{"2454":1100}' : ""}}
+{"trades":[{"code":"2330","side":"buy","shares":10,"stop":900,"rank":1,"reason":"一句話","cond":["開盤高於 1,020 → 不追"]}]${review ? ',"stops":{"2454":1100},"holds":{"2454":{"why":"一句話","cond":["跌破 1,100 → 賣出"]}}' : ""}}
 \`\`\``;
   if (!forApp) return prompt;
   return `${prompt}

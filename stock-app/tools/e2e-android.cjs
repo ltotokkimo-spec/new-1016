@@ -170,6 +170,17 @@ function check(ok, name, detail = "") {
     const selTxt = await page.$eval('[data-testid="intraday-chart"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
     check(/\d\d:\d\d・量 [\d,]+ 張/.test(selTxt), "點即時走勢看那一分鐘的時間與成交量", selTxt.slice(0, 120));
   }
+  // 預先載入：等幾秒讓背景抓好下一檔，切過去走勢圖馬上出來；再切回原本那檔也不用重新下載
+  if (intra.ok && (await page.$('[data-testid="detail-next"]'))) {
+    await sleep(6000);
+    const ready = async () => { const t0 = Date.now(); const ok = await page.waitForFunction(() => document.querySelector('[data-testid="intraday-chart"]')?.getAttribute("data-loaded") === "1" || !!document.querySelector('[data-testid="intra-empty"]'), null, { timeout: 15000 }).then(() => true).catch(() => false); return ok ? Date.now() - t0 : -1; };
+    await page.click('[data-testid="detail-next"]');
+    const tNext = await ready();
+    await page.click('[data-testid="detail-prev-stock"]');
+    const tBack = await ready();
+    log("走勢圖切換等待（毫秒）", JSON.stringify({ tNext, tBack }));
+    check(tNext >= 0 && tNext < 1500 && tBack >= 0 && tBack < 1500, "走勢圖預先載入：切到下一檔、再切回來都不用等下載", JSON.stringify({ tNext, tBack }));
+  }
   // 切到 K 線圖（會記住，之後打開個股都是 K 線圖，下面的檢查照舊）
   await page.click('[data-testid="tab-k"]');
   await page.waitForFunction(() => document.querySelector("canvas.chart") || /走勢圖下載失敗|沒有走勢資料/.test(document.body.innerText), null, { timeout: 120000 });

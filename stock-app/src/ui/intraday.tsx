@@ -1,7 +1,7 @@
 // 個股「即時走勢」：當日分時圖（價格線以昨收為界，上紅下綠；白色均價線；下方每分鐘成交量），
 // 左軸價格、右軸漲跌幅；點圖看那一分鐘。資料：Yahoo 1 分鐘線＋證交所即時價（每 30 秒）。
 import { useEffect, useMemo, useState } from "preact/hooks";
-import { avgLine, clockOf, fetchIntraday, mergeLive, SESSION_MIN, type Intraday } from "../data/intraday";
+import { avgLine, cachedIntraday, clockOf, loadIntraday, mergeLive, SESSION_MIN, type Intraday } from "../data/intraday";
 import { marketOpen } from "../data/twLive";
 import { isEtf } from "../data/tw";
 import { limitDownPrice, limitUpPrice } from "../lib/limit";
@@ -10,20 +10,30 @@ import { fmtPrice } from "./common";
 
 const ticksByCode = new Map<string, { date: string; ticks: { m: number; price: number }[] }>(); // 這次開 App 以來記下的即時價
 
-export function IntradayChart({ code, market }: { code: string; market: string }) {
+const maxAge = () => (marketOpen() ? 50_000 : 30 * 60_000);
+
+/** 預先載入（清單裡前後幾檔）：背景抓好放快取，切過去馬上有圖 */
+export function prefetchIntraday(list: { code: string; market: string }[]) {
+  for (const x of list) if (x.market === "TWSE" || x.market === "TPEX") loadIntraday(getFetcher(), x.code, x.market, maxAge()).catch(() => {});
+}
+
+export function IntradayChart({ code, market, prefetch }: { code: string; market: string; prefetch?: { code: string; market: string }[] }) {
   const live = useStore((s) => s.live[code]);
-  const [yd, setYd] = useState<Intraday | null>(null);
+  const [yd, setYd] = useState<Intraday | null>(() => cachedIntraday(code)?.d ?? null);
   const [err, setErr] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !cachedIntraday(code)?.at);
   const [sel, setSel] = useState<number | null>(null);
   useEffect(() => {
     let alive = true;
+    // 換股票時先拿快取（有就馬上畫，沒有才顯示載入中），再視需要背景更新
+    const c = cachedIntraday(code);
+    setYd(c?.d ?? null); setSel(null); setErr(""); setLoading(!c?.at);
     const pull = async () => {
-      try { const d = await fetchIntraday(getFetcher(), code, market); if (alive) { setYd(d); setErr(""); } }
+      try { const d = await loadIntraday(getFetcher(), code, market, maxAge()); if (alive) { setYd(d); setErr(""); } }
       catch (e: any) { if (alive) setErr(String(e?.message ?? e).slice(0, 80)); }
       finally { if (alive) setLoading(false); }
     };
-    pull();
+    pull().then(() => { if (alive && prefetch?.length) prefetchIntraday(prefetch); });
     const t = setInterval(() => { if (marketOpen()) pull(); }, 60_000); // 盤中每分鐘重抓分鐘線（即時價另外每 30 秒更新）
     return () => { alive = false; clearInterval(t); };
   }, [code]);

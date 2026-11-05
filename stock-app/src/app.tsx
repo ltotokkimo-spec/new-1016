@@ -39,7 +39,7 @@ export function App() {
   const nextIdx = detail && detailList.length > 1 ? detailList.findIndex((x) => x.code === detail.code && x.market === detail.market) : -1;
   const next = nextIdx >= 0 ? detailList[(nextIdx + 1) % detailList.length] : undefined;
   const prev = nextIdx >= 0 ? detailList[(nextIdx - 1 + detailList.length) % detailList.length] : undefined;
-  const nav = next && prev ? { pos: nextIdx + 1, total: detailList.length, next: () => setDetail(next), prev: () => setDetail(prev), nextName: `${next.name} ${next.code}`, prevName: `${prev.name} ${prev.code}` } : undefined;
+  const nav = next && prev ? { pos: nextIdx + 1, total: detailList.length, next: () => setDetail(next), prev: () => setDetail(prev), nextName: `${next.name} ${next.code}`, prevName: `${prev.name} ${prev.code}`, around: [1, -1, 2].map((k) => detailList[(nextIdx + k + detailList.length) % detailList.length]).filter((x, i, a) => x && x.code !== detail?.code && a.findIndex((y) => y.code === x.code) === i).map((x) => ({ code: x.code, market: x.market })) } : undefined;
   const { tw, etf, us, loaded } = useStore((s) => ({ tw: s.tw, etf: s.etf, us: s.us, loaded: s.loaded, aiEtf: s.aiEtf, prices: s.prices }));
   // 已抓到今天的台股即時價（盤中、試搓或收盤後）：頂端日期顯示今天，不要停在上個交易日的收盤
   const liveToday = useStore((s): { date: string; final: boolean } | null => {

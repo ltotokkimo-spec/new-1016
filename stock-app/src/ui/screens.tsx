@@ -341,7 +341,7 @@ export function SectorsScreen({ market, setMarket, pick }: { market: Market; set
 
 // ---------------- 個股詳細 ----------------
 /** nav：切換到同一份清單的上一檔／下一檔（選股的台股、ETF、美股，持股，ETF 排行）；頭尾循環 */
-export interface DetailNav { pos: number; total: number; prev: () => void; next: () => void; prevName: string; nextName: string }
+export interface DetailNav { pos: number; total: number; prev: () => void; next: () => void; prevName: string; nextName: string; around?: { code: string; market: string }[] }
 export function StockDetail({ s, onClose, nav }: { s: Scored; onClose: () => void; nav?: DetailNav }) {
   const { holdings, apiKey, reports } = useStore((st) => ({ holdings: st.holdings, apiKey: st.settings.apiKey, reports: st.reports }));
   const [bars, setBars] = useState<CandleBar[] | null>(null);
@@ -464,7 +464,7 @@ export function StockDetail({ s, onClose, nav }: { s: Scored; onClose: () => voi
       </div>
       <div class="card">
         {chartTab === "intra" && s.market !== "US"
-          ? <IntradayChart code={s.code} market={s.market} />
+          ? <IntradayChart code={s.code} market={s.market} prefetch={nav?.around} />
           : chartTab === "flow" && s.market !== "US"
           ? (bars ? <FlowsPanel code={s.code} market={s.market === "TPEX" ? "TPEX" : "TWSE"} bars={bars} livePrice={lq?.price} /> : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>)
           : shownBars ? (shownBars.length > 1 ? <>

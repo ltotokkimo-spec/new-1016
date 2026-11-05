@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { avgLine, fetchIntraday, intradayUrl, intradayUrlTw, mergeLive, minuteOf, parseIntraday } from "../src/data/intraday";
+import { avgLine, cachedIntraday, clearIntradayCache, fetchIntraday, loadIntraday, intradayUrl, intradayUrlTw, mergeLive, minuteOf, parseIntraday } from "../src/data/intraday";
 
 // 台北 09:00 = UTC 01:00；2026-11-04
 const t0 = Date.UTC(2026, 10, 4, 1, 0) / 1000;
@@ -56,6 +56,19 @@ describe("即時走勢（分時）", () => {
   it("累計成交量換成每分鐘的量", () => {
     const d = parseIntraday(yahoo(Array(10).fill(100), [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]))!;
     expect(d.points.map((p) => p.vol)).toEqual([10, 10, 10, 10, 10, 10, 10, 10, 10, 10]);
+  });
+  it("分時快取：期限內不重抓、同時的請求合併、過期才重抓", async () => {
+    clearIntradayCache();
+    let n = 0;
+    const f = async () => { n++; return yahoo([101, 102], [1, 1]); };
+    const [a, b] = await Promise.all([loadIntraday(f, "2330", "TWSE", 60_000), loadIntraday(f, "2330", "TWSE", 60_000)]);
+    expect(a).toBe(b);
+    const calls = n; // 兩個來源各一次
+    await loadIntraday(f, "2330", "TWSE", 60_000);
+    expect(n).toBe(calls);
+    expect(cachedIntraday("2330")?.d?.points.length).toBe(2);
+    await loadIntraday(f, "2330", "TWSE", 60_000, Date.now() + 61_000);
+    expect(n).toBe(calls * 2);
   });
   it("均價線是成交量加權", () => {
     expect(avgLine([{ m: 0, price: 100, vol: 1 }, { m: 1, price: 110, vol: 3 }, { m: 2, price: 120, vol: 0 }])).toEqual([100, 107.5, 107.5]);

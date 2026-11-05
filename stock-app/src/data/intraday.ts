@@ -106,3 +106,23 @@ export function avgLine(points: IntraPoint[]): number[] {
 }
 
 export const clockOf = (m: number) => `${String(9 + Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+
+/**
+ * 分時快取：同一檔在一段時間內不重抓（盤中 50 秒、非盤中 30 分鐘），同時間的重複請求合併成一次。
+ * 個股頁切到下一檔再切回來直接用快取；也用來預先載入清單裡前後幾檔。
+ */
+type CacheEntry = { at: number; d: (Intraday & { src?: string }) | null; p?: Promise<(Intraday & { src?: string }) | null> };
+const intraCache = new Map<string, CacheEntry>();
+export const cachedIntraday = (code: string) => intraCache.get(code);
+export function loadIntraday(fetcher: Fetcher, code: string, market: string, maxAgeMs: number, now = Date.now()): Promise<(Intraday & { src?: string }) | null> {
+  const c = intraCache.get(code);
+  if (c?.p) return c.p;
+  if (c && now - c.at < maxAgeMs) return Promise.resolve(c.d);
+  const p = fetchIntraday(fetcher, code, market).then(
+    (d) => { intraCache.set(code, { at: Date.now(), d }); return d; },
+    (e) => { if (c) intraCache.set(code, { at: c.at, d: c.d }); else intraCache.delete(code); throw e; },
+  );
+  intraCache.set(code, { at: c?.at ?? 0, d: c?.d ?? null, p });
+  return p;
+}
+export const clearIntradayCache = () => intraCache.clear();

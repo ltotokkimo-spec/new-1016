@@ -957,6 +957,21 @@ function check(ok, name, detail = "") {
   log("AAPL 24 小時行情", JSON.stringify(o1));
   await page.evaluate(() => document.querySelector('[data-testid="us-24h"]')?.scrollIntoView());
   await shot("06c-美股24小時行情");
+  // 美股「走勢（盤前後）」分頁：盤前／盤中／盤後三段分時（Yahoo 1 分鐘線含盤前盤後），看完切回 K 線圖（會記住）
+  if (await page.$('[data-testid="tab-intra"]')) {
+    await page.click('[data-testid="tab-intra"]');
+    const ui = await page.waitForFunction(() => {
+      const c = document.querySelector('[data-testid="us-intraday-chart"]'), e = document.querySelector('[data-testid="us-intra-empty"]');
+      if (!c && !e) return null;
+      const t = (q) => document.querySelector(q)?.innerText.replace(/\s+/g, " ") || "";
+      return { ok: !!c, pts: Number(c?.getAttribute("data-pts") || 0), head: t('[data-testid="us-intra-head"]'), sess: t('[data-testid="us-intra-sessions"]'), stats: t('[data-testid="us-intra-stats"]'), empty: e?.innerText || "", line: !!document.querySelector('[data-testid="us-intra-line"]') };
+    }, null, { timeout: 60000 }).then((h) => h.jsonValue()).catch(() => ({ ok: false, empty: "逾時" }));
+    log("美股即時走勢", JSON.stringify(ui));
+    await page.evaluate(() => document.querySelector('[data-testid="chart-tabs"]')?.scrollIntoView());
+    await shot("06c2-美股即時走勢");
+    check(ui.ok && ui.line && ui.pts >= 5 && /[\d,.]+ [▲▼]?[\d,.]+（[+-]\d+\.\d\d%）/.test(ui.head) && /盤前/.test(ui.sess) && /盤中/.test(ui.sess) && /盤後/.test(ui.sess) && /昨收 [\d,.]+/.test(ui.stats), "美股個股頁「走勢（盤前後）」：盤前／盤中／盤後分時圖與各時段漲跌", JSON.stringify(ui).slice(0, 300));
+    await page.click('[data-testid="tab-k"]').catch(() => {});
+  }
   const c24 = await page.$eval('[data-testid="us-24h-chg"]', (e) => e.innerText).catch(() => "");
   check(/[+-]\d+\.\d\d%（對照最近收盤 [\d,.]+）/.test(c24), "24 小時行情的漲跌對照最近收盤（和交易時段表一致）", c24);
   check(o1.chart && /OKX/.test(o1.title) && /24 小時最高 [\d,.]+/.test(o1.quote) && /24 小時最低 [\d,.]+/.test(o1.quote), "美股 24 小時行情：OKX xStock 報價與分時 K 線", JSON.stringify(o1));

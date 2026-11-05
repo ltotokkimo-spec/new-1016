@@ -26,7 +26,9 @@ describe("aiEtfPrompt 精簡版", () => {
     const p = aiEtfPrompt({ today: "2026/10/21", budget: 500000, cash: 400000, nav: 497000, holdings: [], candidates: [mk("2006", "鋼鐵", 83)] });
     expect(p).toContain("| 代號 | 名稱 | 產業 | 收盤 | 分數 | 週 | 月 | 外資5日 |");
     expect(p).toContain("| 2006 | 股2006 | 鋼鐵 | 100 | 83 | +1.0% | +5.0% | +1,500張 |");
-    expect(p).toMatch(/Markdown 表格，每檔一行，只放這 5 欄/);
+    expect(p).toMatch(/Markdown 表格，每檔一行，只放這 6 欄（手機螢幕窄）：\| 順位 \|/);
+    expect(p).toMatch(/依優先順序/);
+    expect(p).toMatch(/"rank":1/);
     expect(p).toMatch(/理由：每檔一行條列/);
     expect(p).not.toMatch(/買入｜|近1週|近1月/);
     expect(p).toMatch(/不超過 400 字/);

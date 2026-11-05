@@ -210,7 +210,7 @@ export function recordNav(etf: AiEtf, date: string, v: Valuation): AiEtf {
 }
 
 // ---------- Claude 建議的格式 ----------
-export interface PlanItem { code: string; side: "buy" | "sell"; shares: number; reason: string; stop?: number }
+export interface PlanItem { code: string; side: "buy" | "sell"; shares: number; reason: string; stop?: number; rank?: number } // rank＝買進優先順位（1＝最先買）
 
 /** 從 index 開始的 { 或 [ 往後找到對應的結尾（字串裡的括號不算），找不到回傳 -1 */
 function matchEnd(text: string, start: number): number {
@@ -262,8 +262,14 @@ export function parsePlan(text: string): { items: PlanItem[]; body: string; stop
         shares: Math.max(0, Math.round(Number(x.shares))),
         reason: String(x.reason ?? ""),
         stop: Number(x.stop) > 0 ? Number(x.stop) : undefined,
+        rank: Number(x.rank ?? x.priority ?? x.順位) > 0 ? Math.round(Number(x.rank ?? x.priority ?? x.順位)) : undefined,
       }))
       .filter((x: PlanItem) => x.code && x.shares > 0);
+    // 買進優先順位：有給 rank 就照 rank 排，沒給的照 JSON 裡的先後（Claude 被要求依優先順序列）；賣出排在前面
+    const buys = items.filter((x) => x.side === "buy").map((x, i) => ({ x, i }));
+    buys.sort((a, b) => (a.x.rank ?? 1e3 + a.i) - (b.x.rank ?? 1e3 + b.i));
+    buys.forEach(({ x }, k) => { x.rank = k + 1; });
+    items = [...items.filter((x) => x.side === "sell"), ...buys.map((b) => b.x)];
     // 停損價：每筆買進的 stop，加上檢視時對「不動」持股另外給的 stops
     if (j && typeof j.stops === "object" && !Array.isArray(j.stops))
       for (const [k, v] of Object.entries(j.stops)) if (Number(v) > 0) stops[k.trim().toUpperCase()] = Number(v);

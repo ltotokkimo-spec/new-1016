@@ -55,11 +55,16 @@ describe("Claude 建議清單", () => {
   it("取出 JSON 清單並移除 JSON 區塊", () => {
     const { items, body } = parsePlan(reply);
     expect(items).toEqual([
-      { code: "2330", side: "buy", shares: 30, reason: "龍頭" },
-      { code: "6515", side: "buy", shares: 5, reason: "探針卡" },
+      { code: "2330", side: "buy", shares: 30, reason: "龍頭", rank: 1 },
+      { code: "6515", side: "buy", shares: 5, reason: "探針卡", rank: 2 },
     ]);
     expect(body).not.toMatch(/```/);
     expect(body).toMatch(/非投資建議/);
+  });
+  it("買進優先順位：有 rank 照 rank 排、沒有照先後；賣出排在最前面", () => {
+    const t = '```json\n{"trades":[{"code":"1216","side":"buy","shares":1,"rank":2},{"code":"2412","side":"buy","shares":1,"rank":1},{"code":"2409","side":"sell","shares":5},{"code":"5880","side":"buy","shares":1}]}\n```';
+    const { items } = parsePlan(t);
+    expect(items.map((x) => `${x.code}:${x.rank ?? "-"}`)).toEqual(["2409:-", "2412:1", "1216:2", "5880:3"]);
   });
   it("壞掉或沒有 JSON 時只回傳文字", () => {
     expect(parsePlan("沒有清單").items).toEqual([]);

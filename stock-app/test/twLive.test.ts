@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 import { isLiveNow, livePolling, liveUrl, marketOpen, parseLive, preOpen } from "../src/data/twLive";
 
 describe("證交所即時報價", () => {
+  it("鎖跌停（沒有買單、這筆沒有成交價）：用賣價第一個有價格的（跌停價），不是昨收；今日不會顯示 0%", () => {
+    const q = parseLive({ msgArray: [{ c: "6515", n: "穎崴", z: "-", y: "4020.0000", o: "3995", h: "3995", l: "3620", u: "4420", w: "3620", v: "464", a: "0.0000_3620.0000_3640.0000_", b: "-", d: "20261105", t: "13:17:57" }] })["6515"];
+    expect(q.price).toBe(3620);
+    expect(q.limit).toBe("down");
+    const up = parseLive({ msgArray: [{ c: "1111", z: "-", y: "100", u: "110", w: "90", a: "-", b: "110.0000_109.5000_", d: "20261105", t: "10:00:00" }] })["1111"];
+    expect(up.price).toBe(110);
+    expect(up.limit).toBe("up");
+  });
   it("網址同時問上市與上櫃", () => {
     expect(liveUrl(["2330", "6488"])).toContain("ex_ch=tse_2330.tw|otc_2330.tw|tse_6488.tw|otc_6488.tw");
   });

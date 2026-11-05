@@ -25,6 +25,8 @@ export const liveUrl = (codes: string[]) =>
 export const parseNum = (s: unknown) => { const n = parseFloat(String(s ?? "")); return Number.isFinite(n) && n > 0 ? n : NaN; };
 const num = parseNum;
 const first = (s: unknown) => num(String(s ?? "").split("_")[0]);
+/** 五檔裡第一個有價格的（賣價第一檔常是 0＝市價單，要跳過） */
+const firstPos = (s: unknown) => { for (const x of String(s ?? "").split("_")) { const n = num(x); if (Number.isFinite(n)) return n; } return NaN; };
 
 export function parseLive(json: any): Record<string, LiveQuote> {
   const out: Record<string, LiveQuote> = {};
@@ -37,7 +39,11 @@ export function parseLive(json: any): Record<string, LiveQuote> {
     const trialPx = num(m.pz);
     const trial = !Number.isFinite(price) && Number.isFinite(trialPx) && time < "09:00:00";
     if (trial) price = trialPx;
+    // 這一筆快照沒有成交價（z 是 "-"，盤中很常見）：先用最佳買價；鎖跌停時沒有買單，改用最佳賣價（就是跌停價），
+    // 都沒有才用昨收——以前直接退回昨收，鎖跌停的股票會顯示「今日 0.0%」
     if (!Number.isFinite(price)) price = first(m.b);
+    if (!Number.isFinite(price)) price = firstPos(m.b);
+    if (!Number.isFinite(price)) price = firstPos(m.a);
     if (!Number.isFinite(price)) price = prev;
     if (!code || !Number.isFinite(price)) continue;
     // 漲停價 u、跌停價 w 是證交所給的；沒有就用規則算（ETF 代號 00 開頭，升降單位不同）

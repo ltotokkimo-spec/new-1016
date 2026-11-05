@@ -56,6 +56,24 @@ export function Progress({ p }: { p?: { done: number; total: number; label: stri
   );
 }
 
+/** 個股頁切換箭頭：金色三角形，光帶往箭頭方向掃（左箭頭往左、右箭頭往右）；手機開「減少動態效果」時不動 */
+const reduceMotion = () => { try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
+export function FlowArrow({ dir }: { dir: "l" | "r" }) {
+  const id = `navflow-${dir}`, l = dir === "l";
+  return (
+    <svg viewBox="0 0 24 24" width="60" height="60" aria-hidden="true" data-testid={`flow-arrow-${dir}`}>
+      <defs>
+        <linearGradient id={id} x1={l ? 1 : -1} x2={l ? 2 : 0} y1="0" y2="0">
+          <stop offset="0" stop-color="#7a4f00" /><stop offset=".42" stop-color="#b77a07" /><stop offset=".5" stop-color="#fff2b8" /><stop offset=".58" stop-color="#b77a07" /><stop offset="1" stop-color="#7a4f00" />
+          {!reduceMotion() && <animate attributeName="x1" values={l ? "1;-1" : "-1;1"} dur="1.8s" repeatCount="indefinite" />}
+          {!reduceMotion() && <animate attributeName="x2" values={l ? "2;0" : "0;2"} dur="1.8s" repeatCount="indefinite" />}
+        </linearGradient>
+      </defs>
+      <path d={l ? "M17 3 L5 12 L17 21 Z" : "M7 3 L19 12 L7 21 Z"} fill={`url(#${id})`} />
+    </svg>
+  );
+}
+
 /** titleNav：個股頁「◀ 名稱／代號 ▶」切換上一檔、下一檔（名稱與代號分兩行置中） */
 export interface TitleNav { name: string; sub: string; prev: () => void; next: () => void; prevName: string; nextName: string; pos: number; total: number }
 export function Sheet({ title, onClose, children, actions, titleNav }: { title: string; onClose: () => void; children: ComponentChildren; actions?: ComponentChildren; titleNav?: TitleNav }) {
@@ -71,16 +89,16 @@ export function Sheet({ title, onClose, children, actions, titleNav }: { title: 
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6" /></svg>
         </button>
         {titleNav ? (
-          <div class="row" style={{ flex: 1, minWidth: 0, alignItems: "center", justifyContent: "center", gap: "2px" }} data-testid="detail-nav">
-            <button class="iconbtn" style={{ border: 0, background: "none", flex: "none" }} aria-label={`上一檔：${titleNav.prevName}`} title={`上一檔：${titleNav.prevName}`} onClick={titleNav.prev} data-testid="detail-prev-stock">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M15 5l-8 7 8 7z" /></svg>
+          <div class="row" style={{ flex: 1, minWidth: 0, alignItems: "center", justifyContent: "center", gap: "0" }} data-testid="detail-nav">
+            <button class="iconbtn navarrow" aria-label={`上一檔：${titleNav.prevName}`} title={`上一檔：${titleNav.prevName}`} onClick={titleNav.prev} data-testid="detail-prev-stock">
+              <FlowArrow dir="l" />
             </button>
             <div style={{ minWidth: 0, textAlign: "center", flex: "0 1 auto" }}>
               <h2 style={{ flex: "none", lineHeight: 1.25 }}>{titleNav.name} <span class="num" style={{ display: "block", fontSize: "15px", fontWeight: 600 }}>{titleNav.sub}</span></h2>
               <div class="muted num" style={{ fontSize: "10.5px", lineHeight: 1.2 }} data-testid="detail-pos">{titleNav.pos}/{titleNav.total}</div>
             </div>
-            <button class="iconbtn" style={{ border: 0, background: "none", flex: "none" }} aria-label={`下一檔：${titleNav.nextName}`} title={`下一檔：${titleNav.nextName}`} onClick={titleNav.next} data-testid="detail-next">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M9 5l8 7-8 7z" /></svg>
+            <button class="iconbtn navarrow" aria-label={`下一檔：${titleNav.nextName}`} title={`下一檔：${titleNav.nextName}`} onClick={titleNav.next} data-testid="detail-next">
+              <FlowArrow dir="r" />
             </button>
           </div>
         ) : <h2>{title}</h2>}

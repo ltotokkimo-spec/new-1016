@@ -291,6 +291,11 @@ function check(ok, name, detail = "") {
   // 版面：箭頭在股票名稱左右兩側（◀ 名稱／代號 ▶），名稱與代號分兩行
   const lay = await page.evaluate(() => { const r = (q) => document.querySelector(q)?.getBoundingClientRect(); const p = r('[data-testid="detail-prev-stock"]'), h = r(".sheet h2"), n = r('[data-testid="detail-next"]'); return p && h && n ? { left: p.right <= h.left + 1, right: n.left >= h.right - 1, sameRow: Math.abs((p.top + p.bottom) / 2 - (n.top + n.bottom) / 2) < 4, twoLines: h.height > 30 } : null; });
   check(!!lay && lay.left && lay.right && lay.sameRow && lay.twoLines, "個股頁股票名稱左右各一個箭頭（名稱、代號分兩行）", JSON.stringify(lay));
+  // 箭頭：60 大小的金色流光三角形，左箭頭光往左、右箭頭光往右（11/05 改）
+  const arr = await page.evaluate(() => ["l", "r"].map((d) => { const e = document.querySelector(`[data-testid="flow-arrow-${d}"]`); const a = e?.querySelector("animate"); return e ? { w: Math.round(e.getBoundingClientRect().width), fill: e.querySelector("path")?.getAttribute("fill"), anim: a?.getAttribute("values") || "" } : null; }));
+  log("切換箭頭", JSON.stringify(arr));
+  await shot("03b-流光金箭頭");
+  check(!!arr[0] && !!arr[1] && arr[0].w >= 56 && arr[1].w >= 56 && /navflow-l/.test(arr[0].fill) && arr[0].anim === "1;-1" && arr[1].anim === "-1;1", "個股頁切換箭頭是放大的流光金（左箭頭光往左、右箭頭光往右）", JSON.stringify(arr));
   // 上一檔：回到原本那一檔；中間顯示「第幾檔／共幾檔」
   const pos1 = await page.$eval('[data-testid="detail-pos"]', (e) => e.textContent).catch(() => "");
   if (await page.$('[data-testid="detail-prev-stock"]')) await page.click('[data-testid="detail-prev-stock"]');

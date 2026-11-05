@@ -28,7 +28,7 @@ export function IntradayChart({ code, market }: { code: string; market: string }
     return () => { alive = false; clearInterval(t); };
   }, [code]);
   // 記下即時價：Yahoo 落後時，這幾分鐘用它補
-  if (live?.time && live.price > 0 && live.date) {
+  if (live?.time && live.time >= "09:00" && !live.trial && live.price > 0 && live.date) {
     const rec = ticksByCode.get(code);
     const r = rec && rec.date === live.date ? rec : { date: live.date, ticks: [] };
     const [h, mm] = live.time.split(":").map(Number);
@@ -67,15 +67,16 @@ export function IntradayChart({ code, market }: { code: string; market: string }
     pts.forEach((p, i) => { if (Math.abs(x(p.m) - mx) < Math.abs(x(pts[best].m) - mx)) best = i; });
     setSel(best === pts.length - 1 ? null : best);
   };
+  const md = d.date.length === 8 ? `${d.date.slice(4, 6)}/${d.date.slice(6)} ` : "";
   const lag = d.lastYahoo !== undefined && last.m - d.lastYahoo > 1;
   return (
-    <div data-testid="intraday-chart">
+    <div data-testid="intraday-chart" data-date={d.date} data-yahoo={yd ? yd.points.length : 0} data-err={err}>
       <div class="row num" style={{ justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: "2px 10px" }}>
         <span data-testid="intra-head">
           <b class={cc} style={{ fontSize: "20px" }}>{fmtPrice(cur.price)}</b>{" "}
           <span class={cc}>{chg > 0 ? "▲" : chg < 0 ? "▼" : ""}{fmtPrice(Math.abs(chg))}（{pct >= 0 ? "+" : ""}{(pct * 100).toFixed(2)}%）</span>
         </span>
-        <span class="muted" style={{ fontSize: "12px" }}>{sel !== null ? `${clockOf(cur.m)}・量 ${Math.round(cur.vol / 1000).toLocaleString()} 張` : `${clockOf(last.m)}${marketOpen() ? " 盤中" : " 收盤"}`}</span>
+        <span class="muted" style={{ fontSize: "12px" }}>{sel !== null ? `${clockOf(cur.m)}・量 ${Math.round(cur.vol / 1000).toLocaleString()} 張` : `${md}${clockOf(last.m)}${marketOpen() ? " 盤中" : " 收盤"}`}</span>
       </div>
       <div class="row num muted" style={{ fontSize: "12px", gap: "4px 12px", flexWrap: "wrap", marginTop: "2px" }} data-testid="intra-stats">
         <span>昨收 {fmtPrice(ref)}</span><span>最高 <span class={hi > ref ? "up" : hi < ref ? "down" : ""}>{fmtPrice(hi)}</span></span><span>最低 <span class={lo > ref ? "up" : lo < ref ? "down" : ""}>{fmtPrice(lo)}</span></span>

@@ -152,7 +152,7 @@ function check(ok, name, detail = "") {
   const intra = await page.waitForFunction(() => {
     const c = document.querySelector('[data-testid="intraday-chart"]'), e = document.querySelector('[data-testid="intra-empty"]');
     if (!c && !e) return null;
-    return { ok: !!c, head: document.querySelector('[data-testid="intra-head"]')?.innerText.replace(/\s+/g, " ") || "", stats: document.querySelector('[data-testid="intra-stats"]')?.innerText.replace(/\s+/g, " ") || "", note: document.querySelector('[data-testid="intra-note"]')?.innerText || "", empty: e?.innerText || "", pts: (document.querySelector('[data-testid="intra-line"]')?.getAttribute("d")?.match(/[ML]/g) || []).length, avg: !!document.querySelector('[data-testid="intra-avg"]'), tabOn: document.querySelector('[data-testid="tab-intra"]')?.getAttribute("aria-pressed") };
+    return { ok: !!c, head: document.querySelector('[data-testid="intra-head"]')?.innerText.replace(/\s+/g, " ") || "", stats: document.querySelector('[data-testid="intra-stats"]')?.innerText.replace(/\s+/g, " ") || "", note: document.querySelector('[data-testid="intra-note"]')?.innerText || "", empty: e?.innerText || "", pts: (document.querySelector('[data-testid="intra-line"]')?.getAttribute("d")?.match(/[ML]/g) || []).length, avg: !!document.querySelector('[data-testid="intra-avg"]'), date: c?.getAttribute("data-date"), yahoo: c?.getAttribute("data-yahoo"), err: c?.getAttribute("data-err"), tabOn: document.querySelector('[data-testid="tab-intra"]')?.getAttribute("aria-pressed") };
   }, null, { timeout: 60000 }).then((h) => h.jsonValue()).catch(() => ({ ok: false, empty: "逾時" }));
   log("即時走勢", JSON.stringify(intra));
   await shot("03a-即時走勢");

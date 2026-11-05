@@ -56,6 +56,7 @@ export function minuteOf(time: string): number {
  */
 export function mergeLive(d: Intraday | null, live: { date: string; time?: string; price: number; prevClose: number; volume?: number } | undefined, ticks: { m: number; price: number }[] = []): Intraday | null {
   if (!live || !(live.price > 0) || !live.time) return d;
+  if (live.time < "09:00") return d; // 開盤前證交所回的是「今天日期＋昨收」，不是成交：照舊畫上一個交易日的走勢
   if (d && d.date && live.date && live.date !== d.date) {
     // 即時價是新的一天（Yahoo 還是昨天）：只畫即時價
     if (live.date > d.date) d = null; else return d;

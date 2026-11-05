@@ -35,6 +35,10 @@ describe("即時走勢（分時）", () => {
     expect(r.points).toEqual([{ m: 10, price: 99, vol: 0 }]);
     expect(minuteOf("14:30:00")).toBe(270);
   });
+  it("開盤前（07:50）證交所回今天日期＋昨收：不覆蓋上一個交易日的走勢", () => {
+    const d = parseIntraday(yahoo([101, 102], [1000, 1000]))!;
+    expect(mergeLive(d, { date: "20261105", time: "07:50:00", price: 102, prevClose: 102 })).toBe(d);
+  });
   it("均價線是成交量加權", () => {
     expect(avgLine([{ m: 0, price: 100, vol: 1 }, { m: 1, price: 110, vol: 3 }, { m: 2, price: 120, vol: 0 }])).toEqual([100, 107.5, 107.5]);
   });

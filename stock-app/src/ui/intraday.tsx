@@ -70,7 +70,7 @@ export function IntradayChart({ code, market }: { code: string; market: string }
   const md = d.date.length === 8 ? `${d.date.slice(4, 6)}/${d.date.slice(6)} ` : "";
   const lag = d.lastYahoo !== undefined && last.m - d.lastYahoo > 1;
   return (
-    <div data-testid="intraday-chart" data-date={d.date} data-yahoo={yd ? yd.points.length : 0} data-src={(yd as any)?.src ?? ""} data-err={err}>
+    <div data-testid="intraday-chart" data-date={d.date} data-yahoo={yd ? yd.points.length : 0} data-src={(yd as any)?.src ?? ""} data-err={err} data-loaded={loading ? "0" : "1"}>
       <div class="row num" style={{ justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: "2px 10px" }}>
         <span data-testid="intra-head">
           <b class={cc} style={{ fontSize: "20px" }}>{fmtPrice(cur.price)}</b>{" "}
@@ -108,7 +108,7 @@ export function IntradayChart({ code, market }: { code: string; market: string }
         <text x={x(SESSION_MIN)} y={vy0 + 12} font-size="10" text-anchor="end" fill="var(--muted)">13:30</text>
       </svg>
       <div class="muted" style={{ fontSize: "11.5px", lineHeight: 1.6 }} data-testid="intra-note">
-        昨收以上紅色、以下綠色；灰線是均價（成交量加權）。點圖看那一分鐘，再點最右邊回到最新。盤中每 30 秒用證交所即時價更新{lag ? `（分鐘線到 ${clockOf(d.lastYahoo!)}，之後是即時價）` : ""}。
+        {loading ? "分鐘線下載中，先畫即時價…" : ""}昨收以上紅色、以下綠色；灰線是均價（成交量加權）。點圖看那一分鐘，再點最右邊回到最新。盤中每 30 秒用證交所即時價更新{lag ? `（分鐘線到 ${clockOf(d.lastYahoo!)}，之後是即時價）` : ""}。
       </div>
     </div>
   );

@@ -152,6 +152,7 @@ function check(ok, name, detail = "") {
   const intra = await page.waitForFunction(() => {
     const c = document.querySelector('[data-testid="intraday-chart"]'), e = document.querySelector('[data-testid="intra-empty"]');
     if (!c && !e) return null;
+    if (c && c.getAttribute("data-loaded") !== "1") return null; // 等分鐘線下載完（盤中會先畫即時價那一點）
     return { ok: !!c, head: document.querySelector('[data-testid="intra-head"]')?.innerText.replace(/\s+/g, " ") || "", stats: document.querySelector('[data-testid="intra-stats"]')?.innerText.replace(/\s+/g, " ") || "", note: document.querySelector('[data-testid="intra-note"]')?.innerText || "", empty: e?.innerText || "", pts: (document.querySelector('[data-testid="intra-line"]')?.getAttribute("d")?.match(/[ML]/g) || []).length, avg: !!document.querySelector('[data-testid="intra-avg"]'), date: c?.getAttribute("data-date"), yahoo: c?.getAttribute("data-yahoo"), src: c?.getAttribute("data-src"), err: c?.getAttribute("data-err"), tabOn: document.querySelector('[data-testid="tab-intra"]')?.getAttribute("aria-pressed") };
   }, null, { timeout: 60000 }).then((h) => h.jsonValue()).catch(() => ({ ok: false, empty: "逾時" }));
   log("即時走勢", JSON.stringify(intra));

@@ -8,7 +8,7 @@ import { limitDownPrice, limitUpPrice } from "../lib/limit";
 import { getFetcher, useStore } from "../store";
 import { fmtPrice } from "./common";
 
-const ticksByCode = new Map<string, { date: string; ticks: { m: number; price: number }[] }>(); // 這次開 App 以來記下的即時價
+const ticksByCode = new Map<string, { date: string; ticks: { m: number; price: number; cum?: number }[] }>(); // 這次開 App 以來記下的即時價（含累計成交量）
 
 const maxAge = () => (marketOpen() ? 50_000 : 30 * 60_000);
 
@@ -43,7 +43,7 @@ export function IntradayChart({ code, market, prefetch }: { code: string; market
     const r = rec && rec.date === live.date ? rec : { date: live.date, ticks: [] };
     const [h, mm] = live.time.split(":").map(Number);
     const m = Math.min(SESSION_MIN, (h - 9) * 60 + mm);
-    if (m >= 0 && !r.ticks.some((x) => x.m === m)) r.ticks.push({ m, price: live.price });
+    if (m >= 0) { const k = r.ticks.findIndex((x) => x.m === m); const t = { m, price: live.price, cum: live.volume }; if (k >= 0) r.ticks[k] = t; else r.ticks.push(t); }
     ticksByCode.set(code, r);
   }
   const d = useMemo(() => mergeLive(yd, live && !live.trial ? live : undefined, ticksByCode.get(code)?.ticks ?? []), [yd, live?.price, live?.time, live?.volume]);
@@ -56,11 +56,13 @@ export function IntradayChart({ code, market, prefetch }: { code: string; market
   const hi = Math.max(...pts.map((p) => p.price)), lo = Math.min(...pts.map((p) => p.price));
   const dev = Math.max(Math.abs(hi - ref), Math.abs(lo - ref), ref * 0.01) * 1.12;
   const top = ref + dev, bot = ref - dev;
-  const W = 340, H = 170, VH = 44, padL = 44, padR = 40, padT = 8, gap = 14;
+  const W = 340, H = 170, VH = 60, padL = 44, padR = 40, padT = 8, gap = 14;
   const x = (m: number) => padL + (m / SESSION_MIN) * (W - padL - padR);
   const y = (p: number) => padT + ((top - p) / (top - bot)) * (H - padT);
   const line = (vs: number[]) => pts.map((p, i) => `${i ? "L" : "M"}${x(p.m).toFixed(1)},${y(vs[i]).toFixed(1)}`).join("");
-  const maxV = Math.max(1, ...pts.map((p) => p.vol));
+  const est = d.est ?? [];
+  const maxV = Math.max(1, ...pts.map((p) => p.vol), ...est.map((e) => e.vol));
+  const lastVol = pts[pts.length - 1].vol;
   const vy0 = H + gap + VH;
   const last = pts[pts.length - 1];
   const cur = sel !== null ? pts[sel] : last;
@@ -80,7 +82,7 @@ export function IntradayChart({ code, market, prefetch }: { code: string; market
   const md = d.date.length === 8 ? `${d.date.slice(4, 6)}/${d.date.slice(6)} ` : "";
   const lag = d.lastYahoo !== undefined && last.m - d.lastYahoo > 1;
   return (
-    <div data-testid="intraday-chart" data-date={d.date} data-yahoo={yd ? yd.points.length : 0} data-src={(yd as any)?.src ?? ""} data-err={err} data-loaded={loading ? "0" : "1"}>
+    <div data-testid="intraday-chart" data-date={d.date} data-yahoo={yd ? yd.points.length : 0} data-src={(yd as any)?.src ?? ""} data-twerr={yd?.twErr ?? ""} data-err={err} data-loaded={loading ? "0" : "1"}>
       <div class="row num" style={{ justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: "2px 10px" }}>
         <span data-testid="intra-head">
           <b class={cc} style={{ fontSize: "20px" }}>{fmtPrice(cur.price)}</b>{" "}
@@ -90,7 +92,7 @@ export function IntradayChart({ code, market, prefetch }: { code: string; market
       </div>
       <div class="row num muted" style={{ fontSize: "12px", gap: "4px 12px", flexWrap: "wrap", marginTop: "2px" }} data-testid="intra-stats">
         <span>昨收 {fmtPrice(ref)}</span><span>最高 <span class={hi > ref ? "up" : hi < ref ? "down" : ""}>{fmtPrice(hi)}</span></span><span>最低 <span class={lo > ref ? "up" : lo < ref ? "down" : ""}>{fmtPrice(lo)}</span></span>
-        <span>均價 {fmtPrice(avg[avg.length - 1])}</span><span>總量 {Math.round(totalVol / 1000).toLocaleString()} 張</span>
+        <span>均價 {fmtPrice(avg[avg.length - 1])}</span><span>總量 {Math.round(Math.max(totalVol + est.reduce((a, e) => a + e.vol, 0), live?.volume ?? 0) / 1000).toLocaleString()} 張</span><span data-testid="intra-lastvol">單量 {Math.round(lastVol / 1000).toLocaleString()} 張</span>
         <span>漲停 <span class="up">{fmtPrice(up)}</span>・跌停 <span class="down">{fmtPrice(dn)}</span></span>
       </div>
       <svg viewBox={`0 0 ${W} ${vy0 + 16}`} width="100%" role="img" aria-label="即時走勢" onClick={pick} style={{ touchAction: "pan-y", marginTop: "6px" }}>
@@ -113,12 +115,16 @@ export function IntradayChart({ code, market, prefetch }: { code: string; market
         {loI >= 0 && lo < ref && <text x={Math.min(W - padR - 20, Math.max(padL + 16, x(pts[loI].m)))} y={Math.min(H - 2, y(lo) + 11)} font-size="10" text-anchor="middle" fill="var(--fg)">{fmtPrice(lo)}</text>}
         <circle cx={x(cur.m)} cy={y(cur.price)} r="3" fill={chg >= 0 ? "var(--up)" : "var(--down)"} />
         {sel !== null && <line x1={x(cur.m)} x2={x(cur.m)} y1={padT} y2={vy0} stroke="var(--fg)" stroke-opacity="0.5" />}
-        {pts.map((p, i) => { const h = (p.vol / maxV) * VH; const pr = i ? pts[i - 1].price : ref; return h > 0 ? <rect key={p.m} x={x(p.m) - 0.6} y={vy0 - h} width="1.2" height={h} fill={p.price >= pr ? "var(--up)" : "var(--down)"} opacity="0.75" /> : null; })}
+        <line x1={padL} x2={W - padR} y1={vy0} y2={vy0} stroke="var(--line)" />
+        <text x={padL - 3} y={vy0 - VH + 9} font-size="10" text-anchor="end" fill="var(--muted)">{Math.round(maxV / 1000).toLocaleString()}</text>
+        <text x={padL - 3} y={vy0 - 2} font-size="10" text-anchor="end" fill="var(--muted)">量</text>
+        {est.map((e) => { const h = (e.vol / maxV) * VH; return <rect key={`e${e.m}`} x={x(e.m) - 0.6} y={vy0 - h} width="1.2" height={h} fill="var(--muted)" opacity="0.35" data-testid="intra-est" />; })}
+        {pts.map((p, i) => { const h = (p.vol / maxV) * VH; const pr = i ? pts[i - 1].price : ref; return h > 0 ? <rect key={p.m} data-testid="intra-vol" x={x(p.m) - 0.6} y={vy0 - h} width="1.2" height={h} fill={p.price >= pr ? "var(--up)" : "var(--down)"} opacity="0.75" /> : null; })}
         {[0, 60, 120, 180, 240].map((m) => <text key={m} x={x(m)} y={vy0 + 12} font-size="10" text-anchor={m === 0 ? "start" : "middle"} fill="var(--muted)">{9 + m / 60}</text>)}
         <text x={x(SESSION_MIN)} y={vy0 + 12} font-size="10" text-anchor="end" fill="var(--muted)">13:30</text>
       </svg>
       <div class="muted" style={{ fontSize: "11.5px", lineHeight: 1.6 }} data-testid="intra-note">
-        {loading ? "分鐘線下載中，先畫即時價…" : ""}昨收以上紅色、以下綠色；灰線是均價（成交量加權）。點圖看那一分鐘，再點最右邊回到最新。盤中每 30 秒用證交所即時價更新{lag ? `（分鐘線到 ${clockOf(d.lastYahoo!)}，之後是即時價）` : ""}。
+        {loading ? "分鐘線下載中，先畫即時價…" : ""}昨收以上紅色、以下綠色；灰線是均價（成交量加權）；下方是每分鐘成交量（張），「單量」是最新一分鐘{est.length ? "，淡色量柱是分鐘線還沒到的那幾分鐘、平均估算" : ""}。點圖看那一分鐘，再點最右邊回到最新。盤中每 30 秒用證交所即時價更新{lag ? `（分鐘線到 ${clockOf(d.lastYahoo!)}，之後是即時價）` : ""}。
       </div>
     </div>
   );

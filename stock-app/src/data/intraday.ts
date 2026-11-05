@@ -3,7 +3,7 @@
 import type { Fetcher } from "../lib/net";
 
 export interface IntraPoint { m: number; price: number; vol: number } // m＝09:00 起第幾分鐘（0～270），vol＝這一分鐘的成交股數
-export interface Intraday { date: string; prevClose: number; points: IntraPoint[]; lastYahoo?: number } // lastYahoo＝Yahoo 最後一筆的分鐘
+export interface Intraday { date: string; prevClose: number; points: IntraPoint[]; lastYahoo?: number; est?: { m: number; vol: number }[]; twErr?: string } // est＝沒有分鐘資料的幾分鐘、平均分攤的估計量 // lastYahoo＝Yahoo 最後一筆的分鐘
 
 export const SESSION_MIN = 270; // 09:00～13:30
 
@@ -57,8 +57,9 @@ export async function fetchIntraday(fetcher: Fetcher, code: string, market: stri
     return null;
   }
   const newer = (x: Intraday, y: Intraday) => x.date !== y.date ? x.date > y.date : (x.lastYahoo ?? -1) >= (y.lastYahoo ?? -1);
+  const twErr = tw.status === "rejected" ? String((tw.reason as any)?.message ?? tw.reason).slice(0, 60) : a ? "" : "格式不符或沒有資料";
   if (a && (!b || newer(a, b))) return { ...a, src: "tw" };
-  return { ...b!, src: "intl" };
+  return { ...b!, src: "intl", twErr };
 }
 
 /** 即時價的分鐘（09:00 起），收盤後的時間算 270 */
@@ -70,28 +71,38 @@ export function minuteOf(time: string): number {
 
 /**
  * 把證交所即時價接到分時圖最後：同一天才接；那一分鐘已經有就換成最新價，沒有就新增一點。
- * 成交量：即時的累計成交股數減掉圖上已有的合計，剩下的算在最新一分鐘（不會是負的）。
- * ticks：這次打開畫面以來每 30 秒記下的即時價（Yahoo 落後時，中間這段用它補）。
+ * ticks：這次打開畫面以來記下的即時價（含當時的累計成交股數 cum）。Yahoo 落後時，中間這段用它補。
+ * 成交量：每次即時價的累計量減掉上一次（或圖上分鐘線的合計），就是這段時間的量；
+ * 如果中間隔了好幾分鐘沒有資料，這段量平均分到那幾分鐘（est，畫成淡色量柱），不會全部堆在最後一根。
  */
-export function mergeLive(d: Intraday | null, live: { date: string; time?: string; price: number; prevClose: number; volume?: number } | undefined, ticks: { m: number; price: number }[] = []): Intraday | null {
+export function mergeLive(d: Intraday | null, live: { date: string; time?: string; price: number; prevClose: number; volume?: number } | undefined, ticks: { m: number; price: number; cum?: number }[] = []): Intraday | null {
   if (!live || !(live.price > 0) || !live.time) return d;
   if (live.time < "09:00") return d; // 開盤前證交所回的是「今天日期＋昨收」，不是成交：照舊畫上一個交易日的走勢
   if (d && d.date && live.date && live.date !== d.date) {
     // 即時價是新的一天（Yahoo 還是昨天）：只畫即時價
     if (live.date > d.date) d = null; else return d;
   }
-  const base: Intraday = d ? { ...d, points: [...d.points] } : { date: live.date, prevClose: live.prevClose, points: [] };
+  const base: Intraday = d ? { ...d, points: [...d.points], est: [] } : { date: live.date, prevClose: live.prevClose, points: [], est: [] };
   if (!(base.prevClose > 0)) base.prevClose = live.prevClose;
   const last = base.points.at(-1)?.m ?? -1;
-  for (const t of ticks) if (t.m > last && !base.points.some((p) => p.m === t.m)) base.points.push({ m: t.m, price: t.price, vol: 0 });
-  base.points.sort((a, b) => a.m - b.m);
+  let cum = base.points.reduce((a, p) => a + p.vol, 0), prevM = last;
+  const add = (m: number, price: number, c?: number) => {
+    let v = c && c > cum ? c - cum : 0;
+    if (c && c > cum) cum = c;
+    if (v > 0 && m - prevM > 1) { // 中間沒資料的幾分鐘：量平均分攤（估計）
+      const per = v / (m - prevM);
+      for (let k = Math.max(0, prevM + 1); k < m; k++) base.est!.push({ m: k, vol: per });
+      v = per;
+    }
+    const i = base.points.findIndex((p) => p.m === m);
+    if (i >= 0) base.points[i] = { m, price, vol: base.points[i].vol + v };
+    else base.points.push({ m, price, vol: v });
+    prevM = Math.max(prevM, m);
+  };
+  for (const t of [...ticks].sort((x, y) => x.m - y.m)) if (t.m > last) add(t.m, t.price, t.cum);
   const m = minuteOf(live.time);
-  if (!Number.isFinite(m)) return base;
-  const have = base.points.reduce((a, p) => a + p.vol, 0);
-  const extra = live.volume && live.volume > have ? live.volume - have : 0;
-  const i = base.points.findIndex((p) => p.m === m);
-  if (i >= 0) base.points[i] = { m, price: live.price, vol: base.points[i].vol + extra };
-  else if (m > (base.points.at(-1)?.m ?? -1)) base.points.push({ m, price: live.price, vol: extra });
+  if (Number.isFinite(m) && m >= (base.points.at(-1)?.m ?? -1)) add(m, live.price, live.volume);
+  base.points.sort((x, y) => x.m - y.m);
   return base;
 }
 

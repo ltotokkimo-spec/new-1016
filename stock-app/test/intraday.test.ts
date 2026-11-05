@@ -70,6 +70,17 @@ describe("即時走勢（分時）", () => {
     await loadIntraday(f, "2330", "TWSE", 60_000, Date.now() + 61_000);
     expect(n).toBe(calls * 2);
   });
+  it("即時成交量：用累計量相減算每分鐘的量；分鐘線落後的那幾分鐘平均分攤（估計），不全堆在最後一根", () => {
+    const d = parseIntraday(yahoo([101, 102], [1000, 1000]))!; // 09:00、09:01，合計 2000
+    const r = mergeLive(d, { date: "20261104", time: "09:06:10", price: 104, prevClose: 100, volume: 9000 }, [{ m: 4, price: 103, cum: 6000 }])!;
+    // 09:01→09:04 多了 4000 股：09:02、09:03 各 1333（估計），09:04 也 1333；09:04→09:06 多 3000：09:05 估 1500、09:06 1500
+    expect(r.points.map((p) => p.m)).toEqual([0, 1, 4, 6]);
+    expect(Math.round(r.points[2].vol)).toBe(1333);
+    expect(r.points[3].vol).toBe(1500);
+    expect(r.est!.map((e) => e.m)).toEqual([2, 3, 5]);
+    const total = r.points.reduce((a, p) => a + p.vol, 0) + r.est!.reduce((a, e) => a + e.vol, 0);
+    expect(Math.round(total)).toBe(9000);
+  });
   it("均價線是成交量加權", () => {
     expect(avgLine([{ m: 0, price: 100, vol: 1 }, { m: 1, price: 110, vol: 3 }, { m: 2, price: 120, vol: 0 }])).toEqual([100, 107.5, 107.5]);
   });

@@ -164,7 +164,14 @@ function check(ok, name, detail = "") {
     "個股頁預設「走勢」分頁：當日分時線、均價線、漲跌幅、昨收／高低／總量／漲跌停", JSON.stringify(intra).slice(0, 300));
   // 點圖看某一分鐘
   if (intra.ok && intra.pts >= 5) { // 剛開盤只有一兩點時，點到的就是最新那點，沒有「那一分鐘」可看
-    const box = await page.$eval('[data-testid="intraday-chart"] svg', (e) => { const r = e.getBoundingClientRect(); return { x: r.left + r.width * 0.3, y: r.top + r.height * 0.4 }; });
+    // 點在分時線的第 2 個點上（剛開盤時圖的大部分還沒資料，點固定位置會點到最新那點）
+    const box = await page.$eval('[data-testid="intraday-chart"] svg', (e) => {
+      const r = e.getBoundingClientRect(), vb = e.viewBox.baseVal;
+      const d = e.querySelector('[data-testid="intra-line"]')?.getAttribute("d") || "";
+      const xs = [...d.matchAll(/[ML](-?[\d.]+),/g)].map((m) => Number(m[1]));
+      const vx = xs[1] ?? xs[0] ?? vb.width * 0.3;
+      return { x: r.left + (vx / vb.width) * r.width, y: r.top + r.height * 0.4 };
+    });
     await page.mouse.click(box.x, box.y);
     await sleep(300);
     const selTxt = await page.$eval('[data-testid="intraday-chart"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");

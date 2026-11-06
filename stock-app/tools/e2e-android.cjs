@@ -874,7 +874,7 @@ function check(ok, name, detail = "") {
   await page.click('[data-testid="stop-edit"]');
   await page.fill('[data-testid="stop-input"]', String(Math.ceil(Number(px2330) * 1.05)));
   await page.click('[data-testid="stop-save"]');
-  await page.waitForSelector('[data-testid="etf-alerts"]', { timeout: 10000 });
+  await page.waitForFunction(() => /跌破停損價/.test(document.querySelector('[data-testid="etf-alerts"]')?.innerText || ""), null, { timeout: 15000 }).catch(() => {});
   const alertText = await page.$eval('[data-testid="etf-alerts"]', (e) => e.innerText.replace(/\s+/g, " "));
   log("停損提醒", alertText);
   check(/台積電/.test(alertText) && /跌破停損價/.test(alertText), "自組ETF 跌破停損價會提醒");

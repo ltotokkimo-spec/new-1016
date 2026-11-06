@@ -119,6 +119,14 @@ function check(ok, name, detail = "") {
   log("標題雷達", JSON.stringify(radar));
   check(!!radar && radar.fan === 38 && radar.blips === 4 && /240,\s*178,\s*62|183,\s*122,\s*7/.test(radar.ring) && /radar-spin/.test(radar.anim), "標題雷達：金色圓環、長殘影扇形、4 個紅色目標點、旋轉動畫", JSON.stringify(radar));
   await shot("02-選股-台股");
+  // 搜尋不限評等：預設在「買入」，查不在買入名單的股票（台積電 2330）也要找得到；查完清掉
+  await page.fill(".search", "2330");
+  await page.waitForFunction(() => [...document.querySelectorAll(".list .item")].some((e) => /2330/.test(e.innerText)), null, { timeout: 10000 }).catch(() => {});
+  const srch = await page.evaluate(() => ({ rows: [...document.querySelectorAll(".list .item")].map((e) => e.innerText.replace(/\s+/g, " ").slice(0, 60)), title: [...document.querySelectorAll(".section-title")].map((e) => e.innerText).find((t) => /搜尋/.test(t)) || "" }));
+  log("搜尋 2330", JSON.stringify(srch));
+  check(srch.rows.some((r) => /台積電 2330/.test(r)) && /搜尋「2330」・全部評等/.test(srch.title), "選股搜尋不限評等：在「買入」頁也查得到不在名單的股票", JSON.stringify(srch).slice(0, 200));
+  await page.fill(".search", "");
+  await sleep(500);
 
   // 剛轉強：回測資料裡的訊號（站上 20 日線 5% 以內、MACD 剛翻正、RSI<70、法人買超）
   const hasTurn = await page.waitForSelector('[data-testid="turn-chip"]', { timeout: 60000 }).then(() => true).catch(() => false);

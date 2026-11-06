@@ -62,7 +62,8 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
   const list = useMemo(() => {
     const t = q.trim().toUpperCase();
     return ms.scored.filter((s) =>
-      (filter === "全部" || (filter === "剛轉強" ? turnMap.has(s.code) : s.rating === filter)) && (!sector || s.sector === sector) &&
+      // 有輸入搜尋字時不限評等與族群：想查哪一檔都找得到（例如在「買入」頁查聯電）
+      (t || filter === "全部" || (filter === "剛轉強" ? turnMap.has(s.code) : s.rating === filter)) && (t || !sector || s.sector === sector) &&
       (!t || s.code.toUpperCase().includes(t) || s.name.toUpperCase().includes(t)))
       // ETF 依最近一個交易日的成交量排序（其他市場維持依分數）；用固定的收盤量，盤中不會一直重新排列
       .sort(market === "ETF" ? (a, b) => (b.volume ?? 0) - (a.volume ?? 0) : () => 0);
@@ -105,13 +106,13 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
       {ms.status === "ready" && (
         <>
           <div class="section-title">
-            <span>{sector ? `${sector}・` : ""}{filter === "全部" ? (market === "ETF" ? "全部 ETF" : "全部股票") : filter === "剛轉強" ? "剛轉強" : `評等「${filter}」`}・{market === "ETF" ? `依成交量排序${ms.asOf ? `（${prettyW(ms.asOf)}）` : ""}` : "依分數排序"}</span>
+            <span>{q.trim() ? `搜尋「${q.trim()}」・全部評等` : <>{sector ? `${sector}・` : ""}{filter === "全部" ? (market === "ETF" ? "全部 ETF" : "全部股票") : filter === "剛轉強" ? "剛轉強" : `評等「${filter}」`}・{market === "ETF" ? `依成交量排序${ms.asOf ? `（${prettyW(ms.asOf)}）` : ""}` : "依分數排序"}</>}</span>
             <span>{list.length} 檔</span>
           </div>
           {market === "US" && <UsLookup q={q} found={list.length > 0} />}
           {list.length === 0 ? (
             <div class="empty">
-              {filter === "剛轉強" && !q && !sector ? `${prettyW(turn?.asOf ?? "")}收盤沒有股票同時符合「剛轉強」的條件。` : filter === "買入" && !q && !sector ? <>今天沒有股票同時符合「分數 70 以上、外資買超、一週漲幅未過熱」。<br /><button class="chip" style={{ marginTop: "10px" }} onClick={() => setFilter("觀望")}>看「觀望」名單</button></> : "沒有符合的股票"}
+              {filter === "剛轉強" && !q && !sector ? `${prettyW(turn?.asOf ?? "")}收盤沒有股票同時符合「剛轉強」的條件。` : filter === "買入" && !q && !sector ? <>今天沒有股票同時符合「分數 70 以上、外資買超、一週漲幅未過熱」。<br /><button class="chip" style={{ marginTop: "10px" }} onClick={() => setFilter("觀望")}>看「觀望」名單</button></> : q.trim() ? `找不到「${q.trim()}」。這裡只列當日成交金額 5 千萬以上的股票，冷門股可能不在清單；也可以試試股票代號。` : "沒有符合的股票"}
             </div>
           ) : (
             <div class="list">

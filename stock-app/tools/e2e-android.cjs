@@ -766,6 +766,16 @@ function check(ok, name, detail = "") {
   check(realRow.rows.some((r) => /^我的實單/.test(r)) && /我的實單」是你實際的買賣，從第一筆成交/.test(realRow.note), "總評比加入「我的實單」（依實際第一筆成交日起算）", JSON.stringify(realRow.rows.filter((r) => /我的實單/.test(r))));
   await page.click('[data-testid="mode-real"]');
   await page.waitForSelector('[data-testid="etf-summary"]', { timeout: 30000 });
+  // 目前持股點進去看個股資訊（和選股同一個個股頁），左右箭頭在持股之間切換；看完關掉回到我的實單
+  const posItem = await page.$('[data-testid="real-pos-item"] .name');
+  if (posItem) {
+    const want = await posItem.evaluate((e) => (e.innerText.match(/\b(\d{4,6}[A-Z]?)\b/) || [])[1] || "");
+    await posItem.click();
+    const sheet = await page.waitForFunction(() => document.querySelector(".sheet h2")?.textContent || "", null, { timeout: 15000 }).then((h) => h.jsonValue()).catch(() => "");
+    log("持股點進個股頁", JSON.stringify({ want, sheet }));
+    check(!!want && String(sheet).includes(want), "我的實單「目前持股」點一下打開那一檔的個股頁", JSON.stringify({ want, sheet }));
+    if (await page.$(".sheet")) { await page.click('.sheet header button[aria-label="返回"]'); await page.waitForFunction(() => !document.querySelector(".sheet"), null, { timeout: 5000 }).catch(() => {}); }
+  }
   // 中途存入／提領資金：存入 5 萬 → 投入本金 15 萬、現金多 5 萬、報酬率與總損益不變；刪掉這筆後恢復原狀（不影響後面的測試）
   const fsum = async () => page.evaluate(() => { const t = document.querySelector('[data-testid="etf-summary"]').innerText.replace(/\s+/g, " "); return { t: t.slice(0, 260), ret: (t.match(/報酬 ([+-]?[\d.]+%)/) || [])[1], pnl: (t.match(/總損益 ([+-]?[\d,]+)/) || [])[1], cash: (t.match(/現金 ([\d.]+) 萬/) || [])[1] }; });
   const fl0 = await fsum();

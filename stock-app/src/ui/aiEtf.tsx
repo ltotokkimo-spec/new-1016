@@ -1,7 +1,7 @@
 // 「自組ETF」分頁：請 Claude 建議要買什麼、買幾股，照著實際下單後填入成交，追蹤淨值並和 0050 比較。
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
-  LIVE_MS, addEtfFlow, removeEtfFlow, addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshTurn, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
+  LIVE_MS, findScored, addEtfFlow, removeEtfFlow, addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshTurn, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError, holdingsFromImage, shrinkImage } from "../ai/claude";
 import type { Scored } from "../engine/score";
@@ -640,7 +640,18 @@ function ManualTrade({ draft }: { draft?: SellDraft }) {
 }
 
 /** 自組 ETF 分頁：Claude 虛擬操作（預設）／我的實單紀錄 */
-export function AiEtfScreen() {
+/** 點持股打開個股頁（和選股、持股頁同一個畫面）；左右箭頭切換同一組持股的上一檔、下一檔 */
+let openStock: ((s: Scored, list?: Scored[]) => void) | undefined;
+const ignoreClick = (e: any) => !!(e.target as HTMLElement)?.closest?.("button,input,select,a,label,summary");
+function openPos(code: string, codes: string[], e?: any) {
+  if (e && ignoreClick(e)) return;
+  const s = findScored(code, "TW");
+  if (!s || !openStock) return;
+  openStock(s, codes.map((c) => findScored(c, "TW")).filter((x): x is Scored => !!x));
+}
+
+export function AiEtfScreen({ open }: { open?: (s: Scored, list?: Scored[]) => void } = {}) {
+  openStock = open;
   type Mode = "compare" | "virtual" | "watch" | "wide" | "regime" | "lead" | "ai" | "rule" | "turn" | "real";
   const [mode, setMode] = useState<Mode>(() => { try { const m = localStorage.getItem("aietfMode"); return m === "real" || m === "rule" || m === "turn" || m === "watch" || m === "wide" || m === "regime" || m === "lead" || m === "ai" || m === "compare" ? m : "virtual"; } catch { return "virtual"; } });
   const pick = (m: Mode) => { setMode(m); try { localStorage.setItem("aietfMode", m); } catch { /* 不重要 */ } };
@@ -1054,9 +1065,9 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
               const q = fresh(p.code);
               const label = q && !q.final && q.date === taipeiToday() ? `${q.trial ? "試搓" : "現價"} ${q.time.slice(0, 5)}` : "收盤";
               return (
-                <div class="item" style={{ cursor: "default" }}>
+                <div class="item" style={{ cursor: "pointer" }} onClick={(e) => openPos(p.code, pos.map((x) => x.code), e)} data-testid="pos-item">
                   <div style={{ minWidth: 0 }}>
-                    <div class="name">{p.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{p.code}</span></div>
+                    <div class="name">{p.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{p.code}</span> <span class="muted" style={{ fontWeight: 400 }}>›</span></div>
                     <div class="sub num" style={{ whiteSpace: "normal" }} data-testid="virtual-pos-line">{p.shares.toLocaleString()} 股・均價 {fmtPrice(p.avgCost)}・<TwdPnl shares={p.shares} avgCost={p.avgCost} price={c} /><span style={{ whiteSpace: "nowrap" }}>佔 {c ? `${((p.shares * c / val.nav) * 100).toFixed(1)}%` : "—"}</span></div>
                     {v.stops?.[p.code] && <div class="sub num">停損 {fmtPrice(v.stops[p.code])}</div>}
                   </div>
@@ -1329,9 +1340,9 @@ function RealEtfScreen() {
               const mv = px ? p.shares * px : NaN;
               const rating = etfRating(p.code);
               return (
-                <div class="item" style={{ cursor: "default" }}>
+                <div class="item" style={{ cursor: "pointer" }} onClick={(e) => openPos(p.code, pos.map((x) => x.code), e)} data-testid="real-pos-item">
                   <div style={{ minWidth: 0 }}>
-                    <div class="name">{p.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{p.code}</span></div>
+                    <div class="name">{p.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{p.code}</span> <span class="muted" style={{ fontWeight: 400 }}>›</span></div>
                     <div class="sub num" style={{ whiteSpace: "normal" }}>{p.shares.toLocaleString()} 股・均價 {fmtPrice(p.avgCost)}・<TwdPnl shares={p.shares} avgCost={p.avgCost} price={px} /><span style={{ whiteSpace: "nowrap" }}>佔 {Number.isFinite(mv) ? `${((mv / v.nav) * 100).toFixed(1)}%` : "—"}</span></div>
                     <div class="sub row" style={{ gap: "8px" }}><StopEdit p={p} stops={etf.stops} /><button class="btn secondary mini" onClick={() => setSellDraft({ code: p.code, shares: p.shares, price: px, n: Date.now() })} data-testid={`sell-btn-${p.code}`}>賣出</button>{rating && <span class={`pill ${rating === "買入" ? "buy" : rating === "離場" ? "exit" : "hold"}`} style={{ fontSize: "11px" }}>App {rating}</span>}</div>
                   </div>

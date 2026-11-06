@@ -101,7 +101,7 @@ export function App() {
         {tab === "picks" && <PicksScreen market={market} setMarket={setMarket} sector={sector} setSector={setSector} open={openDetail} />}
         {tab === "sectors" && <SectorsScreen market={market} setMarket={setMarket} pick={(s) => { setSector(s); setTab("picks"); }} />}
         {tab === "holdings" && <HoldingsScreen open={openDetail} />}
-        {tab === "aietf" && <AiEtfScreen />}
+        {tab === "aietf" && <AiEtfScreen open={openDetail} />}
         {tab === "macro" && <MacroScreen />}
         {tab === "etfrank" && <EtfRankScreen open={openDetail} />}
         {tab === "settings" && <SettingsScreen />}

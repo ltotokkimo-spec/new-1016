@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseTurnover, twTurnoverUrl } from "../src/data/twTurnover";
+import { parseTurnover, parseTurnoverLive, twTurnoverUrl } from "../src/data/twTurnover";
 
 // 證交所「每日市場成交資訊」FMTQIK 的格式（數字取自 2026 年 10 月官方資料）
 const OCT = {
@@ -26,5 +26,14 @@ describe("大盤成交金額（證交所每日市場成交資訊）", () => {
   });
   it("請求網址帶日期（同月份任何一天都回整個月）", () => {
     expect(twTurnoverUrl("20261022")).toBe("https://www.twse.com.tw/rwd/zh/afterTrading/FMTQIK?date=20261022&response=json");
+  });
+});
+
+describe("盤中即時成交金額（每 5 秒委託成交統計）", () => {
+  it("取最新一筆的累計成交金額（百萬元換成元）", () => {
+    const j = { stat: "OK", date: "20261106", fields: ["時間", "累計委託買進筆數", "累計委託買進數量", "累計委託賣出筆數", "累計委託賣出數量", "累計成交筆數", "累計成交數量", "累計成交金額"],
+      data: [["09:00:00", "1", "1", "1", "1", "0", "0", "0"], ["13:29:55", "1", "1", "1", "1", "3,612,341", "14,291,180", "883,396"], ["13:30:00", "1", "1", "1", "1", "3,699,032", "14,662,164", "926,024"]] };
+    expect(parseTurnoverLive(j)).toEqual({ date: "20261106", time: "13:30:00", value: 926024e6 });
+    expect(parseTurnoverLive({ stat: "很抱歉，沒有符合條件的資料!" })).toBeUndefined();
   });
 });

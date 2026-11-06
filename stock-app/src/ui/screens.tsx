@@ -3,7 +3,7 @@ import {
   LIVE_MS,
   findScored, getFetcher, getKv, getState, holdingViews, refreshEsb, refreshMacro, refreshTw, refreshUs, saveHoldings, saveReport,
   saveSettings, clearCache, useStore, usBars, recordSpend, estimatedBalance, checkForUpdate, installUpdate,
-  addUsSymbol, removeUsSymbol, refreshLive, refreshUsLive, refreshTwIndex, refreshFutures, refreshTurnover, refreshEtfNav, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
+  addUsSymbol, removeUsSymbol, refreshLive, refreshUsLive, refreshTwIndex, refreshFutures, refreshTurnover, refreshTurnoverLive, refreshEtfNav, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
 } from "../store";
 import type { Holding, Rating, Scored, SectorStat } from "../engine/score";
 import { type AiReport, analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, parseUrls, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
@@ -1350,12 +1350,13 @@ function IndexDetail({ name, label, onClose }: { name: string; label?: string; o
 export function MacroScreen() {
   const [idxOpen, setIdxOpen] = useState<string | null>(null);
   const [fngOpen, setFngOpen] = useState(false);
-  const st = useStore((s) => ({ macro: s.macro, fng: s.fng, tw: s.tw, us: s.us, idx: s.twIndices, breadth: s.twBreadth, idxLive: s.twIndexLive, fut: s.futures, turnover: s.twTurnover, etfs: s.usSectorEtfs, apiKey: s.settings.apiKey, reports: s.reports }));
+  const st = useStore((s) => ({ macro: s.macro, fng: s.fng, tw: s.tw, us: s.us, idx: s.twIndices, breadth: s.twBreadth, idxLive: s.twIndexLive, fut: s.futures, turnover: s.twTurnover, turnoverLive: s.twTurnoverLive, etfs: s.usSectorEtfs, apiKey: s.settings.apiKey, reports: s.reports }));
   // 台股指數盤中每 30 秒更新（收盤後 MIS 回傳收盤價，仍會顯示）
   useEffect(() => {
-    refreshTwIndex(); refreshFutures(); refreshTurnover();
+    refreshTwIndex(); refreshFutures(); refreshTurnover(); refreshTurnoverLive();
     const t = setInterval(() => { if (marketOpen()) refreshTwIndex(); refreshFutures(); refreshTurnover(); }, LIVE_MS);
-    return () => clearInterval(t);
+    const t2 = setInterval(refreshTurnoverLive, 60_000); // 盤中成交金額每分鐘更新
+    return () => { clearInterval(t); clearInterval(t2); };
   }, []);
   // 盤中即時優先，沒有再用快照的收盤
   const liveIdx = INDEX_CH.map((c) => st.idxLive[c.name]).filter(Boolean);
@@ -1390,7 +1391,16 @@ export function MacroScreen() {
               const w = st.idxLive["加權指數"];
               if (!w) return null;
               return <>
-                {st.turnover && <Metric k="成交金額" v={`${Math.round(st.turnover.value / 1e8).toLocaleString("zh-TW")} 億元`} c="" d={`${pretty(st.turnover.date)} 收盤・證交所公布的全市場合計`} />}
+                {(() => {
+                  // 今天官方收盤數字還沒出來前，用證交所每 5 秒成交統計的累計成交金額（上市）；下方附昨天收盤比較
+                  const lv = st.turnoverLive, off = st.turnover;
+                  const useLive = lv && lv.date === taipeiToday() && (!off || off.date < lv.date);
+                  if (useLive) {
+                    const done = lv!.time >= "13:30";
+                    return <div data-testid="turnover-live"><Metric k={done ? "成交金額（今日收盤）" : "成交金額（盤中即時）"} v={`${Math.round(lv!.value / 1e8).toLocaleString("zh-TW")} 億元`} c="" d={`${done ? "13:30 收盤" : `${lv!.time.slice(0, 5)} 累計`}・上市${off ? `；${pretty(off.date)} 全日 ${Math.round(off.value / 1e8).toLocaleString("zh-TW")} 億` : ""}`} /></div>;
+                  }
+                  return off ? <Metric k="成交金額" v={`${Math.round(off.value / 1e8).toLocaleString("zh-TW")} 億元`} c="" d={`${pretty(off.date)} 收盤・證交所公布的全市場合計`} /> : null;
+                })()}
                 {w.high !== undefined && w.low !== undefined && <Metric k="加權今日高低" v={`${w.high.toLocaleString("zh-TW", { maximumFractionDigits: 0 })} / ${w.low.toLocaleString("zh-TW", { maximumFractionDigits: 0 })}`} c="" d="最高 / 最低" />}
               </>;
             })()}

@@ -24,3 +24,23 @@ export function parseTurnover(json: any): Turnover | undefined {
   }
   return best;
 }
+
+// ---------- 盤中即時：證交所「每 5 秒委託成交統計」（MI_5MINS）的累計成交金額（上市，盤中每 5 秒一筆） ----------
+export const twTurnoverLiveUrl = () => `https://www.twse.com.tw/rwd/zh/afterTrading/MI_5MINS?response=json`;
+export interface TurnoverLive { date: string; time: string; value: number } // time：HH:MM:SS；value：累計成交金額（元）
+
+/** 取最新一筆的累計成交金額（單位：百萬元 → 元）；沒有資料回傳 undefined */
+export function parseTurnoverLive(json: any): TurnoverLive | undefined {
+  if (!json || json.stat !== "OK" || !Array.isArray(json.data) || !Array.isArray(json.fields)) return undefined;
+  const iT = json.fields.findIndex((f: string) => /時間/.test(f));
+  const iV = json.fields.findIndex((f: string) => /累計成交金額/.test(f));
+  if (iT < 0 || iV < 0) return undefined;
+  for (let k = json.data.length - 1; k >= 0; k--) {
+    const r = json.data[k], v = num(r[iV]);
+    if (!(v > 0)) continue;
+    const t = String(r[iT]).trim().replace(/^(\d{2})(\d{2})(\d{2})$/, "$1:$2:$3");
+    const date = /^\d{8}$/.test(String(json.date ?? "")) ? String(json.date) : "";
+    return { date, time: t, value: v * 1e6 };
+  }
+  return undefined;
+}

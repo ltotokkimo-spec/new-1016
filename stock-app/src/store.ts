@@ -8,7 +8,7 @@ import { UsLoader, type UsSnapshot } from "./data/usLoader";
 import { FNG_URL, parseFng, type Fng } from "./data/fng";
 import { cnbcUrl, isUsSymbol, MACRO_SYMBOLS, parseCnbcQuotes, US_UNIVERSE, type MacroQuote, type UsExtra } from "./data/us";
 import { indexLiveUrl, parseIndexLive, type IndexLive } from "./data/twIndexLive";
-import { twTurnoverUrl, parseTurnover } from "./data/twTurnover";
+import { twTurnoverUrl, parseTurnover, twTurnoverLiveUrl, parseTurnoverLive } from "./data/twTurnover";
 import { ETF_NAV_URL, parseEtfNav, type EtfNav } from "./data/etfNav";
 import { TAIFEX_URL, parseTaifex, taifexBody, type FutQuote } from "./data/taifexLive";
 import { scoreStocks, reviewHolding, type Holding, type HoldingView, type Scored, type SectorStat } from "./engine/score";
@@ -82,6 +82,7 @@ export interface State {
   etfNav: Record<string, EtfNav>; // ETF 即時預估淨值與折溢價（證交所，詳情頁用）
   etfNavAt?: number;
   twTurnover?: { date: string; value: number; at: number }; // 最新交易日大盤成交金額（元，證交所「每日市場成交資訊」官方數字）
+  twTurnoverLive?: { date: string; time: string; value: number; at: number }; // 盤中即時累計成交金額（元，證交所每 5 秒委託成交統計，上市）
   futures: { day?: FutQuote; night?: FutQuote; at?: number }; // 台指期近月日盤與夜盤（期交所 MIS）
   holdings: Holding[];
   settings: Settings;
@@ -387,6 +388,17 @@ export async function refreshTurnover() {
     if (!t) t = parseTurnover(await fetcher(twTurnoverUrl(addDays(`${today.slice(0, 6)}01`, -1))));
     if (t) set({ twTurnover: { ...t, at: Date.now() } });
   } catch { /* 成交金額只是輔助，抓不到就不顯示或沿用舊的 */ }
+}
+
+/** 盤中即時成交金額：開盤到收盤後 1 小時（官方每日資料出來前）每分鐘最多抓一次 */
+export async function refreshTurnoverLive() {
+  const now = Date.now(), d = new Date(now + 8 * 3600e3), m = d.getUTCHours() * 60 + d.getUTCMinutes(), wd = d.getUTCDay();
+  if (wd === 0 || wd === 6 || m < 9 * 60 || m > 14 * 60 + 30) return;
+  if (state.twTurnoverLive && now - state.twTurnoverLive.at < 55_000) return;
+  try {
+    const t = parseTurnoverLive(await fetcher(twTurnoverLiveUrl()));
+    if (t) set({ twTurnoverLive: { ...t, date: t.date || taipeiToday(), at: now } });
+  } catch { /* 只是輔助 */ }
 }
 
 /** 台指期近月：日盤與夜盤各抓一次，其中一個失敗不影響另一個 */

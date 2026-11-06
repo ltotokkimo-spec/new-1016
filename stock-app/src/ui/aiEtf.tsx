@@ -765,7 +765,8 @@ function UpdateStamp({ asOf, updatedAt, fetchedAt, lagging }: { asOf?: string; u
 function CompareView() {
   const ruleG = useStore((s) => s.rule), turnG = useStore((s) => s.turn);
   const myEtf = useStore((s) => s.aiEtf);
-  const realG = useMemo(() => realAsGroup(myEtf), [myEtf]);
+  const myPrices = useStore((s) => s.prices);
+  const realG = useMemo(() => { const v = valuate(myEtf, etfPrice); return realAsGroup(myEtf, { date: taipeiToday(), nav: Math.round(v.nav), bench: Math.round(v.bench) }); }, [myEtf, myPrices]);
   const virtual = useStore((s) => s.virtual), watch = useStore((s) => s.watch), wide = useStore((s) => s.wide), regime = useStore((s) => s.regime), leadG = useStore((s) => s.lead), aiG = useStore((s) => s.ai), steady = useStore((s) => s.steady);
   const [busy, setBusy] = useState(false);
   const reload = async () => { setBusy(true); await Promise.all([refreshVirtual(), refreshWatch(), refreshWide(), refreshRegime(), refreshLead(), refreshAi(), refreshRule(), refreshTurn(), refreshSteady()]); setBusy(false); };

@@ -74,12 +74,19 @@ export function compareGroups(groups: GroupInput[]): Comparison {
  * 我的實單 → 總評比的一組：從第一筆實際成交那天起算；中途存入／提領用時間加權報酬（和「我的實單」頁一樣），
  * 換算成「起始資金 × (1＋累積報酬)」，0050 對照也一樣，這樣才能和其他組用同一套方法比。
  */
-export function realAsGroup(etf: AiEtf | undefined): VirtualEtf | undefined {
-  if (!etf || !etf.trades.length || !etf.nav.length) return undefined;
+export function realAsGroup(etf: AiEtf | undefined, now?: NavPoint): VirtualEtf | undefined {
+  if (!etf || !etf.trades.length) return undefined;
   const start = etf.trades.map((t) => t.date).sort()[0];
-  const mine = twrSeries(etf.nav.map((p) => ({ date: p.date, v: p.nav })), etf.budget, flowsFor(etf.flows, "nav"));
-  const bench = twrSeries(etf.nav.map((p) => ({ date: p.date, v: p.bench })), etf.budget, flowsFor(etf.flows, "bench"));
-  const nav: NavPoint[] = etf.nav.map((p, i) => ({ date: p.date, nav: Math.round(etf.budget * (1 + mine[i].cum)), bench: Math.round(etf.budget * (1 + bench[i].cum)) })).filter((p) => p.date >= start);
+  // 加上「現在」的即時淨值：盤中剛成交的那天，淨值紀錄還停在前一天收盤（日期比成交日早），沒有這一點就看不到
+  const pts = [...etf.nav];
+  if (now && Number.isFinite(now.nav) && Number.isFinite(now.bench) && now.nav > 0) {
+    if (pts.length && pts.at(-1)!.date === now.date) pts[pts.length - 1] = now;
+    else if (!pts.length || pts.at(-1)!.date < now.date) pts.push(now);
+  }
+  if (!pts.length) return undefined;
+  const mine = twrSeries(pts.map((p) => ({ date: p.date, v: p.nav })), etf.budget, flowsFor(etf.flows, "nav"));
+  const bench = twrSeries(pts.map((p) => ({ date: p.date, v: p.bench })), etf.budget, flowsFor(etf.flows, "bench"));
+  const nav: NavPoint[] = pts.map((p, i) => ({ date: p.date, nav: Math.round(etf.budget * (1 + mine[i].cum)), bench: Math.round(etf.budget * (1 + bench[i].cum)) })).filter((p) => p.date >= start);
   if (!nav.length) return undefined;
   return { version: 1, start, asOf: nav.at(-1)!.date, updatedAt: 0, budget: etf.budget, trades: [], nav, pending: [], notes: [], last: {} };
 }

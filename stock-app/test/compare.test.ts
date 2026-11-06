@@ -66,6 +66,11 @@ describe("我的實單加入總評比", () => {
     expect(g.nav.at(-1)!.nav).toBe(110000); // +10%，存入的 5 萬不算報酬
     expect(g.nav.at(-1)!.bench).toBe(102000);
     expect(realAsGroup({ ...etf, trades: [] })).toBeUndefined();
+    // 盤中剛成交：淨值紀錄還停在前一天收盤，加上「現在」這一點才看得到
+    const fresh: any = { budget: 100000, trades: [{ id: "b", date: "20261106", code: "2412", name: "中華電", side: "buy", shares: 100, price: 160 }], nav: [{ date: "20261105", nav: 100000, bench: 100000 }] };
+    expect(realAsGroup(fresh)).toBeUndefined();
+    const g2 = realAsGroup(fresh, { date: "20261106", nav: 99800, bench: 99900 })!;
+    expect(g2.nav).toEqual([{ date: "20261106", nav: 99800, bench: 99900 }]);
     const other: any = { version: 1, start: "20261023", asOf: "20261105", updatedAt: 0, budget: 500000, trades: [], pending: [], notes: [], last: {}, nav: [{ date: "20261023", nav: 500000, bench: 500000 }, { date: "20261105", nav: 510000, bench: 505000 }] };
     const c = compareGroups([{ key: "x", label: "X", v: other }, { key: "real", label: "我的實單", v: g, noCommon: true }]);
     expect(c.commonFrom).toBe("20261023");

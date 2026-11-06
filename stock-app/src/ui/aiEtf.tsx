@@ -186,7 +186,7 @@ function NavChart({ points, budget, mine = "我的自組 ETF", flows }: { points
 }
 
 /** 資金水位：一條 0~100% 的橫條，看股票佔多少、目標在哪、還能不能加碼；下面一張小表列出規劃，目前所在的那一段標出來 */
-export function CashGauge({ plan, nav, marketValue, pendingNet = 0 }: { plan?: CashPlan; nav: number; marketValue: number; pendingNet?: number }) {
+export function CashGauge({ plan, nav, marketValue, pendingNet = 0, note, pendingLabel = "已排定委託" }: { plan?: CashPlan; nav: number; marketValue: number; pendingNet?: number; note?: string; pendingLabel?: string }) {
   const lv = cashLevel(plan, nav, marketValue);
   const pct = (x: number) => `${Math.round(x * 100)}%`;
   const after = nav > 0 ? (marketValue + pendingNet) / nav : 0; // 已排定的委託成交後
@@ -218,7 +218,7 @@ export function CashGauge({ plan, nav, marketValue, pendingNet = 0 }: { plan?: C
       </div>
       <div style={{ fontSize: "14px", lineHeight: 1.6 }} data-testid="cash-status">
         目標股票 <b class="num">{pct(lv.target)}</b>（{lv.label}）・<b>{status}</b>
-        {pendingNet !== 0 && <div class="muted" style={{ fontSize: "12px" }}>已排定委託 {pendingNet > 0 ? "淨買進" : "淨賣出"}約 {fmtMoney(Math.abs(pendingNet))}，成交後股票約 {pct(after)}（虛線）</div>}
+        {pendingNet !== 0 && <div class="muted" style={{ fontSize: "12px" }}>{pendingLabel} {pendingNet > 0 ? "淨買進" : "淨賣出"}約 {fmtMoney(Math.abs(pendingNet))}，成交後股票約 {pct(after)}（虛線）</div>}
         {plan && <div class="muted" style={{ fontSize: "12px" }}>{prettyW(plan.date)} 判斷：加權指數距近 20 日最高收盤 <span class={cls(plan.drawdown)}>{fmtPct(plan.drawdown, 1)}</span>。{plan.reason}</div>}
       </div>
       <div style={{ fontSize: "13px" }}>
@@ -230,7 +230,7 @@ export function CashGauge({ plan, nav, marketValue, pendingNet = 0 }: { plan?: C
             </div>
           );
         })}
-        <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, marginTop: "4px" }}>至少留 1 成現金（斜線區不動用）。反彈站回 20 日線後，分批降回 7 成。Claude 每天收盤後自動判斷並調整。</div>
+        <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, marginTop: "4px" }}>至少留 1 成現金（斜線區不動用）。反彈站回 20 日線後，分批降回 7 成。{note ?? "Claude 每天收盤後自動判斷並調整。"}</div>
       </div>
     </div>
   );
@@ -1237,6 +1237,7 @@ function RealEtfScreen() {
   const liveQ = liveCodes.map((c) => live[c]).find((q) => q && q.date && q.date >= (st.asOf ?? ""));
   const priceNote = liveQ ? (liveQ.final ? `${prettyW(liveQ.date)} 收盤價` : `盤中 ${liveQ.time?.slice(0, 5) ?? ""} 即時價`) : st.asOf ? `${prettyW(st.asOf)} 收盤價` : "";
   const v = valuate(etf, livePx);
+  const cashPlanMkt = useStore((s) => s.virtual?.data.cashPlan); // 大盤跌深的資金水位目標（Claude 虛擬組每天收盤後判斷）
   const tradePnl = tradePnls(etf.trades, livePx);
   // 每天的持股規則檢查（免費）：評分資料每天收盤後更新，打開就重算
   const checks = dailyHoldingCheck(etf, livePx, (c) => { const s = getState().tw.scored.find((x) => x.code === c) ?? getState().etf.scored.find((x) => x.code === c); return s && { rating: s.refOnly ? undefined : s.rating, score: s.score, ret1w: s.ret1w, ret1m: s.ret1m, foreignStreak: s.foreignStreak, foreign5: s.foreign5, refOnly: s.refOnly }; });
@@ -1329,6 +1330,10 @@ function RealEtfScreen() {
         <FlowEditor cash={v.cash} flows={etf.flows ?? []} nav={v.nav} bench={v.bench} />
         <div class="muted" style={{ fontSize: "11px", lineHeight: 1.6 }}>已估算手續費 0.1425% 與賣出證交稅 0.3%（未計券商折扣）。對照組：每次買賣時，用同樣金額買賣 0050。{etf.flows?.length ? "有中途存入／提領：總損益＝淨值－投入本金；報酬率用時間加權（基金常用的算法），存提款的錢不算賺賠，報酬率只反映操作好壞；0050 對照組同一天存提同樣的錢。" : ""}</div>
       </div>
+
+      {(pos.length > 0 || v.cash < v.invested) && <CashGauge plan={cashPlanMkt} nav={v.nav} marketValue={v.marketValue}
+        pendingNet={orderRows.reduce((t, r) => t + (r.side === "buy" ? 1 : -1) * r.shares * (r.price ?? 0), 0)} pendingLabel="今日下單清單照做"
+        note="目標和 Claude 虛擬組合用同一套規則（每天收盤後依加權指數距 20 日高點的跌幅判斷），只是參考：要不要加碼由你決定，不用為了補水位硬買。" />}
 
       {etf.nav.length >= 2 && <><div class="section-title"><span>報酬走勢</span><span>{etf.nav.length} 天</span></div><NavChart points={etf.nav} budget={etf.budget} flows={etf.flows} /></>}
 

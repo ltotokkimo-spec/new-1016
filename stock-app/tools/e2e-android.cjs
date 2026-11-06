@@ -781,6 +781,10 @@ function check(ok, name, detail = "") {
   check(realRow.rows.some((r) => /^我的實單/.test(r)) && /我的實單」是你實際的買賣，從第一筆成交/.test(realRow.note), "總評比加入「我的實單」（依實際第一筆成交日起算）", JSON.stringify(realRow.rows.filter((r) => /我的實單/.test(r))));
   await page.click('[data-testid="mode-real"]');
   await page.waitForSelector('[data-testid="etf-summary"]', { timeout: 30000 });
+  // 我的實單也有資金水位圖（股票／現金比重、目標、加碼空間）
+  const realGauge = await page.$eval('[data-testid="cash-gauge"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
+  log("我的實單資金水位", realGauge.slice(0, 200));
+  check(/股票 \d+%・現金 \d+%/.test(realGauge) && /目標股票 \d+%/.test(realGauge) && /只是參考/.test(realGauge), "我的實單顯示資金水位圖（股票／現金比重與目標）", realGauge.slice(0, 160));
   // 目前持股點進去看個股資訊（和選股同一個個股頁），左右箭頭在持股之間切換；看完關掉回到我的實單
   const posItem = await page.$('[data-testid="real-pos-item"] .name');
   if (posItem) {

@@ -1117,10 +1117,10 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
 
 /** 我的實單：今日下單清單（做什麼＋為什麼＋「如果…就…」條件；不動的持股也列出續抱理由與條件） */
 interface OrderRow { side: "buy" | "sell"; code: string; name: string; shares: number; price?: number; stop?: number; reason: string; src: string; rank?: number; cond: string[]; note?: string }
-interface HoldRow { code: string; name: string; shares: number; price?: number; stop: number; why: string; cond: string[]; src: string }
+interface HoldRow { code: string; name: string; shares: number; price?: number; stop: number; why: string; cond: string[]; src: string; addOk?: boolean } // addOk＝規則檢查「可加碼」
 
-function OrderItem({ kind, rank, name, code, main, sub, whyLabel, why, cond, src, testid }: { kind: "buy" | "sell" | "hold"; rank?: number; name: string; code: string; main: string; sub: string; whyLabel: string; why: string; cond: string[]; src: string; testid: string }) {
-  const pill = kind === "buy" ? { cls: "pill buy", t: "買" } : kind === "sell" ? { cls: "pill exit", t: "賣" } : { cls: "pill none", t: "不動" };
+function OrderItem({ kind, rank, name, code, main, sub, whyLabel, why, cond, src, testid, addOk }: { kind: "buy" | "sell" | "hold"; addOk?: boolean; rank?: number; name: string; code: string; main: string; sub: string; whyLabel: string; why: string; cond: string[]; src: string; testid: string }) {
+  const pill = kind === "buy" ? { cls: "pill buy", t: "買" } : kind === "sell" ? { cls: "pill exit", t: "賣" } : addOk ? { cls: "pill buy", t: "可加碼" } : { cls: "pill none", t: "續抱" };
   return (
     <div style={{ borderTop: "1px solid var(--line)", padding: "10px 0" }} data-testid={testid}>
       <div class="row" style={{ flexWrap: "nowrap", gap: "6px", alignItems: "center" }}>
@@ -1155,9 +1155,9 @@ export function OrderList({ rows, holds, cash, asOf, planAsOf, hasPlan, canAsk, 
       whyLabel="為什麼" why={r.reason} cond={r.cond} src={r.src} />
   );
   const holdItem = (h: HoldRow) => (
-    <OrderItem key={`hold-${h.code}`} kind="hold" name={h.name} code={h.code} testid="order-hold"
+    <OrderItem key={`hold-${h.code}`} kind="hold" addOk={h.addOk} name={h.name} code={h.code} testid="order-hold"
       main={`${h.shares.toLocaleString()} 股・${h.price ? fmtPrice(h.price) : "—"}`} sub={`停損 ${fmtPrice(h.stop)}`}
-      whyLabel="為什麼續抱" why={h.why} cond={h.cond} src={h.src} />
+      whyLabel={h.addOk ? "續抱，想加碼也可以" : "為什麼續抱"} why={h.why} cond={h.cond} src={h.src} />
   );
   return (
     <div class="card stack" data-testid="order-list">
@@ -1170,11 +1170,11 @@ export function OrderList({ rows, holds, cash, asOf, planAsOf, hasPlan, canAsk, 
         {sells.length > 0 && <>{sec("賣出（先做，賣出的錢拿來買）")}{sells.map(item)}</>}
         {buys.length > 0 && <>{sec("買進（依優先順位，1＝最先買）")}{buys.map(item)}</>}
         {holds.length > 0 && <>
-          {sec("不動（續抱，今天不用下單）")}
+          {sec(holds.some((h) => h.addOk) ? "續抱（今天不用賣；標「可加碼」的，有多的現金想加碼也可以，不加也沒關係）" : "續抱（今天不用下單）")}
           {holdItem(holds[0])}
           {holds.length > 1 && (
             <details data-testid="order-holds-more">
-              <summary style={{ cursor: "pointer", color: "#b77a07", fontSize: "12.5px", margin: "2px 0 6px" }}>其他 {holds.length - 1} 檔不動持股（{holds.slice(1, 4).map((h) => h.name).join("、")}{holds.length > 4 ? "…" : ""}）</summary>
+              <summary style={{ cursor: "pointer", color: "#b77a07", fontSize: "12.5px", margin: "2px 0 6px" }}>其他 {holds.length - 1} 檔續抱持股（{holds.slice(1, 4).map((h) => h.name).join("、")}{holds.length > 4 ? "…" : ""}）</summary>
               {holds.slice(1).map(holdItem)}
             </details>
           )}
@@ -1184,7 +1184,7 @@ export function OrderList({ rows, holds, cash, asOf, planAsOf, hasPlan, canAsk, 
         <div class="row" style={{ justifyContent: "space-between", fontSize: "13px", flexWrap: "wrap", gap: "4px 12px", borderTop: "1px solid var(--line)", paddingTop: "10px" }} data-testid="order-total">
           <span>賣出 <b class="num down">{fmtMoney(sell)}</b>（{sells.length} 檔）</span>
           <span>買進 <b class="num up">{fmtMoney(buy)}</b>（{buys.length} 檔）</span>
-          {holds.length > 0 && <span>不動 {holds.length} 檔</span>}
+          {holds.length > 0 && <span>續抱 {holds.length} 檔{holds.some((h) => h.addOk) ? `（${holds.filter((h) => h.addOk).length} 檔可加碼）` : ""}</span>}
           <span>下單後現金約 <b class="num">{fmtMoney(cash - buy * 1.001425 + sell * (1 - 0.001425 - 0.003))}</b></span>
         </div>
         <div class="muted" style={{ fontSize: "11.5px", lineHeight: 1.6 }}>{buys.some((r) => r.rank) ? "買進依 Claude 的優先順位排（黑底數字，1＝最先買），只想先買幾檔就從上往下買。" : ""}參考價是最新價{planAsOf ? `（Claude 建議依 ${prettyW(planAsOf)} 收盤）` : ""}；「如果…」的條件一部分是 Claude 寫的，其餘是 App 規則自動算的（限價 +1.5% 不追、停損、漲多後把停損價調高）。成交後到下方「填入實際成交」記錄。</div>
@@ -1287,7 +1287,7 @@ function RealEtfScreen() {
   })();
   const holdRows: HoldRow[] = checks.filter((c) => !orderRows.some((r) => r.code === c.code)).map((c) => {
     const note = showFill ? fillParsed?.holds?.[c.code] : undefined;
-    return { code: c.code, name: c.name, shares: c.shares, price: c.price, stop: c.stop, why: note?.why || c.reasons[0], cond: top3(note?.cond ?? [], holdConds({ price: c.price, avgCost: c.avgCost, stop: c.stop, verdict: c.verdict })), src: note ? `Claude 建議＋App 規則檢查：${c.verdict}` : `App 規則檢查：${c.verdict}` };
+    return { code: c.code, name: c.name, shares: c.shares, price: c.price, stop: c.stop, addOk: c.verdict === "可加碼", why: note?.why || c.reasons[0], cond: top3(note?.cond ?? [], holdConds({ price: c.price, avgCost: c.avgCost, stop: c.stop, verdict: c.verdict })), src: note ? `Claude 建議＋App 規則檢查：${c.verdict}` : `App 規則檢查：${c.verdict}` };
   });
 
   return (

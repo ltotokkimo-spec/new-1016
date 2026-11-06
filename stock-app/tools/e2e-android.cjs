@@ -163,7 +163,7 @@ function check(ok, name, detail = "") {
   check(intra.ok && intra.tabOn === "true" && (intra.pts >= 5 || (justOpened && intra.pts >= 1)) && intra.avg && /[▲▼]?[\d,.]+（[+-]\d+\.\d\d%）/.test(intra.head) && /昨收 [\d,.]+/.test(intra.stats) && /最高 [\d,.]+/.test(intra.stats) && /總量 [\d,]+ 張/.test(intra.stats) && /單量 [\d,]+ 張/.test(intra.stats) && intra.vols >= 1 && /漲停 [\d,.]+/.test(intra.stats),
     "個股頁預設「走勢」分頁：當日分時線、均價線、漲跌幅、昨收／高低／總量／漲跌停", JSON.stringify(intra).slice(0, 300));
   // 點圖看某一分鐘
-  if (intra.ok) {
+  if (intra.ok && intra.pts >= 5) { // 剛開盤只有一兩點時，點到的就是最新那點，沒有「那一分鐘」可看
     const box = await page.$eval('[data-testid="intraday-chart"] svg', (e) => { const r = e.getBoundingClientRect(); return { x: r.left + r.width * 0.3, y: r.top + r.height * 0.4 }; });
     await page.mouse.click(box.x, box.y);
     await sleep(300);

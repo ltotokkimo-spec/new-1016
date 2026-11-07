@@ -65,7 +65,8 @@ export function PicksPerfSheet({ onClose }: { onClose: () => void }) {
   const setFirstOnly = (v: boolean) => { setFirstOnlyS(v); try { localStorage.setItem("perfFirstOnly", v ? "1" : "0"); } catch { /* 不記也沒關係 */ } };
   const reload = async () => { setBusy(true); setMsg(""); try { await refreshPicksPerf(); } catch { setMsg("下載失敗，顯示上次的資料"); } setBusy(false); };
   useEffect(() => { if (!pp || Date.now() - pp.fetchedAt > 10 * 60_000) reload(); }, []);
-  const allRows = pp?.data.rows ?? [];
+  // 排序：新的日期在前；同一天依分數高到低（和選股頁「買入」名單同一個順序；1.0.284 以前雲端檔案同一天是反過來的，這裡重排）
+  const allRows = useMemo(() => sortRows(pp?.data.rows ?? []), [pp]);
   const first = useMemo(() => firstPickIds(allRows), [allRows]);
   const rows = useMemo(() => (firstOnly ? allRows.filter((r) => first.has(r.id)) : allRows), [allRows, first, firstOnly]);
   const st = useMemo(() => perfStats(rows, h), [rows, h]);
@@ -113,7 +114,7 @@ export function PicksPerfSheet({ onClose }: { onClose: () => void }) {
           </div>
           {msg && <div class="muted" style={{ fontSize: "12.5px" }} data-testid="perf-msg">{msg}</div>}
 
-          <div class="section-title"><span>每筆推薦</span>
+          <div class="section-title"><span>每筆推薦<span class="muted" style={{ fontWeight: 400, fontSize: "12px" }}>（新日期在前，同一天依分數高到低）</span></span>
             <select value={day} onChange={(e) => setDay((e.target as HTMLSelectElement).value)} data-testid="perf-day" style={{ fontSize: "13px" }}>
               <option value="">全部日期（{rows.length} 筆）</option>
               {dates.map((x) => <option value={x}>{prettyW(x)}（{rows.filter((r) => r.date === x).length} 筆）</option>)}
@@ -127,6 +128,10 @@ export function PicksPerfSheet({ onClose }: { onClose: () => void }) {
       </div>
     </Sheet>
   );
+}
+
+function sortRows(rows: PickPerf[]): PickPerf[] {
+  return rows.map((r, i) => ({ r, i })).sort((a, b) => (a.r.date < b.r.date ? 1 : a.r.date > b.r.date ? -1 : b.r.score - a.r.score || a.i - b.i)).map((x) => x.r);
 }
 
 function PerfRow({ r, h, first }: { r: PickPerf; h: PickH; first?: boolean }) {

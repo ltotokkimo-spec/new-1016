@@ -236,7 +236,9 @@ if (pickLogFile) {
       return { tai, b };
     };
     const benchCache = new Map<string, ReturnType<typeof benchOf>>();
-    const rows = logNow.picks.map((p) => { let bm = benchCache.get(p.date); if (!bm) benchCache.set(p.date, (bm = benchOf(p.date))); return evaluatePick(p, pathOf(p.code, p.date), bm.tai, bm.b); }).reverse();
+    const rows = logNow.picks.map((p) => { let bm = benchCache.get(p.date); if (!bm) benchCache.set(p.date, (bm = benchOf(p.date))); return evaluatePick(p, pathOf(p.code, p.date), bm.tai, bm.b); });
+    // 新的日期在前；同一天維持記錄時的順序（分數高到低，和選股頁買入名單一樣）。不能整串 reverse，否則同一天會變成分數低的在前
+    rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
     const perf: PickPerfFile = {
       version: 1, generatedAt: Date.now(), start: logNow.start, dataTo: d0.date, rule: logNow.rule,
       source: "證交所、櫃買中心每日收盤行情與三大法人；加權指數為證交所每日收盤；報酬以每日漲跌連乘（已排除除權息）。由 GitHub Actions 每個交易日收盤後計算。",

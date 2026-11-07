@@ -15,6 +15,7 @@ import type { EtfNav } from "../data/etfNav";
 import { findXStock, OKX_BARS, okxCandlesUrl, okxInstrumentsUrl, okxTickerUrl, parseOkxCandles, parseOkxTicker, type OkxBar, type OkxTicker } from "../data/okx";
 import { CandleChart, type CandleBar } from "./candles";
 import { IntradayChart } from "./intraday";
+import { PicksPerfCard } from "./picksPerf";
 import { UsIntradayChart } from "./usIntraday";
 import { FlowsPanel } from "./flows";
 import { EtfHoldingsPanel, isActiveEtf } from "./etfHoldings";
@@ -99,6 +100,7 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
         </div>
       )}
       {filter === "剛轉強" && turn ? <TurnCard turn={turn} /> : <BacktestCard market={market} />}
+      {market === "TW" && filter !== "剛轉強" && <PicksPerfCard />}
       {ms.error && <div class="error" style={{ marginTop: "10px" }}>{ms.error}</div>}
       {ms.warning && <div class="notice" style={{ marginTop: "10px" }}>{ms.warning}</div>}
       {ms.status === "loading" && <Progress p={ms.progress} />}

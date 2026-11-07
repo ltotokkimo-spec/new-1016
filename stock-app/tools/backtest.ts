@@ -10,7 +10,11 @@ import { formatCompare, runScoreCompare } from "../src/engine/scoreCompare";
 import { AI_CODES, aiTargets, buildCtx, formatSteady, runSteady } from "../src/engine/steady";
 import { runWatch, WATCH } from "../src/engine/watch";
 import { adjustedSeries, indicators } from "../src/engine/turning";
-import { taipeiToday, weekdaysBack } from "../src/lib/dates";
+import { addDays, taipeiToday, weekdaysBack } from "../src/lib/dates";
+import { buildTwInputs } from "../src/data/twLoader";
+import { isEtf } from "../src/data/tw";
+import { scoreStocks } from "../src/engine/score";
+import { appendPicks, assertAppendOnly, emptyLog, evaluatePick, PICK_NOTIONAL, PICK_STOP, FEE_RATE, FEE_MIN_LOT, FEE_MIN_ODD, TAX_STOCK, TAX_ETF, toCsv, type PathPoint, type PickLog, type PickPerfFile } from "../src/engine/pickLog";
 import type { KV } from "../src/lib/kv";
 
 const [cacheDir = ".bt-cache", outFile = "backtest.json", factorsFile = "factors.json", compareFile = "scorecompare.json", steadyFile = "steady.json", watchFile = "n5.json", wideFile = "wide.json", regimeFile = "regime.json", leadFile = "lead.json", aiFile = "ai.json", realFile = "real.json", turnFile = "turn.json"] = process.argv.slice(2);
@@ -63,6 +67,7 @@ const weekdays = weekdaysBack(today, 520); // 約 2 年；從最新往回下載�
 // 第一次要下載很多天：超過時間預算就先用已有的天數算（新到舊連續），進度已存在快取，下一次接著下載
 const budgetMs = Number(process.env.BT_BUDGET_MIN ?? 80) * 60_000;
 const days: BtDay[] = [];
+const taiexClose = new Map<string, number>(); // 加權指數每日收盤（推薦績效的對照）
 let k = 0;
 for (const d of weekdays) {
   k++;
@@ -79,6 +84,8 @@ for (const d of weekdays) {
     break;
   }
   days.push({ date: d, quotes: [...qa.rows, ...(qb?.rows ?? [])], tpexCodes: new Set((qb?.rows ?? []).map((r) => r[0])), flows: [...(fa ?? []), ...(fb ?? [])] });
+  const tw = qa.indices?.find((x) => x.name === "發行量加權股價指數");
+  if (tw && tw.close > 0) taiexClose.set(d, tw.close);
   if (k % 10 === 0) log(`已處理 ${k}/${weekdays.length} 個平日，交易日 ${days.length}，網路請求 ${requests}`);
 }
 log("交易日", days.length, "最新", days[0]?.date, "最舊", days[days.length - 1]?.date);
@@ -196,6 +203,50 @@ if (t) {
     const k = f / s.adj[p];
     log(`指標 ${code} 收${f} MA20 ${(x.ma20[p] * k).toFixed(2)} MA60 ${(x.ma60[p] * k).toFixed(2)} RSI ${x.rsi[p].toFixed(2)} OSC ${(x.osc[p] * k).toFixed(3)} 上軌 ${(x.upper[p] * k).toFixed(2)}`);
   }
+}
+// 推薦績效追蹤（使用者 11/7 要求）：PICKLOG 指到 stock-radar-log 分支裡的 picks.json；只新增當天的買入名單，不改舊紀錄
+const pickLogFile = process.env.PICKLOG;
+if (pickLogFile) {
+  try {
+    const before: PickLog = fs.existsSync(pickLogFile) ? JSON.parse(fs.readFileSync(pickLogFile, "utf8")) : emptyLog();
+    let logNow = before;
+    const d0 = days[0];
+    const dateIdx = new Map(days.map((d, i) => [d.date, i]));
+    const onOrBefore = (ymd: string) => { for (let x = 0; x < 10; x++) { const i = dateIdx.get(addDays(ymd, -x)); if (i !== undefined) return i; } return undefined; };
+    const m1 = onOrBefore(addDays(d0.date, -28)), m3 = onOrBefore(addDays(d0.date, -88));
+    if (!d0.flows.length) log(`推薦績效：${d0.date} 三大法人還沒公布，今天先不記錄`);
+    else if (m1 === undefined || m3 === undefined) log("推薦績效：歷史資料不足，今天先不記錄");
+    else {
+      const inputs = buildTwInputs({ latest: d0.quotes, week: days[5].quotes, month: days[m1].quotes, quarter: days[m3].quotes, flows: days.slice(0, 10).map((d) => d.flows), companies, tpexCodes: d0.tpexCodes }).filter((x) => !isEtf(x.code));
+      const buys = scoreStocks(inputs).scored.filter((x) => x.rating === "買入");
+      const res = appendPicks(before, d0.date, buys.map((x) => ({ code: x.code, name: x.name, market: d0.tpexCodes.has(x.code) ? "TPEX" as const : "TWSE" as const, price: x.close, score: x.score, reasons: x.reasons.slice(0, 2), dataDate: d0.date })));
+      logNow = res.log;
+      log(`推薦績效：${d0.date} 買入 ${buys.length} 檔，新增 ${res.added} 筆（累計 ${logNow.picks.length} 筆，${logNow.start || "—"} 起）`);
+    }
+    assertAppendOnly(before, logNow);
+    fs.writeFileSync(pickLogFile, JSON.stringify(logNow, null, 1));
+    // 每檔每天的漲跌倍數（對除權息後的參考價）、0050 同理；加權指數用收盤
+    const asc = [...days].reverse();
+    const factor = new Map<string, Map<string, number>>(); // code → date → 當天倍數
+    for (const d of asc) for (const r of d.quotes) { const c = r[2], ch = r[3], prev = c - ch; if (c > 0 && prev > 0) { let m = factor.get(r[0]); if (!m) factor.set(r[0], (m = new Map())); m.set(d.date, c / prev); } }
+    const pathOf = (code: string, from: string): PathPoint[] => { const m = factor.get(code); let f = 1; const out: PathPoint[] = []; for (const d of asc) { if (d.date <= from) continue; f *= m?.get(d.date) ?? 1; out.push({ date: d.date, f }); } return out; };
+    const benchOf = (from: string) => {
+      const t0 = taiexClose.get(from), tai = new Map<string, number>(), b = new Map<string, number>();
+      for (const x of pathOf("0050", from)) { b.set(x.date, x.f - 1); const tc = taiexClose.get(x.date); if (t0 && tc) tai.set(x.date, tc / t0 - 1); }
+      return { tai, b };
+    };
+    const benchCache = new Map<string, ReturnType<typeof benchOf>>();
+    const rows = logNow.picks.map((p) => { let bm = benchCache.get(p.date); if (!bm) benchCache.set(p.date, (bm = benchOf(p.date))); return evaluatePick(p, pathOf(p.code, p.date), bm.tai, bm.b); }).reverse();
+    const perf: PickPerfFile = {
+      version: 1, generatedAt: Date.now(), start: logNow.start, dataTo: d0.date, rule: logNow.rule,
+      source: "證交所、櫃買中心每日收盤行情與三大法人；加權指數為證交所每日收盤；報酬以每日漲跌連乘（已排除除權息）。由 GitHub Actions 每個交易日收盤後計算。",
+      cost: { notional: PICK_NOTIONAL, feeRate: FEE_RATE, feeMinLot: FEE_MIN_LOT, feeMinOdd: FEE_MIN_ODD, taxStock: TAX_STOCK, taxEtf: TAX_ETF, stop: PICK_STOP },
+      rows,
+    };
+    fs.writeFileSync("picks-perf.json", JSON.stringify(perf));
+    fs.writeFileSync("picks.csv", toCsv(perf));
+    log(`推薦績效：${rows.length} 筆，已滿 5／10／20 日 ${[5, 10, 20].map((h) => rows.filter((r) => r.h[h as 5]).length).join("／")} 筆`);
+  } catch (e) { log("推薦績效追蹤失敗（不影響回測）：", e); }
 }
 log("完成", outFile, fs.statSync(outFile).size, "bytes，網路請求", requests);
 }

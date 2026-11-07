@@ -43,7 +43,7 @@ jobs:
       - run: npm ci
 
       - name: 單元測試
-        run: npx vitest run test/backtest.test.ts test/factors.test.ts test/scorecompare.test.ts test/steady.test.ts test/watch.test.ts test/tw.test.ts test/score.test.ts
+        run: npx vitest run test/pickLog.test.ts test/backtest.test.ts test/factors.test.ts test/scorecompare.test.ts test/steady.test.ts test/watch.test.ts test/tw.test.ts test/score.test.ts
 
       # 過去的交易日資料不會變，存在快取裡，之後每次只補新的日子
       - name: 還原資料快取
@@ -53,10 +53,38 @@ jobs:
           key: bt-cache-${{ github.run_id }}
           restore-keys: bt-cache-
 
+      # 推薦績效追蹤（使用者 11/7 要求）：紀錄存在 stock-radar-log 分支的 picks.json，只新增、不覆蓋（git 歷史保留每一天的版本）
+      - name: 準備推薦紀錄（stock-radar-log 分支）
+        if: github.event_name != 'pull_request'
+        working-directory: .
+        run: |
+          if git fetch --depth 1 origin stock-radar-log; then
+            git worktree add -B stock-radar-log "$RUNNER_TEMP/radar-log" FETCH_HEAD
+          else
+            echo "還沒有 stock-radar-log 分支，建立新的"
+            git worktree add --orphan -b stock-radar-log "$RUNNER_TEMP/radar-log"
+          fi
+          ls -la "$RUNNER_TEMP/radar-log"
+          echo "PICKLOG=$RUNNER_TEMP/radar-log/picks.json" >> "$GITHUB_ENV"
+
       - name: 下載證交所／櫃買資料並回測
         run: |
           npx vite build --ssr tools/backtest.ts --outDir .bt-build
           node .bt-build/backtest.js .bt-cache backtest.json
+
+      - name: 儲存推薦紀錄（只新增）
+        if: github.event_name != 'pull_request' && env.PICKLOG != ''
+        working-directory: .
+        run: |
+          cd "$RUNNER_TEMP/radar-log"
+          [ -f picks.json ] || { echo "沒有產生 picks.json"; exit 0; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add picks.json
+          if git diff --cached --quiet; then echo "今天沒有新增推薦紀錄"; exit 0; fi
+          git commit -q -m "推薦紀錄：$(node -e 'const l=require("./picks.json");const p=l.picks;console.log(p.length?p[p.length-1].date:"")') 收盤（累計 $(node -e 'console.log(require("./picks.json").picks.length)') 筆）"
+          for i in 1 2 3 4; do git push origin HEAD:stock-radar-log && exit 0; echo "推送失敗（第 $i 次），稍後重試"; sleep $((i*5)); done
+          exit 1
 
       - name: 儲存資料快取
         if: always()
@@ -85,6 +113,6 @@ jobs:
           # GitHub 的上傳 API 偶爾回 HTTP 500（11/04 連續發生），每個檔案最多試 4 次，間隔 5、10、15 秒
           up() { for i in 1 2 3 4; do gh release upload stock-radar-data "$1" --clobber && return 0; echo "上傳 $1 失敗（第 $i 次），稍後重試"; sleep $((i*5)); done; return 1; }
           up backtest.json
-          for f in factors.json scorecompare.json steady.json n5.json wide.json regime.json lead.json ai.json real.json turn.json; do
+          for f in factors.json scorecompare.json steady.json n5.json wide.json regime.json lead.json ai.json real.json turn.json picks-perf.json picks.csv; do
             if [ -f "$f" ]; then up "$f"; fi
           done

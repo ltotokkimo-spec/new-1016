@@ -127,6 +127,20 @@ function check(ok, name, detail = "") {
   check(srch.rows.some((r) => /台積電 2330/.test(r)) && /搜尋「2330」・全部評等/.test(srch.title), "選股搜尋不限評等：在「買入」頁也查得到不在名單的股票", JSON.stringify(srch).slice(0, 200));
   await page.fill(".search", "");
   await sleep(500);
+  // 推薦績效（實際追蹤）：選股頁有入口卡片，點開有統計（雲端還沒產生資料時顯示「還沒有資料」）、資料來源、CSV 按鈕
+  const ppCard = await page.$('[data-testid="picks-perf-card"]');
+  check(!!ppCard, "選股頁有「推薦績效（實際追蹤）」入口");
+  if (ppCard) {
+    await ppCard.click();
+    await page.waitForFunction(() => document.querySelector('[data-testid="perf-stats"]') || /還沒有資料|下載中/.test(document.querySelector('[data-testid="picks-perf"]')?.innerText || ""), null, { timeout: 30000 }).catch(() => {});
+    await sleep(1500);
+    const pp = await page.evaluate(() => ({ stats: document.querySelector('[data-testid="perf-stats"]')?.innerText.replace(/\s+/g, " ") || "", src: document.querySelector('[data-testid="perf-source"]')?.innerText.replace(/\s+/g, " ").slice(0, 160) || "", csv: !!document.querySelector('[data-testid="perf-csv-dl"]') && !!document.querySelector('[data-testid="perf-csv-copy"]'), rows: document.querySelectorAll('[data-testid="perf-row"]').length, body: document.querySelector('[data-testid="picks-perf"]')?.innerText.replace(/\s+/g, " ").slice(0, 120) || "" }));
+    log("推薦績效", JSON.stringify(pp));
+    await shot("02d-推薦績效");
+    check(pp.stats ? /總筆數 \d+ 筆/.test(pp.stats) && /勝率/.test(pp.stats) && /觸及停損比例/.test(pp.stats) && /資料來源/.test(pp.src) && pp.csv : /還沒有資料|下載中/.test(pp.body), "推薦績效頁：總筆數、勝率、平均與超額報酬、最大虧損、停損比例、資料來源與 CSV（或尚未有資料）", JSON.stringify(pp).slice(0, 300));
+    await page.click('.sheet header button[aria-label="返回"]').catch(() => {});
+    await page.waitForFunction(() => !document.querySelector(".sheet"), null, { timeout: 5000 }).catch(() => {});
+  }
 
   // 剛轉強：回測資料裡的訊號（站上 20 日線 5% 以內、MACD 剛翻正、RSI<70、法人買超）
   const hasTurn = await page.waitForSelector('[data-testid="turn-chip"]', { timeout: 60000 }).then(() => true).catch(() => false);

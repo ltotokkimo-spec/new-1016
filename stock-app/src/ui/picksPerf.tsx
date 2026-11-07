@@ -1,7 +1,7 @@
 // 推薦績效追蹤：App 每天評為「買入」的股票，實際之後 5／10／20 個交易日表現如何（雲端每天收盤後記錄、只新增不覆蓋）。
 // 和「回測參考」不同：回測是用現在的規則重算過去；這裡是當天就記下來、之後不再改的實際推薦。
 import { useEffect, useMemo, useState } from "preact/hooks";
-import { firstPickIds, PICK_HORIZONS, perfStats, toCsv, type PickH, type PickPerf } from "../engine/pickLog";
+import { firstPickIds, PICK_HORIZONS, sortPerfRows, perfStats, toCsv, type PickH, type PickPerf } from "../engine/pickLog";
 import { pretty, prettyW } from "../lib/dates";
 import { getState, PICKS_CSV_URL, refreshPicksPerf, useStore } from "../store";
 import { fmtPct, fmtPrice, Sheet } from "./common";
@@ -66,7 +66,7 @@ export function PicksPerfSheet({ onClose }: { onClose: () => void }) {
   const reload = async () => { setBusy(true); setMsg(""); try { await refreshPicksPerf(); } catch { setMsg("下載失敗，顯示上次的資料"); } setBusy(false); };
   useEffect(() => { if (!pp || Date.now() - pp.fetchedAt > 10 * 60_000) reload(); }, []);
   // 排序：新的日期在前；同一天依分數高到低（和選股頁「買入」名單同一個順序；1.0.284 以前雲端檔案同一天是反過來的，這裡重排）
-  const allRows = useMemo(() => sortRows(pp?.data.rows ?? []), [pp]);
+  const allRows = useMemo(() => sortPerfRows(pp?.data.rows ?? []), [pp]);
   const first = useMemo(() => firstPickIds(allRows), [allRows]);
   const rows = useMemo(() => (firstOnly ? allRows.filter((r) => first.has(r.id)) : allRows), [allRows, first, firstOnly]);
   const st = useMemo(() => perfStats(rows, h), [rows, h]);
@@ -128,10 +128,6 @@ export function PicksPerfSheet({ onClose }: { onClose: () => void }) {
       </div>
     </Sheet>
   );
-}
-
-function sortRows(rows: PickPerf[]): PickPerf[] {
-  return rows.map((r, i) => ({ r, i })).sort((a, b) => (a.r.date < b.r.date ? 1 : a.r.date > b.r.date ? -1 : b.r.score - a.r.score || a.i - b.i)).map((x) => x.r);
 }
 
 function PerfRow({ r, h, first }: { r: PickPerf; h: PickH; first?: boolean }) {

@@ -177,6 +177,11 @@ export interface PickPerfFile {
   rows: PickPerf[]; // 新到舊
 }
 
+/** 推薦列表與 CSV 的順序：新的日期在前；同一天依分數高到低（和選股頁「買入」名單同順序），同分維持原順序 */
+export function sortPerfRows<T extends Pick<PickRec, "date" | "score">>(rows: T[]): T[] {
+  return rows.map((r, i) => ({ r, i })).sort((a, b) => (a.r.date < b.r.date ? 1 : a.r.date > b.r.date ? -1 : b.r.score - a.r.score || a.i - b.i)).map((x) => x.r);
+}
+
 const pct = (x: number | undefined) => (x === undefined || !Number.isFinite(x) ? "" : (x * 100).toFixed(2));
 
 /** CSV（Excel 可直接開：UTF-8 BOM、逗號分隔、文字有逗號就加引號） */
@@ -186,7 +191,7 @@ export function toCsv(f: PickPerfFile): string {
   for (const h of PICK_HORIZONS) head.push(`${h}日報酬%`, `${h}日淨報酬%`, `${h}日加權%`, `${h}日0050%`, `${h}日超額(加權)%`, `${h}日超額(0050)%`, `${h}日觸及停損`, `${h}日停損出場淨報酬%`);
   const lines = [head.join(",")];
   const first = firstPickIds(f.rows);
-  for (const r of f.rows) {
+  for (const r of sortPerfRows(f.rows)) {
     const cells = [r.date, r.code, q(r.name), r.market === "TPEX" ? "上櫃" : "上市", String(r.price), String(r.stop), String(r.score), q(r.reasons.join("；")), r.dataDate, first.has(r.id) ? "是" : "否", String(r.elapsed), r.lastDate ?? "", pct(r.curRet), pct(r.curNet)];
     for (const h of PICK_HORIZONS) {
       const x = r.h[h];

@@ -80,3 +80,13 @@ describe("只看首次推薦", () => {
     expect([...firstPickIds(rows)].sort()).toEqual(["20261106-2330", "20261106-2412", "20261109-1101", "20261110-2330"]);
   });
 });
+
+describe("排序", () => {
+  it("CSV：新日期在前，同一天分數高到低", () => {
+    const mk = (date: string, code: string, score: number) => ({ ...base, id: `${date}-${code}`, date, code, score, price: 10, stop: 9.2, source: "買入" as const, elapsed: 0, h: {} });
+    const f: PickPerfFile = { version: 1, generatedAt: 0, start: "20261106", dataTo: "20261109", rule: "", source: "", cost: { notional: 10000, feeRate: 0.001425, feeMinLot: 20, feeMinOdd: 1, taxStock: 0.003, taxEtf: 0.001, stop: 0.08 },
+      rows: [mk("20261106", "A", 70), mk("20261106", "B", 90), mk("20261109", "C", 75), mk("20261109", "D", 85)] };
+    const codes = toCsv(f).trim().split("\n").slice(1).map((l) => l.split(",")[1]);
+    expect(codes).toEqual(["D", "C", "B", "A"]);
+  });
+});

@@ -53,7 +53,7 @@ jobs:
           key: bt-cache-${{ github.run_id }}
           restore-keys: bt-cache-
 
-      # 推薦績效追蹤（使用者 11/7 要求）：紀錄存在 stock-radar-log 分支的 picks.json，只新增、不覆蓋（git 歷史保留每一天的版本）
+      # 推薦績效追蹤（使用者 11/7 要求）：紀錄存在 stock-radar-log 分支的 picks.json（台股）、picks-etf.json、picks-us.json，只新增、不覆蓋（git 歷史保留每一天的版本）
       - name: 準備推薦紀錄（stock-radar-log 分支）
         if: github.event_name != 'pull_request'
         working-directory: .
@@ -77,12 +77,13 @@ jobs:
         working-directory: .
         run: |
           cd "$RUNNER_TEMP/radar-log"
-          [ -f picks.json ] || { echo "沒有產生 picks.json"; exit 0; }
+          ls picks*.json >/dev/null 2>&1 || { echo "沒有產生推薦紀錄"; exit 0; }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add picks.json
+          git add picks*.json
           if git diff --cached --quiet; then echo "今天沒有新增推薦紀錄"; exit 0; fi
-          git commit -q -m "推薦紀錄：$(node -e 'const l=require("./picks.json");const p=l.picks;console.log(p.length?p[p.length-1].date:"")') 收盤（累計 $(node -e 'console.log(require("./picks.json").picks.length)') 筆）"
+          msg=$(node -e 'const fs=require("fs");const o=[];for(const [f,n] of [["picks.json","台股"],["picks-etf.json","ETF"],["picks-us.json","美股"]]){if(!fs.existsSync(f))continue;const p=JSON.parse(fs.readFileSync(f,"utf8")).picks;o.push(n+" "+(p.length?p[p.length-1].date:"—")+"（累計 "+p.length+" 筆）")}console.log(o.join("、"))')
+          git commit -q -m "推薦紀錄：$msg"
           for i in 1 2 3 4; do git push origin HEAD:stock-radar-log && exit 0; echo "推送失敗（第 $i 次），稍後重試"; sleep $((i*5)); done
           exit 1
 
@@ -113,6 +114,6 @@ jobs:
           # GitHub 的上傳 API 偶爾回 HTTP 500（11/04 連續發生），每個檔案最多試 4 次，間隔 5、10、15 秒
           up() { for i in 1 2 3 4; do gh release upload stock-radar-data "$1" --clobber && return 0; echo "上傳 $1 失敗（第 $i 次），稍後重試"; sleep $((i*5)); done; return 1; }
           up backtest.json
-          for f in factors.json scorecompare.json steady.json n5.json wide.json regime.json lead.json ai.json real.json turn.json picks-perf.json picks.csv; do
+          for f in factors.json scorecompare.json steady.json n5.json wide.json regime.json lead.json ai.json real.json turn.json picks-perf.json picks.csv picks-perf-etf.json picks-etf.csv picks-perf-us.json picks-us.csv; do
             if [ -f "$f" ]; then up "$f"; fi
           done

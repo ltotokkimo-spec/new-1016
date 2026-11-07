@@ -1,4 +1,4 @@
-import type { PickPerfFile } from "./engine/pickLog";
+import { BOOK_INFO, type PickBook, type PickPerfFile } from "./engine/pickLog";
 // App 狀態：資料快照、評分結果、持股、設定。全部存在手機的 IndexedDB。
 import { useEffect, useState } from "preact/hooks";
 import { indexedKV, type KV } from "./lib/kv";
@@ -34,8 +34,12 @@ export const WIDE_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/do
 export const REGIME_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/regime.json"; // 攻守輪動觀察組合
 export const ACTIVE_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/active-etf.json"; // 主動式 ETF 個股買賣超
 export const AI_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/ai.json"; // AI 供應鏈觀察組合
-export const PICKS_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/picks-perf.json"; // 推薦績效追蹤（每天收盤後更新）
-export const PICKS_CSV_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/picks.csv";
+// 推薦績效追蹤（每天收盤後更新）：台股、ETF、美股各一份
+const RADAR_DATA = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/";
+export const picksUrl = (b: PickBook) => RADAR_DATA + BOOK_INFO[b].files.perf;
+export const picksCsvUrl = (b: PickBook) => RADAR_DATA + BOOK_INFO[b].files.csv;
+export type PicksPerfEntry = { data: PickPerfFile; fetchedAt: number; error?: string };
+const ppKey = (b: PickBook) => (b === "TW" ? "picksPerf" : `picksPerf:${b}`); // 台股沿用 1.0.283 的鍵
 export const TURN_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/turn.json"; // 剛轉強觀察組合
 export const RULE_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/real.json"; // 實單規則觀察組合（「我的實單」的選股規則）
 export const LEAD_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/lead.json"; // 權值強化觀察組合
@@ -105,7 +109,7 @@ export interface State {
   ai?: { data: VirtualEtf; fetchedAt: number; error?: string };
   rule?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 實單規則觀察組合
   turn?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 剛轉強觀察組合
-  picksPerf?: { data: PickPerfFile; fetchedAt: number; error?: string }; // 推薦績效追蹤
+  picksPerf: Partial<Record<PickBook, PicksPerfEntry>>; // 推薦績效追蹤（台股、ETF、美股）
   activeEtf?: { data: ActiveEtfData; fetchedAt: number; error?: string; liveAt?: number; liveProgress?: { done: number; total: number }; liveFound?: number; liveHoldings?: { code: string; name: string; date: string; shares: Record<string, number> }[] };
   steady?: { data: SteadyLite; fetchedAt: number };
   live: Record<string, LiveQuote>; // 證交所即時報價（盤中每 30 秒更新）
@@ -125,7 +129,7 @@ const starting = (): MarketState => ({ status: "loading", scored: [], sectors: [
 
 let state: State = {
   tw: starting(), etf: starting(), us: starting(), esb: {}, twIndices: [], usSectorEtfs: [],
-  macro: { status: "idle", quotes: [] }, twIndexLive: {}, futures: {}, etfNav: {}, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], update: { status: "idle" }, usExtra: [], usPending: [], usNotFound: [], aiJobs: {}, aiEtf: emptyEtf(), live: {}, loaded: false,
+  macro: { status: "idle", quotes: [] }, twIndexLive: {}, futures: {}, etfNav: {}, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], update: { status: "idle" }, usExtra: [], usPending: [], usNotFound: [], aiJobs: {}, aiEtf: emptyEtf(), live: {}, picksPerf: {}, loaded: false,
 };
 const listeners = new Set<() => void>();
 
@@ -193,8 +197,10 @@ async function initInner() {
   if (rule0) set({ rule: rule0 });
   const turn0 = await kv.get<State["turn"]>("turn");
   if (turn0) set({ turn: turn0 });
-  const pp0 = await kv.get<State["picksPerf"]>("picksPerf");
-  if (pp0) set({ picksPerf: pp0 });
+  for (const b of ["TW", "ETF", "US"] as PickBook[]) {
+    const pp0 = await kv.get<PicksPerfEntry>(ppKey(b));
+    if (pp0) set({ picksPerf: { ...state.picksPerf, [b]: pp0 } });
+  }
   const sd = await kv.get<State["steady"]>("steady");
   if (sd) set({ steady: sd });
   const bt = await kv.get<State["backtest"]>("backtest");
@@ -702,16 +708,16 @@ export async function refreshLead() {
 
 /** 下載剛轉強觀察組合（規則自動算，每天收盤後更新）；失敗就沿用上次下載的 */
 /** 下載推薦績效追蹤（雲端每天收盤後更新）；失敗就沿用上次下載的 */
-export async function refreshPicksPerf() {
+export async function refreshPicksPerf(b: PickBook = "TW") {
   try {
-    const data = (await fetcher(`${PICKS_URL}?t=${Date.now()}`)) as PickPerfFile;
+    const data = (await fetcher(`${picksUrl(b)}?t=${Date.now()}`)) as PickPerfFile;
     if (data?.version !== 1 || !Array.isArray(data.rows)) throw new Error("格式不對");
     const v = { data, fetchedAt: Date.now() };
-    await kv.set("picksPerf", v);
-    set({ picksPerf: v });
+    await kv.set(ppKey(b), v);
+    set({ picksPerf: { ...state.picksPerf, [b]: v } });
   } catch (e: any) {
-    if (state.picksPerf) set({ picksPerf: { ...state.picksPerf, error: "這次沒下載到最新資料，顯示上次的內容" } });
-    else set({ picksPerf: undefined });
+    const old = state.picksPerf[b];
+    if (old) set({ picksPerf: { ...state.picksPerf, [b]: { ...old, error: "這次沒下載到最新資料，顯示上次的內容" } } });
     throw e;
   }
 }

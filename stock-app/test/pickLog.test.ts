@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appendPicks, assertAppendOnly, emptyLog, evaluatePick, firstPickIds, netReturn, perfStats, toCsv, type PickPerfFile } from "../src/engine/pickLog";
+import { appendPicks, assertAppendOnly, BOOK_INFO, emptyLog, evaluatePick, firstPickIds, netReturn, netReturnUs, perfStats, toCsv, type PickPerfFile } from "../src/engine/pickLog";
 
 const base = { name: "測試", market: "TWSE" as const, score: 80, reasons: ["外資連買"], dataDate: "20261109" };
 
@@ -88,5 +88,25 @@ describe("排序", () => {
       rows: [mk("20261106", "A", 70), mk("20261106", "B", 90), mk("20261109", "C", 75), mk("20261109", "D", 85)] };
     const codes = toCsv(f).trim().split("\n").slice(1).map((l) => l.split(",")[1]);
     expect(codes).toEqual(["D", "C", "B", "A"]);
+  });
+});
+
+describe("ETF 與美股", () => {
+  it("美股：1,000 美元小數股、買賣各 0.1% 手續費、沒有證交稅", () => {
+    const r = netReturnUs(200, 220);
+    expect(r.shares).toBeCloseTo(5, 9);
+    expect(r.net).toBeCloseTo((1100 * 0.999) / (1000 * 1.001) - 1, 9);
+  });
+  it("美股推薦用美股成本；ETF 名單標「分數前10」；CSV 基準欄位用美股名稱", () => {
+    const us = appendPicks(emptyLog("US"), "20261106", [{ ...base, code: "NVDA", market: "US", price: 200 }]).log;
+    expect(us.rule).toMatch(/美股/);
+    const r = evaluatePick(us.picks[0], [1, 1, 1, 1, 1.1].map((f, i) => ({ date: `2026111${i}`, f })), new Map(), new Map());
+    expect(r.h[5]!.net).toBeCloseTo(netReturnUs(200, 220).net, 9);
+    const etf = appendPicks(emptyLog("ETF"), "20261106", [{ ...base, code: "0050", price: 60 }], BOOK_INFO.ETF.source).log;
+    expect(etf.picks[0].source).toBe("分數前10");
+    const f: PickPerfFile = { version: 1, generatedAt: 0, start: "20261106", dataTo: "20261113", rule: "", source: "", book: "US", bench: BOOK_INFO.US.bench, currency: "USD", cost: { notional: 1000, feeRate: 0.001, feeMinLot: 0, feeMinOdd: 0, taxStock: 0, taxEtf: 0, stop: 0.08 }, rows: [r] };
+    const csv = toCsv(f).replace(/^﻿/, "").split("\n");
+    expect(csv[0]).toMatch(/5日S&P 500（SPY）%,5日那斯達克 100（QQQ）%/);
+    expect(csv[1]).toMatch(/^20261106,NVDA,測試,美股,200,184,/);
   });
 });

@@ -17,6 +17,19 @@ export const FEE_MIN_LOT = 20; // 整股最低手續費
 export const FEE_MIN_ODD = 1; // 零股最低手續費
 export const TAX_STOCK = 0.003;
 export const TAX_ETF = 0.001;
+// 美股（使用者 11/7 指定）：每筆 1,000 美元、可買小數股；複委託手續費買賣各 0.1%、沒有最低；美國沒有證交稅；不含匯差
+export const US_NOTIONAL = 1_000;
+export const US_FEE_RATE = 0.001;
+export const ETF_TOP_N = 10; // ETF 沒有「買入」評等：記下每天分數最高的 10 檔（使用者 11/7 指定）
+
+/** 三本推薦紀錄：台股個股「買入」、台股 ETF 分數前 10 名、美股「買入」 */
+export type PickBook = "TW" | "ETF" | "US";
+export const PICK_BOOKS: PickBook[] = ["TW", "ETF", "US"];
+export const BOOK_INFO: Record<PickBook, { label: string; source: "買入" | "分數前10"; rule: string; files: { log: string; perf: string; csv: string }; bench: [string, string]; currency: "TWD" | "USD" }> = {
+  TW: { label: "台股", source: "買入", rule: "每個交易日收盤後，記下 App 評為「買入」的全部股票（不含 ETF）；推薦價為當日收盤，停損為推薦價 −8%。", files: { log: "picks.json", perf: "picks-perf.json", csv: "picks.csv" }, bench: ["加權指數", "0050"], currency: "TWD" },
+  ETF: { label: "ETF", source: "分數前10", rule: `ETF 沒有「買入」評等，每個交易日收盤後記下 ETF 分數最高的 ${ETF_TOP_N} 檔（只當參考）；推薦價為當日收盤，停損為推薦價 −8%。`, files: { log: "picks-etf.json", perf: "picks-perf-etf.json", csv: "picks-etf.csv" }, bench: ["加權指數", "0050"], currency: "TWD" },
+  US: { label: "美股", source: "買入", rule: "每個美股交易日收盤後，記下 App 評為「買入」的全部美股（App 內建的美股清單）；推薦價為當日收盤，停損為推薦價 −8%。", files: { log: "picks-us.json", perf: "picks-perf-us.json", csv: "picks-us.csv" }, bench: ["S&P 500（SPY）", "那斯達克 100（QQQ）"], currency: "USD" },
+};
 
 /** 一筆推薦（記下來之後永遠不改） */
 export interface PickRec {
@@ -24,13 +37,13 @@ export interface PickRec {
   date: string; // 推薦日（資料日）YYYYMMDD
   code: string;
   name: string;
-  market: "TWSE" | "TPEX";
+  market: "TWSE" | "TPEX" | "US";
   price: number; // 推薦價＝推薦日收盤
   stop: number; // 停損價
   score: number;
   reasons: string[];
   dataDate: string; // 評分用的資料日（行情與三大法人）
-  source: "買入";
+  source: "買入" | "分數前10";
 }
 
 export interface PickLog {
@@ -40,13 +53,13 @@ export interface PickLog {
   picks: PickRec[];
 }
 
-export const emptyLog = (): PickLog => ({ version: 1, start: "", rule: "每個交易日收盤後，記下 App 評為「買入」的全部股票（不含 ETF）；推薦價為當日收盤，停損為推薦價 −8%。", picks: [] });
+export const emptyLog = (book: PickBook = "TW"): PickLog => ({ version: 1, start: "", rule: BOOK_INFO[book].rule, picks: [] });
 
 /** 當天的推薦加進紀錄：同一天已經記過就不重記；既有紀錄一筆都不改、不刪 */
-export function appendPicks(log: PickLog, date: string, picks: Omit<PickRec, "id" | "date" | "stop" | "source">[]): { log: PickLog; added: number } {
+export function appendPicks(log: PickLog, date: string, picks: Omit<PickRec, "id" | "date" | "stop" | "source">[], source: PickRec["source"] = "買入"): { log: PickLog; added: number } {
   if (!picks.length || log.picks.some((p) => p.date === date)) return { log, added: 0 };
   if (log.picks.length && date < log.picks[log.picks.length - 1].date) return { log, added: 0 }; // 只往後新增，不補過去的日子
-  const add: PickRec[] = picks.map((p) => ({ ...p, id: `${date}-${p.code}`, date, stop: Math.round(p.price * (1 - PICK_STOP) * 100) / 100, source: "買入" }));
+  const add: PickRec[] = picks.map((p) => ({ ...p, id: `${date}-${p.code}`, date, stop: Math.round(p.price * (1 - PICK_STOP) * 100) / 100, source }));
   return { log: { ...log, start: log.start || date, picks: [...log.picks, ...add] }, added: add.length };
 }
 
@@ -65,6 +78,15 @@ export function netReturn(buy: number, sell: number, etf = false, notional = PIC
   const back = sv - fee(sv) - Math.round(sv * (etf ? TAX_ETF : TAX_STOCK));
   return { shares, net: back / cost - 1 };
 }
+
+/** 美股：1,000 美元買小數股，買賣各收 0.1% 手續費（沒有最低），沒有證交稅 */
+export function netReturnUs(buy: number, sell: number, notional = US_NOTIONAL): { shares: number; net: number } {
+  const shares = notional / buy;
+  const bv = buy * shares, sv = sell * shares;
+  return { shares, net: (sv - sv * US_FEE_RATE) / (bv + bv * US_FEE_RATE) - 1 };
+}
+
+const netOf = (p: Pick<PickRec, "code" | "market">, buy: number, sell: number) => (p.market === "US" ? netReturnUs(buy, sell).net : netReturn(buy, sell, /^00\d/.test(p.code)).net);
 
 /** 一檔股票從推薦日之後每個交易日的「累積漲跌倍數」（相對推薦價，已排除除權息） */
 export interface PathPoint { date: string; f: number } // f：相對推薦日收盤的倍數（1.05＝+5%）
@@ -90,27 +112,26 @@ export interface PickPerf extends PickRec {
 
 /** 算一筆推薦的績效；path 是推薦日之後（不含推薦日）依日期排列的累積倍數，bench 同理 */
 export function evaluatePick(p: PickRec, path: PathPoint[], taiex: Map<string, number>, b0050: Map<string, number>): PickPerf {
-  const etf = /^00\d/.test(p.code);
   const out: PickPerf = { ...p, elapsed: path.length, h: {} };
   if (path.length) {
     const last = path[path.length - 1];
     out.lastDate = last.date;
     out.curRet = last.f - 1;
-    out.curNet = netReturn(p.price, p.price * last.f, etf).net;
+    out.curNet = netOf(p, p.price, p.price * last.f);
   }
   const stopF = p.stop / p.price;
   for (const h of PICK_HORIZONS) {
     if (path.length < h) continue;
     const seg = path.slice(0, h), end = seg[h - 1];
     const hit = seg.find((x) => x.f <= stopF + 1e-9);
-    const net = netReturn(p.price, p.price * end.f, etf).net;
+    const net = netOf(p, p.price, p.price * end.f);
     const t = taiex.get(end.date), b = b0050.get(end.date);
     out.h[h] = {
       ret: end.f - 1, net,
       ...(t !== undefined ? { taiex: t, exTaiex: net - t } : {}),
       ...(b !== undefined ? { b0050: b, ex0050: net - b } : {}),
       stopHit: !!hit,
-      stopNet: hit ? netReturn(p.price, p.price * hit.f, etf).net : net,
+      stopNet: hit ? netOf(p, p.price, p.price * hit.f) : net,
       ...(hit ? { stopDate: hit.date } : {}),
     };
   }
@@ -173,6 +194,9 @@ export interface PickPerfFile {
   dataTo: string; // 最新資料日
   rule: string;
   source: string; // 資料來源說明
+  book?: PickBook; // 沒有＝台股（1.0.286 以前的檔案）
+  bench?: [string, string]; // 兩個對照基準的名稱；沒有＝加權指數、0050
+  currency?: "TWD" | "USD";
   cost: { notional: number; feeRate: number; feeMinLot: number; feeMinOdd: number; taxStock: number; taxEtf: number; stop: number };
   rows: PickPerf[]; // 新到舊
 }
@@ -187,12 +211,13 @@ const pct = (x: number | undefined) => (x === undefined || !Number.isFinite(x) ?
 /** CSV（Excel 可直接開：UTF-8 BOM、逗號分隔、文字有逗號就加引號） */
 export function toCsv(f: PickPerfFile): string {
   const q = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+  const [bA, bB] = (f.bench ?? ["加權", "0050"]).map((x) => q(x.replace(/指數$/, "")));
   const head = ["推薦日", "代號", "名稱", "市場", "推薦價", "停損價", "分數", "推薦理由", "資料日", "首次推薦", "已過交易日", "最新資料日", "至今報酬%", "至今淨報酬%"];
-  for (const h of PICK_HORIZONS) head.push(`${h}日報酬%`, `${h}日淨報酬%`, `${h}日加權%`, `${h}日0050%`, `${h}日超額(加權)%`, `${h}日超額(0050)%`, `${h}日觸及停損`, `${h}日停損出場淨報酬%`);
+  for (const h of PICK_HORIZONS) head.push(`${h}日報酬%`, `${h}日淨報酬%`, `${h}日${bA}%`, `${h}日${bB}%`, `${h}日超額(${bA})%`, `${h}日超額(${bB})%`, `${h}日觸及停損`, `${h}日停損出場淨報酬%`);
   const lines = [head.join(",")];
   const first = firstPickIds(f.rows);
   for (const r of sortPerfRows(f.rows)) {
-    const cells = [r.date, r.code, q(r.name), r.market === "TPEX" ? "上櫃" : "上市", String(r.price), String(r.stop), String(r.score), q(r.reasons.join("；")), r.dataDate, first.has(r.id) ? "是" : "否", String(r.elapsed), r.lastDate ?? "", pct(r.curRet), pct(r.curNet)];
+    const cells = [r.date, r.code, q(r.name), r.market === "TPEX" ? "上櫃" : r.market === "US" ? "美股" : "上市", String(r.price), String(r.stop), String(r.score), q(r.reasons.join("；")), r.dataDate, first.has(r.id) ? "是" : "否", String(r.elapsed), r.lastDate ?? "", pct(r.curRet), pct(r.curNet)];
     for (const h of PICK_HORIZONS) {
       const x = r.h[h];
       cells.push(pct(x?.ret), pct(x?.net), pct(x?.taiex), pct(x?.b0050), pct(x?.exTaiex), pct(x?.ex0050), x ? (x.stopHit ? "是" : "否") : "", pct(x?.stopNet));

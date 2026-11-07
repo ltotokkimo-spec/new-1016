@@ -375,6 +375,22 @@ function check(ok, name, detail = "") {
   check(etfVols.length >= 5 && etfVols.every((v, i) => Number.isFinite(v) && (i === 0 || etfVols[i - 1] >= v)), "ETF 清單依成交量由大到小排序，每列顯示成交量", JSON.stringify(etfVols));
   check(/依成交量排序（\d+\/\d+/.test(await page.evaluate(() => document.body.innerText)), "ETF 清單標題寫明依成交量排序與資料日");
   await shot("02b-選股-ETF");
+  // ETF 排序切換：參考分數（由高到低），再切回成交量
+  if (await page.$('[data-testid="etf-sort-score"]')) {
+    await page.click('[data-testid="etf-sort-score"]');
+    await page.waitForTimeout(500);
+    const byScore = await page.evaluate(() => ({ title: document.querySelector(".section-title")?.innerText || "", scores: [...document.querySelectorAll(".item")].slice(0, 8).map((r) => Number(/分數 (\d+)/.exec(r.innerText)?.[1] ?? NaN)) }));
+    log("ETF 依參考分數", JSON.stringify(byScore));
+    check(/依參考分數排序/.test(byScore.title) && byScore.scores.length >= 5 && byScore.scores.every((v, i) => Number.isFinite(v) && (i === 0 || byScore.scores[i - 1] >= v)), "ETF 清單可切換依參考分數排序（由高到低）", JSON.stringify(byScore));
+    await shot("02b2-選股-ETF-分數排序");
+    await page.click('[data-testid="etf-sort-vol"]');
+    await page.waitForTimeout(300);
+  } else check(false, "ETF 清單有「成交量／參考分數」排序切換");
+  // ETF 分頁也有推薦績效（分數前 10 名；雲端第一次記錄前顯示還沒有資料）
+  check(!!(await page.$('[data-testid="picks-perf-card"]')), "ETF 分頁有推薦績效入口");
+  const etfPerf = await page.waitForFunction(() => !/下載中/.test(document.querySelector('[data-testid="picks-perf-card"]')?.innerText || "下載中"), null, { timeout: 30000 }).then(() => page.$eval('[data-testid="picks-perf-card"]', (e) => e.innerText.replace(/\s+/g, " "))).catch(() => "");
+  log("ETF 推薦績效", etfPerf);
+  check(/ETF/.test(etfPerf) && /(分數前 10 名|還沒有資料|還沒有推薦)/.test(etfPerf), "ETF 推薦績效卡片寫明追蹤分數前 10 名（或尚未有資料）", etfPerf);
   // ETF 詳情頁：大字是現價（或明確標示的收盤價），並有即時折溢價（證交所 ETF 預估淨值）
   await page.click(".item");
   await page.waitForSelector('[data-testid="detail-price-note"]', { timeout: 15000 });
@@ -1085,6 +1101,10 @@ function check(ok, name, detail = "") {
   const us = await page2.$$eval(".item", (rs) => rs.slice(0, 6).map((r) => r.innerText.replace(/\s+/g, " ")));
   log("美股", JSON.stringify(us));
   check(us.length >= 6, "美股清單有資料", us[0]);
+  // 美股分頁也有推薦績效（買入名單；雲端第一次記錄前顯示還沒有資料）
+  const usPerf = await page2.waitForFunction(() => !/下載中/.test(document.querySelector('[data-testid="picks-perf-card"]')?.innerText || "下載中"), null, { timeout: 30000 }).then(() => page2.$eval('[data-testid="picks-perf-card"]', (e) => e.innerText.replace(/\s+/g, " "))).catch(() => "");
+  log("美股推薦績效", usPerf);
+  check(/美股/.test(usPerf) && /(「買入」名單|還沒有資料|還沒有推薦)/.test(usPerf), "美股分頁有推薦績效（買入名單，或尚未有資料）", usPerf);
   const prices = new Set(us.map((r) => /(\d[\d,]*\.\d\d)/.exec(r)?.[1]));
   check(prices.size >= 4, "美股各檔價格不同（是真實資料）", [...prices].join(" "));
   // 美股即時價（CNBC）：盤中/盤前盤後要用即時價，紐約半夜（盤後已收、盤前未開）則顯示收盤——兩種都要正確顯示「收盤/現價 今日%」

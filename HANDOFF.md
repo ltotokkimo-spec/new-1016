@@ -227,3 +227,11 @@
 - 虛擬幣（11/03）：`MACRO_SYMBOLS` 的「虛擬幣」組（CNBC `BTC.CM=`、`ETH.CM=`，`isCryptoSymbol` 判斷，區間報酬用 7／30／90 根）；恐懼貪婪指數 `data/fng.ts`（alternative.me `/fng/?limit=31`），`refreshMacro` 時順便抓、失敗沿用 kv `fng`。
 - 美股 24 小時行情（11/03）：`data/okx.ts`，OKX 公開 API（不需帳號）；`findXStock` 從現貨清單用「x＋代號」或「代號＋x」找交易對（清單一天抓一次存 kv `okx:inst`，只留 x 開頭或結尾的幣）；`UsOvernight`（`screens.tsx`）在美股個股頁；K 線日期用台北時間 YYYYMMDDHHmm，`CandleChart` 的 `intraday` 讓均線標成 MA5 並顯示時間。GitHub 的模擬器在美國，OKX 若擋美國 IP，CI 會驗證不到。
 - 實單規則觀察組合（11/03，使用者要比較「我的實單」的規則）：`steady.ts` 的 `REAL`／`realTargets`（App 買入候選 → 分數前 8 檔等權、留 4% 現金、單檔 ≤25%、每 5 個交易日換，`costStop` 跌破成本 10% 停損），回測鍵 `U1_real`；每日追蹤 `runWatch` mode `real`（10/23 起），產出 `real.json` 上傳 stock-radar-data；App 端 `refreshRule`／自組ETF「實單規則」分頁、總評比第 7 組。Claude 實際怎麼挑沒辦法回測，這是固定規則的近似。
+
+## 推薦績效追蹤（11/07，使用者要求）
+- 引擎 `src/engine/pickLog.ts`（三本：`PickBook` = TW／ETF／US，設定在 `BOOK_INFO`）；App 畫面 `src/ui/picksPerf.tsx`（選股頁三個市場分頁都有卡片）；雲端計算在 `tools/backtest.ts` 最後（`runBook`）。
+- 紀錄存在 **`stock-radar-log` 分支**：`picks.json`（台股買入）、`picks-etf.json`（ETF 分數前 10 名，ETF 沒有買入評等）、`picks-us.json`（美股買入）。**只新增不覆蓋**：`assertAppendOnly` 比對，舊紀錄被改就不寫。git 歷史保留每天版本。
+- 結果發布到 stock-radar-data：`picks-perf*.json`、`picks*.csv`。排序＝新日期在前、同一天分數高到低（`sortPerfRows`）。
+- 成本：台股／ETF 每筆 1 萬元、0.1425%（整股最低 20、零股最低 1）、證交稅股票 0.3%／ETF 0.1%；美股每筆 1,000 美元小數股、複委託買賣各 0.1% 無最低、無稅、不含匯差與股利。停損推薦價 −8%，只有日收盤所以用收盤判斷。基準：台股／ETF 加權指數與 0050；美股 SPY、QQQ。
+- 美股在雲端用 `UsLoader`（Nasdaq＋CNBC），只記已收盤的美股交易日；下載失敗超過 10 檔當天不記。
+- 「只看首次推薦」：前一個記錄日不在名單的才算首次（`firstPickIds`）。

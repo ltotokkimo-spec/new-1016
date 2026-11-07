@@ -10,11 +10,12 @@ import { formatCompare, runScoreCompare } from "../src/engine/scoreCompare";
 import { AI_CODES, aiTargets, buildCtx, formatSteady, runSteady } from "../src/engine/steady";
 import { runWatch, WATCH } from "../src/engine/watch";
 import { adjustedSeries, indicators } from "../src/engine/turning";
-import { addDays, taipeiToday, weekdaysBack } from "../src/lib/dates";
+import { addDays, taipeiToday, usLatestSession, weekdaysBack } from "../src/lib/dates";
 import { buildTwInputs } from "../src/data/twLoader";
 import { isEtf } from "../src/data/tw";
 import { scoreStocks } from "../src/engine/score";
-import { appendPicks, assertAppendOnly, emptyLog, evaluatePick, PICK_NOTIONAL, PICK_STOP, FEE_RATE, FEE_MIN_LOT, FEE_MIN_ODD, TAX_STOCK, TAX_ETF, toCsv, type PathPoint, type PickLog, type PickPerfFile } from "../src/engine/pickLog";
+import { appendPicks, assertAppendOnly, BOOK_INFO, emptyLog, ETF_TOP_N, evaluatePick, PICK_NOTIONAL, PICK_STOP, FEE_RATE, FEE_MIN_LOT, FEE_MIN_ODD, sortPerfRows, TAX_STOCK, TAX_ETF, toCsv, US_FEE_RATE, US_NOTIONAL, type PathPoint, type PickBook, type PickLog, type PickPerfFile } from "../src/engine/pickLog";
+import { UsLoader } from "../src/data/usLoader";
 import type { KV } from "../src/lib/kv";
 
 const [cacheDir = ".bt-cache", outFile = "backtest.json", factorsFile = "factors.json", compareFile = "scorecompare.json", steadyFile = "steady.json", watchFile = "n5.json", wideFile = "wide.json", regimeFile = "regime.json", leadFile = "lead.json", aiFile = "ai.json", realFile = "real.json", turnFile = "turn.json"] = process.argv.slice(2);
@@ -50,6 +51,21 @@ async function fetcher(url: string): Promise<any> {
       if (a >= 5) throw e;
       // 證交所連續請求太多會暫時重置連線：等久一點再試（10、20、40、60、60 秒）
       await new Promise((r) => setTimeout(r, Math.min(60_000, 10_000 * 2 ** a)));
+    }
+  }
+}
+
+/** 美股（Nasdaq、CNBC）：用瀏覽器的 User-Agent；失敗只重試 2 次，不要像證交所那樣等很久（美股失敗不影響台股） */
+async function usFetcher(url: string): Promise<any> {
+  for (let a = 0; ; a++) {
+    try {
+      requests++;
+      const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36", Accept: "application/json, text/plain, */*", "Accept-Language": "en-US,en;q=0.9" }, signal: AbortSignal.timeout(25_000) });
+      if (!r.ok) throw new Error(`HTTP ${r.status} ${url}`);
+      return await r.json();
+    } catch (e) {
+      if (a >= 2) throw e;
+      await new Promise((r) => setTimeout(r, 3000 * (a + 1)));
     }
   }
 }
@@ -204,27 +220,50 @@ if (t) {
     log(`指標 ${code} 收${f} MA20 ${(x.ma20[p] * k).toFixed(2)} MA60 ${(x.ma60[p] * k).toFixed(2)} RSI ${x.rsi[p].toFixed(2)} OSC ${(x.osc[p] * k).toFixed(3)} 上軌 ${(x.upper[p] * k).toFixed(2)}`);
   }
 }
-// 推薦績效追蹤（使用者 11/7 要求）：PICKLOG 指到 stock-radar-log 分支裡的 picks.json；只新增當天的買入名單，不改舊紀錄
+// 推薦績效追蹤（使用者 11/7 要求）：PICKLOG 指到 stock-radar-log 分支裡的 picks.json（同一個資料夾還有 picks-etf.json、picks-us.json）；
+// 只新增當天的名單，不改舊紀錄。三本各自 try，一本失敗不影響其他本與回測。
 const pickLogFile = process.env.PICKLOG;
 if (pickLogFile) {
-  try {
-    const before: PickLog = fs.existsSync(pickLogFile) ? JSON.parse(fs.readFileSync(pickLogFile, "utf8")) : emptyLog();
+  const logDir = path.dirname(pickLogFile);
+  /** 一本紀錄：讀舊檔 → 加今天的名單 → 確認只新增 → 寫回；再算每筆績效寫 perf／csv */
+  const runBook = (book: PickBook, today: { date: string; picks: Parameters<typeof appendPicks>[2] } | string, pathOf: (code: string, from: string) => PathPoint[], benchOf: (from: string) => { tai: Map<string, number>; b: Map<string, number> }, dataTo: string, source: string, cost: PickPerfFile["cost"]) => {
+    const info = BOOK_INFO[book];
+    const file = path.join(logDir, info.files.log);
+    const before: PickLog = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : emptyLog(book);
     let logNow = before;
+    if (typeof today === "string") log(`推薦績效（${info.label}）：${today}`);
+    else {
+      const res = appendPicks(before, today.date, today.picks, info.source);
+      logNow = res.log;
+      log(`推薦績效（${info.label}）：${today.date} ${info.source === "買入" ? "買入" : "分數前 10 名"} ${today.picks.length} 檔，新增 ${res.added} 筆（累計 ${logNow.picks.length} 筆，${logNow.start || "—"} 起）`);
+    }
+    assertAppendOnly(before, logNow);
+    fs.writeFileSync(file, JSON.stringify(logNow, null, 1));
+    const benchCache = new Map<string, ReturnType<typeof benchOf>>();
+    const rows = sortPerfRows(logNow.picks.map((p) => { let bm = benchCache.get(p.date); if (!bm) benchCache.set(p.date, (bm = benchOf(p.date))); return evaluatePick(p, pathOf(p.code, p.date), bm.tai, bm.b); }));
+    const perf: PickPerfFile = { version: 1, generatedAt: Date.now(), start: logNow.start, dataTo, rule: logNow.rule, source, book, bench: info.bench, currency: info.currency, cost, rows };
+    fs.writeFileSync(info.files.perf, JSON.stringify(perf));
+    fs.writeFileSync(info.files.csv, toCsv(perf));
+    log(`推薦績效（${info.label}）：${rows.length} 筆，已滿 5／10／20 日 ${[5, 10, 20].map((h) => rows.filter((r) => r.h[h as 5]).length).join("／")} 筆`);
+  };
+  const twCost: PickPerfFile["cost"] = { notional: PICK_NOTIONAL, feeRate: FEE_RATE, feeMinLot: FEE_MIN_LOT, feeMinOdd: FEE_MIN_ODD, taxStock: TAX_STOCK, taxEtf: TAX_ETF, stop: PICK_STOP };
+  const twSource = "證交所、櫃買中心每日收盤行情與三大法人；加權指數為證交所每日收盤；報酬以每日漲跌連乘（已排除除權息）。由 GitHub Actions 每個交易日收盤後計算。";
+
+  // 台股個股與 ETF：同一份行情
+  try {
     const d0 = days[0];
     const dateIdx = new Map(days.map((d, i) => [d.date, i]));
     const onOrBefore = (ymd: string) => { for (let x = 0; x < 10; x++) { const i = dateIdx.get(addDays(ymd, -x)); if (i !== undefined) return i; } return undefined; };
     const m1 = onOrBefore(addDays(d0.date, -28)), m3 = onOrBefore(addDays(d0.date, -88));
-    if (!d0.flows.length) log(`推薦績效：${d0.date} 三大法人還沒公布，今天先不記錄`);
-    else if (m1 === undefined || m3 === undefined) log("推薦績效：歷史資料不足，今天先不記錄");
-    else {
-      const inputs = buildTwInputs({ latest: d0.quotes, week: days[5].quotes, month: days[m1].quotes, quarter: days[m3].quotes, flows: days.slice(0, 10).map((d) => d.flows), companies, tpexCodes: d0.tpexCodes }).filter((x) => !isEtf(x.code));
-      const buys = scoreStocks(inputs).scored.filter((x) => x.rating === "買入");
-      const res = appendPicks(before, d0.date, buys.map((x) => ({ code: x.code, name: x.name, market: d0.tpexCodes.has(x.code) ? "TPEX" as const : "TWSE" as const, price: x.close, score: x.score, reasons: x.reasons.slice(0, 2), dataDate: d0.date })));
-      logNow = res.log;
-      log(`推薦績效：${d0.date} 買入 ${buys.length} 檔，新增 ${res.added} 筆（累計 ${logNow.picks.length} 筆，${logNow.start || "—"} 起）`);
+    let todayTw: Parameters<typeof runBook>[1] = `${d0.date} 三大法人還沒公布，今天先不記錄`, todayEtf: Parameters<typeof runBook>[1] = todayTw;
+    if (d0.flows.length && (m1 === undefined || m3 === undefined)) todayTw = todayEtf = "歷史資料不足，今天先不記錄";
+    else if (d0.flows.length) {
+      // 和 App 一樣：個股和 ETF 分開評分
+      const all = buildTwInputs({ latest: d0.quotes, week: days[5].quotes, month: days[m1!].quotes, quarter: days[m3!].quotes, flows: days.slice(0, 10).map((d) => d.flows), companies, tpexCodes: d0.tpexCodes });
+      const rec = (x: { code: string; name: string; close: number; score: number; reasons: string[] }) => ({ code: x.code, name: x.name, market: d0.tpexCodes.has(x.code) ? "TPEX" as const : "TWSE" as const, price: x.close, score: x.score, reasons: x.reasons.slice(0, 2), dataDate: d0.date });
+      todayTw = { date: d0.date, picks: scoreStocks(all.filter((x) => !isEtf(x.code))).scored.filter((x) => x.rating === "買入").map(rec) };
+      todayEtf = { date: d0.date, picks: scoreStocks(all.filter((x) => isEtf(x.code))).scored.slice(0, ETF_TOP_N).map(rec) };
     }
-    assertAppendOnly(before, logNow);
-    fs.writeFileSync(pickLogFile, JSON.stringify(logNow, null, 1));
     // 每檔每天的漲跌倍數（對除權息後的參考價）、0050 同理；加權指數用收盤
     const asc = [...days].reverse();
     const factor = new Map<string, Map<string, number>>(); // code → date → 當天倍數
@@ -235,20 +274,40 @@ if (pickLogFile) {
       for (const x of pathOf("0050", from)) { b.set(x.date, x.f - 1); const tc = taiexClose.get(x.date); if (t0 && tc) tai.set(x.date, tc / t0 - 1); }
       return { tai, b };
     };
-    const benchCache = new Map<string, ReturnType<typeof benchOf>>();
-    const rows = logNow.picks.map((p) => { let bm = benchCache.get(p.date); if (!bm) benchCache.set(p.date, (bm = benchOf(p.date))); return evaluatePick(p, pathOf(p.code, p.date), bm.tai, bm.b); });
-    // 新的日期在前；同一天維持記錄時的順序（分數高到低，和選股頁買入名單一樣）。不能整串 reverse，否則同一天會變成分數低的在前
-    rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-    const perf: PickPerfFile = {
-      version: 1, generatedAt: Date.now(), start: logNow.start, dataTo: d0.date, rule: logNow.rule,
-      source: "證交所、櫃買中心每日收盤行情與三大法人；加權指數為證交所每日收盤；報酬以每日漲跌連乘（已排除除權息）。由 GitHub Actions 每個交易日收盤後計算。",
-      cost: { notional: PICK_NOTIONAL, feeRate: FEE_RATE, feeMinLot: FEE_MIN_LOT, feeMinOdd: FEE_MIN_ODD, taxStock: TAX_STOCK, taxEtf: TAX_ETF, stop: PICK_STOP },
-      rows,
+    try { runBook("TW", todayTw, pathOf, benchOf, d0.date, twSource, twCost); } catch (e) { log("推薦績效（台股）失敗（不影響回測）：", e); }
+    try { runBook("ETF", todayEtf, pathOf, benchOf, d0.date, twSource, twCost); } catch (e) { log("推薦績效（ETF）失敗（不影響回測）：", e); }
+  } catch (e) { log("推薦績效（台股／ETF）失敗（不影響回測）：", e); }
+
+  // 美股：Nasdaq 日 K（和 App 同一個來源與評分），只用已收盤的交易日
+  try {
+    const memKV = (): KV => { const m = new Map<string, unknown>(); return { async get(k) { return m.get(k) as any; }, async set(k, v) { m.set(k, v); }, async del(k) { m.delete(k); }, async keys() { return [...m.keys()]; } }; };
+    const ul = new UsLoader(usFetcher, memKV());
+    const snap = await ul.load();
+    const closed = usLatestSession();
+    const [qqq] = await Promise.all([ul.history("QQQ", true).catch(() => [])]);
+    const barsOf = (sym: string) => (sym === "QQQ" ? qqq : snap.bars[sym] ?? []).filter((b) => b.date <= closed);
+    const asOf = barsOf("SPY").at(-1)?.date ?? "";
+    let today: Parameters<typeof runBook>[1];
+    if (!asOf) today = "美股資料下載失敗，今天先不記錄";
+    else if (snap.asOf > closed) today = `美股 ${snap.asOf} 還沒收盤，今天先不記錄`;
+    else if (snap.failed.length > 10) today = `美股有 ${snap.failed.length} 檔下載失敗，今天先不記錄（避免名單不完整）`;
+    else today = { date: asOf, picks: scoreStocks(snap.stocks).scored.filter((x) => x.rating === "買入").map((x) => ({ code: x.code, name: x.name, market: "US" as const, price: x.close, score: x.score, reasons: x.reasons.slice(0, 2), dataDate: asOf })) };
+    if (snap.failed.length) log(`美股下載失敗：${snap.failed.join("、")}`);
+    const closeMap = (sym: string) => new Map(barsOf(sym).map((b) => [b.date, b.close]));
+    const cache = new Map<string, Map<string, number>>();
+    const cm = (sym: string) => { let m = cache.get(sym); if (!m) cache.set(sym, (m = closeMap(sym))); return m; };
+    const pathOf = (code: string, from: string): PathPoint[] => {
+      const bars = barsOf(code), base = cm(code).get(from);
+      if (!base) return [];
+      return bars.filter((b) => b.date > from && b.close > 0).map((b) => ({ date: b.date, f: b.close / base }));
     };
-    fs.writeFileSync("picks-perf.json", JSON.stringify(perf));
-    fs.writeFileSync("picks.csv", toCsv(perf));
-    log(`推薦績效：${rows.length} 筆，已滿 5／10／20 日 ${[5, 10, 20].map((h) => rows.filter((r) => r.h[h as 5]).length).join("／")} 筆`);
-  } catch (e) { log("推薦績效追蹤失敗（不影響回測）：", e); }
+    const benchOf = (from: string) => {
+      const ret = (sym: string) => { const m = cm(sym), b0 = m.get(from), out = new Map<string, number>(); if (b0) for (const [d, c] of m) if (d > from) out.set(d, c / b0 - 1); return out; };
+      return { tai: ret("SPY"), b: ret("QQQ") };
+    };
+    const usCost: PickPerfFile["cost"] = { notional: US_NOTIONAL, feeRate: US_FEE_RATE, feeMinLot: 0, feeMinOdd: 0, taxStock: 0, taxEtf: 0, stop: PICK_STOP };
+    runBook("US", today, pathOf, benchOf, asOf || closed, "Nasdaq 每日收盤（日 K）、收盤後未更新時用 CNBC 正式收盤補上；S&P 500 用 SPY、那斯達克 100 用 QQQ 的收盤；報酬未含股利。由 GitHub Actions 每天計算前一個美股交易日。", usCost);
+  } catch (e) { log("推薦績效（美股）失敗（不影響回測）：", e); }
 }
 log("完成", outFile, fs.statSync(outFile).size, "bytes，網路請求", requests);
 }

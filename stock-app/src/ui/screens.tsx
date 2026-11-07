@@ -48,6 +48,9 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
   const refOnly = market === "ETF";
   const filter = refOnly ? "全部" : filter0 === "剛轉強" && !turn ? "買入" : filter0; // ETF 不分評等；美股沒有「剛轉強」，從台股切過來時改回「買入」
   const [q, setQ] = useState("");
+  // ETF 清單排序：成交量（預設）或參考分數；記在手機裡，下次打開維持
+  const [etfSort, setEtfSortS] = useState<"vol" | "score">(() => { try { return localStorage.getItem("etfSort") === "score" ? "score" : "vol"; } catch { return "vol"; } });
+  const setEtfSort = (v: "vol" | "score") => { setEtfSortS(v); try { localStorage.setItem("etfSort", v); } catch { /* 不記也沒關係 */ } };
   const live = useStore((s) => s.live);
   // 清單前 60 檔用即時價（台股：證交所；美股：CNBC，盤中每 30 秒更新），其餘顯示最近收盤的漲跌
   const freshLive = (s: Scored): LiveQuote | undefined => {
@@ -67,8 +70,9 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
       (t || filter === "全部" || (filter === "剛轉強" ? turnMap.has(s.code) : s.rating === filter)) && (t || !sector || s.sector === sector) &&
       (!t || s.code.toUpperCase().includes(t) || s.name.toUpperCase().includes(t)))
       // ETF 依最近一個交易日的成交量排序（其他市場維持依分數）；用固定的收盤量，盤中不會一直重新排列
-      .sort(market === "ETF" ? (a, b) => (b.volume ?? 0) - (a.volume ?? 0) : () => 0);
-  }, [ms.scored, filter, q, sector, turnMap, market]);
+      // 參考分數：scored 本來就是分數高到低，維持原順序
+      .sort(market === "ETF" && etfSort === "vol" ? (a, b) => (b.volume ?? 0) - (a.volume ?? 0) : () => 0);
+  }, [ms.scored, filter, q, sector, turnMap, market, etfSort]);
   const liveCodes = list.slice(0, 60).map((x) => x.code);
   const liveKey = market + liveCodes.join(",");
   useEffect(() => {
@@ -100,7 +104,7 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
         </div>
       )}
       {filter === "剛轉強" && turn ? <TurnCard turn={turn} /> : <BacktestCard market={market} />}
-      {market === "TW" && filter !== "剛轉強" && <PicksPerfCard />}
+      {filter !== "剛轉強" && <PicksPerfCard book={market} />}
       {ms.error && <div class="error" style={{ marginTop: "10px" }}>{ms.error}</div>}
       {ms.warning && <div class="notice" style={{ marginTop: "10px" }}>{ms.warning}</div>}
       {ms.status === "loading" && <Progress p={ms.progress} />}
@@ -108,9 +112,15 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
       {ms.status === "ready" && (
         <>
           <div class="section-title">
-            <span>{q.trim() ? `搜尋「${q.trim()}」・全部評等` : <>{sector ? `${sector}・` : ""}{filter === "全部" ? (market === "ETF" ? "全部 ETF" : "全部股票") : filter === "剛轉強" ? "剛轉強" : `評等「${filter}」`}・{market === "ETF" ? `依成交量排序${ms.asOf ? `（${prettyW(ms.asOf)}）` : ""}` : "依分數排序"}</>}</span>
+            <span>{q.trim() ? `搜尋「${q.trim()}」・全部評等` : <>{sector ? `${sector}・` : ""}{filter === "全部" ? (market === "ETF" ? "全部 ETF" : "全部股票") : filter === "剛轉強" ? "剛轉強" : `評等「${filter}」`}・{market === "ETF" ? (etfSort === "vol" ? `依成交量排序${ms.asOf ? `（${prettyW(ms.asOf)}）` : ""}` : "依參考分數排序") : "依分數排序"}</>}</span>
             <span>{list.length} 檔</span>
           </div>
+          {market === "ETF" && (
+            <div class="seg" role="group" aria-label="ETF 排序" style={{ marginBottom: "8px" }}>
+              <button aria-pressed={etfSort === "vol"} onClick={() => setEtfSort("vol")} data-testid="etf-sort-vol">成交量</button>
+              <button aria-pressed={etfSort === "score"} onClick={() => setEtfSort("score")} data-testid="etf-sort-score">參考分數</button>
+            </div>
+          )}
           {market === "US" && <UsLookup q={q} found={list.length > 0} />}
           {list.length === 0 ? (
             <div class="empty">

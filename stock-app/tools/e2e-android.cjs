@@ -138,6 +138,16 @@ function check(ok, name, detail = "") {
     log("推薦績效", JSON.stringify(pp));
     await shot("02d-推薦績效");
     check(pp.stats ? /總筆數 \d+ 筆/.test(pp.stats) && /勝率/.test(pp.stats) && /觸及停損比例/.test(pp.stats) && /資料來源/.test(pp.src) && pp.csv : /還沒有資料|下載中/.test(pp.body), "推薦績效頁：總筆數、勝率、平均與超額報酬、最大虧損、停損比例、資料來源與 CSV（或尚未有資料）", JSON.stringify(pp).slice(0, 300));
+    // 只看首次推薦：切換後說明文字變成「首次」，筆數不多於全部
+    if (await page.$('[data-testid="perf-first"]')) {
+      await page.click('[data-testid="perf-first"]').catch(() => {});
+      await page.waitForTimeout(400);
+      const sc = await page.evaluate(() => document.querySelector('[data-testid="perf-scope"]')?.innerText || "");
+      const m = sc.match(/（(\d+)／(\d+) 筆）/);
+      check(/首次|進入名單/.test(sc) && (!m || +m[1] <= +m[2]), "推薦績效可切換「只看首次推薦」", sc);
+      await shot("02e-推薦績效-首次");
+      await page.click('[data-testid="perf-all"]').catch(() => {});
+    } else check(false, "推薦績效有「只看首次推薦」切換");
     await page.click('.sheet header button[aria-label="返回"]').catch(() => {});
     await page.waitForFunction(() => !document.querySelector(".sheet"), null, { timeout: 5000 }).catch(() => {});
   }

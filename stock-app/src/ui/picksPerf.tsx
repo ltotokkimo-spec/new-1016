@@ -1,7 +1,7 @@
 // 推薦績效追蹤：App 每天評為「買入」的股票，實際之後 5／10／20 個交易日表現如何（雲端每天收盤後記錄、只新增不覆蓋）。
 // 和「回測參考」不同：回測是用現在的規則重算過去；這裡是當天就記下來、之後不再改的實際推薦。
 import { useEffect, useMemo, useState } from "preact/hooks";
-import { PICK_HORIZONS, perfStats, toCsv, type PickH, type PickPerf } from "../engine/pickLog";
+import { firstPickIds, PICK_HORIZONS, perfStats, toCsv, type PickH, type PickPerf } from "../engine/pickLog";
 import { pretty, prettyW } from "../lib/dates";
 import { getState, PICKS_CSV_URL, refreshPicksPerf, useStore } from "../store";
 import { fmtPct, fmtPrice, Sheet } from "./common";
@@ -61,9 +61,13 @@ export function PicksPerfSheet({ onClose }: { onClose: () => void }) {
   const [msg, setMsg] = useState("");
   const [day, setDay] = useState("");
   const [all, setAll] = useState(false);
+  const [firstOnly, setFirstOnlyS] = useState(() => { try { return localStorage.getItem("perfFirstOnly") === "1"; } catch { return false; } });
+  const setFirstOnly = (v: boolean) => { setFirstOnlyS(v); try { localStorage.setItem("perfFirstOnly", v ? "1" : "0"); } catch { /* 不記也沒關係 */ } };
   const reload = async () => { setBusy(true); setMsg(""); try { await refreshPicksPerf(); } catch { setMsg("下載失敗，顯示上次的資料"); } setBusy(false); };
   useEffect(() => { if (!pp || Date.now() - pp.fetchedAt > 10 * 60_000) reload(); }, []);
-  const rows = pp?.data.rows ?? [];
+  const allRows = pp?.data.rows ?? [];
+  const first = useMemo(() => firstPickIds(allRows), [allRows]);
+  const rows = useMemo(() => (firstOnly ? allRows.filter((r) => first.has(r.id)) : allRows), [allRows, first, firstOnly]);
   const st = useMemo(() => perfStats(rows, h), [rows, h]);
   const dates = useMemo(() => [...new Set(rows.map((r) => r.date))], [rows]); // 新到舊
   const shown = (day ? rows.filter((r) => r.date === day) : rows).slice(0, all ? undefined : 60);
@@ -74,9 +78,16 @@ export function PicksPerfSheet({ onClose }: { onClose: () => void }) {
         <div class="seg" role="group" aria-label="持有天數">
           {PICK_HORIZONS.map((x) => <button aria-pressed={h === x} onClick={() => setH(x)} data-testid={`perf-h-${x}`}>持有 {x} 日</button>)}
         </div>
+        <div class="seg" role="group" aria-label="計算範圍">
+          <button aria-pressed={!firstOnly} onClick={() => setFirstOnly(false)} data-testid="perf-all">每天都算</button>
+          <button aria-pressed={firstOnly} onClick={() => setFirstOnly(true)} data-testid="perf-first">只看首次推薦</button>
+        </div>
+        <div class="muted" style={{ fontSize: "12px", marginTop: "-4px" }} data-testid="perf-scope">
+          {firstOnly ? `連續在買入名單的股票只算進入名單那天；掉出後再回來算新的一次（${rows.length}／${allRows.length} 筆）` : `每天的買入名單每檔各算一筆，連續上榜的股票會被算好幾次（${allRows.length} 筆）`}
+        </div>
         {!d ? <div class="empty">{busy ? "下載中…" : "還沒有資料"}</div> : <>
           <div class="grid2" data-testid="perf-stats">
-            <Stat k="總筆數" v={`${st.n} 筆`} d={`已滿 ${h} 個交易日／全部 ${rows.length} 筆`} id="perf-n" />
+            <Stat k="總筆數" v={`${st.n} 筆`} d={`已滿 ${h} 個交易日／${firstOnly ? "首次推薦" : "全部"} ${rows.length} 筆`} id="perf-n" />
             <Stat k="勝率" v={st.n ? `${Math.round(st.win * 100)}%` : "—"} d="扣成本後淨報酬 > 0 的比例" id="perf-win" />
             <Stat k="平均淨報酬" v={pc(st.avg)} c={cls(st.avg)} d={`已扣手續費、證交稅`} id="perf-avg" />
             <Stat k="平均超額報酬" v={pc(st.avgExTaiex)} c={cls(st.avgExTaiex)} d={`對加權指數（同期平均 ${pc(st.benchTaiex)}）；對 0050 ${pc(st.avgEx0050)}`} id="perf-ex" />
@@ -97,7 +108,7 @@ export function PicksPerfSheet({ onClose }: { onClose: () => void }) {
 
           <div class="row" style={{ gap: "8px", flexWrap: "wrap" }}>
             <a class="btn secondary" href={PICKS_CSV_URL} target="_blank" rel="noreferrer" data-testid="perf-csv-dl">下載 CSV</a>
-            <button class="btn secondary" onClick={() => copy(toCsv(d), (ok) => setMsg(ok ? `已複製 ${rows.length} 筆（CSV），可以貼到 Excel 或 Google 試算表` : "複製失敗，請改用「下載 CSV」"))} data-testid="perf-csv-copy">複製 CSV</button>
+            <button class="btn secondary" onClick={() => copy(toCsv({ ...d, rows }), (ok) => setMsg(ok ? `已複製 ${rows.length} 筆${firstOnly ? "首次推薦" : ""}（CSV），可以貼到 Excel 或 Google 試算表` : "複製失敗，請改用「下載 CSV」"))} data-testid="perf-csv-copy">複製 CSV</button>
             <button class="btn secondary" onClick={reload} disabled={busy} data-testid="perf-reload">{busy ? "更新中…" : "重新下載"}</button>
           </div>
           {msg && <div class="muted" style={{ fontSize: "12.5px" }} data-testid="perf-msg">{msg}</div>}
@@ -109,7 +120,7 @@ export function PicksPerfSheet({ onClose }: { onClose: () => void }) {
             </select>
           </div>
           <div class="list" data-testid="perf-rows">
-            {shown.map((r) => <PerfRow r={r} h={h} />)}
+            {shown.map((r) => <PerfRow r={r} h={h} first={!firstOnly && first.has(r.id)} />)}
           </div>
           {!all && (day ? rows.filter((r) => r.date === day).length : rows.length) > 60 && <button class="chip" onClick={() => setAll(true)}>顯示全部</button>}
         </>}
@@ -118,12 +129,12 @@ export function PicksPerfSheet({ onClose }: { onClose: () => void }) {
   );
 }
 
-function PerfRow({ r, h }: { r: PickPerf; h: PickH }) {
+function PerfRow({ r, h, first }: { r: PickPerf; h: PickH; first?: boolean }) {
   const x = r.h[h];
   return (
     <div class="item" style={{ cursor: "default" }} data-testid="perf-row">
       <div style={{ minWidth: 0 }}>
-        <div class="name">{r.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{r.code}</span></div>
+        <div class="name">{r.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{r.code}</span>{first && <span class="tag" style={{ marginLeft: "6px", fontSize: "11px", fontWeight: 400 }}>首次</span>}</div>
         <div class="sub num" style={{ whiteSpace: "normal" }}>{pretty(r.date)} 推薦 {fmtPrice(r.price)}・停損 {fmtPrice(r.stop)}・分數 {r.score}{x?.stopHit ? <span class="down">・{pretty(x.stopDate!)} 跌破停損</span> : ""}</div>
         <div class="sub" style={{ whiteSpace: "normal", fontSize: "11.5px" }}>{r.reasons.join("；")}</div>
       </div>

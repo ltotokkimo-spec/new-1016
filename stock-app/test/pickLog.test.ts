@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appendPicks, assertAppendOnly, emptyLog, evaluatePick, netReturn, perfStats, toCsv, type PickPerfFile } from "../src/engine/pickLog";
+import { appendPicks, assertAppendOnly, emptyLog, evaluatePick, firstPickIds, netReturn, perfStats, toCsv, type PickPerfFile } from "../src/engine/pickLog";
 
 const base = { name: "測試", market: "TWSE" as const, score: 80, reasons: ["外資連買"], dataDate: "20261109" };
 
@@ -70,5 +70,13 @@ describe("績效：持有 5 日、觸及停損、超額報酬", () => {
     expect(csv[0]).toMatch(/^推薦日,代號,名稱,市場,推薦價,停損價/);
     expect(csv.length).toBe(3);
     expect(csv[2]).toMatch(/^20261109,2330,台積電,上市,100,92,/);
+  });
+});
+
+describe("只看首次推薦", () => {
+  it("連續在名單只算第一天；掉出後再回來算新的一次；第一個記錄日全部算首次", () => {
+    const r = (date: string, code: string) => ({ id: `${date}-${code}`, date, code });
+    const rows = [r("20261106", "2412"), r("20261106", "2330"), r("20261109", "2412"), r("20261109", "1101"), r("20261110", "2330"), r("20261110", "1101")];
+    expect([...firstPickIds(rows)].sort()).toEqual(["20261106-2330", "20261106-2412", "20261109-1101", "20261110-2330"]);
   });
 });

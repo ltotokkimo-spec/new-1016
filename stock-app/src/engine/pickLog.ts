@@ -130,6 +130,18 @@ export interface PerfStat {
   bench0050?: number;
 }
 
+/**
+ * 首次推薦：連續好幾天都在買入名單的股票，只算進入名單的第一天；掉出名單後再回來，算新的一次。
+ * 判斷方式：前一個記錄日的名單裡沒有這檔（第一個記錄日全部算首次）。
+ */
+export function firstPickIds(rows: Pick<PickRec, "id" | "date" | "code">[]): Set<string> {
+  const byDate = new Map<string, Set<string>>();
+  for (const r of rows) { let s = byDate.get(r.date); if (!s) byDate.set(r.date, (s = new Set())); s.add(r.code); }
+  const dates = [...byDate.keys()].sort();
+  const prevOf = new Map(dates.map((d, i) => [d, i ? byDate.get(dates[i - 1])! : undefined]));
+  return new Set(rows.filter((r) => !prevOf.get(r.date)?.has(r.code)).map((r) => r.id));
+}
+
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
 
 export function perfStats(rows: PickPerf[], h: PickH, from?: string, to?: string): PerfStat {
@@ -170,11 +182,12 @@ const pct = (x: number | undefined) => (x === undefined || !Number.isFinite(x) ?
 /** CSV（Excel 可直接開：UTF-8 BOM、逗號分隔、文字有逗號就加引號） */
 export function toCsv(f: PickPerfFile): string {
   const q = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
-  const head = ["推薦日", "代號", "名稱", "市場", "推薦價", "停損價", "分數", "推薦理由", "資料日", "已過交易日", "最新資料日", "至今報酬%", "至今淨報酬%"];
+  const head = ["推薦日", "代號", "名稱", "市場", "推薦價", "停損價", "分數", "推薦理由", "資料日", "首次推薦", "已過交易日", "最新資料日", "至今報酬%", "至今淨報酬%"];
   for (const h of PICK_HORIZONS) head.push(`${h}日報酬%`, `${h}日淨報酬%`, `${h}日加權%`, `${h}日0050%`, `${h}日超額(加權)%`, `${h}日超額(0050)%`, `${h}日觸及停損`, `${h}日停損出場淨報酬%`);
   const lines = [head.join(",")];
+  const first = firstPickIds(f.rows);
   for (const r of f.rows) {
-    const cells = [r.date, r.code, q(r.name), r.market === "TPEX" ? "上櫃" : "上市", String(r.price), String(r.stop), String(r.score), q(r.reasons.join("；")), r.dataDate, String(r.elapsed), r.lastDate ?? "", pct(r.curRet), pct(r.curNet)];
+    const cells = [r.date, r.code, q(r.name), r.market === "TPEX" ? "上櫃" : "上市", String(r.price), String(r.stop), String(r.score), q(r.reasons.join("；")), r.dataDate, first.has(r.id) ? "是" : "否", String(r.elapsed), r.lastDate ?? "", pct(r.curRet), pct(r.curNet)];
     for (const h of PICK_HORIZONS) {
       const x = r.h[h];
       cells.push(pct(x?.ret), pct(x?.net), pct(x?.taiex), pct(x?.b0050), pct(x?.exTaiex), pct(x?.ex0050), x ? (x.stopHit ? "是" : "否") : "", pct(x?.stopNet));

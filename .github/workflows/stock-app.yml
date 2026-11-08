@@ -59,15 +59,34 @@ jobs:
       - name: 同步到 Android 專案
         run: npx cap sync android
 
-      # Gradle 本體從 GitHub Releases 下載，偶爾逾時或回 504（11/08 連續兩次）：先單獨下載，失敗就等一下重試，打包本身不重複
-      - name: 下載 Gradle（失敗重試）
+      # Gradle 本體（約 200MB）官方放在 GitHub Releases，11/08 連續好幾次逾時或 504。
+      # 1) 快取：下載成功過就直接用，不再每次下載
+      - name: 還原 Gradle 快取
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle/wrapper/dists
+          key: gradle-dist-${{ hashFiles('stock-app/android/gradle/wrapper/gradle-wrapper.properties') }}
+
+      # 2) 官方下載失敗就改用鏡像站，並用官方公布的 SHA-256 檢查碼比對，相符才使用（抓不到檢查碼就不用鏡像）
+      - name: 下載 Gradle（失敗重試、改用鏡像）
         working-directory: stock-app/android
         run: |
-          for i in 1 2 3 4 5; do
+          for i in 1 2; do
             ./gradlew --version --no-daemon -q && exit 0
-            echo "下載 Gradle 失敗（第 $i 次），$((i*30)) 秒後重試"; sleep $((i*30))
+            echo "官方下載 Gradle 失敗（第 $i 次），30 秒後重試"; sleep 30
           done
-          exit 1
+          url=$(sed -n 's/^distributionUrl=//p' gradle/wrapper/gradle-wrapper.properties | sed 's#\\:#:#g')
+          name=$(basename "$url"); ver=$(echo "$name" | sed -E 's/gradle-(.*)-(all|bin)\.zip/\1/')
+          sha=$(curl -fsSL -m 30 --retry 5 --retry-delay 5 "$url.sha256" || true)
+          if ! echo "$sha" | grep -qE '^[0-9a-f]{64}$'; then echo "::error::取不到官方檢查碼，不使用鏡像（稍後重跑即可）"; exit 1; fi
+          for m in "https://mirrors.cloud.tencent.com/gradle/$name" "https://mirrors.aliyun.com/gradle/distributions/v$ver/$name"; do
+            echo "改從鏡像下載：$m"
+            curl -fL -m 900 --retry 2 -o "$RUNNER_TEMP/$name" "$m" || continue
+            echo "$sha  $RUNNER_TEMP/$name" | sha256sum -c - || { echo "檢查碼不符，不使用"; continue; }
+            sed -i "s#^distributionUrl=.*#distributionUrl=file\\:$RUNNER_TEMP/$name#" gradle/wrapper/gradle-wrapper.properties
+            ./gradlew --version --no-daemon -q && exit 0
+          done
+          echo "::error::Gradle 官方與鏡像都下載失敗"; exit 1
 
       - name: 打包 APK
         working-directory: stock-app/android

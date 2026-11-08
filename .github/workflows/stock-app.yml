@@ -59,6 +59,16 @@ jobs:
       - name: 同步到 Android 專案
         run: npx cap sync android
 
+      # Gradle 本體從 GitHub Releases 下載，偶爾逾時或回 504（11/08 連續兩次）：先單獨下載，失敗就等一下重試，打包本身不重複
+      - name: 下載 Gradle（失敗重試）
+        working-directory: stock-app/android
+        run: |
+          for i in 1 2 3 4 5; do
+            ./gradlew --version --no-daemon -q && exit 0
+            echo "下載 Gradle 失敗（第 $i 次），$((i*30)) 秒後重試"; sleep $((i*30))
+          done
+          exit 1
+
       - name: 打包 APK
         working-directory: stock-app/android
         # debug 給模擬器實測（測試工具要連進 WebView 檢查畫面，只有 debug 允許）；release 發布給手機（不可除錯，同一把簽章）

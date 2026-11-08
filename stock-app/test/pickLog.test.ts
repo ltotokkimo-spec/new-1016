@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appendPicks, assertAppendOnly, BOOK_INFO, emptyLog, evaluatePick, firstPickIds, netReturn, netReturnUs, perfStats, toCsv, type PickPerfFile } from "../src/engine/pickLog";
+import { appendPicks, applyFinal, assertAppendOnly, assertFinalAppendOnly, BOOK_INFO, emptyFinal, emptyLog, freezeResults, type FinalLog, evaluatePick, firstPickIds, netReturn, netReturnUs, perfStats, toCsv, type PickPerfFile } from "../src/engine/pickLog";
 
 const base = { name: "測試", market: "TWSE" as const, score: 80, reasons: ["外資連買"], dataDate: "20261109" };
 
@@ -108,5 +108,29 @@ describe("ETF 與美股", () => {
     const csv = toCsv(f).replace(/^﻿/, "").split("\n");
     expect(csv[0]).toMatch(/5日S&P 500（SPY）%,5日那斯達克 100（QQQ）%/);
     expect(csv[1]).toMatch(/^20261106,NVDA,測試,美股,200,184,/);
+  });
+});
+
+describe("定案結果：舊股價不在下載範圍也不會變", () => {
+  it("滿 h 天就定案；之後重算缺資料時沿用定案值；定案值不能被改", () => {
+    const p = appendPicks(emptyLog("US"), "20261106", [{ ...base, code: "NVDA", market: "US", price: 200 }]).log.picks[0];
+    const days = Array.from({ length: 6 }, (_, i) => `2026111${i}`);
+    const full = evaluatePick(p, [1, 1, 1, 1, 1.1, 1.2].map((f, i) => ({ date: days[i], f })), new Map(), new Map());
+    const { final, added } = freezeResults(emptyFinal(), [full]);
+    expect(added).toBe(1);
+    expect(final.results[p.id][5]!.ret).toBeCloseTo(0.1);
+    // 一年後推薦日價格已不在下載範圍：重算沒有路徑
+    const later = evaluatePick(p, [], new Map(), new Map());
+    expect(later.h[5]).toBeUndefined();
+    const fixed = applyFinal(later, final);
+    expect(fixed.h[5]!.ret).toBeCloseTo(0.1);
+    expect(fixed.elapsed).toBe(5);
+    // 重算出不同數字也不會改定案
+    const again = freezeResults(final, [{ ...full, h: { 5: { ...full.h[5]!, ret: 0.5 } } }]);
+    expect(again.added).toBe(0);
+    expect(again.final.results[p.id][5]!.ret).toBeCloseTo(0.1);
+    const broken: FinalLog = { version: 1, results: {} };
+    expect(() => assertFinalAppendOnly(final, broken)).toThrow(/被改動或刪除/);
+    expect(() => assertFinalAppendOnly(final, again.final)).not.toThrow();
   });
 });

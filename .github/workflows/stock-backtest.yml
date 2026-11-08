@@ -58,11 +58,26 @@ jobs:
         if: github.event_name != 'pull_request'
         working-directory: .
         run: |
-          if git fetch --depth 1 origin stock-radar-log; then
-            git worktree add -B stock-radar-log "$RUNNER_TEMP/radar-log" FETCH_HEAD
-          else
+          # 先確認分支在不在：ls-remote 回 2＝確定不存在（第一次才建新的），0＝存在，其他＝連線失敗
+          # 分支存在卻下載失敗時，今天不記錄（不能當成空紀錄重新開始，App 會只看到今天的名單）
+          set +e
+          rc=1
+          for i in 1 2 3 4; do
+            git ls-remote --exit-code --heads origin stock-radar-log >/dev/null 2>&1; rc=$?
+            if [ $rc -eq 0 ] || [ $rc -eq 2 ]; then break; fi
+            echo "查詢 stock-radar-log 失敗（第 $i 次），稍後重試"; sleep $((i*5))
+          done
+          if [ $rc -eq 2 ]; then
             echo "還沒有 stock-radar-log 分支，建立新的"
-            git worktree add --orphan -b stock-radar-log "$RUNNER_TEMP/radar-log"
+            git worktree add --orphan -b stock-radar-log "$RUNNER_TEMP/radar-log" || { echo "::warning::建立推薦紀錄分支失敗，今天不記錄"; exit 0; }
+          elif [ $rc -eq 0 ]; then
+            ok=0
+            for i in 1 2 3 4; do git fetch --depth 1 origin stock-radar-log && { ok=1; break; }; echo "下載推薦紀錄失敗（第 $i 次），稍後重試"; sleep $((i*5)); done
+            if [ $ok -ne 1 ]; then echo "::warning::下載推薦紀錄失敗，今天不記錄（舊紀錄與 App 上的資料不受影響）"; exit 0; fi
+            git worktree add -B stock-radar-log "$RUNNER_TEMP/radar-log" FETCH_HEAD || { echo "::warning::準備推薦紀錄失敗，今天不記錄"; exit 0; }
+            [ -f "$RUNNER_TEMP/radar-log/picks.json" ] || { echo "::warning::推薦紀錄分支裡沒有 picks.json，今天不記錄"; exit 0; }
+          else
+            echo "::warning::連不到 GitHub 查推薦紀錄，今天不記錄"; exit 0
           fi
           ls -la "$RUNNER_TEMP/radar-log"
           echo "PICKLOG=$RUNNER_TEMP/radar-log/picks.json" >> "$GITHUB_ENV"
@@ -80,7 +95,7 @@ jobs:
           ls picks*.json >/dev/null 2>&1 || { echo "沒有產生推薦紀錄"; exit 0; }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add picks*.json
+          git add picks*.json  # 含 picks-final*.json（定案結果）
           if git diff --cached --quiet; then echo "今天沒有新增推薦紀錄"; exit 0; fi
           msg=$(node -e 'const fs=require("fs");const o=[];for(const [f,n] of [["picks.json","台股"],["picks-etf.json","ETF"],["picks-us.json","美股"]]){if(!fs.existsSync(f))continue;const p=JSON.parse(fs.readFileSync(f,"utf8")).picks;o.push(n+" "+(p.length?p[p.length-1].date:"—")+"（累計 "+p.length+" 筆）")}console.log(o.join("、"))')
           git commit -q -m "推薦紀錄：$msg"

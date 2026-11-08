@@ -14,7 +14,7 @@ import { addDays, taipeiToday, usLatestSession, weekdaysBack } from "../src/lib/
 import { buildTwInputs } from "../src/data/twLoader";
 import { isEtf } from "../src/data/tw";
 import { scoreStocks } from "../src/engine/score";
-import { appendPicks, assertAppendOnly, BOOK_INFO, emptyLog, ETF_TOP_N, evaluatePick, PICK_NOTIONAL, PICK_STOP, FEE_RATE, FEE_MIN_LOT, FEE_MIN_ODD, sortPerfRows, TAX_STOCK, TAX_ETF, toCsv, US_FEE_RATE, US_NOTIONAL, type PathPoint, type PickBook, type PickLog, type PickPerfFile } from "../src/engine/pickLog";
+import { appendPicks, applyFinal, assertAppendOnly, assertFinalAppendOnly, BOOK_INFO, emptyFinal, emptyLog, freezeResults, type FinalLog, ETF_TOP_N, evaluatePick, PICK_NOTIONAL, PICK_STOP, FEE_RATE, FEE_MIN_LOT, FEE_MIN_ODD, sortPerfRows, TAX_STOCK, TAX_ETF, toCsv, US_FEE_RATE, US_NOTIONAL, type PathPoint, type PickBook, type PickLog, type PickPerfFile } from "../src/engine/pickLog";
 import { UsLoader } from "../src/data/usLoader";
 import type { KV } from "../src/lib/kv";
 
@@ -240,7 +240,14 @@ if (pickLogFile) {
     assertAppendOnly(before, logNow);
     fs.writeFileSync(file, JSON.stringify(logNow, null, 1));
     const benchCache = new Map<string, ReturnType<typeof benchOf>>();
-    const rows = sortPerfRows(logNow.picks.map((p) => { let bm = benchCache.get(p.date); if (!bm) benchCache.set(p.date, (bm = benchOf(p.date))); return evaluatePick(p, pathOf(p.code, p.date), bm.tai, bm.b); }));
+    // 已定案的持有期間沿用定案值；剛滿天數的這次定案（只新增，舊的不改）
+    const finalFile = path.join(logDir, info.files.final);
+    const finalBefore: FinalLog = fs.existsSync(finalFile) ? JSON.parse(fs.readFileSync(finalFile, "utf8")) : emptyFinal();
+    const rows = sortPerfRows(logNow.picks.map((p) => { let bm = benchCache.get(p.date); if (!bm) benchCache.set(p.date, (bm = benchOf(p.date))); return applyFinal(evaluatePick(p, pathOf(p.code, p.date), bm.tai, bm.b), finalBefore); }));
+    const fz = freezeResults(finalBefore, rows);
+    assertFinalAppendOnly(finalBefore, fz.final);
+    fs.writeFileSync(finalFile, JSON.stringify(fz.final, null, 1));
+    if (fz.added) log(`推薦績效（${info.label}）：新定案 ${fz.added} 個持有期間結果（之後不再重算）`);
     const perf: PickPerfFile = { version: 1, generatedAt: Date.now(), start: logNow.start, dataTo, rule: logNow.rule, source, book, bench: info.bench, currency: info.currency, cost, rows };
     fs.writeFileSync(info.files.perf, JSON.stringify(perf));
     fs.writeFileSync(info.files.csv, toCsv(perf));

@@ -25,10 +25,10 @@ export const ETF_TOP_N = 10; // ETF 沒有「買入」評等：記下每天分�
 /** 三本推薦紀錄：台股個股「買入」、台股 ETF 分數前 10 名、美股「買入」 */
 export type PickBook = "TW" | "ETF" | "US";
 export const PICK_BOOKS: PickBook[] = ["TW", "ETF", "US"];
-export const BOOK_INFO: Record<PickBook, { label: string; source: "買入" | "分數前10"; rule: string; files: { log: string; perf: string; csv: string }; bench: [string, string]; currency: "TWD" | "USD" }> = {
-  TW: { label: "台股", source: "買入", rule: "每個交易日收盤後，記下 App 評為「買入」的全部股票（不含 ETF）；推薦價為當日收盤，停損為推薦價 −8%。", files: { log: "picks.json", perf: "picks-perf.json", csv: "picks.csv" }, bench: ["加權指數", "0050"], currency: "TWD" },
-  ETF: { label: "ETF", source: "分數前10", rule: `ETF 沒有「買入」評等，每個交易日收盤後記下 ETF 分數最高的 ${ETF_TOP_N} 檔（只當參考）；推薦價為當日收盤，停損為推薦價 −8%。`, files: { log: "picks-etf.json", perf: "picks-perf-etf.json", csv: "picks-etf.csv" }, bench: ["加權指數", "0050"], currency: "TWD" },
-  US: { label: "美股", source: "買入", rule: "每個美股交易日收盤後，記下 App 評為「買入」的全部美股（App 內建的美股清單）；推薦價為當日收盤，停損為推薦價 −8%。", files: { log: "picks-us.json", perf: "picks-perf-us.json", csv: "picks-us.csv" }, bench: ["S&P 500（SPY）", "那斯達克 100（QQQ）"], currency: "USD" },
+export const BOOK_INFO: Record<PickBook, { label: string; source: "買入" | "分數前10"; rule: string; files: { log: string; final: string; perf: string; csv: string }; bench: [string, string]; currency: "TWD" | "USD" }> = {
+  TW: { label: "台股", source: "買入", rule: "每個交易日收盤後，記下 App 評為「買入」的全部股票（不含 ETF）；推薦價為當日收盤，停損為推薦價 −8%。", files: { log: "picks.json", final: "picks-final.json", perf: "picks-perf.json", csv: "picks.csv" }, bench: ["加權指數", "0050"], currency: "TWD" },
+  ETF: { label: "ETF", source: "分數前10", rule: `ETF 沒有「買入」評等，每個交易日收盤後記下 ETF 分數最高的 ${ETF_TOP_N} 檔（只當參考）；推薦價為當日收盤，停損為推薦價 −8%。`, files: { log: "picks-etf.json", final: "picks-final-etf.json", perf: "picks-perf-etf.json", csv: "picks-etf.csv" }, bench: ["加權指數", "0050"], currency: "TWD" },
+  US: { label: "美股", source: "買入", rule: "每個美股交易日收盤後，記下 App 評為「買入」的全部美股（App 內建的美股清單）；推薦價為當日收盤，停損為推薦價 −8%。", files: { log: "picks-us.json", final: "picks-final-us.json", perf: "picks-perf-us.json", csv: "picks-us.csv" }, bench: ["S&P 500（SPY）", "那斯達克 100（QQQ）"], currency: "USD" },
 };
 
 /** 一筆推薦（記下來之後永遠不改） */
@@ -136,6 +136,42 @@ export function evaluatePick(p: PickRec, path: PathPoint[], taiex: Map<string, n
     };
   }
   return out;
+}
+
+/**
+ * 定案結果（11/8 加）：每筆推薦滿 5／10／20 個交易日時，把那個持有期間的結果存下來，之後一律沿用、不再重算。
+ * 原因：雲端只下載最近一段股價（美股約 9 個月、台股約 2 年），太舊的推薦重算會找不到推薦日的價格或算錯。
+ * 和推薦紀錄一樣只新增、不改。
+ */
+export interface FinalLog { version: 1; results: Record<string, Partial<Record<PickH, HorizonResult>>> }
+export const emptyFinal = (): FinalLog => ({ version: 1, results: {} });
+
+/** 把剛算出來、還沒定案的持有期間結果加進定案；已定案的一個字都不改 */
+export function freezeResults(prev: FinalLog, rows: PickPerf[]): { final: FinalLog; added: number } {
+  const results: FinalLog["results"] = { ...prev.results };
+  let added = 0;
+  for (const r of rows) for (const h of PICK_HORIZONS) {
+    const x = r.h[h];
+    if (!x || results[r.id]?.[h]) continue;
+    results[r.id] = { ...results[r.id], [h]: x };
+    added++;
+  }
+  return { final: { version: 1, results }, added };
+}
+
+/** 確認舊的定案結果都還在而且沒被改 */
+export function assertFinalAppendOnly(before: FinalLog, after: FinalLog): void {
+  for (const [id, hs] of Object.entries(before.results))
+    for (const [h, x] of Object.entries(hs)) if (JSON.stringify(after.results[id]?.[Number(h) as PickH]) !== JSON.stringify(x)) throw new Error(`定案結果 ${id} ${h} 日被改動或刪除`);
+}
+
+/** 已定案的持有期間一律用定案值（重算結果可能因為舊股價已不在下載範圍而缺漏或不同） */
+export function applyFinal(r: PickPerf, final: FinalLog): PickPerf {
+  const f = final.results[r.id];
+  if (!f) return r;
+  const h = { ...r.h, ...f };
+  const done = Math.max(...PICK_HORIZONS.filter((x) => h[x]), 0);
+  return { ...r, h, elapsed: Math.max(r.elapsed, done) };
 }
 
 export interface PerfStat {

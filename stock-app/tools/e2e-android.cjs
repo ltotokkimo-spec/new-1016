@@ -987,6 +987,9 @@ function check(ok, name, detail = "") {
   log("興櫃即時走勢", JSON.stringify(esbI));
   if (esbI.chart) await page.$eval('[data-testid="esb-intra"]', (e) => e.scrollIntoView()).catch(() => {});
   await shot("09b-興櫃即時走勢");
+  // 走勢圖的參考價要和個股頁上方的今日漲跌一致（都用櫃買的前一日均價）
+  const esbRef = Number((/參考價 ([\d.,]+)/.exec(esbI.stats)?.[1] || "").replace(/,/g, "")), esbPx = Number((esbD.price || "").replace(/,/g, "")), esbChg = Number((/今日 ([+-]?[\d.]+)%/.exec(esbD.chg || "")?.[1]) ?? NaN);
+  if (esbI.chart && Number.isFinite(esbChg) && esbRef > 0) check(Math.abs((esbPx / esbRef - 1) * 100 - esbChg) < 0.15, "興櫃即時走勢的參考價和個股頁今日漲跌一致（櫃買前一日均價）", `參考價 ${esbRef} 現價 ${esbPx} 今日 ${esbChg}%`);
   check(esbI.has && (esbI.chart ? /參考價 [\d.,]+/.test(esbI.stats) && !/漲停/.test(esbI.stats) && esbI.axis.includes("15:00") : /還沒有成交|下載失敗/.test(esbI.empty)), "興櫃個股有即時走勢（參考價、無漲跌停、到 15:00；或說明尚無成交）", JSON.stringify(esbI).slice(0, 300));
   await shot("06c-興櫃個股詳情");
   await page.click('.sheet header button[aria-label="返回"]');

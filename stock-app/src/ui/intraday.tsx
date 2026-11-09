@@ -53,7 +53,8 @@ export function IntradayChart({ code, market, prefetch }: { code: string; market
   if (loading && !d) return <div class="empty" data-testid="intra-loading">即時走勢載入中…</div>;
   if (!d || !d.points.length) return <div class="empty" data-testid="intra-empty">{err ? `即時走勢下載失敗（${err}）` : "今天還沒有成交（09:00 開盤後出現）"}</div>;
 
-  const pts = d.points, ref = d.prevClose, etf = isEtf(code);
+  // 興櫃的漲跌對照「前一日均價」（櫃買中心公布的參考價）；Yahoo 給的前一天價格不一樣（11/9 實測：Yahoo 613、櫃買 546.2），以櫃買為準，和個股頁上方與日 K 一致
+  const pts = d.points, ref = esb && live && live.prevClose > 0 ? live.prevClose : d.prevClose, etf = isEtf(code);
   const avg = avgLine(pts);
   const hi = Math.max(...pts.map((p) => p.price)), lo = Math.min(...pts.map((p) => p.price));
   const dev = Math.max(Math.abs(hi - ref), Math.abs(lo - ref), ref * 0.01) * 1.12;

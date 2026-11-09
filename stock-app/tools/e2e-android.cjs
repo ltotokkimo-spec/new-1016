@@ -1239,7 +1239,7 @@ function check(ok, name, detail = "") {
   const fg = async () => String(await device.shell("dumpsys activity activities | grep -m1 -E 'topResumedActivity|mResumedActivity'"));
   await page2.click("nav.tabs button:nth-child(7)");
   await page2.waitForSelector('[data-testid="update-card"]', { timeout: 10000 });
-  await page2.waitForFunction(() => /已是最新版本|有新版本|檢查更新失敗/.test(document.querySelector('[data-testid="update-card"]').innerText), null, { timeout: 60000 });
+  await page2.waitForFunction(() => /已是最新版本|有新版本|檢查更新失敗|GitHub 暫時沒回應/.test(document.querySelector('[data-testid="update-card"]').innerText), null, { timeout: 60000 });
   const card = await page2.$eval('[data-testid="update-card"]', (e) => e.innerText.replace(/\s+/g, " "));
   log("更新", card);
   const run = process.env.GITHUB_RUN_NUMBER || "0";

@@ -545,12 +545,16 @@ export async function clearCache() {
 // ---------- App 內更新 ----------
 export async function checkForUpdate() {
   set({ update: { ...state.update, status: "checking", error: undefined } });
-  try {
-    set({ update: { status: "ready", info: await upd.checkUpdate() } });
-  } catch (e: any) {
-    const current = await upd.currentVersion().catch(() => undefined);
-    set({ update: { status: "error", info: { current, available: false }, error: `檢查更新失敗：${e?.message ?? e}` } });
+  // GitHub 偶爾回 5xx（11/9 使用者看到 HTTP 504）：等一下自動再試，最多 3 次
+  let err: any;
+  for (let i = 0; i < 3; i++) {
+    try { set({ update: { status: "ready", info: await upd.checkUpdate() } }); return; }
+    catch (e: any) { err = e; if (i < 2) await new Promise((r) => setTimeout(r, (i + 1) * 3000)); }
   }
+  const current = await upd.currentVersion().catch(() => undefined);
+  const msg = String(err?.message ?? err);
+  const busy = /HTTP 5\d\d|timeout|逾時|Failed to fetch|Network/i.test(msg);
+  set({ update: { status: "error", info: { current, available: false }, error: busy ? `GitHub 暫時沒回應（${msg}），不是 App 的問題，等幾分鐘再按「檢查更新」` : `檢查更新失敗：${msg}` } });
 }
 
 export async function installUpdate() {

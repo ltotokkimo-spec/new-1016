@@ -848,13 +848,17 @@ export async function refreshExdiv() {
 }
 
 export async function refreshBacktest() {
-  try {
-    const data = (await fetcher(`${BACKTEST_URL}?t=${Date.now()}`)) as BacktestResult;
-    if (data?.version !== 1 || !data.stocks) return;
-    const bt = { data, fetchedAt: Date.now() };
-    await kv.set("backtest", bt);
-    set({ backtest: bt });
-  } catch { /* 回測只是參考，下載失敗就沿用上次的結果 */ }
+  // GitHub Releases 下載偶爾逾時：失敗時等一下再試（最多 3 次），都失敗才沿用上次的結果（回測只是參考）
+  for (let i = 0; i < 3; i++) {
+    try {
+      const data = (await fetcher(`${BACKTEST_URL}?t=${Date.now()}`)) as BacktestResult;
+      if (data?.version !== 1 || !data.stocks) return;
+      const bt = { data, fetchedAt: Date.now() };
+      await kv.set("backtest", bt);
+      set({ backtest: bt });
+      return;
+    } catch { if (i < 2) await new Promise((r) => setTimeout(r, (i + 1) * 5000)); }
+  }
 }
 
 // ---------- 自己加美股 ----------

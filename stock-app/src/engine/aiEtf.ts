@@ -313,7 +313,7 @@ export function planReadable(p: ReturnType<typeof parsePlan>, name: (code: strin
   if (p.broken === "truncated") out.push("⚠ **這份回覆不完整**（從 Claude App 複製時被截斷，或 Claude 沒寫完）。下面是讀得到的部分；要完整內容請回 Claude App，按回覆下方的「複製」重新複製整段再貼一次。");
   if (!p.body.trim()) {
     const lab = (c: string) => { const n = name(c); return n && n !== c ? `${n} ${c}` : c; };
-    out.push(p.items.length ? "**買賣**\n" + p.items.map((x) => `- ${x.side === "buy" ? "買進" : "賣出"} ${lab(x.code)} ${x.shares.toLocaleString()} 股${x.reason ? `：${x.reason}` : ""}`).join("\n") : "**買賣**：這次沒有要買賣");
+    out.push(p.items.length ? "**買賣**\n" + p.items.map((x) => `- ${x.side === "buy" ? "買進" : "賣出"} ${lab(x.code)} ${x.shares.toLocaleString()} 股${x.reason ? `：${x.reason}` : ""}${x.cond?.length ? `（${x.cond.join("；")}）` : ""}`).join("\n") : "**買賣**：這次沒有要買賣");
     const st = Object.entries(p.stops);
     if (st.length) out.push("**停損價**：" + st.map(([c, v]) => `${lab(c)} ${v}`).join("、"));
     const hs = Object.entries(p.holds);

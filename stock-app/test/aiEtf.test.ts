@@ -348,3 +348,20 @@ describe("Claude App 複製回來的 JSON 壞掉（11/9 實際遇到）", () => 
     expect(p.items).toHaveLength(1);
   });
 });
+
+describe("Claude Pro 實際回覆（11/9 使用者貼上）", () => {
+  it("只有 JSON 的回覆整理成清單，不顯示原始 JSON；買賣與續抱都帶條件", async () => {
+    const { parsePlan, planReadable, looksLikePlanReply } = await import("../src/engine/aiEtf");
+    const reply = "{\"trades\":[{\"code\":\"2618\",\"side\":\"sell\",\"shares\":1100,\"reason\":\"航空集中度過高且最接近停損，先降風險\",\"cond\":[\"開盤 ≥43.6 → 限價 43.6 直接賣\",\"開低於 42.5 → 掛 43.0 等反彈，13:00 未成交改市價出；跌破 41.5 → 立即市價停損\"]},{\"code\":\"5904\",\"side\":\"buy\",\"shares\":300,\"stop\":68,\"rank\":1,\"reason\":\"9月營收年增15.7%、外資5日買超，內需防禦\",\"cond\":[\"限價 74 以下分批買，開盤高於 76.5 → 不追\",\"大盤跌破 37,837 → 暫停買進\"]},{\"code\":\"9904\",\"side\":\"buy\",\"shares\":700,\"stop\":23.8,\"rank\":2,\"reason\":\"外資近一月大幅回補、股價低基期\",\"cond\":[\"限價 25.7 以下買，高於 26.5 → 不追\",\"跌破 24.5 才成交 → 減半至 350 股\"]}],\"stops\":{\"1216\":75},\"holds\":{\"2412\":{\"why\":\"電信防禦股，空頭時抗跌\",\"cond\":[\"跌破 152 → 賣出\"]},\"1216\":{\"why\":\"Q3 EPS 年增 7.7%，外資連買\",\"cond\":[\"收盤跌破 75 → 賣出\",\"站回 80 → 停損上移至 77\"]},\"5880\":{\"why\":\"官股金融，波動低\",\"cond\":[\"跌破 26.8 → 賣出\"]},\"2610\":{\"why\":\"9月營收年增32%，保留一檔航空\",\"cond\":[\"跌破 19.8 → 賣出\",\"10月營收年增轉負 → 減半\"]},\"1476\":{\"why\":\"10月營收年增10.7%，基本面穩\",\"cond\":[\"跌破 305 → 賣出\",\"站上 370 → 停損上移至 330\"]}}}";
+    expect(looksLikePlanReply(reply)).toMatchObject({ ok: true, items: 3 });
+    const p = parsePlan(reply);
+    expect(p.broken).toBeUndefined();
+    expect(p.items.map((x) => x.code)).toEqual(["2618", "5904", "9904"]);
+    expect(Object.keys(p.holds).sort()).toEqual(["1216", "1476", "2412", "2610", "5880"]);
+    const txt = planReadable(p);
+    expect(txt).not.toMatch(/[{}"]/);
+    expect(txt).toContain("賣出 2618 1,100 股");
+    expect(txt).toContain("限價 74 以下分批買");
+    expect(txt).toContain("**停損價**：1216 75、5904 68、9904 23.8");
+  });
+});

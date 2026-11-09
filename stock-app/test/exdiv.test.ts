@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { adjustReturns, dividendInfo, exEventsFromDays, exFactor } from "../src/engine/exdiv";
+import { adjustReturns, dividendInfo, exEventsFromDays, exFactor, parseTpexExright } from "../src/engine/exdiv";
 import type { QRow } from "../src/data/twLoader";
 
 const q = (code: string, close: number, change: number): QRow => [code, code, close, change, 1e9, 1e6];
@@ -53,5 +53,16 @@ describe("證交所除權除息計算結果（TWT49U）", () => {
     const m = mergeEx(ex, { "00406A": [["20261103", 0.93, 0.6, 8.58]], "6488": [["20260801", 0.98, 1, 50]] }, new Set(["9999"]));
     expect(m["00406A"].map((e) => e[2])).toEqual([0.138, 0.138]);
     expect(m["6488"]).toHaveLength(1);
+  });
+});
+
+describe("parseTpexExright", () => {
+  it("依欄名解析（新網站）", () => {
+    const j = { tables: [{ fields: ["除權息日期", "代號", "名稱", "除權息前收盤價", "除權息參考價", "權值", "息值"], data: [["115/08/21", "00679B", "元大美債20年", "26.36", "26.08", "0.000000", "0.280000"]] }] };
+    expect(parseTpexExright(j)["00679B"]).toEqual([["20260821", 0.989378, 0.28, 26.36]]);
+  });
+  it("沒有欄名時依位置（舊網站 aaData）", () => {
+    const j = { aaData: [["115/08/21", "00679B", "元大美債20年", "26.36", "26.08", "0.00", "0.28", "0.28"]] };
+    expect(parseTpexExright(j)["00679B"]?.[0]?.[2]).toBe(0.28);
   });
 });

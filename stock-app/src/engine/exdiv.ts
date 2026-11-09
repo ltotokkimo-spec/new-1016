@@ -113,3 +113,34 @@ export function mergeEx(primary: ExMap, fallback: ExMap, skipCodes?: Set<string>
   return out;
 }
 
+/**
+ * 櫃買中心「上櫃股票除權除息計算結果表」→ 事件（上櫃行情在除權息當天漲跌欄不是數字，推算抓不到，11/9 實測 00679B 沒有任何事件）。
+ * 新網站有 fields 時依欄名；舊網站 aaData 沒有欄名時依固定位置：[日期, 代號, 名稱, 除權息前收盤價, 除權息參考價, 權值, 息值, ...]。
+ */
+export function parseTpexExright(json: any): ExMap {
+  const out: ExMap = {};
+  const t = Array.isArray(json?.tables) ? json.tables.find((x: any) => Array.isArray(x?.fields) && Array.isArray(x?.data)) : undefined;
+  const fields: string[] = (t?.fields ?? json?.fields ?? []).map((x: any) => String(x).replace(/\s/g, ""));
+  const data: any[][] = t?.data ?? json?.data ?? json?.aaData ?? [];
+  const f = (...names: string[]) => fields.findIndex((x) => names.some((n) => x.includes(n)));
+  let iD = 0, iC = 1, iPre = 3, iRef = 4, iW = 5, iX = 6;
+  if (fields.length) {
+    iD = f("除權息日期", "日期"); iC = f("代號"); iPre = f("前收盤", "前收"); iRef = f("參考價"); iW = fields.findIndex((x) => x === "權值"); iX = fields.findIndex((x) => x === "息值");
+    if ([iD, iC, iPre, iRef].some((i) => i < 0)) return out;
+  }
+  const num = (v: unknown) => Number(String(v ?? "").replace(/<[^>]*>/g, "").replace(/[,\s]/g, ""));
+  for (const r of data) {
+    if (!Array.isArray(r)) continue;
+    const m = /(\d{2,4})\D+(\d{1,2})\D+(\d{1,2})/.exec(String(r[iD]));
+    if (!m) continue;
+    const y = Number(m[1]);
+    const d = `${y < 1911 ? y + 1911 : y}${m[2].padStart(2, "0")}${m[3].padStart(2, "0")}`;
+    const code = String(r[iC]).replace(/<[^>]*>/g, "").trim(), pre = num(r[iPre]), ref = num(r[iRef]);
+    if (!code || !(pre > 0) || !(ref > 0) || ref > pre * 1.5) continue;
+    const w = iW >= 0 ? num(r[iW]) : NaN, x = iX >= 0 ? num(r[iX]) : NaN;
+    const amt = Number.isFinite(w) && Number.isFinite(x) && w + x > 0 ? w + x : pre - ref;
+    (out[code] ??= []).push([d, Math.round((ref / pre) * 1e6) / 1e6, Math.round(amt * 10000) / 10000, pre]);
+  }
+  for (const k of Object.keys(out)) out[k].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  return out;
+}

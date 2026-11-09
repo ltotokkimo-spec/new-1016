@@ -14,7 +14,7 @@ import { addDays, taipeiToday, usLatestSession, weekdaysBack } from "../src/lib/
 import { buildTwInputs } from "../src/data/twLoader";
 import { isEtf } from "../src/data/tw";
 import { scoreStocks } from "../src/engine/score";
-import { adjustReturns, exEventsFromDays, exRefOn, mergeEx, parseTwt49u, type ExMap } from "../src/engine/exdiv";
+import { adjustReturns, exEventsFromDays, exRefOn, mergeEx, parseTpexExright, parseTwt49u, type ExMap } from "../src/engine/exdiv";
 import { appendPicks, applyFinal, assertAppendOnly, assertFinalAppendOnly, BOOK_INFO, emptyFinal, emptyLog, freezeResults, type FinalLog, ETF_TOP_N, evaluatePick, PICK_NOTIONAL, PICK_STOP, FEE_RATE, FEE_MIN_LOT, FEE_MIN_ODD, sortPerfRows, TAX_STOCK, TAX_ETF, toCsv, US_FEE_RATE, US_NOTIONAL, type PathPoint, type PickBook, type PickLog, type PickPerfFile } from "../src/engine/pickLog";
 import { UsLoader } from "../src/data/usLoader";
 import type { KV } from "../src/lib/kv";
@@ -109,7 +109,7 @@ log("交易日", days.length, "最新", days[0]?.date, "最舊", days[days.lengt
 if (days.length < 60) throw new Error("交易日太少，資料可能下載失敗");
 
 // 除權息還原（11/9）：從每日行情找出除權息事件；評分用還原後的漲跌幅（App 下載 exdiv.json 用同一份事件）
-// 上市：證交所官方「除權除息計算結果表」（行情在除權息當天漲跌欄只標 X，推算不可靠）；上櫃：行情的漲跌有正負號，用推算
+// 上市：證交所官方「除權除息計算結果表」（行情在除權息當天漲跌欄只標 X，推算不可靠）；上櫃：櫃買官方計算結果表（抓不到才用推算）
 const exInferred = exEventsFromDays(days);
 let exTwse: ExMap = {}, twseOk = false;
 {
@@ -129,10 +129,33 @@ let exTwse: ExMap = {}, twseOk = false;
     }
   }
 }
+// 上櫃：櫃買中心「除權除息計算結果表」（上櫃行情除權息當天漲跌欄不是數字，推算抓不到）
+let exTpex: ExMap = {}, tpexOk = false;
+{
+  const end = new Date(`${days[0].date.slice(0, 4)}-${days[0].date.slice(4, 6)}-${days[0].date.slice(6)}T00:00:00Z`);
+  const ymd = (d: Date, roc: boolean) => { const [y, m, dd] = d.toISOString().slice(0, 10).split("-"); return `${roc ? Number(y) - 1911 : y}/${m}/${dd}`; };
+  for (let k = 0; k < 5; k++) {
+    const e = new Date(end.getTime() - k * 92 * 864e5), st = new Date(e.getTime() - 91 * 864e5);
+    const urls = [
+      `https://www.tpex.org.tw/www/zh-tw/bulletin/exDailyQ?startDate=${encodeURIComponent(ymd(st, false))}&endDate=${encodeURIComponent(ymd(e, false))}&response=json`,
+      `https://www.tpex.org.tw/web/stock/exright/dailyquo/exDailyQ_result.php?l=zh-tw&d=${encodeURIComponent(ymd(st, true))}&ed=${encodeURIComponent(ymd(e, true))}&o=json`,
+    ];
+    for (const u of urls) {
+      try {
+        const j = await fetcher(u);
+        const part = parseTpexExright(j);
+        const n = Object.values(part).reduce((a, v) => a + v.length, 0);
+        log(`櫃買除權除息 ${ymd(st, false)}～${ymd(e, false)}：${n} 筆（${u.includes("/www/") ? "www" : "web"}）` + (n ? "" : ` 欄位 ${JSON.stringify(j?.tables?.[0]?.fields ?? j?.fields ?? Object.keys(j ?? {})).slice(0, 300)} 首列 ${JSON.stringify((j?.tables?.[0]?.data ?? j?.aaData ?? [])[0] ?? null).slice(0, 300)}`));
+        if (n > 0) { exTpex = mergeEx(part, exTpex); tpexOk = true; break; }
+      } catch (err) { log(`櫃買除權除息下載失敗：${String(err).slice(0, 120)}`); }
+    }
+  }
+}
 const twseCodes = new Set(days[0].quotes.map((q) => q[0]).filter((c) => !days[0].tpexCodes.has(c)));
-// 證交所資料抓不到時，上市的不還原（不用不可靠的推算）
-const exAll = mergeEx(exTwse, exInferred, twseCodes);
-log(`除權息來源：上市 ${twseOk ? "證交所官方" : "抓不到，上市不還原"}；上櫃 行情推算。樣本：` + ["00406A", "0056", "00878", "2330", "00679B", "00687B", "6488"].map((c) => `${c} ${JSON.stringify((exAll[c] ?? []).slice(-2))}`).join("；"));
+// 證交所資料抓不到時，上市的不還原（不用不可靠的推算）；櫃買抓得到時上櫃也只用官方
+const skip = new Set([...twseCodes, ...(tpexOk ? days[0].tpexCodes : [])]);
+const exAll = mergeEx(mergeEx(exTpex, exTwse), exInferred, skip);
+log(`除權息來源：上市 ${twseOk ? "證交所官方" : "抓不到，上市不還原"}；上櫃 ${tpexOk ? "櫃買官方" : "行情推算"}。樣本：` + ["00406A", "0056", "00878", "2330", "00679B", "00687B", "6488"].map((c) => `${c} ${JSON.stringify((exAll[c] ?? []).slice(-2))}`).join("；"));
 {
   const cut = days[Math.min(days.length - 1, 260)].date; // App 只需要約一年（配息資訊）＋三個月（評分還原）
   const ev: ExMap = {};

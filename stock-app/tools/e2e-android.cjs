@@ -978,6 +978,16 @@ function check(ok, name, detail = "") {
   check(esbD.chart && /^(最新|盤中) 開 [\d.,]+ 高 [\d.,]+ 低 [\d.,]+ 收 [\d.,]+/.test(esbD.info), "興櫃個股有日 K 走勢圖（開高低收）", esbD.info);
   check(/我的均價 900/.test(esbD.cost) && /損益 [+-]?[\d.,]+( 萬| 億)?（[+-]?\d+\.\d%）/.test(esbD.hold), "興櫃 K 線圖有我的均價線與持股損益", `${esbD.cost} | ${esbD.hold}`);
   check(/沒有開盤價與收盤價/.test(esbD.kline), "興櫃 K 線說明開收的算法");
+  // 興櫃即時走勢（11/9 使用者要求）：Yahoo 1 分鐘線（.TWO）＋櫃買行情；橫軸到 15:00、沒有漲跌停
+  await page.waitForFunction(() => { const e = document.querySelector('[data-testid="esb-intra"]'); return e && (e.querySelector('[data-testid="intraday-chart"][data-loaded="1"]') || e.querySelector('[data-testid="intra-empty"]')); }, null, { timeout: 40000 }).catch(() => {});
+  const esbI = await page.evaluate(() => {
+    const e = document.querySelector('[data-testid="esb-intra"]'), c = e?.querySelector('[data-testid="intraday-chart"]');
+    return { has: !!e, chart: !!c, yahoo: c?.getAttribute("data-yahoo") || "", src: c?.getAttribute("data-src") || "", twerr: c?.getAttribute("data-twerr") || "", err: c?.getAttribute("data-err") || "", stats: (e?.querySelector('[data-testid="intra-stats"]')?.innerText || "").replace(/\s+/g, " "), axis: [...(e?.querySelectorAll("svg text") || [])].map((t) => t.textContent).slice(-3), empty: e?.querySelector('[data-testid="intra-empty"]')?.innerText || "" };
+  });
+  log("興櫃即時走勢", JSON.stringify(esbI));
+  if (esbI.chart) await page.$eval('[data-testid="esb-intra"]', (e) => e.scrollIntoView()).catch(() => {});
+  await shot("09b-興櫃即時走勢");
+  check(esbI.has && (esbI.chart ? /參考價 [\d.,]+/.test(esbI.stats) && !/漲停/.test(esbI.stats) && esbI.axis.includes("15:00") : /還沒有成交|下載失敗/.test(esbI.empty)), "興櫃個股有即時走勢（參考價、無漲跌停、到 15:00；或說明尚無成交）", JSON.stringify(esbI).slice(0, 300));
   await shot("06c-興櫃個股詳情");
   await page.click('.sheet header button[aria-label="返回"]');
   await page.waitForFunction(() => !document.querySelector(".sheet"), null, { timeout: 5000 });

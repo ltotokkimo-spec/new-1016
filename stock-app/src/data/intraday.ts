@@ -6,19 +6,23 @@ export interface IntraPoint { m: number; price: number; vol: number } // m＝09:
 export interface Intraday { date: string; prevClose: number; points: IntraPoint[]; lastYahoo?: number; est?: { m: number; vol: number }[]; twErr?: string } // est＝沒有分鐘資料的幾分鐘、平均分攤的估計量 // lastYahoo＝Yahoo 最後一筆的分鐘
 
 export const SESSION_MIN = 270; // 09:00～13:30
+/** 交易時段長度（分鐘）：興櫃 09:00～15:00，上市櫃 09:00～13:30 */
+export const sessionOf = (market: string) => (market === "ESB" ? 360 : SESSION_MIN);
+/** Yahoo 代號後綴：上市 .TW；上櫃與興櫃 .TWO */
+const sfx = (market: string) => (market === "TPEX" || market === "ESB" ? "TWO" : "TW");
 
 export const intradayUrl = (code: string, market: string) =>
-  `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(code)}.${market === "TPEX" ? "TWO" : "TW"}?interval=1m&range=1d&includePrePost=false`;
+  `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(code)}.${sfx(market)}?interval=1m&range=1d&includePrePost=false`;
 
 const taipei = (t: number) => new Date(t * 1000 + 8 * 3600e3);
 const ymd = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, "");
 
 /** Yahoo 奇摩股市網頁用的即時分時（不延遲）；國際版 query1 的台股分鐘線盤中常延遲約 20 分鐘 */
 export const intradayUrlTw = (code: string, market: string) =>
-  `https://tw.stock.yahoo.com/_td-stock/api/resource/FinanceChartService.ApacheChartVOL;period=1d;symbols=${encodeURIComponent(JSON.stringify([`${code}.${market === "TPEX" ? "TWO" : "TW"}`]))}?intl=tw&lang=zh-Hant-TW&region=TW`;
+  `https://tw.stock.yahoo.com/_td-stock/api/resource/FinanceChartService.ApacheChartVOL;period=1d;symbols=${encodeURIComponent(JSON.stringify([`${code}.${sfx(market)}`]))}?intl=tw&lang=zh-Hant-TW&region=TW`;
 
 /** Yahoo chart API（1 分鐘）→ 當日分時；沒有資料回 null。也接受奇摩股市的格式（陣列包著 { chart: { meta, timestamp, indicators } }） */
-export function parseIntraday(json: any): Intraday | null {
+export function parseIntraday(json: any, span = SESSION_MIN): Intraday | null {
   const j = Array.isArray(json) ? json[0] : json;
   const r = j?.chart?.result?.[0] ?? (j?.chart?.timestamp ? j.chart : j?.timestamp ? j : undefined);
   const ts: number[] | undefined = r?.timestamp;
@@ -32,7 +36,7 @@ export function parseIntraday(json: any): Intraday | null {
     if (c == null || !(c > 0)) return;
     const d = taipei(t);
     const m = (d.getUTCHours() - 9) * 60 + d.getUTCMinutes();
-    if (m < 0 || m > SESSION_MIN) return;
+    if (m < 0 || m > span) return;
     date = ymd(d);
     const v = q.volume?.[i] > 0 ? Number(q.volume[i]) : 0;
     const p = byMin.get(m);
@@ -49,7 +53,8 @@ export function parseIntraday(json: any): Intraday | null {
 
 /** 兩個來源都抓，取比較新的（日期較新、或同一天分鐘較晚）；src 記下用了哪個（除錯用） */
 export async function fetchIntraday(fetcher: Fetcher, code: string, market: string): Promise<(Intraday & { src?: string }) | null> {
-  const [tw, intl] = await Promise.allSettled([fetcher(intradayUrlTw(code, market)).then(parseIntraday), fetcher(intradayUrl(code, market)).then(parseIntraday)]);
+  const span = sessionOf(market);
+  const [tw, intl] = await Promise.allSettled([fetcher(intradayUrlTw(code, market)).then((j) => parseIntraday(j, span)), fetcher(intradayUrl(code, market)).then((j) => parseIntraday(j, span))]);
   const a = tw.status === "fulfilled" ? tw.value : null, b = intl.status === "fulfilled" ? intl.value : null;
   if (!a && !b) {
     const e = [tw, intl].find((x) => x.status === "rejected") as PromiseRejectedResult | undefined;
@@ -62,11 +67,11 @@ export async function fetchIntraday(fetcher: Fetcher, code: string, market: stri
   return { ...b!, src: "intl", twErr };
 }
 
-/** 即時價的分鐘（09:00 起），收盤後的時間算 270 */
-export function minuteOf(time: string): number {
+/** 即時價的分鐘（09:00 起），收盤後的時間算收盤那一分鐘（上市櫃 270、興櫃 360） */
+export function minuteOf(time: string, span = SESSION_MIN): number {
   const [h, mm] = time.split(":").map(Number);
   if (!Number.isFinite(h) || !Number.isFinite(mm)) return NaN;
-  return Math.min(SESSION_MIN, Math.max(0, (h - 9) * 60 + mm));
+  return Math.min(span, Math.max(0, (h - 9) * 60 + mm));
 }
 
 /**
@@ -75,7 +80,7 @@ export function minuteOf(time: string): number {
  * 成交量：每次即時價的累計量減掉上一次（或圖上分鐘線的合計），就是這段時間的量；
  * 如果中間隔了好幾分鐘沒有資料，這段量平均分到那幾分鐘（est，畫成淡色量柱），不會全部堆在最後一根。
  */
-export function mergeLive(d: Intraday | null, live: { date: string; time?: string; price: number; prevClose: number; volume?: number } | undefined, ticks: { m: number; price: number; cum?: number }[] = []): Intraday | null {
+export function mergeLive(d: Intraday | null, live: { date: string; time?: string; price: number; prevClose: number; volume?: number } | undefined, ticks: { m: number; price: number; cum?: number }[] = [], span = SESSION_MIN): Intraday | null {
   if (!live || !(live.price > 0) || !live.time) return d;
   if (live.time < "09:00") return d; // 開盤前證交所回的是「今天日期＋昨收」，不是成交：照舊畫上一個交易日的走勢
   if (d && d.date && live.date && live.date !== d.date) {
@@ -100,7 +105,7 @@ export function mergeLive(d: Intraday | null, live: { date: string; time?: strin
     prevM = Math.max(prevM, m);
   };
   for (const t of [...ticks].sort((x, y) => x.m - y.m)) if (t.m > last) add(t.m, t.price, t.cum);
-  const m = minuteOf(live.time);
+  const m = minuteOf(live.time, span);
   if (Number.isFinite(m) && m >= (base.points.at(-1)?.m ?? -1)) add(m, live.price, live.volume);
   base.points.sort((x, y) => x.m - y.m);
   return base;
@@ -114,6 +119,13 @@ export function avgLine(points: IntraPoint[]): number[] {
     lastAvg = v > 0 ? pv / v : Number.isFinite(lastAvg) ? lastAvg : p.price;
     return lastAvg;
   });
+}
+
+/** 興櫃交易中（平日 09:00～15:00，多給 5 分鐘讓最後一筆進來） */
+export function esbOpen(now = Date.now()): boolean {
+  const d = new Date(now + 8 * 3600_000);
+  const w = d.getUTCDay(), m = d.getUTCHours() * 60 + d.getUTCMinutes();
+  return w >= 1 && w <= 5 && m >= 9 * 60 && m <= 15 * 60 + 5;
 }
 
 export const clockOf = (m: number) => `${String(9 + Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;

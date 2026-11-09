@@ -85,3 +85,18 @@ describe("即時走勢（分時）", () => {
     expect(avgLine([{ m: 0, price: 100, vol: 1 }, { m: 1, price: 110, vol: 3 }, { m: 2, price: 120, vol: 0 }])).toEqual([100, 107.5, 107.5]);
   });
 });
+
+describe("興櫃即時走勢（09:00～15:00）", () => {
+  it("興櫃保留到 15:00 的分鐘線；上市櫃只到 13:30；代號用 .TWO", async () => {
+    const { parseIntraday, sessionOf, intradayUrl, minuteOf } = await import("../src/data/intraday");
+    const t0 = Date.UTC(2026, 10, 9, 1, 0) / 1000; // 台北 09:00
+    const ts = [t0, t0 + 3600 * 4, t0 + 3600 * 5.5]; // 09:00、13:00、14:30
+    const json = { chart: { result: [{ meta: { chartPreviousClose: 600 }, timestamp: ts, indicators: { quote: [{ close: [610, 620, 655], volume: [1000, 2000, 3000] }] } }] } };
+    expect(sessionOf("ESB")).toBe(360);
+    expect(parseIntraday(json, sessionOf("ESB"))!.points.map((p) => p.m)).toEqual([0, 240, 330]);
+    expect(parseIntraday(json)!.points.map((p) => p.m)).toEqual([0, 240]);
+    expect(intradayUrl("7861", "ESB")).toContain("7861.TWO");
+    expect(minuteOf("14:30:00", 360)).toBe(330);
+    expect(minuteOf("14:30:00")).toBe(270);
+  });
+});

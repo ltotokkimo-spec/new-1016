@@ -15,6 +15,7 @@ import type { EtfNav } from "../data/etfNav";
 import { findXStock, OKX_BARS, okxCandlesUrl, okxInstrumentsUrl, okxTickerUrl, parseOkxCandles, parseOkxTicker, type OkxBar, type OkxTicker } from "../data/okx";
 import { CandleChart, type CandleBar } from "./candles";
 import { IntradayChart } from "./intraday";
+import { esbOpen } from "../data/intraday";
 import { PicksPerfCard } from "./picksPerf";
 import { UsIntradayChart } from "./usIntraday";
 import { FlowsPanel } from "./flows";
@@ -597,7 +598,7 @@ function EsbDetail({ h, onClose }: { h: { code: string; name: string; shares: nu
     const pull = () => refreshLive([h.code], [h.code]);
     pull();
     const retry = setTimeout(() => { if (!getState().live[h.code]) pull(); }, 5000); // 第一次沒抓到就再試一次
-    const t = setInterval(() => { if (marketOpen()) pull(); }, 60_000); // 櫃買的行情表每分鐘才更新一次
+    const t = setInterval(() => { if (esbOpen()) pull(); }, 60_000); // 櫃買的行情表每分鐘才更新一次；興櫃交易到 15:00
     return () => { clearInterval(t); clearTimeout(retry); };
   }, [h.code]);
   useEffect(() => {
@@ -607,7 +608,7 @@ function EsbDetail({ h, onClose }: { h: { code: string; name: string; shares: nu
   }, [h.code]);
   const shown = useMemo(() => (bars ? (withLiveBar(bars, lq) as CandleBar[]) : bars), [bars, lq]);
   const price = lq ? lq.price : close ?? NaN;
-  const live = !!lq && !lq.final && lq.date === taipeiToday() && marketOpen();
+  const live = !!lq && !lq.final && lq.date === taipeiToday() && esbOpen();
   const chg = lq && lq.prevClose > 0 ? lq.price / lq.prevClose - 1 : NaN;
   const pnl = (price - h.cost) * h.shares;
   return (
@@ -627,6 +628,8 @@ function EsbDetail({ h, onClose }: { h: { code: string; name: string; shares: nu
           <div class="metric"><div class="k">今日成交量</div><div class="v num">{lq.volume && lq.volume > 0 ? `${Math.round(lq.volume / 1000).toLocaleString()} 張` : "—"}</div></div>
         </div>
       )}
+      <div class="section-title"><span>即時走勢</span><span class="muted" style={{ fontSize: "12px", fontWeight: 400 }}>興櫃 09:00～15:00</span></div>
+      <div data-testid="esb-intra"><IntradayChart code={h.code} market="ESB" /></div>
       <div class="section-title"><span>走勢（日 K）</span></div>
       {shown && shown.length >= 2 ? <CandleChart bars={shown} cost={h.cost} />
         : err ? <div class="notice">{err}</div>

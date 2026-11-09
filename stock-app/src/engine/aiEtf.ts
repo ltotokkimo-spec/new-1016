@@ -284,7 +284,7 @@ function findPlanJson(text: string): { json: string; start: number; end: number;
     return r ? { json: r.json, start: last.index, end: last.index + last[0].length, broken: r.truncated ? "truncated" : "repaired" } : { json: last[1], start: last.index, end: last.index + last[0].length };
   }
   // 手機輸入法或複製時把直引號換成彎引號（“ ”）：換回來再找（長度不變，位置對得上）
-  if (!/[{[]\s*"(?:trades|picks|stops)"/.test(text) && /[{[]\s*[“”＂](?:trades|picks|stops)[“”＂]/.test(text)) text = text.replace(/[“”＂]/g, '"');
+  if (!/[{[]\s*"(?:trades|picks|stops)"/.test(text) && /[{[]\s*[“”„‟″〝〞＂](?:trades|picks|stops)[“”„‟″〝〞＂]/.test(text)) text = text.replace(/[“”„‟″〝〞＂]/g, '"');
   const starts = [...text.matchAll(/[{[]\s*(?:"(?:trades|picks|stops)"\s*:|\{\s*"code"\s*:)/g)].map((x) => x.index!);
   // 能解析的候選裡，取結尾最後面的；結尾相同取最外層（最前面開始），免得只抓到裡面那層陣列
   let best: { json: string; start: number; end: number } | null = null;

@@ -338,6 +338,7 @@ describe("Claude App 複製回來的 JSON 壞掉（11/9 實際遇到）", () => 
     const curly = pasted.replace(/"/g, (_m, i: number) => (i % 2 ? "\u201c" : "\u201d"));
     expect(Object.keys(parsePlan(curly).holds).sort()).toEqual(["1216", "2412", "2610", "5880"]);
     expect(parsePlan(curly).body).toBe("");
+    for (const q of ["\uff02", "\u2033", "\u201e"]) expect(Object.keys(parsePlan(pasted.replace(/"/g, q)).holds)).toHaveLength(4);
     const nl = pasted.replace("空頭時", "空頭\n時");
     expect(parsePlan(nl).holds["2412"].why).toBe("電信防禦股，空頭 時抗跌");
   });

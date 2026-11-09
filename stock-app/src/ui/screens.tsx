@@ -590,6 +590,9 @@ export function AiReportView({ r }: { r: AiReport }) {
 // ---------------- 持股 ----------------
 // ---------------- 興櫃個股詳細（沒有評等，只有報價、走勢、我的損益） ----------------
 function EsbDetail({ h, onClose }: { h: { code: string; name: string; shares: number; cost: number }; onClose: () => void }) {
+  // 和一般個股一樣用分頁切換「走勢／K 線圖」，記住上次看的（和一般個股共用同一個設定）
+  const [tab, setTab0] = useState<"intra" | "k">(() => { try { return localStorage.getItem("detailChart") === "k" ? "k" : "intra"; } catch { return "intra"; } });
+  const setTab = (t: "intra" | "k") => { setTab0(t); try { localStorage.setItem("detailChart", t); } catch { /* 不重要 */ } };
   const lq = useStore((st) => st.live[h.code]);
   const close = useStore((st) => st.prices[h.code]?.close);
   const [bars, setBars] = useState<CandleBar[] | null>(null);
@@ -628,15 +631,25 @@ function EsbDetail({ h, onClose }: { h: { code: string; name: string; shares: nu
           <div class="metric"><div class="k">今日成交量</div><div class="v num">{lq.volume && lq.volume > 0 ? `${Math.round(lq.volume / 1000).toLocaleString()} 張` : "—"}</div></div>
         </div>
       )}
-      <div class="section-title"><span>即時走勢</span><span class="muted" style={{ fontSize: "12px", fontWeight: 400 }}>興櫃 09:00～15:00</span></div>
-      <div data-testid="esb-intra"><IntradayChart code={h.code} market="ESB" /></div>
-      <div class="section-title"><span>走勢（日 K）</span></div>
-      {shown && shown.length >= 2 ? <CandleChart bars={shown} cost={h.cost} />
-        : err ? <div class="notice">{err}</div>
-        : shown ? <div class="notice">還沒有足夠的興櫃成交資料可以畫走勢圖。</div>
-        : <div class="muted">下載走勢中…</div>}
-      <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, marginTop: "6px" }} data-testid="esb-kline-note">
-        興櫃沒有開盤價與收盤價：K 線的開＝前一日均價、收＝當日均價（盤中那一根收盤用最新成交價）；影線是當天最高與最低成交價，若前日均價在範圍外，影線會延伸到前日均價。
+      <div class="section-title">
+        <div class="seg" role="group" aria-label="圖表" data-testid="esb-chart-tabs">
+          <button aria-pressed={tab === "intra"} onClick={() => setTab("intra")} data-testid="esb-tab-intra">走勢</button>
+          <button aria-pressed={tab === "k"} onClick={() => setTab("k")} data-testid="esb-tab-k">K 線圖</button>
+        </div>
+        <span class="muted" style={{ fontSize: "12px", fontWeight: 400 }}>興櫃 09:00～15:00</span>
+      </div>
+      <div class="card">
+        {tab === "intra"
+          ? <div data-testid="esb-intra"><IntradayChart code={h.code} market="ESB" /></div>
+          : <>
+            {shown && shown.length >= 2 ? <CandleChart bars={shown} cost={h.cost} />
+              : err ? <div class="notice">{err}</div>
+              : shown ? <div class="notice">還沒有足夠的興櫃成交資料可以畫走勢圖。</div>
+              : <div class="muted">下載走勢中…</div>}
+            <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, marginTop: "6px" }} data-testid="esb-kline-note">
+              興櫃沒有開盤價與收盤價：K 線的開＝前一日均價、收＝當日均價（盤中那一根收盤用最新成交價）；影線是當天最高與最低成交價，若前日均價在範圍外，影線會延伸到前日均價。
+            </div>
+          </>}
       </div>
       <div class="section-title"><span>我的持股</span></div>
       <div class="card num" data-testid="esb-hold">{h.shares.toLocaleString()} 股・成本 {fmtPrice(h.cost)}・損益 <span class={cls(pnl)}>{fmtMoney(pnl)}（{fmtPct(price / h.cost - 1)}）</span></div>

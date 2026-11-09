@@ -968,6 +968,10 @@ function check(ok, name, detail = "") {
   await page.waitForSelector('[data-testid="esb-price"]', { timeout: 15000 });
   await page.waitForFunction(() => document.querySelector('.sheet canvas.chart') || /走勢圖下載失敗|還沒有足夠/.test(document.querySelector(".sheet")?.innerText || ""), null, { timeout: 120000 });
   await page.waitForSelector('[data-testid="esb-stats"]', { timeout: 40000 }).catch(() => {}); // 櫃買行情偶爾慢，等它出現
+  // 興櫃的走勢／K 線圖改成分頁（和一般個股一樣）：先切到 K 線圖檢查日 K
+  check(!!(await page.$('[data-testid="esb-chart-tabs"]')), "興櫃個股頁用分頁切換「走勢／K 線圖」");
+  await page.click('[data-testid="esb-tab-k"]').catch(() => {});
+  await page.waitForSelector('.sheet canvas.chart', { timeout: 30000 }).catch(() => {});
   const esbD = await page.evaluate(() => {
     const t = (sel) => document.querySelector(sel)?.innerText.replace(/\s+/g, " ") || "";
     return { title: document.querySelector(".sheet h2")?.textContent || "", price: t('[data-testid="esb-price"]'), chg: t('[data-testid="esb-chg"]'), note: t('[data-testid="esb-note"]'), stats: t('[data-testid="esb-stats"]'), chart: !!document.querySelector(".sheet canvas.chart"), cost: t('[data-testid="candle-cost"]'), info: t('[data-testid="candle-info"]'), hold: t('[data-testid="esb-hold"]'), kline: t('[data-testid="esb-kline-note"]') };
@@ -978,6 +982,7 @@ function check(ok, name, detail = "") {
   check(esbD.chart && /^(最新|盤中) 開 [\d.,]+ 高 [\d.,]+ 低 [\d.,]+ 收 [\d.,]+/.test(esbD.info), "興櫃個股有日 K 走勢圖（開高低收）", esbD.info);
   check(/我的均價 900/.test(esbD.cost) && /損益 [+-]?[\d.,]+( 萬| 億)?（[+-]?\d+\.\d%）/.test(esbD.hold), "興櫃 K 線圖有我的均價線與持股損益", `${esbD.cost} | ${esbD.hold}`);
   check(/沒有開盤價與收盤價/.test(esbD.kline), "興櫃 K 線說明開收的算法");
+  await page.click('[data-testid="esb-tab-intra"]').catch(() => {});
   // 興櫃即時走勢（11/9 使用者要求）：Yahoo 1 分鐘線（.TWO）＋櫃買行情；橫軸到 15:00、沒有漲跌停
   await page.waitForFunction(() => { const e = document.querySelector('[data-testid="esb-intra"]'); return e && (e.querySelector('[data-testid="intraday-chart"][data-loaded="1"]') || e.querySelector('[data-testid="intra-empty"]')); }, null, { timeout: 40000 }).catch(() => {});
   const esbI = await page.evaluate(() => {

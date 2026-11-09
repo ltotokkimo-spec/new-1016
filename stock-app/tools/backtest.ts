@@ -14,6 +14,7 @@ import { addDays, taipeiToday, usLatestSession, weekdaysBack } from "../src/lib/
 import { buildTwInputs } from "../src/data/twLoader";
 import { isEtf } from "../src/data/tw";
 import { scoreStocks } from "../src/engine/score";
+import { adjustReturns, exEventsFromDays, type ExMap } from "../src/engine/exdiv";
 import { appendPicks, applyFinal, assertAppendOnly, assertFinalAppendOnly, BOOK_INFO, emptyFinal, emptyLog, freezeResults, type FinalLog, ETF_TOP_N, evaluatePick, PICK_NOTIONAL, PICK_STOP, FEE_RATE, FEE_MIN_LOT, FEE_MIN_ODD, sortPerfRows, TAX_STOCK, TAX_ETF, toCsv, US_FEE_RATE, US_NOTIONAL, type PathPoint, type PickBook, type PickLog, type PickPerfFile } from "../src/engine/pickLog";
 import { UsLoader } from "../src/data/usLoader";
 import type { KV } from "../src/lib/kv";
@@ -107,7 +108,23 @@ for (const d of weekdays) {
 log("交易日", days.length, "最新", days[0]?.date, "最舊", days[days.length - 1]?.date);
 if (days.length < 60) throw new Error("交易日太少，資料可能下載失敗");
 
-const r = runBacktest(days, companies);
+// 除權息還原（11/9）：從每日行情找出除權息事件；評分用還原後的漲跌幅（App 下載 exdiv.json 用同一份事件）
+const exAll = exEventsFromDays(days);
+{
+  const cut = days[Math.min(days.length - 1, 260)].date; // App 只需要約一年（配息資訊）＋三個月（評分還原）
+  const ev: ExMap = {};
+  let n = 0;
+  for (const [code, list] of Object.entries(exAll)) { const l = list.filter((e) => e[0] > cut); if (l.length) { ev[code] = l; n += l.length; } }
+  fs.writeFileSync("exdiv.json", JSON.stringify({ version: 1, asOf: days[0].date, from: cut, source: "證交所、櫃買中心每日收盤行情（參考價與前一日收盤的差）", ev }));
+  log(`除權息事件：${Object.keys(ev).length} 檔、${n} 次（${cut} 之後）；00406A：${JSON.stringify(ev["00406A"]?.slice(-3) ?? [])}`);
+}
+const r = runBacktest(days, companies, { ex: exAll });
+// 驗證還原有沒有讓評分變差：同一段期間，還原前（原始收盤）vs 還原後
+try {
+  const raw = runBacktest(days, companies);
+  const line = (name: string, x: typeof r) => (["stocks", "etf"] as const).map((k) => { const b = x[k].groups["買入"], a = x[k].groups["全部"]; return `${k === "stocks" ? "個股" : "ETF"} 買入 5日 ${(b[5]!.avg * 100).toFixed(2)}%（贏過一半 ${(b[5]!.beat * 100).toFixed(1)}%、n=${b[5]!.n}）20日 ${(b[20]!.avg * 100).toFixed(2)}%（贏過一半 ${(b[20]!.beat * 100).toFixed(1)}%）｜全部 20日 ${(a[20]!.avg * 100).toFixed(2)}%`; }).map((t) => `${name}｜${t}`);
+  for (const t of [...line("除權息還原前", raw), ...line("除權息還原後", r)]) log(t);
+} catch (e) { log("除權息還原比較失敗（不影響回測）：", e); }
 fs.writeFileSync(outFile, JSON.stringify(r));
 // 因子分析（研究用，不影響 App 的評分）：失敗也不能讓回測失敗
 try {
@@ -266,7 +283,7 @@ if (pickLogFile) {
     if (d0.flows.length && (m1 === undefined || m3 === undefined)) todayTw = todayEtf = "歷史資料不足，今天先不記錄";
     else if (d0.flows.length) {
       // 和 App 一樣：個股和 ETF 分開評分
-      const all = buildTwInputs({ latest: d0.quotes, week: days[5].quotes, month: days[m1!].quotes, quarter: days[m3!].quotes, flows: days.slice(0, 10).map((d) => d.flows), companies, tpexCodes: d0.tpexCodes });
+      const all = adjustReturns(buildTwInputs({ latest: d0.quotes, week: days[5].quotes, month: days[m1!].quotes, quarter: days[m3!].quotes, flows: days.slice(0, 10).map((d) => d.flows), companies, tpexCodes: d0.tpexCodes }), exAll, { w1: days[5].date, m1: days[m1!].date, m3: days[m3!].date }, d0.date); // 和 App 一樣用還原除權息後的漲跌幅
       const rec = (x: { code: string; name: string; close: number; score: number; reasons: string[] }) => ({ code: x.code, name: x.name, market: d0.tpexCodes.has(x.code) ? "TPEX" as const : "TWSE" as const, price: x.close, score: x.score, reasons: x.reasons.slice(0, 2), dataDate: d0.date });
       todayTw = { date: d0.date, picks: scoreStocks(all.filter((x) => !isEtf(x.code))).scored.filter((x) => x.rating === "買入").map(rec) };
       todayEtf = { date: d0.date, picks: scoreStocks(all.filter((x) => isEtf(x.code))).scored.slice(0, ETF_TOP_N).map(rec) };

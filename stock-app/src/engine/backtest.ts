@@ -5,6 +5,7 @@ import { isEtf, type Company } from "../data/tw";
 import { addDays } from "../lib/dates";
 import { scoreStocks, type Rating } from "./score";
 import { adjustedSeries, turningAt, type Indicators, type TurnPick } from "./turning";
+import { adjustReturns, type ExMap } from "./exdiv";
 
 export interface BtDay { date: string; quotes: QRow[]; tpexCodes: Set<string>; flows: FRow[] }
 
@@ -47,7 +48,7 @@ function median(xs: number[]) {
  * days：新到舊、連續的交易日。
  * 之後的報酬用每天的「漲跌」連乘（漲跌是對除權息後的參考價計算），所以配息、除權不會被算成下跌。
  */
-export function runBacktest(days: BtDay[], companies: Company[], opts: { step?: number; now?: number } = {}): BacktestResult {
+export function runBacktest(days: BtDay[], companies: Company[], opts: { step?: number; now?: number; ex?: ExMap } = {}): BacktestResult {
   const step = opts.step ?? 5;
   const byDay = days.map((d) => new Map(d.quotes.map((r) => [r[0], r])));
   const dateIdx = new Map(days.map((d, i) => [d.date, i]));
@@ -82,10 +83,11 @@ export function runBacktest(days: BtDay[], companies: Company[], opts: { step?: 
     const m1 = idxOnOrBefore(addDays(s, -28));
     const m3 = idxOnOrBefore(addDays(s, -88));
     if (w >= days.length || m1 === undefined || m3 === undefined || i + 10 > days.length) continue;
-    const inputs = buildTwInputs({
+    // ex：有給除權息事件就用還原除權息後的漲跌幅評分（和 App 一樣）
+    const inputs = adjustReturns(buildTwInputs({
       latest: days[i].quotes, week: days[w].quotes, month: days[m1].quotes, quarter: days[m3].quotes,
       flows: days.slice(i, i + 10).map((d) => d.flows), companies, tpexCodes: days[i].tpexCodes,
-    });
+    }), opts.ex, { w1: days[w].date, m1: days[m1].date, m3: days[m3].date }, s);
     signalDates.push(s);
     for (const key of ["stocks", "etf"] as const) {
       const a = acc[key];

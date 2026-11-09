@@ -1,4 +1,5 @@
 import { BOOK_INFO, type PickBook, type PickPerfFile } from "./engine/pickLog";
+import { adjustReturns, type ExMap } from "./engine/exdiv";
 // App 狀態：資料快照、評分結果、持股、設定。全部存在手機的 IndexedDB。
 import { useEffect, useState } from "preact/hooks";
 import { indexedKV, type KV } from "./lib/kv";
@@ -38,6 +39,7 @@ export const AI_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/down
 const RADAR_DATA = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/";
 export const picksUrl = (b: PickBook) => RADAR_DATA + BOOK_INFO[b].files.perf;
 export const picksCsvUrl = (b: PickBook) => RADAR_DATA + BOOK_INFO[b].files.csv;
+export interface ExFile { version: 1; asOf: string; from: string; source: string; ev: ExMap }
 export type PicksPerfEntry = { data: PickPerfFile; fetchedAt: number; error?: string };
 const ppKey = (b: PickBook) => (b === "TW" ? "picksPerf" : `picksPerf:${b}`); // 台股沿用 1.0.283 的鍵
 export const TURN_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/turn.json"; // 剛轉強觀察組合
@@ -110,6 +112,7 @@ export interface State {
   rule?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 實單規則觀察組合
   turn?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 剛轉強觀察組合
   picksPerf: Partial<Record<PickBook, PicksPerfEntry>>; // 推薦績效追蹤（台股、ETF、美股）
+  exdiv?: { data: ExFile; fetchedAt: number }; // 除權息事件（雲端每天整理）：評分還原除權息、ETF 配息資訊
   activeEtf?: { data: ActiveEtfData; fetchedAt: number; error?: string; liveAt?: number; liveProgress?: { done: number; total: number }; liveFound?: number; liveHoldings?: { code: string; name: string; date: string; shares: Record<string, number> }[] };
   steady?: { data: SteadyLite; fetchedAt: number };
   live: Record<string, LiveQuote>; // 證交所即時報價（盤中每 30 秒更新）
@@ -205,6 +208,8 @@ async function initInner() {
   if (sd) set({ steady: sd });
   const bt = await kv.get<State["backtest"]>("backtest");
   if (bt) set({ backtest: bt });
+  const ex0 = await kv.get<State["exdiv"]>("exdiv");
+  if (ex0) set({ exdiv: ex0 });
   // 舊版快照沒有 ETF，直接當作沒有資料重抓
   const twSnap = twSnap0?.version === TW_SNAPSHOT_VERSION ? twSnap0 : undefined;
   mark("kvRead");
@@ -235,6 +240,7 @@ export function autoRefresh() {
   refreshMacro(); refreshTwIndex(); refreshFutures(); refreshTurnover();
   if (!state.virtual || Date.now() - state.virtual.fetchedAt > 10 * 60_000) refreshVirtual();
   if (!state.backtest || Date.now() - state.backtest.fetchedAt > 6 * 3600_000) refreshBacktest();
+  if (!state.exdiv || Date.now() - state.exdiv.fetchedAt > 6 * 3600_000) refreshExdiv();
 }
 
 function pricesOf(stocks: { code: string; name: string; close: number }[]) {
@@ -243,9 +249,13 @@ function pricesOf(stocks: { code: string; name: string; close: number }[]) {
   return out;
 }
 
+let lastTwSnap: TwSnapshot | undefined;
 function applyTw(snap: TwSnapshot) {
-  const common = snap.stocks.filter((x) => !isEtf(x.code));
-  const etfs = snap.stocks.filter((x) => isEtf(x.code));
+  lastTwSnap = snap;
+  // 近 1 週／1 月／3 月漲跌幅還原除權息（除息不算成下跌；11/9 加）。除權息資料還沒下載到就先用原始收盤，下載到後重算
+  const stocks = snap.ref ? adjustReturns(snap.stocks, state.exdiv?.data.ev, snap.ref, snap.asOf) : snap.stocks;
+  const common = stocks.filter((x) => !isEtf(x.code));
+  const etfs = stocks.filter((x) => isEtf(x.code));
   const a = scoreStocks(common), b = scoreStocks(etfs);
   const meta = { status: "ready" as const, asOf: snap.asOf, fetchedAt: snap.fetchedAt, flowDate: snap.dates?.[0] };
   set({ prices: pricesOf(snap.stocks) });
@@ -822,6 +832,19 @@ export async function refreshSteady() {
     await kv.set("steady", v);
     set({ steady: v });
   } catch { /* 沒下載到就沿用上次的 */ }
+}
+
+/** 下載除權息事件（雲端每天收盤後由每日行情整理）；有新資料就用還原後的漲跌幅重新評分 */
+export async function refreshExdiv() {
+  try {
+    const data = (await fetcher(`${RADAR_DATA}exdiv.json?t=${Date.now()}`)) as ExFile;
+    if (data?.version !== 1 || !data.ev) return;
+    const v = { data, fetchedAt: Date.now() };
+    await kv.set("exdiv", v);
+    const changed = state.exdiv?.data.asOf !== data.asOf;
+    set({ exdiv: v });
+    if (changed && lastTwSnap) applyTw(lastTwSnap);
+  } catch { /* 沒下載到就沿用上次的（或原始收盤） */ }
 }
 
 export async function refreshBacktest() {

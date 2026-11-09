@@ -420,6 +420,12 @@ function check(ok, name, detail = "") {
     if (/買進 \d+ 檔、賣出 \d+ 檔/.test(hd.summary)) {
       check(hd.buys.every((t) => /持有 [\d,]+ → [\d,]+ 張/.test(t) && /(新增|加碼)/.test(t)) && hd.sells.every((t) => /持有 [\d,]+ → [\d,]+ 張/.test(t) && /(減碼|清倉)/.test(t)) && hd.buys.length + hd.sells.length > 0, "主動式 ETF 詳情頁列出買進（新增／加碼）與賣出（減碼／清倉）的成份股", JSON.stringify([hd.buys[0], hd.sells[0]]));
     }
+    // ETF 配息（11/9）：雲端整理的除權息事件；00406A 每月配息
+    await page.waitForSelector('[data-testid="etf-div"]', { timeout: 20000 }).catch(() => {});
+    const dv = await page.evaluate(() => ({ title: document.querySelector(".sheet h2")?.textContent || "", card: (document.querySelector('[data-testid="etf-div"]')?.innerText || "").replace(/\s+/g, " ") }));
+    log("ETF 配息", JSON.stringify(dv).slice(0, 400));
+    check(/配息/.test(dv.card) && (/年化殖利率 \d+\.\d% 近一年配 [\d.]+ 元/.test(dv.card) && /(月配|季配|半年配|年配)/.test(dv.card) && /(已填息|還差)/.test(dv.card) || /沒有除息紀錄/.test(dv.card)), "ETF 詳情頁有配息資訊（殖利率、頻率、最近一次、填息）", dv.card.slice(0, 200));
+    if (/00406A/.test(dv.title)) check(/月配/.test(dv.card) && /年化殖利率/.test(dv.card), "00406A 顯示月配與殖利率", dv.card.slice(0, 200));
     await shot("02c-主動式ETF買賣成份");
     await page.click('button[aria-label="返回"]');
   }

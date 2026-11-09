@@ -15,6 +15,7 @@ import type { EtfNav } from "../data/etfNav";
 import { findXStock, OKX_BARS, okxCandlesUrl, okxInstrumentsUrl, okxTickerUrl, parseOkxCandles, parseOkxTicker, type OkxBar, type OkxTicker } from "../data/okx";
 import { CandleChart, type CandleBar } from "./candles";
 import { IntradayChart } from "./intraday";
+import { dividendInfo } from "../engine/exdiv";
 import { esbOpen } from "../data/intraday";
 import { PicksPerfCard } from "./picksPerf";
 import { UsIntradayChart } from "./usIntraday";
@@ -219,6 +220,27 @@ function TurnCard({ turn }: { turn: NonNullable<BacktestResult["turning"]> }) {
       </div>
       {x && <div style={{ marginTop: "6px" }}>過去評等日符合的股票，之後 20 個交易日：平均 <b class={cls(x.avg)}>{fmtPct(x.avg)}</b>・上漲機率 {Math.round(x.win * 100)}%・贏過一半股票 {Math.round(x.beat * 100)}%（{x.n} 筆）</div>}
       <div class="muted" style={{ fontSize: "12px", marginTop: "4px" }}>根據 {prettyW(turn.asOf)} 收盤，每天傍晚更新。剛起漲的股票也常站不穩又跌回，一定要設停損；過去表現不代表未來。</div>
+    </div>
+  );
+}
+
+/** ETF 配息資訊（11/9 使用者要求）：近一年配息次數與合計、年化殖利率、最近一次除息、填息狀況；資料是雲端由每日行情整理的除權息事件 */
+function EtfDividend({ code, price }: { code: string; price: number }) {
+  const ex = useStore((st) => st.exdiv);
+  if (!ex) return null;
+  const d = dividendInfo(ex.data.ev[code], price, ex.data.asOf);
+  return (
+    <div class="card stack" style={{ marginTop: "10px", fontSize: "13.5px", lineHeight: 1.7 }} data-testid="etf-div">
+      <div class="row" style={{ justifyContent: "space-between" }}><b>配息</b><span class="muted" style={{ fontSize: "12px" }}>近一年（到 {prettyW(ex.data.asOf)}）</span></div>
+      {!d ? <div class="muted" data-testid="etf-div-none">近一年沒有除息紀錄（不配息，或上市不到一年還沒配過）。</div> : <>
+        <div class="grid2">
+          <div class="metric"><div class="k">年化殖利率</div><div class="v num" data-testid="etf-div-yield">{(d.yieldPct * 100).toFixed(1)}%</div><div class="d muted">近一年配 {d.total.toFixed(3)} 元 ÷ 現價 {fmtPrice(price)}</div></div>
+          <div class="metric"><div class="k">配息頻率</div><div class="v">{d.freq}</div><div class="d muted">近一年除息 {d.count} 次</div></div>
+        </div>
+        {d.last && <div data-testid="etf-div-last">最近一次：{prettyW(d.last.d)} 除息 <b class="num">{d.last.amt.toFixed(3)}</b> 元（除息前 {fmtPrice(d.last.pre)}）・
+          {d.filled ? <span class="up">已填息</span> : <span>還沒填息，還差 <span class="num down">{fmtPrice(d.gap!)}</span> 元</span>}</div>}
+        <div class="muted" style={{ fontSize: "12px" }}>殖利率用現價算，價格大跌時會偏高；高息與主動式 ETF 的配息可能含收益平準金或本金，要和淨值、價格走勢一起看。上面的近 1 週／1 月／3 月漲跌已把除息加回去（含息報酬）。</div>
+      </>}
     </div>
   );
 }
@@ -466,6 +488,7 @@ export function StockDetail({ s, onClose, nav }: { s: Scored; onClose: () => voi
         )}
       </div>
 
+      {etf && <EtfDividend code={s.code} price={price} />}
       {s.market === "US" && <UsOvernight code={s.code} close={s.close} />}
 
       <div class="section-title">

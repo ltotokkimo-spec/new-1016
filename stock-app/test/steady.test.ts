@@ -97,13 +97,13 @@ describe("AI 供應鏈權重", () => {
     const c2 = buildCtx(days, companies.filter((x) => x.code !== "2454"));
     expect([...aiTargets(c2, j, { weight: "cap" }).keys()].sort()).toEqual(["2317", "2330"]);
   });
-  it("比重低於門檻的不買（11/9）：剔除後其餘依比例放大、仍滿倉", () => {
+  it("比重低於門檻的不買（11/9）：那一點比重留現金，其他檔不變", () => {
     const plain = aiTargets(c, j, { weight: "cap", maxWeight: 1 });
     const small = plain.get("2454")!;
     const t = aiTargets(c, j, { weight: "cap", maxWeight: 1, minWeight: small + 0.001 });
     expect(t.has("2454")).toBe(false);
-    expect([...t.values()].reduce((a, b) => a + b, 0)).toBeCloseTo(1, 6);
-    expect(t.get("2330")! / t.get("2317")!).toBeCloseTo(plain.get("2330")! / plain.get("2317")!, 6);
+    expect([...t.values()].reduce((a, b) => a + b, 0)).toBeCloseTo(1 - small, 6);
+    expect(t.get("2330")!).toBeCloseTo(plain.get("2330")!, 9);
     expect(aiTargets(c, j, { weight: "cap", maxWeight: 1, minWeight: 0.001 }).size).toBe(3);
   });
   it("趨勢轉移：下跌（跌破 60 日線）的聯發科權重比不看趨勢時小，仍然滿倉", () => {

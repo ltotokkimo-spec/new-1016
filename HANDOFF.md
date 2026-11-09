@@ -151,6 +151,7 @@
 - **雷達圖示（10/28 使用者選定 B3）**：標題雷達改金色圓環＋38 片漸淡扇形殘影（約半圈，4.5 秒一圈）＋4 個紅色目標點（掃到才亮），由 `app.tsx` 的 `RADAR_FAN`／`RADAR_BLIPS` 產生，樣式在 `styles.css` `.radar-logo`（淺色模式用深金、reduced-motion 停止）。啟動畫面（`index.html` 的 `#boot-radar`）、Android 12 系統啟動畫面（`res/drawable/radar_icon.xml`、`values-v31/styles.xml`）也一併改金色＋暖黑背景；Android 11 以下的 `splash.png` 與桌面圖示（`mipmap-*/ic_launcher*.png`）10/28 也已改金色，由 scratchpad 的產圖腳本畫（金色 B3 靜態版、底色 #120D04）。
 
 ## 虛擬ETF 共通區塊（1.0.178）
+- **比重不足 1% 不買（11/9 使用者，所有組合）**：規則組合在 `watch.ts` 的 `skipTiny`（`MIN_BUY`，11/9 收盤的判斷起生效、之前歷史不變）：新買進目標比重 < 1% 的剔除、留現金（不重分配，免得改到 N5 的 0050 五成與單檔上限）；已持有的照原規則。Claude 虛擬組寫在 `virtual/DAILY.md`。回測對照 `AI5_min1`。
 - 所有虛擬ETF組合（Claude/N5/全個股/攻守輪動/權值強化/AI供應鏈）都顯示：資金水位（`CashReserve`，規則組合另顯示明天調整後目標 `plan.nextStock`）、每日損益 vs 0050（`DailyCompare`）、明天要調整的股票（`pending`，規則組合由 `runWatch` 以最後資料日目標權重 vs 現有持股產生，帶日期註記）。
 - UI 在 `src/ui/aiEtf.tsx`；e2e 檢查 testid：`cash-reserve`、`daily-today`、`daily-table`、`virtual-pending`。舊 JSON 沒有 pending/plan 時 UI 要容忍。
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BtDay } from "../src/engine/backtest";
-import { runWatch, WATCH } from "../src/engine/watch";
+import { MIN_BUY, runWatch, skipTiny, WATCH } from "../src/engine/watch";
 import { valuate } from "../src/engine/aiEtf";
 import { weekdaysBack } from "../src/lib/dates";
 import type { FRow, QRow } from "../src/data/twLoader";
@@ -228,5 +228,16 @@ describe("剛轉強觀察組合（11/04 使用者選 T1-混合）", () => {
     for (const t of r.trades) held.set(t.code, (held.get(t.code) ?? 0) + (t.side === "buy" ? t.shares : -t.shares));
     expect([...held].filter(([, n]) => n > 0).length).toBeLessThanOrEqual(10);
     expect(runWatch(days, companies, { start: startAt, now: 0, mode: "turn" }).trades).toEqual(r.trades);
+  });
+});
+
+describe("比重不足 1% 的不買（11/9 使用者）", () => {
+  it("新買進低於 1% 的剔除、留現金；已持有的照原規則保留；生效日之前不變", () => {
+    const t = new Map([["2330", 0.5], ["3443", 0.006], ["2412", 0.004]]);
+    const hold = new Map([["2412", 3]]);
+    const after = skipTiny(t, hold, MIN_BUY.from);
+    expect([...after.keys()].sort()).toEqual(["2330", "2412"]);
+    expect(after.get("2330")).toBe(0.5);
+    expect(skipTiny(t, hold, "20261106").size).toBe(3);
   });
 });

@@ -3,7 +3,7 @@
 // 成交規則和 2 年回測一致：第 j 天收盤後決定，第 j+1 天收盤價成交，已計手續費與證交稅。
 import { cashFlow, positions, recordNav, valuate, type EtfTrade } from "./aiEtf";
 import type { BtDay } from "./backtest";
-import { AI_MIN_WEIGHT, aiTargets, aPicks, buildCtx, LEAD, leadTargets, REAL, realTargets, regimeStep, STEADY, TURN2, turnPicker, wideTargets } from "./steady";
+import { aiTargets, aPicks, buildCtx, LEAD, leadTargets, REAL, realTargets, regimeStep, STEADY, TURN2, turnPicker, wideTargets } from "./steady";
 import { addNote, newVirtual, type PendingOrder, type VirtualEtf } from "./virtualEtf";
 import type { Company } from "../data/tw";
 
@@ -17,6 +17,17 @@ export const WATCH = {
 } as const;
 const BENCH = "0050";
 const r2 = (x: number) => Math.round(x * 100) / 100;
+/** 11/9 使用者：所有組合「比重不足 1% 的不買」，從 11/9 收盤的判斷起生效；之前的歷史不變 */
+export const MIN_BUY = { weight: 0.01, from: "20261109" };
+/**
+ * 新買進的比重低於 MIN_BUY.weight 就不買，那一點比重留現金（不分給其他檔，免得改到 N5 的 0050 五成、單檔上限等原本規則）。
+ * 已經持有的不受影響：照各組原本的規則保留或賣出，不會因為這條規則特別賣掉。
+ */
+export function skipTiny(t: Map<string, number>, hold: Map<string, number>, date: string): Map<string, number> {
+  if (date < MIN_BUY.from) return t;
+  return new Map([...t].filter(([code, w]) => w >= MIN_BUY.weight || hold.has(code)));
+}
+
 const pc = (x: number, d = 1) => `${x >= 0 ? "+" : ""}${(x * 100).toFixed(d)}%`;
 
 /**
@@ -45,7 +56,7 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
   const turnPick = turn ? turnPicker(c, { strict: false, regime: false, exit: "hybrid" }) : undefined;
   for (let j = j0; j < c.N; j++) {
     const date = c.dates[j];
-    const setTarget = (t: Map<string, number>) => { if (j < c.N - 1) target = t; else lastDayTarget = t; };
+    const setTarget = (t0: Map<string, number>) => { const t = skipTiny(t0, hold, date); if (j < c.N - 1) target = t; else lastDayTarget = t; };
     const bench = close(BENCH, j);
     // 1. 執行昨天決定的調整（今天收盤價）
     if (target && bench) {
@@ -119,11 +130,11 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
       const nm = (list: string[]) => (list.length ? list.slice(0, 8).map((code) => `${name(code, j)}${code}`).join("、") + (list.length > 8 ? `…共 ${list.length} 檔` : "") : "無");
       text += `\n本日判斷：符合條件 ${t.size} 檔（不限檔數）。下一個交易日收盤價調整，新增：${nm(adds)}；剔除：${nm(drops)}；其餘差距小於淨值 ${(STEADY.wideBand * 100).toFixed(1)}% 的不動。`;
     } else if (decide && ai) {
-      const t = aiTargets(c, j, { weight: "cap", minWeight: AI_MIN_WEIGHT });
+      const t = aiTargets(c, j, { weight: "cap" });
       setTarget(t);
       const top = [...t].sort((a, b) => b[1] - a[1]);
       const list = top.slice(0, 10).map(([code, w]) => `${name(code, j)}${code} ${(w * 100).toFixed(1)}%`).join("、");
-      text += `\n本日判斷：AI 供應鏈清單依市值配置（單檔上限 35%，比重低於 1% 的不買），共 ${top.length} 檔，前 10 大：${list || "無"}。下一個交易日收盤價調整（每 ${WATCH.aiEvery} 個交易日調整一次）。`;
+      text += `\n本日判斷：AI 供應鏈清單依市值配置（單檔上限 35%），共 ${top.length} 檔，前 10 大：${list || "無"}。下一個交易日收盤價調整（每 ${WATCH.aiEvery} 個交易日調整一次）。`;
     } else if (decide && lead) {
       const r = leadTargets(c, j);
       setTarget(r.targets);

@@ -334,6 +334,13 @@ describe("Claude App 複製回來的 JSON 壞掉（11/9 實際遇到）", () => 
     expect(p.body).toBe("說明文字");
     expect(repairJson('{"a":,"b":[1,2]}')?.json).toBe('{"a":null,"b":[1,2]}');
   });
+  it("引號變成彎引號、字串裡夾換行也讀得到", () => {
+    const curly = pasted.replace(/"/g, (_m, i: number) => (i % 2 ? "\u201c" : "\u201d"));
+    expect(Object.keys(parsePlan(curly).holds).sort()).toEqual(["1216", "2412", "2610", "5880"]);
+    expect(parsePlan(curly).body).toBe("");
+    const nl = pasted.replace("空頭時", "空頭\n時");
+    expect(parsePlan(nl).holds["2412"].why).toBe("電信防禦股，空頭 時抗跌");
+  });
   it("完整的 JSON 照舊，不受影響", () => {
     const p = parsePlan('好\n```json\n{"trades":[{"code":"2330","side":"buy","shares":10}]}\n```');
     expect(p.broken).toBeUndefined();

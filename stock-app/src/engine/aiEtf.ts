@@ -237,7 +237,12 @@ export function repairJson(src: string): { json: string; truncated: boolean } | 
   for (let k = 0; k < src.length; k++) {
     const c = src[k];
     out += c;
-    if (inStr) { if (c === "\\") { out += src[k + 1] ?? ""; k++; } else if (c === '"') inStr = false; continue; }
+    if (inStr) {
+      if (c === "\\") { out += src[k + 1] ?? ""; k++; }
+      else if (c === '"') inStr = false;
+      else if (c === "\n" || c === "\r" || c === "\t") out = out.slice(0, -1) + " "; // 字串裡的換行（複製時被折行）JSON 不接受，換成空白
+      continue;
+    }
     if (c === '"') inStr = true;
     else if (c === ":") { let n = k + 1; while (n < src.length && /\s/.test(src[n])) n++; if (n >= src.length || /[,}\]]/.test(src[n])) out += "null"; }
   }
@@ -278,6 +283,8 @@ function findPlanJson(text: string): { json: string; start: number; end: number;
     const r = repairJson(last[1]);
     return r ? { json: r.json, start: last.index, end: last.index + last[0].length, broken: r.truncated ? "truncated" : "repaired" } : { json: last[1], start: last.index, end: last.index + last[0].length };
   }
+  // 手機輸入法或複製時把直引號換成彎引號（“ ”）：換回來再找（長度不變，位置對得上）
+  if (!/[{[]\s*"(?:trades|picks|stops)"/.test(text) && /[{[]\s*[“”＂](?:trades|picks|stops)[“”＂]/.test(text)) text = text.replace(/[“”＂]/g, '"');
   const starts = [...text.matchAll(/[{[]\s*(?:"(?:trades|picks|stops)"\s*:|\{\s*"code"\s*:)/g)].map((x) => x.index!);
   // 能解析的候選裡，取結尾最後面的；結尾相同取最外層（最前面開始），免得只抓到裡面那層陣列
   let best: { json: string; start: number; end: number } | null = null;

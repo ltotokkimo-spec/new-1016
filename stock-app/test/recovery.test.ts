@@ -4,7 +4,7 @@ import type { HoldingView, Scored } from "../src/engine/score";
 
 const sc = (code: string, rating: Scored["rating"], score: number, name = `股${code}`): Scored => ({ code, name, market: "TWSE", sector: "x", close: 100, value: 1e9, ret1w: 0, ret1m: 0, ret3m: 0, score, momentum: 0.5, flow: 0.5, sectorScore: 0.5, rating, reasons: [] });
 const hv = (code: string, shares: number, cost: number, price: number, rating: HoldingView["rating"], market: HoldingView["market"] = "TWSE"): HoldingView =>
-  ({ code, name: `股${code}`, market, shares, cost, price, pnl: (price - cost) * shares, pnlPct: price / cost - 1, rating, advice: [] }) as HoldingView;
+  ({ id: code, code, name: `股${code}`, market, shares, cost, price, pnl: (price - cost) * shares, pnlPct: price / cost - 1, rating, advice: [] }) as HoldingView;
 
 describe("持股分析與建議（回本計畫）", () => {
   it("回本價含手續費與證交稅：股票約成本 +0.59%、ETF 約 +0.39%", () => {

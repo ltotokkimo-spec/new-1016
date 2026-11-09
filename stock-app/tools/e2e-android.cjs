@@ -1028,6 +1028,9 @@ function check(ok, name, detail = "") {
   // 持股的 K 線圖要畫出「我的均價線」：點進美股持股 AAPL（均價 100），圖上方標示均價與現價差
   await page.evaluate(() => [...document.querySelectorAll(".list .item")].find((e) => /AAPL/.test(e.innerText))?.click());
   await page.waitForSelector(".sheet", { timeout: 10000 });
+  // 個股頁會記住上次看的分頁（興櫃測試最後停在「走勢」），先切到 K 線圖
+  await page.waitForSelector('[data-testid="tab-k"]', { timeout: 10000 }).catch(() => {});
+  await page.click('[data-testid="tab-k"]').catch(() => {});
   await page.waitForFunction(() => document.querySelector('[data-testid="candle-cost"]') || /走勢圖下載失敗|沒有走勢資料/.test(document.body.innerText), null, { timeout: 120000 }).catch(() => {});
   const costTxt = await page.$eval('[data-testid="candle-cost"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   check(/我的均價 100(\.0+)?（現價 [\d,.]+，[+-]?\d+\.\d\d%）/.test(costTxt), "持股的 K 線圖標示我的均價線（均價與現價差）", costTxt);

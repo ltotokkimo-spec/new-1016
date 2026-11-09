@@ -365,7 +365,9 @@ export const AI_GROUPS: Record<string, string[]> = {
 export const AI_CODES = Object.values(AI_GROUPS).flat();
 const ELEC_INDUSTRIES = new Set(["半導體", "電腦週邊", "光電", "通信網路", "電子零組件", "其他電子", "電子通路", "資訊服務"]);
 
-export interface AiOpts { weight?: "equal" | "cap"; trend?: boolean; pool?: "ai" | "elec"; topN?: number; maxWeight?: number }
+/** AI 供應鏈上線版：比重低於這個的不買（11/9 使用者指定 1%） */
+export const AI_MIN_WEIGHT = 0.01;
+export interface AiOpts { weight?: "equal" | "cap"; trend?: boolean; pool?: "ai" | "elec"; topN?: number; maxWeight?: number; minWeight?: number }
 /**
  * AI 供應鏈／一般電子股（對照）的目標權重：成交金額夠大才納入（單日 ≥ 5000 萬，電子股對照 ≥ 1 億），
  * weight=cap 依市值配置（市值＝收盤×實收資本額÷10）、equal 等權；trend=true 時站上且上彎 60 日線 ×1、下彎 ×0.7、跌破 60 日線 ×0.3、
@@ -394,7 +396,15 @@ export function aiTargets(c: Ctx, j: number, o: AiOpts = {}): Map<string, number
   });
   const raw = items.map((x, i) => x.size * mult[i]), sum = raw.reduce((a, x) => a + x, 0);
   if (!(sum > 0)) return new Map();
-  const w = capWeights(raw.map((x) => x / sum), maxW);
+  let w = capWeights(raw.map((x) => x / sum), maxW);
+  // minWeight（11/9 使用者：「比重低於 1% 的不買」）：太小的零頭剔除，比重依原比例分給其他檔（仍維持單檔上限、滿倉）
+  if (o.minWeight && o.minWeight > 0) {
+    for (let it = 0; it < 10 && w.some((x) => x > 0 && x < o.minWeight!); it++) {
+      const kept = w.map((x) => (x >= o.minWeight! ? x : 0)), t = kept.reduce((a, x) => a + x, 0);
+      if (!(t > 0)) break;
+      w = capWeights(kept.map((x) => x / t), maxW);
+    }
+  }
   return new Map(items.map((x, i) => [x.code, w[i]] as [string, number]).filter(([, x]) => x > 1e-4));
 }
 
@@ -751,6 +761,7 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
   add("AI2_cap", "AI2 AI 供應鏈依市值配置（單檔上限 35%，月調）", (j) => aiTargets(c, j, { weight: "cap" }), aiOpt);
   add("AI3_capTrend", "AI3 AI 供應鏈依市值＋趨勢轉移（月調）", (j) => aiTargets(c, j, { weight: "cap", trend: true }), aiOpt);
   add("AI4_top20", "AI4 AI 供應鏈市值前 20 檔依市值配置（月調）", (j) => aiTargets(c, j, { weight: "cap", topN: 20 }), aiOpt);
+  add("AI5_min1", "AI5 AI2 但比重低於 1% 的不買（上線版，11/9）", (j) => aiTargets(c, j, { weight: "cap", minWeight: AI_MIN_WEIGHT }), aiOpt);
   add("E1_elecCap", "E1 對照：電子相關產業市值前 50 檔依市值配置（月調）", (j) => aiTargets(c, j, { pool: "elec", weight: "cap" }), aiOpt);
   add("E2_elecEqual", "E2 對照：電子相關產業成交金額夠大者前 50 檔等權（月調）", (j) => aiTargets(c, j, { pool: "elec", weight: "equal" }), aiOpt);
   add("N1_bigMomWk", "N1 大型股動能（成交金額前 100，近 90 日最強 10 檔，每週換）", bigWk);

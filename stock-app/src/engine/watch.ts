@@ -3,7 +3,7 @@
 // 成交規則和 2 年回測一致：第 j 天收盤後決定，第 j+1 天收盤價成交，已計手續費與證交稅。
 import { cashFlow, positions, recordNav, valuate, type EtfTrade } from "./aiEtf";
 import type { BtDay } from "./backtest";
-import { aiTargets, aPicks, buildCtx, LEAD, leadTargets, REAL, realTargets, regimeStep, STEADY, TURN2, turnPicker, wideTargets } from "./steady";
+import { AI_MIN_WEIGHT, aiTargets, aPicks, buildCtx, LEAD, leadTargets, REAL, realTargets, regimeStep, STEADY, TURN2, turnPicker, wideTargets } from "./steady";
 import { addNote, newVirtual, type PendingOrder, type VirtualEtf } from "./virtualEtf";
 import type { Company } from "../data/tw";
 
@@ -119,11 +119,11 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
       const nm = (list: string[]) => (list.length ? list.slice(0, 8).map((code) => `${name(code, j)}${code}`).join("、") + (list.length > 8 ? `…共 ${list.length} 檔` : "") : "無");
       text += `\n本日判斷：符合條件 ${t.size} 檔（不限檔數）。下一個交易日收盤價調整，新增：${nm(adds)}；剔除：${nm(drops)}；其餘差距小於淨值 ${(STEADY.wideBand * 100).toFixed(1)}% 的不動。`;
     } else if (decide && ai) {
-      const t = aiTargets(c, j, { weight: "cap" });
+      const t = aiTargets(c, j, { weight: "cap", minWeight: AI_MIN_WEIGHT });
       setTarget(t);
       const top = [...t].sort((a, b) => b[1] - a[1]);
       const list = top.slice(0, 10).map(([code, w]) => `${name(code, j)}${code} ${(w * 100).toFixed(1)}%`).join("、");
-      text += `\n本日判斷：AI 供應鏈清單依市值配置（單檔上限 35%），共 ${top.length} 檔，前 10 大：${list || "無"}。下一個交易日收盤價調整（每 ${WATCH.aiEvery} 個交易日調整一次）。`;
+      text += `\n本日判斷：AI 供應鏈清單依市值配置（單檔上限 35%，比重低於 1% 的不買），共 ${top.length} 檔，前 10 大：${list || "無"}。下一個交易日收盤價調整（每 ${WATCH.aiEvery} 個交易日調整一次）。`;
     } else if (decide && lead) {
       const r = leadTargets(c, j);
       setTarget(r.targets);

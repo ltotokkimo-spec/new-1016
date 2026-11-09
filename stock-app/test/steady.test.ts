@@ -46,7 +46,7 @@ describe("穩健選股回測", () => {
 
   const r = runSteady(makeDays(), companies, { now: 0 });
   it("每個策略都有結果；穩健只挑平滑上漲的，不挑亂跳和下跌的，且每產業最多 2 檔", () => {
-    expect(r.strategies.map((s) => s.key)).toEqual(["steady", "steadyNoRegime", "steadyNoStop", "lowVol", "buyList", "A_lowVolTrend", "A_lowVolTrendRegime", "B_buyListVol", "C_coreBuy", "C_coreA", "T60_off", "T60_half", "T120_off", "R1_regime", "W1_wideDaily", "W2_wideWeekly", "Q0_capTop50", "Q1_capTrend", "Q2_lead", "Q3_lead30", "Q4_tiltsOnly", "Q5_lead", "Q6_lead30", "AI1_equal", "AI2_cap", "AI3_capTrend", "AI4_top20", "E1_elecCap", "E2_elecEqual", "N1_bigMomWk", "N1_bigMomMo", "N2_relStrength", "N3_etfRotation", "N4_half0050_bigMo", "N5_half0050_A", "N6_half0050_etf", "U1_real", "T1_turnRaw", "T1_hold10", "T1_hold40", "T1_trend", "T1_hybrid", "T2_turnPlus", "T3_turnPlusNoRegime", "U2_realDaily", "U3_realDailyFull", "N7_half0050_rs", "0050"]);
+    expect(r.strategies.map((s) => s.key)).toEqual(["steady", "steadyNoRegime", "steadyNoStop", "lowVol", "buyList", "A_lowVolTrend", "A_lowVolTrendRegime", "B_buyListVol", "C_coreBuy", "C_coreA", "T60_off", "T60_half", "T120_off", "R1_regime", "W1_wideDaily", "W2_wideWeekly", "Q0_capTop50", "Q1_capTrend", "Q2_lead", "Q3_lead30", "Q4_tiltsOnly", "Q5_lead", "Q6_lead30", "AI1_equal", "AI2_cap", "AI3_capTrend", "AI4_top20", "AI5_min1", "E1_elecCap", "E2_elecEqual", "N1_bigMomWk", "N1_bigMomMo", "N2_relStrength", "N3_etfRotation", "N4_half0050_bigMo", "N5_half0050_A", "N6_half0050_etf", "U1_real", "T1_turnRaw", "T1_hold10", "T1_hold40", "T1_trend", "T1_hybrid", "T2_turnPlus", "T3_turnPlusNoRegime", "U2_realDaily", "U3_realDailyFull", "N7_half0050_rs", "0050"]);
     const picks = r.latest.picks.map((p) => +p.code);
     expect(picks.length).toBeGreaterThan(0);
     expect(picks.every((c) => c >= 2001 && c <= 2010)).toBe(true);
@@ -96,6 +96,15 @@ describe("AI 供應鏈權重", () => {
     for (const v of eq.values()) expect(v).toBeCloseTo(1 / 3, 6);
     const c2 = buildCtx(days, companies.filter((x) => x.code !== "2454"));
     expect([...aiTargets(c2, j, { weight: "cap" }).keys()].sort()).toEqual(["2317", "2330"]);
+  });
+  it("比重低於門檻的不買（11/9）：剔除後其餘依比例放大、仍滿倉", () => {
+    const plain = aiTargets(c, j, { weight: "cap", maxWeight: 1 });
+    const small = plain.get("2454")!;
+    const t = aiTargets(c, j, { weight: "cap", maxWeight: 1, minWeight: small + 0.001 });
+    expect(t.has("2454")).toBe(false);
+    expect([...t.values()].reduce((a, b) => a + b, 0)).toBeCloseTo(1, 6);
+    expect(t.get("2330")! / t.get("2317")!).toBeCloseTo(plain.get("2330")! / plain.get("2317")!, 6);
+    expect(aiTargets(c, j, { weight: "cap", maxWeight: 1, minWeight: 0.001 }).size).toBe(3);
   });
   it("趨勢轉移：下跌（跌破 60 日線）的聯發科權重比不看趨勢時小，仍然滿倉", () => {
     const plain = aiTargets(c, j, { weight: "cap", maxWeight: 1 }), tr = aiTargets(c, j, { weight: "cap", trend: true, maxWeight: 1 });

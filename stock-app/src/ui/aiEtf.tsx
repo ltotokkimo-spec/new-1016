@@ -782,14 +782,15 @@ function CompareView() {
     { key: "wide", label: "全個股（不限檔數、每天修正）", short: "全個股", v: wide?.data, bt: "W1_wideDaily" },
     { key: "regime", label: "攻守輪動（Claude 自訂規則）", short: "攻守輪動", v: regime?.data, bt: "R1_regime" },
     { key: "lead", label: "權值強化（Claude 設計，不放 0050）", short: "權值強化", v: leadG?.data, bt: "Q5_lead" },
-    { key: "ai", label: "AI 供應鏈（Claude 設計，不放 0050）", short: "AI 供應鏈", v: aiG?.data, bt: "AI2_cap" },
+    { key: "ai", label: "AI 供應鏈（Claude 設計，不放 0050）", short: "AI 供應鏈", v: aiG?.data, bt: "AI5_min1" },
     { key: "rule", label: "實單規則（我的實單的選股規則）", short: "實單規則", v: ruleG?.data, bt: "U1_real" },
     { key: "turn", label: "剛轉強（跌 8% 停損、滿 20 天後在 20 日線上續抱）", short: "剛轉強", v: turnG?.data, bt: "T1_hybrid" },
     { key: "real", label: "我的實單（你實際的買賣，從第一筆成交起算）", short: "我的實單", v: realG, bt: undefined as string | undefined, real: true },
   ].filter((g) => g.key !== "real" || g.v) as { key: string; label: string; short: string; v?: VirtualEtf; bt?: string; real?: boolean }[];
   const cmp = compareGroups(groups.map((g) => ({ key: g.key, label: g.short, v: g.v, noCommon: g.real })));
   const asOf = cmp.rows.filter((r) => r.key !== "real").map((r) => r.asOf ?? "").sort().at(-1);
-  const bt = (key?: string) => steady?.data.strategies.find((x) => x.key === key);
+  // AI5_min1 是 11/9 新增的回測鍵：雲端回測還沒重算前先用原本的 AI2_cap
+  const bt = (key?: string) => steady?.data.strategies.find((x) => x.key === key) ?? (key === "AI5_min1" ? steady?.data.strategies.find((x) => x.key === "AI2_cap") : undefined);
   const th = { padding: "4px 6px", textAlign: "right" as const, fontWeight: 600, whiteSpace: "nowrap" as const };
   const td = { padding: "6px", textAlign: "right" as const, whiteSpace: "nowrap" as const };
   const Row = ({ r, same }: { r: GroupRow; same: boolean }) => {
@@ -943,7 +944,7 @@ function CashReserve({ v, nav, marketValue, kind }: { v: VirtualEtf; nav: number
     wide: "不限檔數、全部是個股：凡是符合條件的才持有，條件不符的不買，沒買的部分就是現金；不會為了補水位硬買。",
     regime: "進攻（0050 站上 60 日線）：0050 七成＋方案 A 三成；防守（跌破 60 日線）：0050 四成＋方案 A 四成，其餘約兩成現金。",
     lead: "永遠滿倉：趨勢轉弱的權重轉給其他權值股，不留現金（回測顯示留現金在多頭少賺很多），現金只剩買不整的零頭。",
-    ai: "依市值配置 AI 供應鏈 51 檔，單檔上限 35%；基本上滿倉，現金只剩零頭與手續費。",
+    ai: "依市值配置 AI 供應鏈 51 檔，單檔上限 35%、比重低於 1% 的不買；基本上滿倉，現金只剩零頭與手續費。",
   };
   return (
     <div class="card stack" style={{ marginTop: "12px" }} data-testid="cash-reserve">
@@ -1022,7 +1023,7 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
             : isRule
             ? "由規則自動計算（不需要 Claude），每個交易日收盤後更新（約 17:00）。這是「我的實單」按「請 Claude 建議」時用的候選規則：App 評為「買入」的個股、依分數排序、每個產業最多 3 檔、只留成交金額達門檻的大型股；Claude 會從裡面挑，這裡改用固定規則代替：取分數最高的 8 檔平均分配、留 4% 現金、單檔 ≤ 25%，每 5 個交易日重新選；每天收盤跌破成本 10% 就隔天賣出。和其他組一樣 10/23 起算，用來比較實單規則的績效（Claude 實際怎麼挑沒辦法這樣模擬）。"
             : isAi
-            ? "由規則自動計算（不需要 Claude），每個交易日收盤後更新（約 17:00）。全部是個股、不放 0050：只買 AI 供應鏈相關的 51 檔（AI 伺服器代工、晶圓代工與 IC 設計、封測與設備、載板與 PCB、散熱電源與連接、記憶體、網通與光通訊），依市值配置，單檔上限 35%（台積電通常會碰到上限），每 20 個交易日調整一次，差距小於淨值 0.5% 不動。成交規則：決定當天收盤後判斷，下一個交易日收盤價成交；已計手續費與證交稅。2 年回測年化 +118%（0050 為 +88%、一般電子股對照 +104%），但這份清單是用今天的眼光挑的，回測偏樂觀；波動也比 0050 大（最差一天 −7.8%、0050 為 −5.9%），夏普和 0050 差不多，AI 族群一起修正時會跌得更重。要靠接下來的實際觀察。"
+            ? "由規則自動計算（不需要 Claude），每個交易日收盤後更新（約 17:00）。全部是個股、不放 0050：只買 AI 供應鏈相關的 51 檔（AI 伺服器代工、晶圓代工與 IC 設計、封測與設備、載板與 PCB、散熱電源與連接、記憶體、網通與光通訊），依市值配置，單檔上限 35%（台積電通常會碰到上限）；比重低於 1% 的零頭不買（11/9 起，比重分給其他檔），每 20 個交易日調整一次，差距小於淨值 0.5% 不動。成交規則：決定當天收盤後判斷，下一個交易日收盤價成交；已計手續費與證交稅。2 年回測年化 +118%（0050 為 +88%、一般電子股對照 +104%），但這份清單是用今天的眼光挑的，回測偏樂觀；波動也比 0050 大（最差一天 −7.8%、0050 為 −5.9%），夏普和 0050 差不多，AI 族群一起修正時會跌得更重。要靠接下來的實際觀察。"
             : isLead
             ? "由規則自動計算（不需要 Claude），每個交易日收盤後更新（約 17:00）。規則由 Claude 設計，全部是個股、不放 0050：0050 會贏是因為大的買最多，所以核心照市值買市值最大的 50 檔，再調整權重：①趨勢：站上且上彎 60 日線全拿、60 日線下彎打 7 折、跌破 60 日線打 3 折、60 和 120 日線都跌破就不持有，減掉的權重轉給其他權值股（永遠滿倉，不留現金：回測顯示留現金在多頭少賺很多）；②外資近 20 日買超佔成交量前 1/3 加 3 成、後 1/3 打 8 折；③投信買超最多的 1/10 打 8 折（過去常是買完就回落）；④近 90 日走勢穩定上升的前 1/3 加 2 成。單檔上限 6 成，每 5 個交易日調整，差距小於淨值 0.5% 不動。成交規則：決定當天收盤後判斷，下一個交易日收盤價成交；已計手續費與證交稅。目標是往贏 0050 的方向前進，但不保證，要靠觀察。"
             : isRegime

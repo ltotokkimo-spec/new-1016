@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BtDay } from "../src/engine/backtest";
-import { MIN_BUY, runWatch, skipTiny, WATCH } from "../src/engine/watch";
+import { runWatch, WATCH } from "../src/engine/watch";
 import { valuate } from "../src/engine/aiEtf";
 import { weekdaysBack } from "../src/lib/dates";
 import type { FRow, QRow } from "../src/data/twLoader";
@@ -231,21 +231,3 @@ describe("剛轉強觀察組合（11/04 使用者選 T1-混合）", () => {
   });
 });
 
-describe("比重不足 1% 的不買（11/9 使用者）", () => {
-  it("新買進低於 1% 的剔除、比重分給其他個股；0050 不動；已持有的照原規則保留；生效日之前不變", () => {
-    const t = new Map([["0050", 0.5], ["2330", 0.2], ["2317", 0.2], ["3443", 0.006], ["2412", 0.004]]);
-    const hold = new Map([["2412", 3]]);
-    const after = skipTiny(t, hold, MIN_BUY.from);
-    expect([...after.keys()].sort()).toEqual(["0050", "2317", "2330", "2412"]);
-    expect(after.get("0050")).toBe(0.5);
-    expect([...after.values()].reduce((a, b) => a + b, 0)).toBeCloseTo(0.91, 9);
-    expect(after.get("2330")! / after.get("2317")!).toBeCloseTo(1, 9);
-    expect(skipTiny(t, hold, "20261106").size).toBe(5);
-  });
-  it("分配時單檔不超過 35%（原本就更高的維持原比重上限）", () => {
-    const t = new Map([["2330", 0.35], ["2454", 0.3], ["9999", 0.008]]);
-    const after = skipTiny(t, new Map(), MIN_BUY.from);
-    expect(after.get("2330")!).toBeLessThanOrEqual(0.35 + 1e-12);
-    expect(after.get("2454")!).toBeCloseTo(0.308, 9);
-  });
-});

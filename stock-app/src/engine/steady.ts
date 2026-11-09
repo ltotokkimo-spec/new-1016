@@ -397,7 +397,7 @@ export function aiTargets(c: Ctx, j: number, o: AiOpts = {}): Map<string, number
   const raw = items.map((x, i) => x.size * mult[i]), sum = raw.reduce((a, x) => a + x, 0);
   if (!(sum > 0)) return new Map();
   let w = capWeights(raw.map((x) => x / sum), maxW);
-  // minWeight（11/9 使用者：「比重不足 1% 的不買」、零頭分給其他檔）：剔除後依比例放大，仍套單檔上限、滿倉（和 watch.ts 的 skipTiny 一致）
+  // minWeight（只給回測對照 AI5 用；11/9 試過「不足 1% 不買」，使用者為了報酬最大化選回零頭照買）：剔除後依比例放大，仍套單檔上限、滿倉
   if (o.minWeight && o.minWeight > 0) {
     for (let it = 0; it < 10 && w.some((x) => x > 0 && x < o.minWeight!); it++) {
       const kept = w.map((x) => (x >= o.minWeight! ? x : 0)), t = kept.reduce((a, x) => a + x, 0);
@@ -761,7 +761,7 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
   add("AI2_cap", "AI2 AI 供應鏈依市值配置（單檔上限 35%，月調）", (j) => aiTargets(c, j, { weight: "cap" }), aiOpt);
   add("AI3_capTrend", "AI3 AI 供應鏈依市值＋趨勢轉移（月調）", (j) => aiTargets(c, j, { weight: "cap", trend: true }), aiOpt);
   add("AI4_top20", "AI4 AI 供應鏈市值前 20 檔依市值配置（月調）", (j) => aiTargets(c, j, { weight: "cap", topN: 20 }), aiOpt);
-  add("AI5_min1", "AI5 AI2 但比重低於 1% 的不買、分給其他檔（11/9 規則）", (j) => aiTargets(c, j, { weight: "cap", minWeight: AI_MIN_WEIGHT }), aiOpt);
+  add("AI5_min1", "AI5 參考：AI2 但比重低於 1% 的不買、分給其他檔（11/9 試過，使用者選回零頭照買）", (j) => aiTargets(c, j, { weight: "cap", minWeight: AI_MIN_WEIGHT }), aiOpt);
   add("E1_elecCap", "E1 對照：電子相關產業市值前 50 檔依市值配置（月調）", (j) => aiTargets(c, j, { pool: "elec", weight: "cap" }), aiOpt);
   add("E2_elecEqual", "E2 對照：電子相關產業成交金額夠大者前 50 檔等權（月調）", (j) => aiTargets(c, j, { pool: "elec", weight: "equal" }), aiOpt);
   add("N1_bigMomWk", "N1 大型股動能（成交金額前 100，近 90 日最強 10 檔，每週換）", bigWk);

@@ -28,7 +28,7 @@ function TotalPnl({ now, budget }: { now: number; budget: number }) {
 function TwdPnl({ shares, avgCost, price }: { shares: number; avgCost: number; price: number | undefined }) {
   if (price === undefined || !Number.isFinite(price)) return null;
   const x = (price - avgCost) * shares;
-  return <><span class={cls(x)} style={{ whiteSpace: "nowrap" }}>損益 {x < 0 ? "-" : x > 0 ? "+" : ""}{Math.round(Math.abs(x)).toLocaleString("zh-TW")}</span>・</>;
+  return <><span class={cls(x)} style={{ whiteSpace: "nowrap" }}>累計損益 {x < 0 ? "-" : x > 0 ? "+" : ""}{Math.round(Math.abs(x)).toLocaleString("zh-TW")}</span>・</>;
 }
 
 /** 不在選股「買入」清單的提醒（只警告，不阻擋） */
@@ -1080,7 +1080,7 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
                   <div class="px">
                     <div class="p num" data-testid="virtual-price"><span class="lbl">{label}</span><LimitPx s={q?.limit}>{c ? fmtPrice(c) : "—"}</LimitPx></div>
                     {q && Number.isFinite(q.prevClose) && <div class={`num ${cls(q.price - q.prevClose)}`} style={{ fontSize: "12px" }}>今日 {fmtPct(q.price / q.prevClose - 1)}</div>}
-                    <div class={`c num ${cls(c ? c - p.avgCost : 0)}`}><span class="lbl">損益</span>{c ? fmtPct(c / p.avgCost - 1) : "—"}</div>
+                    <div class={`c num ${cls(c ? c - p.avgCost : 0)}`}><span class="lbl">累計損益</span>{c ? fmtPct(c / p.avgCost - 1) : "—"}</div>
                   </div>
                   <div />
                 </div>
@@ -1231,6 +1231,13 @@ function RealEtfScreen() {
   // 價格：盤中（或今天收盤後）用證交所即時價，沒有就用最近收盤；開著這頁每 30 秒更新
   const live = useStore((s) => s.live);
   const livePx = (c: string) => { const q = live[c]; return q && q.date && q.date >= (st.asOf ?? "") && q.price > 0 ? q.price : etfPrice(c); };
+  // 今日漲跌幅（11/9 使用者要求）：即時價對昨收；沒有即時價就用最近一個交易日的收盤漲跌
+  const dayChg = (c: string): number | undefined => {
+    const q = live[c];
+    if (q && q.date && q.date >= (st.asOf ?? "") && q.price > 0 && q.prevClose > 0) return q.price / q.prevClose - 1;
+    const x = findScored(c)?.chg1d;
+    return Number.isFinite(x) ? x : undefined;
+  };
   const liveCodes = positions(etf.trades).filter((p) => p.shares > 0).map((p) => p.code);
   const codeKey = liveCodes.join(",");
   useEffect(() => {
@@ -1360,7 +1367,8 @@ function RealEtfScreen() {
                   </div>
                   <div class="px">
                     <div class="p num"><span class="lbl">現價</span>{fmtPrice(px ?? NaN)}</div>
-                    <div class={`c num ${cls(px ? px - p.avgCost : 0)}`}><span class="lbl">損益</span>{px ? fmtPct(px / p.avgCost - 1) : "—"}</div>
+                    {(() => { const d = dayChg(p.code); return <div class={`c num ${cls(d ?? 0)}`} data-testid="pos-day-chg"><span class="lbl">今日</span>{d !== undefined ? fmtPct(d) : "—"}</div>; })()}
+                    <div class={`c num ${cls(px ? px - p.avgCost : 0)}`} data-testid="pos-total-pnl"><span class="lbl">累計損益</span>{px ? fmtPct(px / p.avgCost - 1) : "—"}</div>
                   </div>
                   <div />
                 </div>

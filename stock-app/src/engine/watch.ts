@@ -18,14 +18,30 @@ export const WATCH = {
 const BENCH = "0050";
 const r2 = (x: number) => Math.round(x * 100) / 100;
 /** 11/9 使用者：所有組合「比重不足 1% 的不買」，從 11/9 收盤的判斷起生效；之前的歷史不變 */
-export const MIN_BUY = { weight: 0.01, from: "20261109" };
+export const MIN_BUY = { weight: 0.01, from: "20261109", cap: 0.35 };
 /**
- * 新買進的比重低於 MIN_BUY.weight 就不買，那一點比重留現金（不分給其他檔，免得改到 N5 的 0050 五成、單檔上限等原本規則）。
+ * 新買進的比重低於 MIN_BUY.weight 就不買，省下的比重依比例分給同組其他個股（11/9 使用者選「分給其他檔」：
+ * 回測留現金會拖累報酬）。0050 的固定比重不動（N5／攻守輪動的五成、七成維持原樣），單檔最多加到 MIN_BUY.cap（或它原本更高的比重）。
  * 已經持有的不受影響：照各組原本的規則保留或賣出，不會因為這條規則特別賣掉。
  */
 export function skipTiny(t: Map<string, number>, hold: Map<string, number>, date: string): Map<string, number> {
   if (date < MIN_BUY.from) return t;
-  return new Map([...t].filter(([code, w]) => w >= MIN_BUY.weight || hold.has(code)));
+  const dropped = [...t].filter(([code, w]) => w < MIN_BUY.weight && !hold.has(code));
+  if (!dropped.length) return t;
+  const out = new Map([...t].filter(([code]) => !dropped.some(([d]) => d === code)));
+  let extra = dropped.reduce((a, [, w]) => a + w, 0);
+  for (let it = 0; it < 10 && extra > 1e-9; it++) {
+    const room = [...out].filter(([code, w]) => code !== "0050" && w < Math.max(MIN_BUY.cap, t.get(code)!) - 1e-12);
+    const base = room.reduce((a, [, w]) => a + w, 0);
+    if (!(base > 0)) break;
+    let used = 0;
+    for (const [code, w] of room) {
+      const lim = Math.max(MIN_BUY.cap, t.get(code)!), add = Math.min((extra * w) / base, lim - w);
+      out.set(code, w + add); used += add;
+    }
+    extra -= used;
+  }
+  return out;
 }
 
 const pc = (x: number, d = 1) => `${x >= 0 ? "+" : ""}${(x * 100).toFixed(d)}%`;

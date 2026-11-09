@@ -959,7 +959,7 @@ function CashReserve({ v, nav, marketValue, kind }: { v: VirtualEtf; nav: number
       <div style={{ fontSize: "14px", lineHeight: 1.6 }} data-testid="cash-reserve-next">
         {nextStock !== undefined ? <>明天調整後的規則目標：股票約 <b>{pct(nextStock)}</b>・現金約 <b>{pct(1 - nextStock)}</b>（黑線）</> : <span class="muted">這個資料日沒有新的判斷，目標沿用上一次調整後的持股</span>}
       </div>
-      <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>{policy[kind] ?? ""}{kind !== "claude" && policy[kind] ? <> 11/9 起：新買進比重不足 1% 的不買，那一點留現金；已持有的照原本規則保留或賣出。</> : null}</div>
+      <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>{policy[kind] ?? ""}{kind !== "claude" && policy[kind] ? <> 11/9 起：新買進比重不足 1% 的不買，那一點比重分給同組其他個股（0050 的比重不變）；已持有的照原本規則保留或賣出。</> : null}</div>
     </div>
   );
 }

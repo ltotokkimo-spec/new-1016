@@ -1044,6 +1044,12 @@ function check(ok, name, detail = "") {
   log("持股分析與建議", JSON.stringify({ rec, items: recItems.slice(0, 3) }).slice(0, 600));
   check((/\d+ 檔虧損/.test(rec) && recItems.length > 0 && recItems.every((t) => /(停損換股|攤平|續抱設條件)/.test(t) && /回本價 [$\d.,]+（含手續費與證交稅），現價還要漲 \d+\.\d%/.test(t))) || /沒有虧損/.test(rec),
     "持股分頁有「持股分析與建議」：虧損持股列出動作與回本價", JSON.stringify({ rec, first: recItems[0] }).slice(0, 300));
+  // 詳細理由（11/9）：展開後下載日 K，停損換股的那檔要有支撐、壓力、原股 vs 換股標的比較
+  const secOk = await page.waitForFunction(() => [...document.querySelectorAll('[data-testid="recovery-section"]')].some((e) => /支撐：/.test(e.innerText)), null, { timeout: 45000 }).then(() => true).catch(() => false);
+  const secs = await page.$$eval('[data-testid="recovery-section"]', (els) => els.map((e) => e.innerText.replace(/\s+/g, " "))).catch(() => []);
+  log("持股分析詳細理由", JSON.stringify(secs.slice(0, 4)).slice(0, 800));
+  if (recItems.length) check(secOk && secs.some((t) => /支撐：/.test(t) && /壓力：/.test(t) && /趨勢：/.test(t)) && (!recItems.some((t) => /停損換股/.test(t)) || secs.some((t) => /原股 vs 換股標的/.test(t) && /分數：/.test(t))),
+    "持股分析列出詳細理由：趨勢、支撐、壓力，停損換股另有原股 vs 換股標的比較", JSON.stringify(secs.slice(0, 3)).slice(0, 300));
   const swaps = recItems.map((t) => (t.match(/轉買[^：]*：\S+ (\w+)（分數/) || [])[1]).filter(Boolean);
   if (swaps.length >= 2) check(new Set(swaps).size === swaps.length, "持股分析：每檔停損換股推薦不同的標的", JSON.stringify(swaps));
   if (recItems.length) await page.$eval('[data-testid="recovery-card"]', (e) => e.scrollIntoView()).catch(() => {});

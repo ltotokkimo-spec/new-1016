@@ -21,6 +21,61 @@ export interface RecoveryItem {
   avg?: { addShares: number; addCost: number; newCost: number; newBreakEven: number; newNeedPct: number };
   swap?: { code: string; name: string; score: number; proceeds: number };
   lines: string[];
+  sections: { title: string; lines: string[] }[]; // 詳細理由（技術面支撐壓力、籌碼與分數、原股 vs 換股標的、什麼情況可以不換）
+  swapCodes?: string[]; // 推薦與備選的代號（畫面用來下載它們的日 K 算支撐壓力）
+}
+
+/** 由日 K 算出的價位（11/9 使用者：「需要詳細的理由來決定換股」） */
+export interface Levels { ma20: number; ma60: number; low20: number; hi120: number; lo120: number }
+
+export function levelsOf(bars: { close: number; high?: number; low?: number }[]): Levels | undefined {
+  if (bars.length < 20) return undefined;
+  const sma = (n: number) => (bars.length >= n ? bars.slice(-n).reduce((a, b) => a + b.close, 0) / n : NaN);
+  const r = bars.slice(-120);
+  return {
+    ma20: sma(20), ma60: sma(60),
+    low20: Math.min(...bars.slice(-20).map((b) => b.low ?? b.close)),
+    hi120: Math.max(...r.map((b) => b.high ?? b.close)), lo120: Math.min(...r.map((b) => b.low ?? b.close)),
+  };
+}
+
+const pctS = (x: number | undefined) => (x !== undefined && Number.isFinite(x) ? `${x >= 0 ? "+" : ""}${(x * 100).toFixed(1)}%` : "—");
+
+/** 一檔股票的技術面描述：趨勢、支撐（現價以下）、壓力（現價以上） */
+function techLines(price: number, lv: Levels | undefined, px: (x: number) => string, be?: number): string[] {
+  if (!lv) return ["日 K 還在下載或資料不足，暫時無法判斷支撐與壓力"];
+  const out: string[] = [];
+  const { ma20, ma60 } = lv;
+  const trend = Number.isFinite(ma60)
+    ? price > ma20 && ma20 > ma60 ? "多頭排列（股價 > 20 日線 > 60 日線），趨勢向上"
+      : price < ma20 && ma20 < ma60 ? "空頭排列（股價 < 20 日線 < 60 日線），趨勢向下"
+        : price > ma20 ? "站上 20 日線、還在整理，短線轉強" : "在 20 日線之下，短線偏弱"
+    : price > ma20 ? "站上 20 日線，短線轉強" : "在 20 日線之下，短線偏弱";
+  out.push(`趨勢：${trend}`);
+  const named = [["20 日線", ma20], ["60 日線", ma60], ["近 20 日低點", lv.low20], ["半年高點", lv.hi120], ["半年低點", lv.lo120]] as [string, number][];
+  const ok = named.filter(([, x]) => Number.isFinite(x));
+  const sup = ok.filter(([n, x]) => x < price && n !== "半年高點").sort((a, b) => b[1] - a[1]);
+  const res = ok.filter(([n, x]) => x > price * 1.002 && n !== "半年低點" && n !== "近 20 日低點").sort((a, b) => a[1] - b[1]);
+  out.push(sup.length ? `支撐：${sup.slice(0, 3).map(([n, x]) => `${n} ${px(x)}（${pctS(x / price - 1)}）`).join("、")}` : "支撐：現價已在半年低點附近，下方沒有明顯支撐");
+  out.push(res.length ? `壓力：${res.slice(0, 3).map(([n, x]) => `${n} ${px(x)}（${pctS(x / price - 1)}）`).join("、")}` : "壓力：現價在半年高點之上或附近，上方沒有明顯壓力");
+  if (be !== undefined) {
+    const first = res[0];
+    if (be > lv.hi120) out.push(`回本價 ${px(be)} 比半年高點 ${px(lv.hi120)} 還高：等於要創半年新高才回本，難度高`);
+    else if (first && be > first[1] * 1.002) {
+      const pass = res.filter(([, x]) => x < be).map(([n, x]) => `${n} ${px(x)}`);
+      out.push(`回本前要先突破 ${pass.join("、")}，壓力越多越難回本`);
+    } else out.push("回本價在第一道壓力之前，技術面上回本相對容易");
+  }
+  return out;
+}
+
+/** 分數與籌碼描述 */
+function scoreLine(s: Scored | undefined, us: boolean): string {
+  if (!s) return "沒有評分資料（成交金額低於門檻或還在載入）";
+  const f = us ? (s.aboveMa50 ? "站上 50 日均線" : "跌破 50 日均線")
+    : s.foreignStreak !== undefined && s.foreignStreak !== 0 ? `外資連續${s.foreignStreak > 0 ? "買" : "賣"}超 ${Math.abs(s.foreignStreak)} 天` : "外資沒有連續買賣超";
+  const f5 = !us && s.foreign5 !== undefined ? `、外資 5 日 ${s.foreign5 >= 0 ? "+" : ""}${Math.round(s.foreign5 / 1000).toLocaleString("zh-TW")} 張` : "";
+  return `分數 ${s.score}（動能 ${Math.round(s.momentum * 100)}、${us ? "趨勢" : "籌碼"} ${Math.round(s.flow * 100)}、族群 ${Math.round(s.sectorScore * 100)}）・近1週 ${pctS(s.ret1w)}、近1月 ${pctS(s.ret1m)}、近3月 ${pctS(s.ret3m)}・${f}${f5}`;
 }
 
 export interface RecoverySummary {
@@ -51,7 +106,7 @@ export function sharesToAverage(shares: number, cost: number, price: number, k: 
 /** 台股加碼股數：滿 1 張就取整張（較省手續費），不滿 1 張用零股 */
 const roundTw = (n: number) => (n >= 1000 ? Math.floor(n / 1000) * 1000 : n);
 
-export function recoveryPlan(views: HoldingView[], picks: { stocks: Scored[]; etfs: Scored[]; us: Scored[] }): { items: RecoveryItem[]; summary: RecoverySummary } {
+export function recoveryPlan(views: HoldingView[], picks: { stocks: Scored[]; etfs: Scored[]; us: Scored[] }, levels: Record<string, Levels | undefined> = {}): { items: RecoveryItem[]; summary: RecoverySummary } {
   const held = new Set(views.map((v) => v.code));
   // 每檔停損推薦不同的標的（11/9 使用者：每一檔建議買的都一樣）：虧最多的先分到評分最高的，已推薦過的不再推薦；另附 2 檔備選
   const used = new Set<string>();
@@ -81,7 +136,29 @@ export function recoveryPlan(views: HoldingView[], picks: { stocks: Scored[]; et
       lines.push(`建議賣出 ${v.shares.toLocaleString()} 股，約可收回 ${money(proceeds)}`);
       if (s) lines.push(`轉買${etf ? "分數高的 ETF" : "評分高的「買入」標的"}：${s.name} ${s.code}（分數 ${s.score}）${alts.length ? `；備選 ${alts.map((a) => `${a.name} ${a.code}（${a.score}）`).join("、")}` : ""}。同樣要賺回 ${(needPct * 100).toFixed(1)}%，放在走強的股票上機會較大；每檔推薦不同標的，換股後不會全集中在同一檔`);
       lines.push("如果不想停損：至少不要再加碼，等評等轉回「觀望」或「買入」再說");
-      items.push({ ...base, action: "停損換股", swap: s ? { code: s.code, name: s.name, score: s.score, proceeds } : undefined, lines });
+      const lv = levels[v.code];
+      const sections = [
+        { title: `${v.name}的技術面（支撐與壓力）`, lines: techLines(v.price, lv, px, be) },
+        { title: `${v.name}的分數與籌碼`, lines: [scoreLine(v.scored, us), ...(v.scored?.reasons ?? []).slice(0, 2)] },
+      ];
+      if (s) {
+        const sp = (x: number) => `${unit}${x >= 100 ? x.toFixed(1) : x.toFixed(2)}`;
+        sections.push({ title: `換股標的：${s.name} ${s.code}`, lines: [scoreLine(s, us), ...techLines(s.close, levels[s.code], sp), ...(s.reasons ?? []).slice(0, 2)] });
+        const cmp: string[] = [];
+        cmp.push(`分數：${v.name} ${v.scored?.score ?? "—"} → ${s.name} ${s.score}；評等：${v.rating} → ${s.rating}`);
+        cmp.push(`近1月：${pctS(v.scored?.ret1m)} → ${pctS(s.ret1m)}`);
+        if (!us) cmp.push(`外資：${v.scored?.foreignStreak ? `${v.scored.foreignStreak > 0 ? "連買" : "連賣"} ${Math.abs(v.scored.foreignStreak)} 天` : "—"} → ${s.foreignStreak ? `${s.foreignStreak > 0 ? "連買" : "連賣"} ${Math.abs(s.foreignStreak)} 天` : "—"}`);
+        const vTrendUp = lv ? v.price > lv.ma20 : undefined, sl = levels[s.code], sTrendUp = sl ? s.close > sl.ma20 : undefined;
+        if (vTrendUp !== undefined && sTrendUp !== undefined) cmp.push(`20 日線：${v.name}${vTrendUp ? "之上" : "之下"} → ${s.name}${sTrendUp ? "之上" : "之下"}`);
+        cmp.push(`結論：${(s.score - (v.scored?.score ?? 0)) >= 20 ? "新標的分數明顯較高，換股的理由充分" : "兩者分數差距不大，換股的理由較弱，可以只停損、資金先留現金"}；換股後新標的要漲 ${(needPct * 100).toFixed(1)}% 就能補回這筆虧損`);
+        sections.push({ title: "原股 vs 換股標的", lines: cmp });
+      }
+      const wait: string[] = [];
+      if (lv) wait.push(`可以先不換的情況：收盤站回 20 日線 ${px(lv.ma20)}${us ? "" : "且外資轉為買超"}，評等可能回到「觀望」，再重新評估`);
+      if (lv) wait.push(`一定要走的情況：收盤跌破近 20 日低點 ${px(lv.low20)}，代表跌勢延續，不要再等`);
+      wait.push(`換股也要設停損：新標的買進後跌 10% 一樣停損，不要變成第二檔套牢`);
+      sections.push({ title: "決定前的檢查", lines: wait });
+      items.push({ ...base, action: "停損換股", swap: s ? { code: s.code, name: s.name, score: s.score, proceeds } : undefined, swapCodes: [s, ...alts].filter(Boolean).map((x) => x!.code), lines, sections });
     } else if (v.rating === "買入") {
       // 加碼股數不超過目前持股（最多加倍），避免單檔越攤越大
       let n = sharesToAverage(v.shares, v.cost, v.price, k, needPct / 2, v.shares);
@@ -91,16 +168,19 @@ export function recoveryPlan(views: HoldingView[], picks: { stocks: Scored[]; et
         lines.push(`App 評等「買入」：動能、籌碼仍強，可以考慮攤平`);
         lines.push(`在 ${px(v.price)} 附近加碼 ${n.toLocaleString()} 股（約 ${money(n * v.price)}）→ 均價 ${px(newCost)}、回本價 ${px(nbe)}，只要漲 ${(nn * 100).toFixed(1)}% 就回本`);
         lines.push(`攤平會加大這檔的部位：跌破 ${px(stopPrice)}（原成本 −10%）一樣要停損`);
-        items.push({ ...base, action: "攤平", avg: { addShares: n, addCost: n * v.price, newCost, newBreakEven: nbe, newNeedPct: nn }, lines });
+        const lv = levels[v.code];
+        if (lv && Number.isFinite(lv.ma20)) lines.push(v.price > lv.ma20 * 1.03 ? `現價高於 20 日線 ${px(lv.ma20)} 超過 3%：建議分批，等拉回 20 日線附近再加碼，不要追高` : `現價接近 20 日線支撐 ${px(lv.ma20)}，是相對合理的加碼位置`);
+        items.push({ ...base, action: "攤平", avg: { addShares: n, addCost: n * v.price, newCost, newBreakEven: nbe, newNeedPct: nn }, lines,
+          sections: [{ title: `${v.name}的技術面（支撐與壓力）`, lines: techLines(v.price, lv, px, nbe) }, { title: `${v.name}的分數與籌碼`, lines: [scoreLine(v.scored, us), ...(v.scored?.reasons ?? []).slice(0, 2)] }] });
       } else {
         lines.push("App 評等「買入」，虧損很小，續抱等回本即可");
         lines.push(`跌破 ${px(stopPrice)}（成本 −10%）就停損`);
-        items.push({ ...base, action: "續抱設條件", lines });
+        items.push({ ...base, action: "續抱設條件", lines, sections: [{ title: `${v.name}的技術面（支撐與壓力）`, lines: techLines(v.price, levels[v.code], px, be) }, { title: `${v.name}的分數與籌碼`, lines: [scoreLine(v.scored, us)] }] });
       }
     } else {
       lines.push(v.rating === "觀望" ? "App 評等「觀望」：訊號分歧，先不加碼也不急著賣" : v.rating === "參考" ? `ETF 只供參考（分數 ${v.scored?.score ?? "—"}）：先不加碼` : "沒有評等：先不加碼");
       lines.push(`跌破 ${px(stopPrice)}（成本 −10%）就停損；評等轉為「買入」再考慮攤平`);
-      items.push({ ...base, action: "續抱設條件", lines });
+      items.push({ ...base, action: "續抱設條件", lines, sections: [{ title: `${v.name}的技術面（支撐與壓力）`, lines: techLines(v.price, levels[v.code], px, be) }, { title: `${v.name}的分數與籌碼`, lines: [scoreLine(v.scored, us), ...(v.scored?.reasons ?? []).slice(0, 2)] }] });
     }
   }
   // 停損換股的排最前面（最需要處理），其次攤平，最後續抱；同一類虧損金額大的在前

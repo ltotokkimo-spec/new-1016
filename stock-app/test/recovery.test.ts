@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { breakEvenPrice, recoveryPlan, sharesToAverage } from "../src/engine/recovery";
+import { breakEvenPrice, levelsOf, recoveryPlan, sharesToAverage } from "../src/engine/recovery";
 import type { HoldingView, Scored } from "../src/engine/score";
 
 const sc = (code: string, rating: Scored["rating"], score: number, name = `股${code}`): Scored => ({ code, name, market: "TWSE", sector: "x", close: 100, value: 1e9, ret1w: 0, ret1m: 0, ret3m: 0, score, momentum: 0.5, flow: 0.5, sectorScore: 0.5, rating, reasons: [] });
@@ -50,5 +50,22 @@ describe("持股分析與建議（回本計畫）", () => {
     expect(items[0].action).toBe("停損換股");
     expect(items[0].swap?.code).toBe("00878");
     expect(recoveryPlan([hv("5555", 100, 10, 12, "買入")], { stocks: [], etfs: [], us: [] }).summary.lines[0]).toMatch(/沒有虧損/);
+  });
+
+  it("詳細理由：支撐（現價以下）、壓力（現價以上）、回本前要突破的壓力，以及原股 vs 換股標的比較", () => {
+    const bars = Array.from({ length: 120 }, (_, i) => ({ close: 120 - i * 0.25, high: 121 - i * 0.25, low: 119 - i * 0.25 })); // 由 120 跌到約 90
+    const lv = levelsOf(bars)!;
+    expect(lv.hi120).toBe(121);
+    const views = [hv("1111", 1000, 110, 90, "離場")];
+    const picks = { stocks: [{ ...sc("9002", "買入", 90, "最強"), close: 50, ret1m: 0.12, foreignStreak: 5 }], etfs: [], us: [] };
+    const { items } = recoveryPlan(views, picks, { "1111": lv, "9002": levelsOf(Array.from({ length: 60 }, (_, i) => ({ close: 40 + i * 0.2 }))) });
+    const all = items[0].sections.flatMap((x) => [x.title, ...x.lines]).join("\n");
+    expect(all).toMatch(/空頭排列/);
+    expect(all).toMatch(/壓力：20 日線 [\d.]+（\+/);
+    expect(all).toMatch(/回本前要先突破/);
+    expect(all).toMatch(/原股 vs 換股標的/);
+    expect(all).toMatch(/外資：— → 連買 5 天/);
+    expect(items[0].swapCodes).toEqual(["9002"]);
+    expect(recoveryPlan(views, picks).items[0].sections[0].lines[0]).toMatch(/日 K 還在下載/);
   });
 });

@@ -23,7 +23,7 @@ import { FlowsPanel } from "./flows";
 import { EtfHoldingsPanel, isActiveEtf } from "./etfHoldings";
 import { isEtf } from "../data/tw";
 import { freeReport } from "../engine/freeReport";
-import { recoveryPlan, type RecoveryItem } from "../engine/recovery";
+import { levelsOf, recoveryPlan, type Levels, type RecoveryItem } from "../engine/recovery";
 import { withLiveBar } from "../engine/liveBar";
 import { isUsSymbol, MACRO_SYMBOLS, retN, sma, type MacroQuote } from "../data/us";
 import { isLiveNow, livePolling, marketOpen, type LiveQuote } from "../data/twLive";
@@ -805,8 +805,29 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
 /** 持股分析與建議（11/9 使用者：「引導我將負損益做到正損益」）：規則計算，不花錢；預設收合，只顯示摘要 */
 function RecoveryCard({ views }: { views: any[] }) {
   const st = useStore((s) => ({ tw: s.tw.scored, etf: s.etf.scored, us: s.us.scored }));
-  const plan = useMemo(() => recoveryPlan(views, { stocks: st.tw, etfs: st.etf, us: st.us }), [views, st.tw, st.etf, st.us]);
+  const [levels, setLevels] = useState<Record<string, Levels | undefined>>({});
+  const plan = recoveryPlan(views, { stocks: st.tw, etfs: st.etf, us: st.us }, levels);
   const [open, setOpen] = useState(false);
+  // 展開時才下載虧損持股與換股標的的日 K（手機已有的月份直接用），算支撐、壓力
+  const need = open ? [...new Set(plan.items.flatMap((x) => [x.code, ...(x.swapCodes ?? [])]))].filter((c) => !(c in levels)) : [];
+  const needKey = need.join(",");
+  useEffect(() => {
+    if (!need.length) return;
+    let alive = true;
+    (async () => {
+      for (const code of need) {
+        const market = plan.items.find((x) => x.code === code)?.market ?? findScored(code)?.market;
+        let lv: Levels | undefined;
+        try {
+          const bars = market === "US" ? await usBars(code) : market ? await twHistory(getFetcher(), getKv(), code, market as "TWSE" | "TPEX", 7) : [];
+          lv = levelsOf(bars);
+        } catch { lv = undefined; }
+        if (!alive) return;
+        setLevels((m) => ({ ...m, [code]: lv }));
+      }
+    })();
+    return () => { alive = false; };
+  }, [needKey]);
   const tone: Record<RecoveryItem["action"], string> = { 停損換股: "exit", 攤平: "buy", 續抱設條件: "hold" };
   return (
     <div class="card stack" style={{ marginTop: "12px" }} data-testid="recovery-card">
@@ -823,6 +844,12 @@ function RecoveryCard({ views }: { views: any[] }) {
           </div>
           <div class={`num ${cls(x.pnl)}`} style={{ fontSize: "13px" }}>累計損益 {fmtSigned(x.pnl, x.market)}（{fmtPct(x.pnlPct)}）</div>
           <ul style={{ margin: 0, paddingLeft: "18px", fontSize: "13.5px", lineHeight: 1.7 }}>{x.lines.map((l) => <li>{l}</li>)}</ul>
+          {x.sections.map((sec) => (
+            <details data-testid="recovery-section" open={x.action === "停損換股"}>
+              <summary style={{ fontSize: "13.5px", fontWeight: 600, cursor: "pointer" }}>{sec.title}</summary>
+              <ul style={{ margin: "4px 0 0", paddingLeft: "18px", fontSize: "13px", lineHeight: 1.7 }}>{sec.lines.map((l) => <li>{l}</li>)}</ul>
+            </details>
+          ))}
         </div>
       ))}
       <div class="muted" style={{ fontSize: "12px" }}>依 App 評等與成本自動計算（不花 Claude 費用），只是參考、不是投資建議：攤平會加大部位，停損換股也不保證新標的會漲。</div>

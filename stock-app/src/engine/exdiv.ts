@@ -56,7 +56,9 @@ export interface DividendInfo {
   count: number; // 近一年配息次數
   freq: string; // 月配／季配／半年配／年配
   total: number; // 近一年每單位配息合計
-  yieldPct: number; // 近一年配息 ÷ 現價
+  yieldPct: number; // 一年配息 ÷ 現價（上市未滿一年時用平均每次 × 一年次數估算）
+  annualized?: boolean; // 用平均每次估算（近一年次數不足）
+  perYear?: number; // 一年配幾次
   last?: { d: string; amt: number; pre: number }; // 最近一次
   filled?: boolean; // 現價已回到最近一次除息前的收盤（填息）
   gap?: number; // 還差多少填息（元）
@@ -70,9 +72,16 @@ export function dividendInfo(ev: ExEvent[] | undefined, price: number, asOf: str
   if (!divs.length) return undefined;
   const total = divs.reduce((a, e) => a + e[2], 0);
   const n = divs.length;
-  const freq = n >= 10 ? "月配" : n >= 3 ? "季配" : n === 2 ? "半年配" : "年配";
+  // 頻率看兩次除息間隔（不是看次數：上市不到一年的月配 ETF 一年內可能只配 4 次，11/9 實測 00406A 被標成季配）
+  const day = (d: string) => Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8)) / 864e5;
+  const gaps = divs.slice(1).map((e, i) => day(e[0]) - day(divs[i][0])).sort((a, b) => a - b);
+  const gap = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 365;
+  const [freq, perYear] = gap <= 45 ? ["月配", 12] : gap <= 120 ? ["季配", 4] : gap <= 240 ? ["半年配", 2] : ["年配", 1];
+  // 次數明顯少於一年該配的次數（上市未滿一年）：年化＝平均每次 × 一年次數；否則用近一年實際合計
+  const annualized = n <= perYear - 2;
+  const yearly = annualized ? (total / n) * perYear : total;
   const l = divs[divs.length - 1];
-  return { count: n, freq, total, yieldPct: total / price, last: { d: l[0], amt: l[2], pre: l[3] }, filled: price >= l[3], gap: Math.max(0, l[3] - price) };
+  return { count: n, freq, total, yieldPct: yearly / price, annualized, perYear, last: { d: l[0], amt: l[2], pre: l[3] }, filled: price >= l[3], gap: Math.max(0, l[3] - price) };
 }
 
 /**

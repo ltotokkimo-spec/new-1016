@@ -234,7 +234,7 @@ function EtfDividend({ code, price }: { code: string; price: number }) {
       <div class="row" style={{ justifyContent: "space-between" }}><b>配息</b><span class="muted" style={{ fontSize: "12px" }}>近一年（到 {prettyW(ex.data.asOf)}）</span></div>
       {!d ? <div class="muted" data-testid="etf-div-none">近一年沒有除息紀錄（不配息，或上市不到一年還沒配過）。</div> : <>
         <div class="grid2">
-          <div class="metric"><div class="k">年化殖利率</div><div class="v num" data-testid="etf-div-yield">{(d.yieldPct * 100).toFixed(1)}%</div><div class="d muted">近一年配 {d.total.toFixed(3)} 元 ÷ 現價 {fmtPrice(price)}</div></div>
+          <div class="metric"><div class="k">年化殖利率</div><div class="v num" data-testid="etf-div-yield">{(d.yieldPct * 100).toFixed(1)}%</div><div class="d muted">近一年配 {d.total.toFixed(3)} 元{d.annualized ? `（${d.count} 次；未滿一年，用平均每次 × 一年 ${d.perYear} 次估算）` : ""} ÷ 現價 {fmtPrice(price)}</div></div>
           <div class="metric"><div class="k">配息頻率</div><div class="v">{d.freq}</div><div class="d muted">近一年除息 {d.count} 次</div></div>
         </div>
         {d.last && <div data-testid="etf-div-last">最近一次：{prettyW(d.last.d)} 除息 <b class="num">{d.last.amt.toFixed(3)}</b> 元（除息前 {fmtPrice(d.last.pre)}）・

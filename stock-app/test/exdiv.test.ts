@@ -36,6 +36,12 @@ describe("除權息還原", () => {
     expect(d.filled).toBe(false);
     expect(d.gap).toBeCloseTo(9 - 7.35, 6);
     expect(dividendInfo(undefined, 10, "20261109")).toBeUndefined();
+    // 上市未滿一年的月配（00406A：8～11 月配 4 次）：頻率看間隔、殖利率用平均每次 × 12 估算
+    const nw = dividendInfo([["20260805", 0.986, 0.128, 10], ["20260902", 0.986, 0.138, 9.96], ["20261005", 0.986, 0.138, 10.13], ["20261103", 0.984, 0.138, 8.58]], 7.33, "20261106")!;
+    expect(nw.freq).toBe("月配");
+    expect(nw.annualized).toBe(true);
+    expect(nw.yieldPct).toBeCloseTo((0.542 / 4) * 12 / 7.33, 6);
+    expect(dividendInfo([["20260115", 0.97, 1, 30], ["20260415", 0.97, 1, 30], ["20260715", 0.97, 1, 30], ["20261015", 0.97, 1, 30]], 30, "20261109")!.freq).toBe("季配");
   });
 });
 

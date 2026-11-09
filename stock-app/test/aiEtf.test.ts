@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buyConds, sellConds, holdConds, cashFlow, comparePlans, reconcilePhoto, emptyEtf, etfAlerts, fitBudget, groupBySector, isOffList, isOwnPrompt, looksLikePlanReply, parsePlan, liquidityCut, pickCandidates, tradePnls, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
+import { buyConds, sellConds, holdConds, cashFlow, comparePlans, reconcilePhoto, emptyEtf, etfAlerts, fitBudget, groupBySector, isOffList, isOwnPrompt, looksLikePlanReply, parsePlan, planReadable, repairJson, liquidityCut, pickCandidates, tradePnls, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
 
 const t = (code: string, side: "buy" | "sell", shares: number, price: number, benchPrice = 100, date = "20261017") =>
   ({ id: code + side + date, date, code, name: code, side, shares, price, benchPrice });
@@ -305,5 +305,38 @@ describe("parsePlan：買賣方向（審查修正）", () => {
       { code: "2412", side: "buy", shares: 100 }, { code: "2603", shares: 100 },
     ]));
     expect(items.map((x) => [x.code, x.side])).toEqual([["2330", "sell"], ["2317", "sell"], ["2412", "buy"], ["2603", "buy"]]);
+  });
+});
+
+describe("Claude App 複製回來的 JSON 壞掉（11/9 實際遇到）", () => {
+  // 空陣列 [] 不見（"trades":,）而且最後被截斷
+  const pasted = `{"trades":,"stops":{"1216":75},"holds":{"2412":{"why":"電信防禦股，空頭時抗跌","cond":["跌破 152 → 賣出"]},"1216":{"why":"Q3 EPS 年增 7.7%，外資連買","cond":["收盤跌破 75 → 賣出","站回 80 → 停損上移至 77"]},"5880":{"why":"官股金融，波動低","cond":["跌破 26.8 → 賣出"]},"2610":{"why":"9月營收年增32%，保留一檔航空","cond":["跌破 19.8 → 賣出","10月營收年增轉負 → 減半"]},"1476":{"why":"10月營收年增10.7%，基本面穩`;
+  it("修復後讀得到停損與完整的續抱；標示不完整；不會把原始 JSON 當文字顯示", () => {
+    const p = parsePlan(pasted);
+    expect(p.broken).toBe("truncated");
+    expect(p.items).toEqual([]);
+    expect(p.stops).toEqual({ "1216": 75 });
+    expect(Object.keys(p.holds).sort()).toEqual(["1216", "2412", "2610", "5880"]);
+    expect(p.holds["1216"].cond).toEqual(["收盤跌破 75 → 賣出", "站回 80 → 停損上移至 77"]);
+    expect(p.body).toBe("");
+    const txt = planReadable(p, (c) => ({ "2412": "中華電" } as Record<string, string>)[c] ?? c);
+    expect(txt).toMatch(/這份回覆不完整/);
+    expect(txt).toMatch(/這次沒有要買賣/);
+    expect(txt).toMatch(/中華電 2412：電信防禦股/);
+    expect(txt).not.toMatch(/"trades"|"holds"|\{/);
+    const r = looksLikePlanReply(pasted);
+    expect(r.ok && r.truncated).toBe(true);
+  });
+  it("只是 [] 不見、沒有截斷：補成空的，不標示不完整", () => {
+    const p = parsePlan('說明文字\n{"trades":,"stops":{"2330":1000}}');
+    expect(p.broken).toBe("repaired");
+    expect(p.stops).toEqual({ "2330": 1000 });
+    expect(p.body).toBe("說明文字");
+    expect(repairJson('{"a":,"b":[1,2]}')?.json).toBe('{"a":null,"b":[1,2]}');
+  });
+  it("完整的 JSON 照舊，不受影響", () => {
+    const p = parsePlan('好\n```json\n{"trades":[{"code":"2330","side":"buy","shares":10}]}\n```');
+    expect(p.broken).toBeUndefined();
+    expect(p.items).toHaveLength(1);
   });
 });

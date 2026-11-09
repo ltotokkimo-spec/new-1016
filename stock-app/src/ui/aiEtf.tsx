@@ -6,7 +6,7 @@ import {
 import { aiEtfPrompt, claudeAppUrl, explainError, holdingsFromImage, shrinkImage } from "../ai/claude";
 import type { Scored } from "../engine/score";
 import type { VirtualEtf } from "../engine/virtualEtf";
-import { buyConds, sellConds, holdConds, dailyHoldingCheck, type HoldCheck, type EtfTrade, type EtfFlow, comparePlans, DEFAULT_STOP, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
+import { buyConds, sellConds, holdConds, dailyHoldingCheck, type HoldCheck, type EtfTrade, type EtfFlow, comparePlans, DEFAULT_STOP, planReadable, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { addWeekdays, orderDay, pretty, prettyW, taipeiClock, taipeiHour, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
 import { livePolling, type LiveQuote } from "../data/twLive";
@@ -306,7 +306,7 @@ let proIgnored = ""; // 按過「略過」或已載入的那份回覆，不再�
 /** 從 Claude App 回來：偵測剪貼簿的回覆，按一下載入並整理（讀不到剪貼簿就請你按「貼上並載入」） */
 function ProResume() {
   const [pending, setPending] = useState(() => proFlag.get() > 0);
-  const [found, setFound] = useState<{ text: string; items: number } | null>(null);
+  const [found, setFound] = useState<{ text: string; items: number; truncated?: boolean } | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const check = async () => {
@@ -315,7 +315,7 @@ function ProResume() {
     try {
       const text = await navigator.clipboard.readText();
       const r = looksLikePlanReply(text);
-      if (r.ok && text.trim() !== proIgnored) { setFound({ text, items: r.items }); setMsg(""); }
+      if (r.ok && text.trim() !== proIgnored) { setFound({ text, items: r.items, truncated: r.truncated }); setMsg(""); }
     } catch { /* 沒有權限或畫面還沒回到前景：用下面的按鈕，按下去就有權限 */ }
   };
   useEffect(() => {
@@ -325,20 +325,22 @@ function ProResume() {
     window.addEventListener("focus", on);
     return () => { document.removeEventListener("visibilitychange", on); window.removeEventListener("focus", on); };
   }, []);
-  const load = async (text: string, items: number) => {
+  const load = async (text: string, items: number, truncated?: boolean) => {
     setBusy(true);
     await saveProReply(text);
     proIgnored = text.trim();
     proFlag.clear();
     setFound(null); setPending(false); setBusy(false);
-    setMsg(`已載入 Claude 的建議（${items ? `${items} 筆買賣` : "維持不變"}），往下看整理好的結果${items ? "與填成交表單" : ""}。`);
+    setMsg(truncated
+      ? "⚠ 已載入，但這段回覆不完整（複製時被截斷，或 Claude 沒寫完），只讀得到前面的部分。建議回 Claude App 按回覆下方的「複製」重新複製整段，再貼一次。"
+      : `已載入 Claude 的建議（${items ? `${items} 筆買賣` : "維持不變"}），往下看整理好的結果${items ? "與填成交表單" : ""}。`);
   };
   const pasteAndLoad = async () => {
     try {
       const text = await navigator.clipboard.readText();
       const r = looksLikePlanReply(text);
       if (!r.ok) return setMsg("剪貼簿裡還沒有 Claude 的回覆。請到 Claude App 長按回覆 →「複製」，再回來按一次。");
-      await load(text, r.items);
+      await load(text, r.items, r.truncated);
     } catch {
       setMsg("這支手機不讓 App 讀剪貼簿，請用下面的「貼上 Claude App 的回覆」手動貼上。");
       document.querySelector('[data-testid="pro-text"]')?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -348,9 +350,10 @@ function ProResume() {
   const cancel = () => { proFlag.clear(); setPending(false); setFound(null); };
   if (found) return (
     <div class="card stack" style={{ borderColor: "var(--accent)", marginBottom: "12px" }} data-testid="pro-found">
-      <b>偵測到 Claude 的回覆（{found.items ? `${found.items} 筆買賣` : "維持不變"}）</b>
-      <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>{parsePlan(found.text).body.replace(/\s+/g, " ").slice(0, 80)}…</div>
-      <button class="btn block" onClick={() => load(found.text, found.items)} disabled={busy} data-testid="pro-found-load">載入並整理</button>
+      <b>偵測到 Claude 的回覆（{found.items ? `${found.items} 筆買賣` : "維持不變"}{found.truncated ? "・不完整" : ""}）</b>
+      {found.truncated && <div class="notice" style={{ fontSize: "12.5px" }} data-testid="pro-found-truncated">這段回覆被截斷了，只讀得到前面的部分。建議回 Claude App 按回覆下方的「複製」重新複製整段；也可以先載入讀得到的部分。</div>}
+      <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>{planReadable(parsePlan(found.text)).replace(/\*\*/g, "").replace(/\s+/g, " ").slice(0, 80)}…</div>
+      <button class="btn block" onClick={() => load(found.text, found.items, found.truncated)} disabled={busy} data-testid="pro-found-load">載入並整理</button>
       <button class="linkbtn" onClick={skip}>這不是，略過</button>
     </div>
   );
@@ -378,7 +381,9 @@ function ProReview({ disabled, review }: { disabled: boolean; review: boolean })
   const save = async () => {
     if (text.trim().length < 20) return setErr("請把 Claude App 的整段回覆貼上來");
     if (bad) return setErr(PROMPT_MSG);
-    if (!parsePlan(text).items.length && !/維持不變/.test(text)) setErr("回覆最後沒有找到 JSON 買賣清單，仍會存下文字；可以請 Claude 補上 JSON 區塊再貼一次");
+    const pp = parsePlan(text);
+    if (pp.broken === "truncated") setErr("⚠ 這段回覆不完整（複製時被截斷，或 Claude 沒寫完），已先存下讀得到的部分。請回 Claude App 按回覆下方的「複製」重新複製整段，再貼一次。");
+    else if (!pp.items.length && !/維持不變/.test(text) && !Object.keys(pp.holds).length) setErr("回覆最後沒有找到 JSON 買賣清單，仍會存下文字；可以請 Claude 補上 JSON 區塊再貼一次");
     else setErr("");
     await saveProReply(text);
     setText("");
@@ -1248,6 +1253,7 @@ function RealEtfScreen() {
   const parsed = plan ? parsePlan(plan.text) : undefined;
   const pro = etf.proKey ? st.reports[etf.proKey] : undefined;
   const proParsed = pro ? parsePlan(pro.text) : undefined;
+  const nameOf = (c: string) => getState().prices[c]?.name ?? c;
   // 要照哪一份填成交：選了 Pro 而且有 Pro 回覆就用 Pro，否則用付費 API 版
   const fillSrc: "api" | "pro" = (etf.fillFrom === "pro" && pro) || (!plan && pro) ? "pro" : "api";
   const fillKey = fillSrc === "pro" ? etf.proKey : etf.planKey;
@@ -1379,8 +1385,8 @@ function RealEtfScreen() {
             </div>
           )}
           {(view === "pro" || !plan) && pro && proParsed
-            ? <><DateHint asOf={etf.proAsOf} latest={st.asOf} what="Claude Pro 版" /><AiReportView r={{ ...pro, text: proParsed.body }} /></>
-            : plan && parsed && <><DateHint asOf={etf.planAsOf} latest={st.asOf} what="付費版" /><AiReportView r={{ ...plan, text: parsed.body }} /></>}
+            ? <><DateHint asOf={etf.proAsOf} latest={st.asOf} what="Claude Pro 版" /><AiReportView r={{ ...pro, text: planReadable(proParsed, nameOf) }} /></>
+            : plan && parsed && <><DateHint asOf={etf.planAsOf} latest={st.asOf} what="付費版" /><AiReportView r={{ ...plan, text: planReadable(parsed, nameOf) }} /></>}
         </>
       )}
       {showFill && (

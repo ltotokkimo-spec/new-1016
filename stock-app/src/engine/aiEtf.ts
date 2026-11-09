@@ -226,14 +226,58 @@ function matchEnd(text: string, start: number): number {
 }
 
 /**
+ * 修復從 Claude App 複製回來時壞掉的 JSON（11/9 實際遇到）：
+ * - 空陣列 [] 不見（"trades":, 變成沒有值）→ 補成 null（當作沒有）
+ * - 複製時被截斷（結尾少了引號、括號）→ 去掉最後不完整的一項，再把括號補齊，盡量讀出前面完整的部分
+ * 修不好回傳 null。
+ */
+export function repairJson(src: string): { json: string; truncated: boolean } | null {
+  // 1) 冒號後面直接接 , } ] 或結尾（值不見了）→ 補 null；字串裡的不動
+  let out = "", inStr = false;
+  for (let k = 0; k < src.length; k++) {
+    const c = src[k];
+    out += c;
+    if (inStr) { if (c === "\\") { out += src[k + 1] ?? ""; k++; } else if (c === '"') inStr = false; continue; }
+    if (c === '"') inStr = true;
+    else if (c === ":") { let n = k + 1; while (n < src.length && /\s/.test(src[n])) n++; if (n >= src.length || /[,}\]]/.test(src[n])) out += "null"; }
+  }
+  try { JSON.parse(out); return { json: out, truncated: false }; } catch { /* 可能被截斷 */ }
+  // 2) 截斷：從結尾往前找可以收尾的位置（逗號、或一個值剛結束的地方），補上缺的引號與括號
+  const closeAt = (cut: string): string | null => {
+    const stack: string[] = []; let q = false;
+    for (let k = 0; k < cut.length; k++) {
+      const c = cut[k];
+      if (q) { if (c === "\\") k++; else if (c === '"') q = false; continue; }
+      if (c === '"') q = true; else if (c === "{" || c === "[") stack.push(c); else if (c === "}" || c === "]") stack.pop();
+    }
+    if (q) return null;
+    let t = cut.replace(/[\s,]+$/, "");
+    if (/[:{[]\s*$/.test(t) && !/[{[]\s*$/.test(t)) return null;
+    return t + stack.reverse().map((c) => (c === "{" ? "}" : "]")).join("");
+  };
+  const marks: number[] = [];
+  { let q = false; for (let k = 0; k < out.length; k++) { const c = out[k]; if (q) { if (c === "\\") k++; else if (c === '"') { q = false; marks.push(k + 1); } continue; } if (c === '"') q = true; else if (c === "," || c === "}" || c === "]" || c === "{" || c === "[") marks.push(c === "," ? k : k + 1); } }
+  for (let i = marks.length - 1, tries = 0; i >= 0 && tries < 400; i--, tries++) {
+    const fixed = closeAt(out.slice(0, marks[i]));
+    if (!fixed) continue;
+    try { JSON.parse(fixed); return { json: fixed, truncated: true }; } catch { /* 往前再試 */ }
+  }
+  return null;
+}
+
+/**
  * 找出回覆裡的買賣清單 JSON：優先用最後一個 ```json 區塊；
  * 從 Claude App 複製回覆常會掉掉 ``` 框，所以也認「沒有框的 JSON」（以 {"trades"、{"stops"、{"picks" 或 [{"code" 開頭，最後一段能解析的）。
  */
-function findPlanJson(text: string): { json: string; start: number; end: number } | null {
+function findPlanJson(text: string): { json: string; start: number; end: number; broken?: "repaired" | "truncated" } | null {
   const re = /```json\s*([\s\S]*?)```/g;
   let m: RegExpExecArray | null, last: RegExpExecArray | null = null;
   while ((m = re.exec(text))) last = m;
-  if (last) return { json: last[1], start: last.index, end: last.index + last[0].length };
+  if (last) {
+    try { JSON.parse(last[1]); return { json: last[1], start: last.index, end: last.index + last[0].length }; } catch { /* 壞掉的話試著修 */ }
+    const r = repairJson(last[1]);
+    return r ? { json: r.json, start: last.index, end: last.index + last[0].length, broken: r.truncated ? "truncated" : "repaired" } : { json: last[1], start: last.index, end: last.index + last[0].length };
+  }
   const starts = [...text.matchAll(/[{[]\s*(?:"(?:trades|picks|stops)"\s*:|\{\s*"code"\s*:)/g)].map((x) => x.index!);
   // 能解析的候選裡，取結尾最後面的；結尾相同取最外層（最前面開始），免得只抓到裡面那層陣列
   let best: { json: string; start: number; end: number } | null = null;
@@ -242,14 +286,36 @@ function findPlanJson(text: string): { json: string; start: number; end: number 
     if (end < 0 || (best && end <= best.end)) continue;
     try { JSON.parse(text.slice(st, end)); best = { json: text.slice(st, end), start: st, end }; } catch { /* 下一個 */ }
   }
-  return best;
+  if (best) return best;
+  // 都解析不了：從第一個像 JSON 開頭的地方起試著修（值不見、被截斷）；修好的話後面的文字都算 JSON 的一部分
+  for (const st of starts) {
+    const end = matchEnd(text, st), seg = text.slice(st, end < 0 ? undefined : end);
+    const r = repairJson(seg);
+    if (r) return { json: r.json, start: st, end: end < 0 ? text.length : end, broken: end < 0 || r.truncated ? "truncated" : "repaired" };
+  }
+  return null;
 }
 
 /** 從 Claude 回覆取出買賣清單；回傳清單與去掉 JSON 後的說明文字 */
 export interface HoldNote { why?: string; cond: string[] }
 const condList = (v: unknown): string[] => (Array.isArray(v) ? v : typeof v === "string" && v.trim() ? [v] : []).map((x) => String(x).trim().replace(/^(如果|假如|若)\s*/, "")).filter(Boolean).slice(0, 3);
 
-export function parsePlan(text: string): { items: PlanItem[]; body: string; stops: Record<string, number>; holds: Record<string, HoldNote> } {
+/** 回覆裡只有 JSON、沒有說明文字時（或 JSON 被截斷），把讀到的內容整理成易讀的文字，不要把原始 JSON 丟給使用者看 */
+export function planReadable(p: ReturnType<typeof parsePlan>, name: (code: string) => string = (c) => c): string {
+  const out: string[] = [];
+  if (p.broken === "truncated") out.push("⚠ **這份回覆不完整**（從 Claude App 複製時被截斷，或 Claude 沒寫完）。下面是讀得到的部分；要完整內容請回 Claude App，按回覆下方的「複製」重新複製整段再貼一次。");
+  if (!p.body.trim()) {
+    const lab = (c: string) => { const n = name(c); return n && n !== c ? `${n} ${c}` : c; };
+    out.push(p.items.length ? "**買賣**\n" + p.items.map((x) => `- ${x.side === "buy" ? "買進" : "賣出"} ${lab(x.code)} ${x.shares.toLocaleString()} 股${x.reason ? `：${x.reason}` : ""}`).join("\n") : "**買賣**：這次沒有要買賣");
+    const st = Object.entries(p.stops);
+    if (st.length) out.push("**停損價**：" + st.map(([c, v]) => `${lab(c)} ${v}`).join("、"));
+    const hs = Object.entries(p.holds);
+    if (hs.length) out.push("**續抱**\n" + hs.map(([c, h]) => `- ${lab(c)}${h.why ? `：${h.why}` : ""}${h.cond.length ? `（${h.cond.join("；")}）` : ""}`).join("\n"));
+  } else out.push(p.body);
+  return out.join("\n\n");
+}
+
+export function parsePlan(text: string): { items: PlanItem[]; body: string; stops: Record<string, number>; holds: Record<string, HoldNote>; broken?: "repaired" | "truncated" } {
   const last = findPlanJson(text);
   const holds: Record<string, HoldNote> = {};
   if (!last) return { items: [], body: text, stops: {}, holds };
@@ -283,10 +349,11 @@ export function parsePlan(text: string): { items: PlanItem[]; body: string; stop
     if (j && typeof j.holds === "object" && !Array.isArray(j.holds))
       for (const [k, v] of Object.entries(j.holds as Record<string, any>)) {
         const why = typeof v === "string" ? v : String(v?.why ?? v?.reason ?? "").trim() || undefined;
-        holds[k.trim().toUpperCase()] = { why, cond: typeof v === "object" ? condList(v?.cond ?? v?.if) : [] };
+        const cond = v && typeof v === "object" ? condList(v?.cond ?? v?.if) : [];
+        if (why || cond.length) holds[k.trim().toUpperCase()] = { why, cond }; // 被截斷只剩代號的不列
       }
   } catch { /* JSON 壞掉就只顯示文字 */ }
-  return { items, body: (text.slice(0, last.start) + text.slice(last.end)).trim(), stops, holds };
+  return { items, body: (text.slice(0, last.start) + text.slice(last.end)).trim(), stops, holds, ...(last.broken ? { broken: last.broken } : {}) };
 }
 
 /** 給 Claude 的候選股：只取 App「買入」且成交金額在前一半的高分股，每個產業最多 perSector 檔、全部最多 max 檔，已持有的不重複列（持股那邊已有最新價格）。不夠 minCount 檔時用高分的「觀望」補 */
@@ -336,11 +403,13 @@ export function groupBySector<T extends { sector: string; score: number }>(list:
 }
 
 /** 剪貼簿裡的文字像不像 Claude 對自組 ETF 的回覆：有買賣清單，或明說維持不變；App 自己送出去的提問不算 */
-export function looksLikePlanReply(text: string): { ok: boolean; items: number } {
+export function looksLikePlanReply(text: string): { ok: boolean; items: number; truncated?: boolean } {
   const t = text.trim();
   if (t.length < 80 || isOwnPrompt(t) || t.slice(0, 80).includes("我要用新台幣")) return { ok: false, items: 0 };
-  const items = parsePlan(t).items.length;
-  return { ok: items > 0 || (/維持不變/.test(t) && t.length > 150), items };
+  const p = parsePlan(t), items = p.items.length;
+  // 只有停損、續抱（這次不買賣）的 JSON 也算 Claude 的回覆
+  const hasJson = Object.keys(p.holds).length > 0 || Object.keys(p.stops).length > 0;
+  return { ok: items > 0 || hasJson || (/維持不變/.test(t) && t.length > 150), items, ...(p.broken === "truncated" ? { truncated: true } : {}) };
 }
 
 /** 依預算檢查：買進總額（含手續費）超過可用現金時，等比例縮小股數 */

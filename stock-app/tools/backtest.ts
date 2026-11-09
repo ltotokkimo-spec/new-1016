@@ -14,7 +14,7 @@ import { addDays, taipeiToday, usLatestSession, weekdaysBack } from "../src/lib/
 import { buildTwInputs } from "../src/data/twLoader";
 import { isEtf } from "../src/data/tw";
 import { scoreStocks } from "../src/engine/score";
-import { adjustReturns, exEventsFromDays, type ExMap } from "../src/engine/exdiv";
+import { adjustReturns, exEventsFromDays, exRefOn, mergeEx, parseTwt49u, type ExMap } from "../src/engine/exdiv";
 import { appendPicks, applyFinal, assertAppendOnly, assertFinalAppendOnly, BOOK_INFO, emptyFinal, emptyLog, freezeResults, type FinalLog, ETF_TOP_N, evaluatePick, PICK_NOTIONAL, PICK_STOP, FEE_RATE, FEE_MIN_LOT, FEE_MIN_ODD, sortPerfRows, TAX_STOCK, TAX_ETF, toCsv, US_FEE_RATE, US_NOTIONAL, type PathPoint, type PickBook, type PickLog, type PickPerfFile } from "../src/engine/pickLog";
 import { UsLoader } from "../src/data/usLoader";
 import type { KV } from "../src/lib/kv";
@@ -109,7 +109,30 @@ log("交易日", days.length, "最新", days[0]?.date, "最舊", days[days.lengt
 if (days.length < 60) throw new Error("交易日太少，資料可能下載失敗");
 
 // 除權息還原（11/9）：從每日行情找出除權息事件；評分用還原後的漲跌幅（App 下載 exdiv.json 用同一份事件）
-const exAll = exEventsFromDays(days);
+// 上市：證交所官方「除權除息計算結果表」（行情在除權息當天漲跌欄只標 X，推算不可靠）；上櫃：行情的漲跌有正負號，用推算
+const exInferred = exEventsFromDays(days);
+let exTwse: ExMap = {}, twseOk = false;
+{
+  const fmt = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, "");
+  const end = new Date(`${days[0].date.slice(0, 4)}-${days[0].date.slice(4, 6)}-${days[0].date.slice(6)}T00:00:00Z`);
+  for (let k = 0; k < 5; k++) { // 近 15 個月，每段 3 個月
+    const e = new Date(end.getTime() - k * 92 * 864e5), st = new Date(e.getTime() - 91 * 864e5);
+    const urls = [`https://www.twse.com.tw/rwd/zh/exRight/TWT49U?response=json&startDate=${fmt(st)}&endDate=${fmt(e)}`, `https://www.twse.com.tw/exchangeReport/TWT49U?response=json&strDate=${fmt(st)}&endDate=${fmt(e)}`];
+    for (const u of urls) {
+      try {
+        const j = await fetcher(u);
+        const part = parseTwt49u(j);
+        const n = Object.values(part).reduce((a, v) => a + v.length, 0);
+        log(`證交所除權除息 ${fmt(st)}～${fmt(e)}：${n} 筆（${u.includes("/rwd/") ? "rwd" : "exchangeReport"}）`);
+        if (n > 0 || j?.stat === "OK") { exTwse = mergeEx(part, exTwse); twseOk = true; break; }
+      } catch (err) { log(`證交所除權除息下載失敗：${String(err).slice(0, 120)}`); }
+    }
+  }
+}
+const twseCodes = new Set(days[0].quotes.map((q) => q[0]).filter((c) => !days[0].tpexCodes.has(c)));
+// 證交所資料抓不到時，上市的不還原（不用不可靠的推算）
+const exAll = mergeEx(exTwse, exInferred, twseCodes);
+log(`除權息來源：上市 ${twseOk ? "證交所官方" : "抓不到，上市不還原"}；上櫃 行情推算。樣本：` + ["00406A", "0056", "00878", "2330", "00679B", "00687B", "6488"].map((c) => `${c} ${JSON.stringify((exAll[c] ?? []).slice(-2))}`).join("；"));
 {
   const cut = days[Math.min(days.length - 1, 260)].date; // App 只需要約一年（配息資訊）＋三個月（評分還原）
   const ev: ExMap = {};
@@ -291,7 +314,7 @@ if (pickLogFile) {
     // 每檔每天的漲跌倍數（對除權息後的參考價）、0050 同理；加權指數用收盤
     const asc = [...days].reverse();
     const factor = new Map<string, Map<string, number>>(); // code → date → 當天倍數
-    for (const d of asc) for (const r of d.quotes) { const c = r[2], ch = r[3], prev = c - ch; if (c > 0 && prev > 0) { let m = factor.get(r[0]); if (!m) factor.set(r[0], (m = new Map())); m.set(d.date, c / prev); } }
+    for (const d of asc) for (const r of d.quotes) { const c = r[2], ch = r[3], prev = exRefOn(exAll, r[0], d.date) ?? c - ch; if (c > 0 && prev > 0) { /* 除權息當天用官方參考價（行情漲跌欄只標 X） */ let m = factor.get(r[0]); if (!m) factor.set(r[0], (m = new Map())); m.set(d.date, c / prev); } }
     const pathOf = (code: string, from: string): PathPoint[] => { const m = factor.get(code); let f = 1; const out: PathPoint[] = []; for (const d of asc) { if (d.date <= from) continue; f *= m?.get(d.date) ?? 1; out.push({ date: d.date, f }); } return out; };
     const benchOf = (from: string) => {
       const t0 = taiexClose.get(from), tai = new Map<string, number>(), b = new Map<string, number>();

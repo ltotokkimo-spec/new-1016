@@ -5,7 +5,7 @@ import { isEtf, type Company } from "../data/tw";
 import { addDays } from "../lib/dates";
 import { scoreStocks, type Rating } from "./score";
 import { adjustedSeries, turningAt, type Indicators, type TurnPick } from "./turning";
-import { adjustReturns, type ExMap } from "./exdiv";
+import { adjustReturns, exRefOn, type ExMap } from "./exdiv";
 
 export interface BtDay { date: string; quotes: QRow[]; tpexCodes: Set<string>; flows: FRow[] }
 
@@ -64,7 +64,9 @@ export function runBacktest(days: BtDay[], companies: Company[], opts: { step?: 
       const r = byDay[t].get(code);
       if (!r) continue; // 停牌當天不變
       const [, , close, change] = r;
-      const ref = close - change;
+      // 除權息當天：證交所行情的漲跌欄只標 X（不分正負），用官方參考價（有給事件時）
+      const exRef = opts.ex ? exRefOn(opts.ex, code, days[t].date) : undefined;
+      const ref = exRef ?? close - change;
       g *= Number.isFinite(change) && ref > 0 ? close / ref : 1;
     }
     return g - 1;

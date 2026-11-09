@@ -25,6 +25,12 @@ export function exEventsFromDays(days: { date: string; quotes: QRow[] }[]): ExMa
   return out;
 }
 
+/** 某天的除權息參考價（前收 × 比例）；那天沒有事件回 undefined */
+export function exRefOn(ex: ExMap, code: string, date: string): number | undefined {
+  const e = ex[code]?.find((x) => x[0] === date);
+  return e ? Math.round(e[3] * e[1] * 10000) / 10000 : undefined;
+}
+
 /** (after, upTo] 期間的除權息比例連乘（沒有事件＝1） */
 export function exFactor(ev: ExEvent[] | undefined, after: string, upTo: string): number {
   let f = 1;
@@ -68,3 +74,42 @@ export function dividendInfo(ev: ExEvent[] | undefined, price: number, asOf: str
   const l = divs[divs.length - 1];
   return { count: n, freq, total, yieldPct: total / price, last: { d: l[0], amt: l[2], pre: l[3] }, filled: price >= l[3], gap: Math.max(0, l[3] - price) };
 }
+
+/**
+ * 證交所「除權除息計算結果表」（TWT49U）→ 事件。比從每日行情推算可靠：
+ * 行情在除權息當天的漲跌欄只標「X」不分正負，推算會錯（11/9 實測 00406A 0.138 元被算成 0.6、−0.18 元）。
+ * 欄位：資料日期（民國）、股票代號、除權息前收盤價、除權息參考價、權值+息值。
+ */
+export function parseTwt49u(json: any): ExMap {
+  const out: ExMap = {};
+  const t = Array.isArray(json?.tables) ? json.tables.find((x: any) => Array.isArray(x?.fields) && x.fields.includes("股票代號")) : json;
+  const fields: string[] = t?.fields ?? json?.fields ?? [];
+  const data: any[][] = t?.data ?? json?.data ?? [];
+  const f = (name: string) => fields.findIndex((x) => String(x).replace(/\s/g, "").includes(name));
+  const iD = f("資料日期"), iC = f("股票代號"), iPre = f("除權息前收盤價"), iRef = f("除權息參考價"), iAmt = f("權值+息值");
+  if ([iD, iC, iPre, iRef].some((i) => i < 0)) return out;
+  const num = (v: unknown) => Number(String(v ?? "").replace(/[,\s]/g, ""));
+  for (const r of data) {
+    const m = /(\d{2,3})\D+(\d{1,2})\D+(\d{1,2})/.exec(String(r[iD]));
+    if (!m) continue;
+    const d = `${Number(m[1]) + 1911}${m[2].padStart(2, "0")}${m[3].padStart(2, "0")}`;
+    const code = String(r[iC]).trim(), pre = num(r[iPre]), ref = num(r[iRef]);
+    if (!code || !(pre > 0) || !(ref > 0)) continue;
+    const amt = iAmt >= 0 && Number.isFinite(num(r[iAmt])) ? num(r[iAmt]) : pre - ref;
+    (out[code] ??= []).push([d, Math.round((ref / pre) * 1e6) / 1e6, Math.round(amt * 10000) / 10000, pre]);
+  }
+  for (const k of Object.keys(out)) out[k].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  return out;
+}
+
+/** 合併兩份事件：同一檔同一天以 primary 為準（證交所官方優先於推算） */
+export function mergeEx(primary: ExMap, fallback: ExMap, skipCodes?: Set<string>): ExMap {
+  const out: ExMap = {};
+  for (const [k, v] of Object.entries(fallback)) if (!skipCodes?.has(k)) out[k] = [...v];
+  for (const [k, v] of Object.entries(primary)) {
+    const days = new Set(v.map((e) => e[0]));
+    out[k] = [...(out[k] ?? []).filter((e) => !days.has(e[0])), ...v].sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  }
+  return out;
+}
+

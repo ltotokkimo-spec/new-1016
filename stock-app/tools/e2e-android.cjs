@@ -425,7 +425,7 @@ function check(ok, name, detail = "") {
     const dv = await page.evaluate(() => ({ title: document.querySelector(".sheet h2")?.textContent || "", card: (document.querySelector('[data-testid="etf-div"]')?.innerText || "").replace(/\s+/g, " ") }));
     log("ETF 配息", JSON.stringify(dv).slice(0, 400));
     check(/配息/.test(dv.card) && (/年化殖利率 \d+\.\d% 近一年配 [\d.]+ 元/.test(dv.card) && /(月配|季配|半年配|年配)/.test(dv.card) && /(已填息|還差)/.test(dv.card) || /沒有除息紀錄/.test(dv.card)), "ETF 詳情頁有配息資訊（殖利率、頻率、最近一次、填息）", dv.card.slice(0, 200));
-    if (/00406A/.test(dv.title)) check(/月配/.test(dv.card) && /年化殖利率/.test(dv.card), "00406A 顯示月配與殖利率", dv.card.slice(0, 200));
+    if (/00406A/.test(dv.title)) check(/月配/.test(dv.card) && /年化殖利率/.test(dv.card) && /除息 0\.138 元/.test(dv.card), "00406A 顯示月配、殖利率，最近一次除息金額和證交所公布的一樣（0.138 元）", dv.card.slice(0, 200));
     await shot("02c-主動式ETF買賣成份");
     await page.click('button[aria-label="返回"]');
   }

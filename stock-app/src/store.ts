@@ -156,6 +156,14 @@ let kv: KV = indexedKV();
 let fetcher: Fetcher = fetchJson;
 /** 測試用：換掉儲存與網路 */
 export function _inject(k: KV, f: Fetcher) { kv = k; fetcher = f; }
+
+/** 雲端資料（GitHub Releases）下載：偶爾逾時或 5xx，失敗時等一下再試，最多 3 次（11/9 CI 連續遇到回測、配息資料下載不到） */
+async function fetchData(url: string): Promise<any> {
+  for (let i = 0; ; i++) {
+    try { return await fetcher(`${url}?t=${Date.now()}`); }
+    catch (e) { if (i >= 2) throw e; await new Promise((r) => setTimeout(r, (i + 1) * 4000)); }
+  }
+}
 /** 測試用：直接改狀態 */
 export function _setState(p: Partial<State>) { set(p); }
 let textFetcher: TextFetcher = fetchText;
@@ -649,7 +657,7 @@ export async function refreshUsLive(symbols: string[]) {
 /** 下載 Claude 的虛擬自組 ETF；失敗就沿用上次下載的 */
 export async function refreshVirtual() {
   try {
-    const data = (await fetcher(`${VIRTUAL_URL}?t=${Date.now()}`)) as VirtualEtf;
+    const data = (await fetchData(VIRTUAL_URL)) as VirtualEtf;
     if (data?.version !== 1 || !Array.isArray(data.trades)) throw new Error("格式不對");
     const v = { data, fetchedAt: Date.now() };
     await kv.set("virtual", v);
@@ -663,7 +671,7 @@ export async function refreshVirtual() {
 /** 下載 N5 觀察組合；失敗就沿用上次下載的 */
 export async function refreshWatch() {
   try {
-    const data = (await fetcher(`${WATCH_URL}?t=${Date.now()}`)) as VirtualEtf;
+    const data = (await fetchData(WATCH_URL)) as VirtualEtf;
     if (data?.version !== 1 || !Array.isArray(data.trades)) throw new Error("格式不對");
     const v = { data, fetchedAt: Date.now() };
     await kv.set("watch", v);
@@ -677,7 +685,7 @@ export async function refreshWatch() {
 /** 下載全個股觀察組合；失敗就沿用上次下載的 */
 export async function refreshWide() {
   try {
-    const data = (await fetcher(`${WIDE_URL}?t=${Date.now()}`)) as VirtualEtf;
+    const data = (await fetchData(WIDE_URL)) as VirtualEtf;
     if (data?.version !== 1 || !Array.isArray(data.trades)) throw new Error("格式不對");
     const v = { data, fetchedAt: Date.now() };
     await kv.set("wide", v);
@@ -691,7 +699,7 @@ export async function refreshWide() {
 /** 下載攻守輪動觀察組合；失敗就沿用上次下載的 */
 export async function refreshRegime() {
   try {
-    const data = (await fetcher(`${REGIME_URL}?t=${Date.now()}`)) as VirtualEtf;
+    const data = (await fetchData(REGIME_URL)) as VirtualEtf;
     if (data?.version !== 1 || !Array.isArray(data.trades)) throw new Error("格式不對");
     const v = { data, fetchedAt: Date.now() };
     await kv.set("regime", v);
@@ -705,7 +713,7 @@ export async function refreshRegime() {
 /** 下載權值強化觀察組合；失敗就沿用上次下載的 */
 export async function refreshLead() {
   try {
-    const data = (await fetcher(`${LEAD_URL}?t=${Date.now()}`)) as VirtualEtf;
+    const data = (await fetchData(LEAD_URL)) as VirtualEtf;
     if (data?.version !== 1 || !Array.isArray(data.trades)) throw new Error("格式不對");
     const v = { data, fetchedAt: Date.now() };
     await kv.set("lead", v);
@@ -720,7 +728,7 @@ export async function refreshLead() {
 /** 下載推薦績效追蹤（雲端每天收盤後更新）；失敗就沿用上次下載的 */
 export async function refreshPicksPerf(b: PickBook = "TW") {
   try {
-    const data = (await fetcher(`${picksUrl(b)}?t=${Date.now()}`)) as PickPerfFile;
+    const data = (await fetchData(picksUrl(b))) as PickPerfFile;
     if (data?.version !== 1 || !Array.isArray(data.rows)) throw new Error("格式不對");
     const v = { data, fetchedAt: Date.now() };
     await kv.set(ppKey(b), v);
@@ -734,7 +742,7 @@ export async function refreshPicksPerf(b: PickBook = "TW") {
 
 export async function refreshTurn() {
   try {
-    const data = (await fetcher(`${TURN_URL}?t=${Date.now()}`)) as VirtualEtf;
+    const data = (await fetchData(TURN_URL)) as VirtualEtf;
     if (data?.version !== 1 || !Array.isArray(data.trades)) throw new Error("格式不對");
     const v = { data, fetchedAt: Date.now() };
     await kv.set("turn", v);
@@ -748,7 +756,7 @@ export async function refreshTurn() {
 /** 下載實單規則觀察組合（「我的實單」的選股規則，用虛擬 50 萬照規則操作）；失敗就沿用上次下載的 */
 export async function refreshRule() {
   try {
-    const data = (await fetcher(`${RULE_URL}?t=${Date.now()}`)) as VirtualEtf;
+    const data = (await fetchData(RULE_URL)) as VirtualEtf;
     if (data?.version !== 1 || !Array.isArray(data.trades)) throw new Error("格式不對");
     const v = { data, fetchedAt: Date.now() };
     await kv.set("rule", v);
@@ -762,7 +770,7 @@ export async function refreshRule() {
 /** 下載 AI 供應鏈觀察組合；失敗就沿用上次下載的 */
 export async function refreshAi() {
   try {
-    const data = (await fetcher(`${AI_URL}?t=${Date.now()}`)) as VirtualEtf;
+    const data = (await fetchData(AI_URL)) as VirtualEtf;
     if (data?.version !== 1 || !Array.isArray(data.trades)) throw new Error("格式不對");
     const v = { data, fetchedAt: Date.now() };
     await kv.set("ai", v);
@@ -776,7 +784,7 @@ export async function refreshAi() {
 /** 下載主動式 ETF 個股買賣超（每天由 GitHub Actions 比對各主動式 ETF 持股產生）；失敗就沿用上次的 */
 export async function refreshActiveEtf() {
   try {
-    const data = (await fetcher(`${ACTIVE_URL}?t=${Date.now()}`)) as ActiveEtfData;
+    const data = (await fetchData(ACTIVE_URL)) as ActiveEtfData;
     if (data?.version !== 1 || !Array.isArray(data.days) || !Array.isArray(data.etfs)) throw new Error("格式不對");
     // GitHub 那份每天只整理一次、比較舊：把上次 App 自己抓到的新持股重新套上去，不然打開就又退回舊資料、要再等一輪
     const kept = state.activeEtf?.liveHoldings;
@@ -826,7 +834,7 @@ export async function refreshActiveLive() {
 /** 下載觀察組合規則的 2 年回測結果（總評比用）；失敗就沿用上次的 */
 export async function refreshSteady() {
   try {
-    const data = (await fetcher(`${STEADY_URL}?t=${Date.now()}`)) as SteadyLite;
+    const data = (await fetchData(STEADY_URL)) as SteadyLite;
     if (!Array.isArray(data?.strategies)) throw new Error("格式不對");
     const v = { data: { from: data.from, to: data.to, strategies: data.strategies.map((x) => ({ key: x.key, label: x.label, cagr: x.cagr, maxDd: x.maxDd, sharpe: x.sharpe, vol: x.vol })) }, fetchedAt: Date.now() };
     await kv.set("steady", v);
@@ -837,7 +845,7 @@ export async function refreshSteady() {
 /** 下載除權息事件（雲端每天收盤後由每日行情整理）；有新資料就用還原後的漲跌幅重新評分 */
 export async function refreshExdiv() {
   try {
-    const data = (await fetcher(`${RADAR_DATA}exdiv.json?t=${Date.now()}`)) as ExFile;
+    const data = (await fetchData(`${RADAR_DATA}exdiv.json`)) as ExFile;
     if (data?.version !== 1 || !data.ev) return;
     const v = { data, fetchedAt: Date.now() };
     await kv.set("exdiv", v);
@@ -848,17 +856,13 @@ export async function refreshExdiv() {
 }
 
 export async function refreshBacktest() {
-  // GitHub Releases 下載偶爾逾時：失敗時等一下再試（最多 3 次），都失敗才沿用上次的結果（回測只是參考）
-  for (let i = 0; i < 3; i++) {
-    try {
-      const data = (await fetcher(`${BACKTEST_URL}?t=${Date.now()}`)) as BacktestResult;
-      if (data?.version !== 1 || !data.stocks) return;
-      const bt = { data, fetchedAt: Date.now() };
-      await kv.set("backtest", bt);
-      set({ backtest: bt });
-      return;
-    } catch { if (i < 2) await new Promise((r) => setTimeout(r, (i + 1) * 5000)); }
-  }
+  try {
+    const data = (await fetchData(BACKTEST_URL)) as BacktestResult;
+    if (data?.version !== 1 || !data.stocks) return;
+    const bt = { data, fetchedAt: Date.now() };
+    await kv.set("backtest", bt);
+    set({ backtest: bt });
+  } catch { /* 回測只是參考，下載失敗就沿用上次的結果 */ }
 }
 
 // ---------- 自己加美股 ----------

@@ -23,6 +23,7 @@ import { FlowsPanel } from "./flows";
 import { EtfHoldingsPanel, isActiveEtf } from "./etfHoldings";
 import { isEtf } from "../data/tw";
 import { freeReport } from "../engine/freeReport";
+import { recoveryPlan, type RecoveryItem } from "../engine/recovery";
 import { withLiveBar } from "../engine/liveBar";
 import { isUsSymbol, MACRO_SYMBOLS, retN, sma, type MacroQuote } from "../data/us";
 import { isLiveNow, livePolling, marketOpen, type LiveQuote } from "../data/twLive";
@@ -783,6 +784,8 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
       {!apiKey && <div class="muted" style={{ fontSize: "13px", marginTop: "8px" }}>照片匯入需要 Claude API 金鑰（到「設定」貼上）；手動新增不需要。</div>}
       {err && <div class="error" style={{ marginTop: "10px" }}>{err}</div>}
 
+      {views.length > 0 && <RecoveryCard views={views} />}
+
       <div class="section-title"><span>持股健檢{liveNote && <span class="muted" data-testid="live-loading" style={{ fontSize: "12px", fontWeight: 400, marginLeft: "8px" }}>{liveNote}</span>}</span><span>{views.length} 檔</span></div>
       {views.length === 0 ? (
         <div class="empty">還沒有持股。<br />拍一張證券 App 的「庫存」畫面，Claude 會自動辨識代號、股數與成本。</div>
@@ -795,6 +798,34 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
       {adding && <HoldingForm onDone={() => setAdding(false)} />}
       {esbOpen && <EsbDetail h={esbOpen} onClose={() => setEsbOpen(null)} />}
       {importing && <ImportReview data={importing} onDone={() => setImporting(null)} />}
+    </div>
+  );
+}
+
+/** 持股分析與建議（11/9 使用者：「引導我將負損益做到正損益」）：規則計算，不花錢；預設收合，只顯示摘要 */
+function RecoveryCard({ views }: { views: any[] }) {
+  const st = useStore((s) => ({ tw: s.tw.scored, etf: s.etf.scored, us: s.us.scored }));
+  const plan = useMemo(() => recoveryPlan(views, { stocks: st.tw, etfs: st.etf, us: st.us }), [views, st.tw, st.etf, st.us]);
+  const [open, setOpen] = useState(false);
+  const tone: Record<RecoveryItem["action"], string> = { 停損換股: "exit", 攤平: "buy", 續抱設條件: "hold" };
+  return (
+    <div class="card stack" style={{ marginTop: "12px" }} data-testid="recovery-card">
+      <div class="row" style={{ justifyContent: "space-between" }}>
+        <b>持股分析與建議</b>
+        {plan.items.length > 0 && <button class="btn secondary mini" onClick={() => setOpen(!open)} data-testid="recovery-toggle">{open ? "收合" : `看 ${plan.items.length} 檔怎麼回本`}</button>}
+      </div>
+      <div style={{ fontSize: "14px", lineHeight: 1.7 }} data-testid="recovery-summary">{plan.summary.lines.map((l) => <div>{l}</div>)}</div>
+      {open && plan.items.map((x) => (
+        <div class="stack" style={{ borderTop: "1px solid var(--line)", paddingTop: "8px", gap: "4px" }} data-testid="recovery-item">
+          <div class="row" style={{ justifyContent: "space-between", gap: "8px" }}>
+            <b>{x.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{x.code}</span></b>
+            <span class={`pill ${tone[x.action]}`} style={{ fontSize: "12px" }}>{x.action}</span>
+          </div>
+          <div class={`num ${cls(x.pnl)}`} style={{ fontSize: "13px" }}>累計損益 {fmtSigned(x.pnl, x.market)}（{fmtPct(x.pnlPct)}）</div>
+          <ul style={{ margin: 0, paddingLeft: "18px", fontSize: "13.5px", lineHeight: 1.7 }}>{x.lines.map((l) => <li>{l}</li>)}</ul>
+        </div>
+      ))}
+      <div class="muted" style={{ fontSize: "12px" }}>依 App 評等與成本自動計算（不花 Claude 費用），只是參考、不是投資建議：攤平會加大部位，停損換股也不保證新標的會漲。</div>
     </div>
   );
 }

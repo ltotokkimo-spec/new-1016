@@ -1034,6 +1034,18 @@ function check(ok, name, detail = "") {
   const impliedRate = Math.abs(twd / usd);
   check(usHold.cardNtd === usHold.ntd && impliedRate > 20 && impliedRate < 50 && !/今日匯率/.test(usHold.note), "台幣損益由美金損益換算（匯率合理），畫面不顯示匯率", `${usd} → ${twd}（約 ${impliedRate.toFixed(1)}）`);
   await shot("06-持股健檢");
+  // 持股分析與建議（11/9）：摘要說明幾檔虧損；展開後每檔有動作（停損換股／攤平／續抱設條件）與回本價
+  const rec = await page.$eval('[data-testid="recovery-summary"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
+  if (await page.$('[data-testid="recovery-toggle"]')) {
+    await page.click('[data-testid="recovery-toggle"]');
+    await page.waitForSelector('[data-testid="recovery-item"]', { timeout: 5000 }).catch(() => {});
+  }
+  const recItems = await page.$$eval('[data-testid="recovery-item"]', (els) => els.map((e) => e.innerText.replace(/\s+/g, " "))).catch(() => []);
+  log("持股分析與建議", JSON.stringify({ rec, items: recItems.slice(0, 3) }).slice(0, 600));
+  check((/\d+ 檔虧損/.test(rec) && recItems.length > 0 && recItems.every((t) => /(停損換股|攤平|續抱設條件)/.test(t) && /回本價 [$\d.,]+（含手續費與證交稅），現價還要漲 \d+\.\d%/.test(t))) || /沒有虧損/.test(rec),
+    "持股分頁有「持股分析與建議」：虧損持股列出動作與回本價", JSON.stringify({ rec, first: recItems[0] }).slice(0, 300));
+  if (recItems.length) await page.$eval('[data-testid="recovery-card"]', (e) => e.scrollIntoView()).catch(() => {});
+  await shot("06b-持股分析與建議");
   // 持股的 K 線圖要畫出「我的均價線」：點進美股持股 AAPL（均價 100），圖上方標示均價與現價差
   await page.evaluate(() => [...document.querySelectorAll(".list .item")].find((e) => /AAPL/.test(e.innerText))?.click());
   await page.waitForSelector(".sheet", { timeout: 10000 });

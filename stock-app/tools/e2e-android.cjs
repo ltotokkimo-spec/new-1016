@@ -834,7 +834,7 @@ function check(ok, name, detail = "") {
   // 目前持股點進去看個股資訊（和選股同一個個股頁），左右箭頭在持股之間切換；看完關掉回到我的實單
   // 持股列：現價下方有「今日」漲跌幅與「累計損益」（11/9 使用者要求標清楚）
   const posPx = await page.$$eval('[data-testid="real-pos-item"] .px', (els) => els.map((e) => e.innerText.replace(/\s+/g, " "))).catch(() => []);
-  if (posPx.length) check(posPx.every((t) => /今日 ([+-]?\d+\.\d+%|—)/.test(t) && /累計損益 ([+-]?\d+\.\d+%|—)/.test(t)), "我的實單持股列顯示今日漲跌幅與累計損益（名稱標清楚）", JSON.stringify(posPx.slice(0, 2)));
+  if (posPx.length) check(posPx.every((t) => /今日 ?([+-]?\d+\.\d+%|—)/.test(t) && /累計損益 ?([+-]?\d+\.\d+%|—)/.test(t)), "我的實單持股列顯示今日漲跌幅與累計損益（名稱標清楚）", JSON.stringify(posPx.slice(0, 2)));
   const posItem = await page.$('[data-testid="real-pos-item"] .name');
   if (posItem) {
     const want = await posItem.evaluate((e) => (e.innerText.match(/\b(\d{4,6}[A-Z]?)\b/) || [])[1] || "");

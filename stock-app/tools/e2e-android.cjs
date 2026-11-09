@@ -1044,6 +1044,8 @@ function check(ok, name, detail = "") {
   log("持股分析與建議", JSON.stringify({ rec, items: recItems.slice(0, 3) }).slice(0, 600));
   check((/\d+ 檔虧損/.test(rec) && recItems.length > 0 && recItems.every((t) => /(停損換股|攤平|續抱設條件)/.test(t) && /回本價 [$\d.,]+（含手續費與證交稅），現價還要漲 \d+\.\d%/.test(t))) || /沒有虧損/.test(rec),
     "持股分頁有「持股分析與建議」：虧損持股列出動作與回本價", JSON.stringify({ rec, first: recItems[0] }).slice(0, 300));
+  const swaps = recItems.map((t) => (t.match(/轉買[^：]*：\S+ (\w+)（分數/) || [])[1]).filter(Boolean);
+  if (swaps.length >= 2) check(new Set(swaps).size === swaps.length, "持股分析：每檔停損換股推薦不同的標的", JSON.stringify(swaps));
   if (recItems.length) await page.$eval('[data-testid="recovery-card"]', (e) => e.scrollIntoView()).catch(() => {});
   await shot("06b-持股分析與建議");
   // 持股的 K 線圖要畫出「我的均價線」：點進美股持股 AAPL（均價 100），圖上方標示均價與現價差

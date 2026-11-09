@@ -53,10 +53,12 @@ const roundTw = (n: number) => (n >= 1000 ? Math.floor(n / 1000) * 1000 : n);
 
 export function recoveryPlan(views: HoldingView[], picks: { stocks: Scored[]; etfs: Scored[]; us: Scored[] }): { items: RecoveryItem[]; summary: RecoverySummary } {
   const held = new Set(views.map((v) => v.code));
-  const best = (list: Scored[], buyOnly: boolean) => list.filter((s) => !held.has(s.code) && (!buyOnly || s.rating === "買入")).sort((a, b) => b.score - a.score)[0];
+  // 每檔停損推薦不同的標的（11/9 使用者：每一檔建議買的都一樣）：虧最多的先分到評分最高的，已推薦過的不再推薦；另附 2 檔備選
+  const used = new Set<string>();
+  const ranked = (list: Scored[], buyOnly: boolean) => list.filter((s) => !held.has(s.code) && !used.has(s.code) && (!buyOnly || s.rating === "買入")).sort((a, b) => b.score - a.score);
   const items: RecoveryItem[] = [];
   let winners = 0;
-  for (const v of views) {
+  for (const v of [...views].sort((a, b) => (a.pnl || 0) - (b.pnl || 0))) {
     if (!Number.isFinite(v.price) || !(v.cost > 0) || !(v.shares > 0)) continue;
     if (!(v.pnl < 0)) { if (v.pnl > 0) winners++; continue; }
     const us = v.market === "US", etf = !us && /^00/.test(v.code);
@@ -71,11 +73,13 @@ export function recoveryPlan(views: HoldingView[], picks: { stocks: Scored[]; et
     const lines = [`回本價 ${px(be)}（含手續費與證交稅），現價還要漲 ${(needPct * 100).toFixed(1)}%`];
     const hitStop = v.pnlPct <= STOP_LOSS;
     if (v.rating === "離場" || hitStop) {
-      const s = best(us ? picks.us : etf ? picks.etfs : picks.stocks, !etf);
+      const cand = ranked(us ? picks.us : etf ? picks.etfs : picks.stocks, !etf);
+      const s = cand[0], alts = cand.slice(1, 3);
+      if (s) used.add(s.code);
       const proceeds = v.shares * v.price * (1 - (us ? 0.001 : FEE) - taxOf(v.code, v.market));
       lines.push(hitStop ? `虧損 ${(v.pnlPct * 100).toFixed(1)}% 已達 10% 停損線` : "App 評等「離場」：動能與籌碼都轉弱，等它回本的機會較低");
       lines.push(`建議賣出 ${v.shares.toLocaleString()} 股，約可收回 ${money(proceeds)}`);
-      if (s) lines.push(`轉買${etf ? "分數最高的 ETF" : "目前評分最高的「買入」標的"}：${s.name} ${s.code}（分數 ${s.score}）。同樣要賺回 ${(needPct * 100).toFixed(1)}%，放在走強的股票上機會較大`);
+      if (s) lines.push(`轉買${etf ? "分數高的 ETF" : "評分高的「買入」標的"}：${s.name} ${s.code}（分數 ${s.score}）${alts.length ? `；備選 ${alts.map((a) => `${a.name} ${a.code}（${a.score}）`).join("、")}` : ""}。同樣要賺回 ${(needPct * 100).toFixed(1)}%，放在走強的股票上機會較大；每檔推薦不同標的，換股後不會全集中在同一檔`);
       lines.push("如果不想停損：至少不要再加碼，等評等轉回「觀望」或「買入」再說");
       items.push({ ...base, action: "停損換股", swap: s ? { code: s.code, name: s.name, score: s.score, proceeds } : undefined, lines });
     } else if (v.rating === "買入") {

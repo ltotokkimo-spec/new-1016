@@ -34,7 +34,8 @@ describe("持股分析與建議（回本計畫）", () => {
     expect(items.map((x) => [x.code, x.action])).toEqual([
       ["1111", "停損換股"], ["2222", "停損換股"], ["3333", "攤平"], ["4444", "續抱設條件"],
     ]);
-    expect(items[0].swap?.code).toBe("9002"); // 已持有的 3333、觀望的 9003 不推薦
+    expect(items[0].swap?.code).toBe("9002"); // 已持有的 3333、觀望的 9003 不推薦；虧最多的 1111 先分到最高分
+    expect(items[1].swap?.code).toBe("9001"); // 第二檔停損推薦不同的標的
     const a = items[2].avg!;
     expect(a.addShares).toBeGreaterThan(0);
     expect(a.addShares).toBeLessThanOrEqual(2000);

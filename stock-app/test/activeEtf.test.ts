@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeRank, addSnap, buildActiveData, buildActiveDays, mergeLive, parseMoneyDjHoldings, etfBreakdown, etfHoldings, pickDays, activeCoverage, expectedHoldingDate, liveNeeded, type ActiveHist } from "../src/lib/activeEtf";
+import { activeRank, byPct, addSnap, buildActiveData, buildActiveDays, mergeLive, parseMoneyDjHoldings, etfBreakdown, etfHoldings, pickDays, activeCoverage, expectedHoldingDate, liveNeeded, type ActiveHist } from "../src/lib/activeEtf";
 
 // MoneyDJ「全部持股」頁的實際結構（10/27 從 GitHub Actions 探測取得，節錄）
 const html = `<div>首頁 / ETF介紹 / 個別ETF-全部持股</div><h3>主動統一台股增長(00981A.TW)-全部持股</h3><div>資料日期：2026/10/22</div>
@@ -56,6 +56,20 @@ describe("主動式 ETF 個股買賣超", () => {
     expect(r5.buy.find((x) => x.item.code === "2330")!.buyers).toEqual([["A1", 2000], ["A2", -1000]]);
     expect(r5.sell.map((x) => x.item.code)).toEqual(["2454"]);
     expect(activeRank(undefined, 1, look).buy).toEqual([]);
+  });
+  it("加碼幅度：期間開始前的持股、增減百分比；新建倉為無限大、清倉為 −100%", () => {
+    const data = buildActiveData(h, "t");
+    const px: Record<string, number> = { "2330": 1000, "2454": 1500, "3037": 200 };
+    const r5 = activeRank(data, 5, (c: string) => (px[c] ? { code: c, close: px[c] } : undefined));
+    const g = (c: string) => [...r5.buy, ...r5.sell].find((x) => x.item.code === c)!;
+    expect([g("2330").before, g("2330").pct]).toEqual([10000, 0.1]); // 甲 1000＋乙 9000 → 合計 +1000
+    expect(g("3037").pct).toBe(Infinity);
+    expect([g("2454").before, g("2454").pct]).toEqual([5000, -1]);
+  });
+  it("依幅度排序：新建倉最前、其餘幅度大到小；金額低於 1,000 萬的不列", () => {
+    const rows = [{ k: "a", pct: 0.05, amount: 5e8 }, { k: "b", pct: 0.8, amount: 2e7 }, { k: "c", pct: Infinity, amount: 3e7 }, { k: "d", pct: 2, amount: 5e6 }];
+    expect(byPct(rows, 1).map((x) => x.k)).toEqual(["c", "b", "a"]);
+    expect(byPct([{ k: "x", pct: -0.2, amount: -2e7 }, { k: "y", pct: -1, amount: -1.5e7 }], -1).map((x) => x.k)).toEqual(["y", "x"]);
   });
 });
 

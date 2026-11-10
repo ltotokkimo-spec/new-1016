@@ -640,6 +640,22 @@ function check(ok, name, detail = "") {
   log("ETF排行 近5日", JSON.stringify({ note: rk5.note, buy: rk5.buy.slice(0, 3), sell: rk5.sell.slice(0, 3) }));
   check(rk5.buy.length > 0 && rk5.sell.length > 0 && /往前 5 個交易日/.test(rk5.note) && JSON.stringify(rk5.buy) !== JSON.stringify(rk1.buy), "切換到近 5 日，排名跟著變", rk5.note.slice(0, 80));
   await shot("05g-ETF排行近5日");
+  // 加碼幅度排名（11/10）：投信改依「買賣超金額 ÷ 成交金額」；主動式 ETF 依增減 ÷ 原本持股，列出持股張數變化或新建倉
+  await page.click('[data-testid="etfrank-sort-pct"]');
+  await sleep(500);
+  const rkP = await rk();
+  const pctNote = await page.$eval('[data-testid="etfrank-pct-note"]', (e) => e.innerText).catch(() => "");
+  const pctOf = (t) => Number((/成交金額 ([\d.]+)%/.exec(t) || [])[1]);
+  const pv = rkP.buy.map(pctOf);
+  log("ETF排行 加碼幅度（投信）", JSON.stringify({ buy: rkP.buy.slice(0, 3), pv: pv.slice(0, 5) }));
+  check(rkP.buy.length > 0 && pv.every(Number.isFinite) && pv.every((x, i) => i === 0 || x <= pv[i - 1] + 1e-9) && /成交金額/.test(pctNote), "加碼幅度排名（投信）：依買超佔成交金額由大到小", JSON.stringify(pv.slice(0, 6)));
+  await page.click('[data-testid="etfrank-active"]');
+  await sleep(800);
+  const rkA = await rk();
+  log("ETF排行 加碼幅度（主動式）", JSON.stringify(rkA.buy.slice(0, 4)));
+  check(rkA.buy.length === 0 || rkA.buy.every((t) => /(新建倉（0 → [\d,]+ 張）|加碼 \+[\d.]+%（[\d,]+ → [\d,]+ 張）)/.test(t)), "加碼幅度排名（主動式 ETF）：每列標出新建倉或加碼幅度與持股張數變化", JSON.stringify(rkA.buy.slice(0, 3)));
+  await shot("05g2-ETF排行加碼幅度");
+  await page.click('[data-testid="etfrank-sort-amount"]');
 
   // 自組 ETF：手動記一筆台積電成交，檢查淨值與 0050 對照
   await page.click("nav.tabs button:nth-child(4)");

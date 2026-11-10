@@ -1,7 +1,7 @@
 // ETF排行分頁：個股被 ETF 買賣超的排名，今天、近 5 日買超與賣超前 20 名（依金額排名）。
 // 兩種來源：主動式 ETF（每天比對各主動式 ETF 公布的持股，經理人實際加減碼）、投信全部（證交所／櫃買投信買賣超，含被動 ETF 與一般基金）。
 import { useEffect, useMemo, useState } from "preact/hooks";
-import { activeCoverage, activeRank, etfBreakdown, liveNeeded } from "../lib/activeEtf";
+import { activeCoverage, activeRank, etfBreakdown, liveNeeded, type RankSort } from "../lib/activeEtf";
 import { flowRank } from "../engine/etfRank";
 import type { Scored } from "../engine/score";
 import { prettyW } from "../lib/dates";
@@ -117,6 +117,9 @@ export function EtfRankScreen({ open }: { open: (s: Scored, list?: Scored[]) => 
   const active = useStore((s) => s.activeEtf);
   const [src, setSrc] = useState<"active" | "trust">("active");
   const [days, setDays] = useState<1 | 5>(1);
+  // 排名方式（11/10）：金額（張數 × 收盤價）或加碼幅度；記住上次選的
+  const [sortBy, setSortRaw] = useState<RankSort>(() => { try { return localStorage.getItem("etfRankSort") === "pct" ? "pct" : "amount"; } catch { return "amount"; } });
+  const setSortBy = (x: RankSort) => { setSortRaw(x); try { localStorage.setItem("etfRankSort", x); } catch { /* 記不住沒關係 */ } };
   const [who, setWho] = useState<Row | null>(null);
   // GitHub 每天整理一次；另外打開時 App 自己向 MoneyDJ 檢查最新持股（10 分鐘內不重複）
   useEffect(() => {
@@ -142,15 +145,24 @@ export function EtfRankScreen({ open }: { open: (s: Scored, list?: Scored[]) => 
   const byCode = useMemo(() => new Map(tw.scored.map((s) => [s.code, s])), [tw.scored]);
   const etfName = useMemo(() => new Map((active?.data.etfs ?? []).map((e) => [e.code, shortName(e.name)])), [active]);
   const rank = useMemo(() => {
-    if (src === "trust") { const r = flowRank(tw.scored, days, "trust", 20); return { ...r, used: undefined, partial: undefined }; }
-    const r = activeRank(active?.data, days, (c) => byCode.get(c), 20);
-    const sub = (b: [string, number][], side: 1 | -1) => {
-      const same = b.filter(([, v]) => v * side > 0);
+    const pctS = (x: number) => `${x > 0 ? "+" : ""}${(x * 100).toFixed(x !== 0 && Math.abs(x) < 0.1 ? 1 : 0)}%`;
+    if (src === "trust") {
+      const r = flowRank(tw.scored, days, "trust", 20, sortBy);
+      const sub = (x: { pct?: number }) => (x.pct !== undefined ? `${x.pct > 0 ? "買超" : "賣超"}佔${days === 5 ? "約 5 日" : "當日"}成交金額 ${pctS(Math.abs(x.pct))}` : undefined);
+      return { buy: r.buy.map((x) => ({ ...x, sub: sub(x) })), sell: r.sell.map((x) => ({ ...x, sub: sub(x) })), used: undefined, partial: undefined };
+    }
+    const r = activeRank(active?.data, days, (c) => byCode.get(c), 20, sortBy);
+    const lotsOf = (x: number) => Math.round(x / 1000).toLocaleString("zh-TW");
+    const sub = (x: { buyers: [string, number][]; before?: number; shares: number; pct?: number }, side: 1 | -1) => {
+      const same = x.buyers.filter(([, v]) => v * side > 0);
       const names = same.slice(0, 2).map(([e]) => etfName.get(e) ?? e).join("、");
-      return `${same.length} 檔主動 ETF ${side > 0 ? "買" : "賣"}：${names}${same.length > 2 ? " 等" : ""}`;
+      const who = `${same.length} 檔主動 ETF ${side > 0 ? "買" : "賣"}：${names}${same.length > 2 ? " 等" : ""}`;
+      // 加碼幅度：持股從幾張變幾張
+      const chg = x.before === undefined ? "" : x.pct === Infinity ? `新建倉（0 → ${lotsOf(x.shares)} 張）` : x.before + x.shares <= 0 ? `清倉（${lotsOf(x.before)} → 0 張）` : `${side > 0 ? "加碼" : "減碼"} ${pctS(x.pct ?? 0)}（${lotsOf(x.before)} → ${lotsOf(x.before + x.shares)} 張）`;
+      return chg ? `${chg}・${who}` : who;
     };
-    return { buy: r.buy.map((x) => ({ ...x, sub: sub(x.buyers, 1) })), sell: r.sell.map((x) => ({ ...x, sub: sub(x.buyers, -1) })), used: r.used, partial: r.partial };
-  }, [src, days, tw.scored, active, byCode, etfName]);
+    return { buy: r.buy.map((x) => ({ ...x, sub: sub(x, 1) })), sell: r.sell.map((x) => ({ ...x, sub: sub(x, -1) })), used: r.used, partial: r.partial };
+  }, [src, days, sortBy, tw.scored, active, byCode, etfName]);
   const liveCodes = useMemo(() => [...rank.buy, ...rank.sell].map((r) => r.item.code), [rank]);
   const liveKey = liveCodes.join(",");
   useEffect(() => {
@@ -177,6 +189,14 @@ export function EtfRankScreen({ open }: { open: (s: Scored, list?: Scored[]) => 
         <button aria-pressed={days === 1} onClick={() => setDays(1)} data-testid="etfrank-d1">最新一天</button>
         <button aria-pressed={days === 5} onClick={() => setDays(5)} data-testid="etfrank-d5">近 5 日</button>
       </div>
+      <div class="seg" role="group" aria-label="排名方式" style={{ marginBottom: "8px" }}>
+        <button aria-pressed={sortBy === "amount"} onClick={() => setSortBy("amount")} data-testid="etfrank-sort-amount">金額排名</button>
+        <button aria-pressed={sortBy === "pct"} onClick={() => setSortBy("pct")} data-testid="etfrank-sort-pct">加碼幅度排名</button>
+      </div>
+      {sortBy === "pct" && <div class="notice" style={{ fontSize: "12.5px", marginBottom: "8px" }} data-testid="etfrank-pct-note">
+        {src === "active" ? "加碼幅度＝增減張數 ÷ 期間開始前這些 ETF 合計的持股；新建倉（原本沒有持股）排最前面，清倉是 −100%。看得出經理人真的在布局，不會被大型股（台積電）因申購資金同比例加碼佔滿。"
+          : "投信沒有逐檔持股資料，改用「買賣超金額 ÷ 成交金額」看力道（近 5 日用最新一天成交金額 × 5 估算）。"}金額低於 1,000 萬的不列，避免零星買賣排到前面。
+      </div>}
       <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, margin: "4px 2px 8px" }} data-testid="etfrank-note">
         {src === "active" ? <>
           {used?.length ? <>持股資料日 {ymdW(used[0].date)}{days === 5 ? `，往前 ${used.length} 個持股日合計（${ymdW(used[used.length - 1].date)} 起）` : ""}{days === 5 && used.length < 5 ? `，目前只累積 ${used.length} 天` : ""}。</> : null}
@@ -199,9 +219,9 @@ export function EtfRankScreen({ open }: { open: (s: Scored, list?: Scored[]) => 
       {!ready ? <div class="card empty">{tw.status === "error" ? tw.error ?? "資料下載失敗" : "資料下載中…"}</div>
         : accumulating ? <div class="card empty" data-testid="etfrank-accum">資料累積中：已取得 {active!.data.etfs.length} 檔主動式 ETF 的持股{latestHold ? `（${ymdW(latestHold)}）` : ""}，下一份持股公布後就能比對出第一天的買賣超。</div>
         : <>
-          <div class="section-title"><span class="up">{src === "active" ? "主動式 ETF" : "投信"} 買超前 20 名</span><span>{period}</span></div>
+          <div class="section-title"><span class="up">{src === "active" ? "主動式 ETF" : "投信"} 買超前 20 名{sortBy === "pct" ? "（依加碼幅度）" : ""}</span><span>{period}</span></div>
           <RankList rows={rank.buy} side="buy" open={pick} live={live} />
-          <div class="section-title"><span class="down">{src === "active" ? "主動式 ETF" : "投信"} 賣超前 20 名</span><span>{period}</span></div>
+          <div class="section-title"><span class="down">{src === "active" ? "主動式 ETF" : "投信"} 賣超前 20 名{sortBy === "pct" ? "（依減碼幅度）" : ""}</span><span>{period}</span></div>
           <RankList rows={rank.sell} side="sell" open={pick} live={live} />
         </>}
     </div>

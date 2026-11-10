@@ -45,3 +45,15 @@ describe("買賣超排名", () => {
     expect(xs.map((x) => x.volume)).toEqual([123_456_000, 987_654_000]);
   });
 });
+
+describe("投信加碼幅度排名（11/10）", () => {
+  it("買超金額 ÷ 成交金額排序，金額低於 1,000 萬的不列", async () => {
+    const { flowRank } = await import("../src/engine/etfRank");
+    const mk = (code: string, close: number, value: number, trust: number) => ({ code, name: code, close, value, flow1: [0, trust, 0] as [number, number, number] });
+    const list = [mk("A", 1000, 1e10, 1e6), mk("B", 100, 2e8, 5e5), mk("C", 50, 1e8, 1e5)]; // A 10 億／100 億＝10%；B 5,000 萬／2 億＝25%；C 500 萬（太小）
+    const r = flowRank(list, 1, "trust", 20, "pct");
+    expect(r.buy.map((x) => x.item.code)).toEqual(["B", "A"]);
+    expect(r.buy[0].pct).toBeCloseTo(0.25, 9);
+    expect(flowRank(list, 1, "trust", 20).buy.map((x) => x.item.code)).toEqual(["A", "B", "C"]);
+  });
+});

@@ -132,10 +132,24 @@ export function pickDays(data: ActiveEtfData | undefined, n: number): { used: Ac
   return { used: [days[i]], partial: i > 0 ? { date: days[0].date, n: Object.keys(days[0].prev).length, of: total } : undefined };
 }
 
-export interface ActiveRankRow<T> { item: T; shares: number; amount: number; buyers: [string, number][] }
+export interface ActiveRankRow<T> { item: T; shares: number; amount: number; buyers: [string, number][]; before?: number; pct?: number }
+
+/** 排名方式（11/10 使用者：新增「加碼幅度排名」）：金額＝張數 × 收盤價；幅度＝增減股數 ÷ 期間開始前的持股（新建倉排最前、清倉為 −100%） */
+export type RankSort = "amount" | "pct";
+/** 依幅度排名時，金額太小的不列（避免一兩張的零星買賣排到前面） */
+export const PCT_MIN_AMOUNT = 1e7;
+
+/** 依加碼幅度排序：新建倉（期間前沒有持股）最前面、依金額；其他依幅度大到小 */
+export function byPct<R extends { pct?: number; amount: number }>(rows: R[], side: 1 | -1): R[] {
+  return rows.filter((r) => Math.abs(r.amount) >= PCT_MIN_AMOUNT && r.pct !== undefined).sort((a, b) => {
+    const ai = a.pct === Infinity, bi = b.pct === Infinity;
+    if (ai || bi) return ai && bi ? Math.abs(b.amount) - Math.abs(a.amount) : ai ? -1 : 1;
+    return side > 0 ? b.pct! - a.pct! : a.pct! - b.pct!;
+  });
+}
 
 /** 主動式 ETF 個股買賣超排名：最近 days 天合計，依金額（股數 × 收盤價）取買超、賣超前 n 名 */
-export function activeRank<T extends { close: number }>(data: ActiveEtfData | undefined, days: number, lookup: (code: string) => T | undefined, n = 20): { buy: ActiveRankRow<T>[]; sell: ActiveRankRow<T>[]; used: ActiveDay[]; partial?: { date: string; n: number; of: number } } {
+export function activeRank<T extends { close: number }>(data: ActiveEtfData | undefined, days: number, lookup: (code: string) => T | undefined, n = 20, sort: RankSort = "amount"): { buy: ActiveRankRow<T>[]; sell: ActiveRankRow<T>[]; used: ActiveDay[]; partial?: { date: string; n: number; of: number } } {
   const { used, partial } = pickDays(data, days);
   const sum = new Map<string, { s: number; by: Map<string, number> }>();
   for (const d of used) for (const [code, f] of Object.entries(d.flows)) {
@@ -144,16 +158,25 @@ export function activeRank<T extends { close: number }>(data: ActiveEtfData | un
     x.s += f.s;
     for (const [etf, v] of f.b) x.by.set(etf, (x.by.get(etf) ?? 0) + v);
   }
+  // 期間開始前的持股＝各 ETF 最新持股合計 − 期間之後（較新、還沒算進來的日子）的增減 − 期間內的增减
+  const held = new Map<string, number>();
+  for (const l of Object.values(data?.latest ?? {})) for (const [code, sh] of Object.entries(l.shares)) held.set(code, (held.get(code) ?? 0) + sh);
+  const newer = used.length ? (data?.days ?? []).filter((d) => d.date > used[0].date) : [];
+  for (const d of newer) for (const [code, f] of Object.entries(d.flows)) held.set(code, (held.get(code) ?? 0) - f.s);
   const rows: ActiveRankRow<T>[] = [];
   for (const [code, x] of sum) {
     const item = lookup(code);
     if (!item || !(item.close > 0) || !x.s) continue;
     const buyers = [...x.by].filter(([, v]) => v !== 0).sort((a, b) => (x.s > 0 ? b[1] - a[1] : a[1] - b[1]));
-    rows.push({ item, shares: x.s, amount: x.s * item.close, buyers });
+    // 最新持股裡沒有這檔（已清倉）＝0 股
+    const before = data?.latest ? Math.max(0, (held.get(code) ?? 0) - x.s) : undefined;
+    const pct = before === undefined ? undefined : before > 0 ? x.s / before : x.s > 0 ? Infinity : undefined;
+    rows.push({ item, shares: x.s, amount: x.s * item.close, buyers, before, pct });
   }
+  const buys = rows.filter((r) => r.amount > 0), sells = rows.filter((r) => r.amount < 0);
   return {
-    buy: rows.filter((r) => r.amount > 0).sort((a, b) => b.amount - a.amount).slice(0, n),
-    sell: rows.filter((r) => r.amount < 0).sort((a, b) => a.amount - b.amount).slice(0, n),
+    buy: (sort === "pct" ? byPct(buys, 1) : buys.sort((a, b) => b.amount - a.amount)).slice(0, n),
+    sell: (sort === "pct" ? byPct(sells, -1) : sells.sort((a, b) => a.amount - b.amount)).slice(0, n),
     used,
     partial,
   };

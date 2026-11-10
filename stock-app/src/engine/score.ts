@@ -199,6 +199,23 @@ export interface Holding {
   market: "TWSE" | "TPEX" | "US";
   shares: number;
   cost: number; // 平均成本（每股）
+  broker?: Broker; // 哪一家券商（11/10 使用者：分口袋、元大；舊資料沒有這欄＝口袋）
+}
+
+export type Broker = "pocket" | "yuanta";
+export const BROKERS: { key: Broker; label: string }[] = [{ key: "pocket", label: "口袋" }, { key: "yuanta", label: "元大" }];
+export const brokerOf = (h: { broker?: Broker }): Broker => h.broker ?? "pocket";
+
+/** 統計用：同一檔在不同券商的持股合併成一筆（股數相加、成本加權平均），記下來自哪幾家 */
+export function mergeHoldings<T extends Holding>(hs: T[]): (T & { brokers: Broker[] })[] {
+  const by = new Map<string, T & { brokers: Broker[] }>();
+  for (const h of hs) {
+    const k = `${h.market}:${h.code}`, prev = by.get(k);
+    if (!prev) { by.set(k, { ...h, brokers: [brokerOf(h)] }); continue; }
+    const shares = prev.shares + h.shares;
+    by.set(k, { ...prev, shares, cost: (prev.shares * prev.cost + h.shares * h.cost) / shares, brokers: [...new Set([...prev.brokers, brokerOf(h)])] });
+  }
+  return [...by.values()];
 }
 
 export interface HoldingView extends Holding {

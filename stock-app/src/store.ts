@@ -474,8 +474,9 @@ export function findScored(code: string, market?: Market): Scored | undefined {
   return undefined;
 }
 
-export function holdingViews(): HoldingView[] {
-  return state.holdings.map((h) => {
+/** 持股檢視；hs 預設全部持股（持股頁依券商分頁、統計頁合併後再傳進來） */
+export function holdingViews(hs: Holding[] = state.holdings): HoldingView[] {
+  return hs.map((h) => {
     const m = h.market === "US" ? state.us : isEtf(h.code) ? state.etf : state.tw;
     const esb = h.market !== "US" && !!state.esb[h.code];
     const v = reviewHolding(h, findScored(h.code, h.market === "US" ? "US" : "TW"), state.prices[h.code]?.close, { esb });

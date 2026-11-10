@@ -1054,6 +1054,29 @@ function check(ok, name, detail = "") {
   if (swaps.length >= 2) check(new Set(swaps).size === swaps.length, "持股分析：每檔停損換股推薦不同的標的", JSON.stringify(swaps));
   if (recItems.length) await page.$eval('[data-testid="recovery-card"]', (e) => e.scrollIntoView()).catch(() => {});
   await shot("06b-持股分析與建議");
+  // 口袋／元大／統計分頁（11/10）：測試持股都在口袋；元大是空的；統計合併後檔數和口袋一樣，列出兩家各自的市值與佔比
+  const pocketN = await page.$$eval('.list .item', (els) => els.length).catch(() => 0);
+  const tabsOk = !!(await page.$('[data-testid="hold-tab-yuanta"]'));
+  if (tabsOk) {
+    await page.click('[data-testid="hold-tab-yuanta"]');
+    const yEmpty = await page.waitForSelector('[data-testid="hold-empty"]', { timeout: 5000 }).then((e) => e.innerText()).catch(() => "");
+    check(/還沒有元大持股/.test(yEmpty), "持股分頁有「元大持股」（目前空的，提示可拍照或手動新增）", yEmpty);
+    await shot("06c-元大持股");
+    await page.click('[data-testid="hold-tab-stats"]');
+    await page.waitForSelector('[data-testid="broker-stats"]', { timeout: 5000 }).catch(() => {});
+    const st = await page.evaluate(() => ({
+      card: document.querySelector('[data-testid="broker-stats"]')?.innerText.replace(/\s+/g, " ") || "",
+      pocket: document.querySelector('[data-testid="broker-row-pocket"]')?.innerText.replace(/\s+/g, " ") || "",
+      yuanta: document.querySelector('[data-testid="broker-row-yuanta"]')?.innerText.replace(/\s+/g, " ") || "",
+      n: document.querySelectorAll('.list .item').length,
+      tags: [...document.querySelectorAll('[data-testid="hold-brokers"]')].map((e) => e.innerText),
+    }));
+    log("統計持股", JSON.stringify(st).slice(0, 500));
+    check(/兩家合計/.test(st.card) && /口袋/.test(st.pocket) && /佔 100%/.test(st.pocket) && /沒有持股/.test(st.yuanta) && st.n === pocketN && st.tags.length === st.n && st.tags.every((t) => t === "口袋"),
+      "統計分頁合併兩家：口袋佔 100%、元大沒有持股，持股列標示來源券商", JSON.stringify({ pocket: st.pocket, yuanta: st.yuanta, n: st.n, pocketN }));
+    await shot("06d-統計持股");
+    await page.click('[data-testid="hold-tab-pocket"]');
+  } else check(false, "持股分頁有口袋／元大／統計分頁");
   // 持股的 K 線圖要畫出「我的均價線」：點進美股持股 AAPL（均價 100），圖上方標示均價與現價差
   await page.evaluate(() => [...document.querySelectorAll(".list .item")].find((e) => /AAPL/.test(e.innerText))?.click());
   await page.waitForSelector(".sheet", { timeout: 10000 });

@@ -5,7 +5,7 @@ import {
   saveSettings, clearCache, useStore, usBars, recordSpend, estimatedBalance, checkForUpdate, installUpdate,
   addUsSymbol, removeUsSymbol, refreshLive, refreshUsLive, refreshTwIndex, refreshFutures, refreshTurnover, refreshTurnoverLive, refreshEtfNav, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
 } from "../store";
-import type { Holding, Rating, Scored, SectorStat } from "../engine/score";
+import { BROKERS, brokerOf, mergeHoldings, type Broker, type Holding, type Rating, type Scored, type SectorStat } from "../engine/score";
 import { type AiReport, analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, parseUrls, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
 import { twHistory } from "../data/history";
 import { esbHistory } from "../data/esb";
@@ -711,7 +711,13 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
   const liveMissing = livePolling() && twCodes.some((c) => live[c]?.date !== today);
   // 還沒抓到即時價：抓取中、抓取失敗、或超過 60 秒仍沒有，都要明確說，不能讓人以為畫面上的收盤價就是最新的
   const liveNote = !liveMissing ? "" : liveError ? `即時價抓取失敗（${liveError}），目前是 ${twAsOf ? pretty(twAsOf) : "上次"} 收盤價，自動重試中` : liveGiveUp ? `即時價還沒抓到，目前是 ${twAsOf ? pretty(twAsOf) : "上次"} 收盤價` : "即時價更新中…";
-  const views = holdingViews().map((v) => {
+  // 11/10 使用者：持股分成「口袋持股／元大持股／統計」三個分頁；統計把兩家合併（同一檔股數相加、成本加權）
+  const [tab, setTabRaw] = useState<Broker | "stats">(() => { try { const t = localStorage.getItem("holdTab"); return t === "yuanta" || t === "stats" ? t : "pocket"; } catch { return "pocket"; } });
+  const setTab = (t: Broker | "stats") => { setTabRaw(t); try { localStorage.setItem("holdTab", t); } catch { /* 記不住分頁沒關係 */ } };
+  const broker: Broker = tab === "stats" ? "pocket" : tab;
+  const brokerLabel = BROKERS.find((b) => b.key === broker)!.label;
+  const base = tab === "stats" ? mergeHoldings(hs) : hs.filter((h) => brokerOf(h) === tab);
+  const withLive = (list: Holding[]) => holdingViews(list).map((v) => {
     const isUs = v.market === "US";
     const q = live[v.code];
     if (q && q.date && q.date >= ((isUs ? usAsOf : twAsOf) ?? "")) {
@@ -721,6 +727,8 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
     }
     return { ...v, chg: v.scored?.chg1d ?? NaN, liveLabel: "收盤", limit: isUs || getState().esb[v.code] ? undefined : limitFromChg(v.price, v.scored?.chg1d, isEtf(v.code)) };
   });
+  const views = withLive(base);
+  const byBroker = tab === "stats" ? BROKERS.map((b) => ({ ...b, rows: withLive(hs.filter((h) => brokerOf(h) === b.key)) })) : [];
   const [adding, setAdding] = useState(false);
   const [esbOpen, setEsbOpen] = useState<any>(null);
   const [importing, setImporting] = useState<{ rows: ImportedHolding[]; note: string } | null>(null);
@@ -770,34 +778,76 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
 
   return (
     <div>
-      <div class="summary">
-        <div class="card"><div class="muted" style={{ fontSize: "12px" }}>台股市值</div>{tw.cost ? <><div class="big num">{fmtMoney(tw.value)}</div><div class={`num ${cls(tw.pnl)}`} style={{ fontSize: "13px" }} data-testid="tw-pnl">總損益 {fmtMoney(tw.pnl)}（{fmtPct(tw.pnl / tw.cost)}）</div>{tw.hasDay && <div class={`num ${cls(tw.day)}`} style={{ fontSize: "12px" }} data-testid="tw-day">今日 {fmtMoney(tw.day)}（{fmtPct(tw.dayPct)}）</div>}</> : <div class="big muted">—</div>}</div>
-        <div class="card"><div class="muted" style={{ fontSize: "12px" }}>美股市值</div>{us.cost ? <><div class="big num">{fmtMoney(us.value, "US")}</div><div class={`num ${cls(us.pnl)}`} style={{ fontSize: "13px" }} data-testid="us-pnl">總損益 {fmtMoney(us.pnl, "US")}（{fmtPct(us.pnl / us.cost)}）</div>{fx && <div class={`num ${cls(us.pnl)}`} style={{ fontSize: "13px" }} data-testid="us-ntd">{fmtNtd(us.pnl, fx)}</div>}{us.hasDay && <div class={`num ${cls(us.day)}`} style={{ fontSize: "12px" }}>今日 {fmtMoney(us.day, "US")}（{fmtPct(us.dayPct)}）</div>}</> : <div class="big muted">—</div>}</div>
+      <div class="seg" role="tablist" style={{ marginBottom: "12px" }} data-testid="hold-tabs">
+        {([["pocket", "口袋持股"], ["yuanta", "元大持股"], ["stats", "統計"]] as const).map(([k, l]) => (
+          <button role="tab" aria-pressed={tab === k} onClick={() => setTab(k)} data-testid={`hold-tab-${k}`}>{l}</button>
+        ))}
       </div>
-      <div class="row" style={{ marginTop: "12px" }}>
+      {tab === "stats" && <BrokerStats byBroker={byBroker} merged={views} fx={fx} />}
+      <div class="summary">
+        <div class="card"><div class="muted" style={{ fontSize: "12px" }}>{tab === "stats" ? "合計" : brokerLabel}台股市值</div>{tw.cost ? <><div class="big num">{fmtMoney(tw.value)}</div><div class={`num ${cls(tw.pnl)}`} style={{ fontSize: "13px" }} data-testid="tw-pnl">總損益 {fmtMoney(tw.pnl)}（{fmtPct(tw.pnl / tw.cost)}）</div>{tw.hasDay && <div class={`num ${cls(tw.day)}`} style={{ fontSize: "12px" }} data-testid="tw-day">今日 {fmtMoney(tw.day)}（{fmtPct(tw.dayPct)}）</div>}</> : <div class="big muted">—</div>}</div>
+        <div class="card"><div class="muted" style={{ fontSize: "12px" }}>{tab === "stats" ? "合計" : brokerLabel}美股市值</div>{us.cost ? <><div class="big num">{fmtMoney(us.value, "US")}</div><div class={`num ${cls(us.pnl)}`} style={{ fontSize: "13px" }} data-testid="us-pnl">總損益 {fmtMoney(us.pnl, "US")}（{fmtPct(us.pnl / us.cost)}）</div>{fx && <div class={`num ${cls(us.pnl)}`} style={{ fontSize: "13px" }} data-testid="us-ntd">{fmtNtd(us.pnl, fx)}</div>}{us.hasDay && <div class={`num ${cls(us.day)}`} style={{ fontSize: "12px" }}>今日 {fmtMoney(us.day, "US")}（{fmtPct(us.dayPct)}）</div>}</> : <div class="big muted">—</div>}</div>
+      </div>
+      {tab !== "stats" && <><div class="row" style={{ marginTop: "12px" }}>
         <label class="btn" style={{ flex: 1 }} aria-disabled={busy || !apiKey}>
           {busy ? "Claude 辨識中…" : <><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></svg>拍照／截圖匯入（API 付費）</>}
           <input type="file" accept="image/*" hidden disabled={busy || !apiKey} onChange={onPhoto} data-testid="photo-input" />
         </label>
         <button class="btn secondary" onClick={() => setAdding(true)}>手動新增</button>
       </div>
-      {!apiKey && <div class="muted" style={{ fontSize: "13px", marginTop: "8px" }}>照片匯入需要 Claude API 金鑰（到「設定」貼上）；手動新增不需要。</div>}
+      {!apiKey && <div class="muted" style={{ fontSize: "13px", marginTop: "8px" }}>照片匯入需要 Claude API 金鑰（到「設定」貼上）；手動新增不需要。</div>}</>}
       {err && <div class="error" style={{ marginTop: "10px" }}>{err}</div>}
 
       {views.length > 0 && <RecoveryCard views={views} />}
 
-      <div class="section-title"><span>持股健檢{liveNote && <span class="muted" data-testid="live-loading" style={{ fontSize: "12px", fontWeight: 400, marginLeft: "8px" }}>{liveNote}</span>}</span><span>{views.length} 檔</span></div>
+      <div class="section-title"><span>{tab === "stats" ? "合併持股" : `${brokerLabel}持股`}健檢{liveNote && <span class="muted" data-testid="live-loading" style={{ fontSize: "12px", fontWeight: 400, marginLeft: "8px" }}>{liveNote}</span>}</span><span>{views.length} 檔</span></div>
       {views.length === 0 ? (
-        <div class="empty">還沒有持股。<br />拍一張證券 App 的「庫存」畫面，Claude 會自動辨識代號、股數與成本。</div>
+        <div class="empty" data-testid="hold-empty">{tab === "stats" ? "還沒有持股。" : <>還沒有{brokerLabel}持股。<br />拍一張{brokerLabel}證券 App 的「庫存」畫面，Claude 會自動辨識代號、股數與成本；或按「手動新增」。</>}</div>
       ) : (
         <div class="list">
-          {views.map((v) => <HoldingRow v={v} open={(s) => open(s, views.map((x) => x.scored).filter((x): x is Scored => !!x))} onEsb={setEsbOpen} fx={fx} />)}
+          {views.map((v) => <HoldingRow v={v} brokers={tab === "stats" ? (v as any).brokers : undefined} open={(s) => open(s, views.map((x) => x.scored).filter((x): x is Scored => !!x))} onEsb={setEsbOpen} fx={fx} />)}
         </div>
       )}
-      {views.length > 0 && <HoldingsEditor />}
-      {adding && <HoldingForm onDone={() => setAdding(false)} />}
+      {views.length > 0 && tab !== "stats" && <HoldingsEditor broker={broker} />}
+      {adding && <HoldingForm broker={broker} onDone={() => setAdding(false)} />}
       {esbOpen && <EsbDetail h={esbOpen} onClose={() => setEsbOpen(null)} />}
-      {importing && <ImportReview data={importing} onDone={() => setImporting(null)} />}
+      {importing && <ImportReview broker={broker} data={importing} onDone={() => setImporting(null)} />}
+    </div>
+  );
+}
+
+/** 統計分頁（11/10）：口袋、元大各自的市值、損益、今日損益與佔比，合併後的產業分布 */
+function BrokerStats({ byBroker, merged, fx }: { byBroker: { key: Broker; label: string; rows: any[] }[]; merged: any[]; fx?: number }) {
+  const sum = (rows: any[], f: (v: any) => number) => rows.filter((v) => Number.isFinite(v.price)).map(f).filter(Number.isFinite).reduce((a, x) => a + x, 0);
+  // 美股換成台幣後再加總（有匯率時），才能和台股一起算佔比
+  const twd = (v: any, x: number) => (v.market === "US" ? (fx ? x * fx : NaN) : x);
+  const stat = (rows: any[]) => {
+    const value = sum(rows, (v) => twd(v, v.price * v.shares)), cost = sum(rows, (v) => twd(v, v.cost * v.shares)), pnl = sum(rows, (v) => twd(v, v.pnl));
+    const dv = rows.filter((v) => Number.isFinite(v.chg) && Number.isFinite(v.price));
+    const day = dv.map((v) => twd(v, v.shares * (v.price - v.price / (1 + v.chg)))).filter(Number.isFinite).reduce((a, x) => a + x, 0);
+    return { value, cost, pnl, day, n: rows.length, win: rows.filter((v) => v.pnl > 0).length };
+  };
+  const all = stat(merged);
+  const secs = new Map<string, number>();
+  for (const v of merged) if (Number.isFinite(v.price)) { const k = v.market === "US" ? "美股" : /^00/.test(v.code) ? "ETF" : v.scored?.sector ?? "其他"; secs.set(k, (secs.get(k) ?? 0) + twd(v, v.price * v.shares)); }
+  const secList = [...secs].filter(([, x]) => Number.isFinite(x)).sort((a, b) => b[1] - a[1]);
+  return (
+    <div class="card stack" data-testid="broker-stats">
+      <div class="row" style={{ justifyContent: "space-between" }}><b>兩家合計</b><span class="num">{fmtMoney(all.value)}</span></div>
+      <div class={`num ${cls(all.pnl)}`} style={{ fontSize: "13px" }}>總損益 {fmtMoney(all.pnl)}（{fmtPct(all.cost ? all.pnl / all.cost : NaN)}）・今日 {fmtMoney(all.day)}・{all.n} 檔（{all.win} 檔獲利）</div>
+      {byBroker.map((b) => { const t = stat(b.rows); return (
+        <div style={{ borderTop: "1px solid var(--line)", paddingTop: "8px" }} data-testid={`broker-row-${b.key}`}>
+          <div class="row" style={{ justifyContent: "space-between" }}><b>{b.label}</b><span class="num">{t.n ? `${fmtMoney(t.value)}・佔 ${all.value ? Math.round((t.value / all.value) * 100) : 0}%` : "沒有持股"}</span></div>
+          {t.n > 0 && <div class={`num ${cls(t.pnl)}`} style={{ fontSize: "13px" }}>損益 {fmtMoney(t.pnl)}（{fmtPct(t.cost ? t.pnl / t.cost : NaN)}）・今日 {fmtMoney(t.day)}・{t.n} 檔</div>}
+        </div>
+      ); })}
+      {secList.length > 0 && <div style={{ borderTop: "1px solid var(--line)", paddingTop: "8px" }} data-testid="broker-sectors">
+        <b style={{ fontSize: "14px" }}>產業分布（合併）</b>
+        {secList.slice(0, 8).map(([k, x]) => (
+          <div class="row" style={{ justifyContent: "space-between", fontSize: "13px" }}><span>{k}</span><span class="num">{all.value ? `${((x / all.value) * 100).toFixed(1)}%` : "—"}（{fmtMoney(x)}）</span></div>
+        ))}
+      </div>}
+      <div class="muted" style={{ fontSize: "12px" }}>同一檔兩家都有時，下面的持股列會合併成一筆（股數相加、成本加權平均），名稱旁標「口袋＋元大」。{fx ? "美股依今日匯率換成台幣後一起加總。" : "美股匯率還沒載入，暫不計入合計。"}</div>
     </div>
   );
 }
@@ -858,12 +908,12 @@ function RecoveryCard({ views }: { views: any[] }) {
 }
 
 /** 持股一列：左邊是名稱、損益金額（含報酬率）、建議；右邊是現價、今日漲跌、（美股盤前盤後）；賺紅賠綠 */
-function HoldingRow({ v, open, onEsb, fx }: { v: any; open: (s: Scored) => void; onEsb?: (v: any) => void; fx?: number }) {
+function HoldingRow({ v, open, onEsb, fx, brokers }: { v: any; open: (s: Scored) => void; onEsb?: (v: any) => void; fx?: number; brokers?: Broker[] }) {
   const isEsb = useStore((st) => !!st.esb[v.code]);
   return (
     <button class="item" onClick={() => (v.scored ? open(v.scored) : isEsb && onEsb?.(v))}>
       <div style={{ minWidth: 0 }}>
-        <div class="name">{v.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{v.code}</span></div>
+        <div class="name">{v.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{v.code}</span>{brokers && <span class="muted" style={{ fontWeight: 400, fontSize: "11px", marginLeft: "6px" }} data-testid="hold-brokers">{brokers.map((b) => BROKERS.find((x) => x.key === b)!.label).join("＋")}</span>}</div>
         <div class={`num ${cls(v.pnl)}`} style={{ fontSize: "13px", fontWeight: 600, marginTop: "2px" }} data-testid="hold-pnl"><span class="lbl" style={{ fontFamily: "var(--font)", fontSize: "11px", fontWeight: 400, color: "var(--muted)", marginRight: "4px" }}>損益</span>{fmtSigned(v.pnl, v.market)}<span style={{ whiteSpace: "nowrap" }}>（{fmtPct(v.pnlPct)}）</span>{v.market === "US" && fx && Number.isFinite(v.pnl) && <span style={{ display: "block", whiteSpace: "nowrap" }} data-testid="hold-ntd">{fmtNtd(v.pnl, fx)}</span>}</div>
         <div class="muted num" style={{ fontSize: "12px", marginTop: "2px" }} data-testid="hold-avg">{v.shares.toLocaleString()} 股・均價 {v.market === "US" ? "$" : ""}{fmtPrice(v.cost, v.market === "US" ? "US" : undefined)}</div>
         <div class="sub">{v.advice.join("；")}</div>
@@ -878,8 +928,8 @@ function HoldingRow({ v, open, onEsb, fx }: { v: any; open: (s: Scored) => void;
   );
 }
 
-function HoldingsEditor() {
-  const holdings = useStore((s) => s.holdings);
+function HoldingsEditor({ broker }: { broker: Broker }) {
+  const holdings = useStore((s) => s.holdings).filter((h) => brokerOf(h) === broker);
   const [editing, setEditing] = useState<Holding | null>(null);
   return (
     <>
@@ -898,7 +948,7 @@ function marketOf(code: string, hint?: string): Holding["market"] {
   return s?.market === "TPEX" ? "TPEX" : "TWSE";
 }
 
-function HoldingForm({ initial, onDone }: { initial?: Partial<Holding>; onDone: () => void }) {
+function HoldingForm({ initial, onDone, broker = initial?.broker ?? "pocket" }: { initial?: Partial<Holding>; onDone: () => void; broker?: Broker }) {
   const holdings = useStore((s) => s.holdings);
   const [code, setCode] = useState(initial?.code ?? "");
   const [shares, setShares] = useState(String(initial?.shares ?? ""));
@@ -913,14 +963,15 @@ function HoldingForm({ initial, onDone }: { initial?: Partial<Holding>; onDone: 
     if (!(co > 0)) return setErr("成本要大於 0");
     const market = marketOf(c, initial?.market === "US" ? "US" : undefined);
     const name = findScored(c, market === "US" ? "US" : "TW")?.name ?? getState().prices[c]?.name ?? initial?.name ?? c;
-    const h: Holding = { id: initial?.id ?? `${Date.now()}-${c}`, code: c, name, market, shares: sh, cost: co };
-    await saveHoldings(isEdit ? holdings.map((x) => (x.id === h.id ? h : x)) : [...holdings.filter((x) => x.code !== c), h]);
+    const h: Holding = { id: initial?.id ?? `${Date.now()}-${c}`, code: c, name, market, shares: sh, cost: co, broker };
+    // 同一家券商的同代號會被覆蓋；另一家的同代號不動
+    await saveHoldings(isEdit ? holdings.map((x) => (x.id === h.id ? h : x)) : [...holdings.filter((x) => x.code !== c || brokerOf(x) !== broker), h]);
     if (market === "US" && !findScored(c, "US")) addUsSymbol(c); // 不在清單裡的美股持股，自動下載
     onDone();
   };
   const remove = async () => { await saveHoldings(holdings.filter((x) => x.id !== initial?.id)); onDone(); };
   return (
-    <Sheet title={isEdit ? `編輯 ${initial?.name}` : "新增持股"} onClose={onDone}>
+    <Sheet title={isEdit ? `編輯 ${initial?.name}（${BROKERS.find((b) => b.key === broker)!.label}）` : `新增${BROKERS.find((b) => b.key === broker)!.label}持股`} onClose={onDone}>
       <div class="stack">
         <label class="field">股票代號<input value={code} onInput={(e) => setCode((e.target as HTMLInputElement).value)} placeholder="例如 2330 或 AAPL" autocapitalize="characters" id="h-code" /></label>
         <div class="formgrid">
@@ -936,7 +987,7 @@ function HoldingForm({ initial, onDone }: { initial?: Partial<Holding>; onDone: 
   );
 }
 
-function ImportReview({ data, onDone }: { data: { rows: ImportedHolding[]; note: string }; onDone: () => void }) {
+function ImportReview({ data, onDone, broker }: { data: { rows: ImportedHolding[]; note: string }; onDone: () => void; broker: Broker }) {
   const holdings = useStore((s) => s.holdings);
   // 股數、成本用字串存（打小數點時 "25." 不能被轉成數字吃掉），存檔時才轉成數字檢查
   const [rows, setRows] = useState(data.rows.map((r) => ({ ...r, sharesText: String(r.shares ?? ""), costText: String(r.cost ?? ""), keep: !!r.code && r.shares > 0 })));
@@ -950,15 +1001,15 @@ function ImportReview({ data, onDone }: { data: { rows: ImportedHolding[]; note:
     const add: Holding[] = picked.map(({ r, shares, cost }) => {
       const code = r.code.trim().toUpperCase();
       const market = marketOf(code, r.market);
-      return { id: `${Date.now()}-${code}`, code, name: findScored(code, market === "US" ? "US" : "TW")?.name ?? getState().prices[code]?.name ?? r.name, market, shares, cost };
+      return { id: `${Date.now()}-${code}`, code, name: findScored(code, market === "US" ? "US" : "TW")?.name ?? getState().prices[code]?.name ?? r.name, market, shares, cost, broker };
     });
     const codes = new Set(add.map((h) => h.code));
-    await saveHoldings([...holdings.filter((h) => !codes.has(h.code)), ...add]);
+    await saveHoldings([...holdings.filter((h) => !codes.has(h.code) || brokerOf(h) !== broker), ...add]);
     onDone();
   };
   return (
     <Sheet title="確認辨識結果" onClose={onDone}>
-      <div class="notice">請核對 Claude 辨識的內容，數字不對可以直接改。同代號的持股會被覆蓋。{data.note && <><br />Claude 備註：{data.note}</>}</div>
+      <div class="notice">會加入「{BROKERS.find((b) => b.key === broker)!.label}持股」。請核對 Claude 辨識的內容，數字不對可以直接改。這家券商同代號的持股會被覆蓋。{data.note && <><br />Claude 備註：{data.note}</>}</div>
       <div class="list" style={{ marginTop: "12px" }}>
         {rows.map((r, i) => (
           <div class="import-row">

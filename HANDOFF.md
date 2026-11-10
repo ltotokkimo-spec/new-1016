@@ -151,6 +151,7 @@
 - **雷達圖示（10/28 使用者選定 B3）**：標題雷達改金色圓環＋38 片漸淡扇形殘影（約半圈，4.5 秒一圈）＋4 個紅色目標點（掃到才亮），由 `app.tsx` 的 `RADAR_FAN`／`RADAR_BLIPS` 產生，樣式在 `styles.css` `.radar-logo`（淺色模式用深金、reduced-motion 停止）。啟動畫面（`index.html` 的 `#boot-radar`）、Android 12 系統啟動畫面（`res/drawable/radar_icon.xml`、`values-v31/styles.xml`）也一併改金色＋暖黑背景；Android 11 以下的 `splash.png` 與桌面圖示（`mipmap-*/ic_launcher*.png`）10/28 也已改金色，由 scratchpad 的產圖腳本畫（金色 B3 靜態版、底色 #120D04）。
 
 ## 虛擬ETF 共通區塊（1.0.178）
+- **口袋／元大持股（11/10）**：`Holding.broker`（沒有＝口袋，`brokerOf`），持股頁三個分頁（localStorage `holdTab`）；統計用 `mergeHoldings` 合併同代號（股數相加、成本加權）＋`BrokerStats`（美股依匯率換台幣加總）。新增／照片匯入只覆蓋同券商的同代號。
 - **持股分析與建議（11/9）**：`src/engine/recovery.ts` 的 `recoveryPlan`，持股分頁 `RecoveryCard`（預設收合）。回本價含手續費與證交稅；動作：離場或虧損達 10% → 停損換股（推薦未持有、評分最高的「買入」股，ETF 推分數最高的 ETF）；買入 → 攤平（加碼股數讓回本漲幅減半，最多加倍持股，台股滿 1 張取整張）；其他 → 續抱設條件。只列虧損持股。
 - **零頭照買（11/9）**：試過「新買進比重不足 1% 不買」（1.0.311），回測 AI5 年化 +86.7% vs 原本 +92.3%，使用者要報酬最大化，1.0.312 起取消，所有組合照比重買零股。AI5 留在回測當對照。
 - 所有虛擬ETF組合（Claude/N5/全個股/攻守輪動/權值強化/AI供應鏈）都顯示：資金水位（`CashReserve`，規則組合另顯示明天調整後目標 `plan.nextStock`）、每日損益 vs 0050（`DailyCompare`）、明天要調整的股票（`pending`，規則組合由 `runWatch` 以最後資料日目標權重 vs 現有持股產生，帶日期註記）。

@@ -148,7 +148,7 @@ export function EtfRankScreen({ open }: { open: (s: Scored, list?: Scored[]) => 
     const pctS = (x: number) => `${x > 0 ? "+" : ""}${(x * 100).toFixed(x !== 0 && Math.abs(x) < 0.1 ? 1 : 0)}%`;
     if (src === "trust") {
       const r = flowRank(tw.scored, days, "trust", 20, sortBy);
-      const sub = (x: { pct?: number }) => (x.pct !== undefined ? `${x.pct > 0 ? "買超" : "賣超"}佔${days === 5 ? "約 5 日" : "當日"}成交金額 ${pctS(Math.abs(x.pct))}` : undefined);
+      const sub = (x: { pct?: number }) => (x.pct !== undefined ? `${x.pct > 0 ? "買超" : "賣超"}佔${days === 5 ? "約 5 日" : "當日"}成交金額 ${(Math.abs(x.pct) * 100).toFixed(Math.abs(x.pct) < 0.1 ? 1 : 0)}%` : undefined);
       return { buy: r.buy.map((x) => ({ ...x, sub: sub(x) })), sell: r.sell.map((x) => ({ ...x, sub: sub(x) })), used: undefined, partial: undefined };
     }
     const r = activeRank(active?.data, days, (c) => byCode.get(c), 20, sortBy);

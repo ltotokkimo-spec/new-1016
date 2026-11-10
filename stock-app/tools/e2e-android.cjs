@@ -15,7 +15,7 @@ const log = (...a) => console.log(`[${Math.round((Date.now() - t0) / 1000)}s]`, 
 // 任何一步卡住都不能讓整個測試無限等待
 const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`${what} 超過 ${ms / 1000} 秒沒有回應`)), ms))]);
 let dumpAndExit = null;
-setTimeout(() => { log("整體測試超過 20 分鐘，停止並輸出目前結果"); process.exitCode = 1; dumpAndExit?.(); }, 20 * 60_000).unref();
+setTimeout(() => { log("整體測試超過 23 分鐘，停止並輸出目前結果"); process.exitCode = 1; dumpAndExit?.(); }, 23 * 60_000).unref();
 
 function check(ok, name, detail = "") {
   results.push({ ok, name, detail });

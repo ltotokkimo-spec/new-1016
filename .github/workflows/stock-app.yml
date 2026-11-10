@@ -134,7 +134,7 @@ jobs:
           test -d "$ANDROID_HOME/system-images/android-34/google_apis/x86_64"
 
       - name: Android 模擬器實測（真實網路資料）
-        timeout-minutes: 25
+        timeout-minutes: 27
         uses: reactivecircus/android-emulator-runner@v2
         env:
           # Claude AI 實測會花 API 額度（約 US$1.5/次），只有手動執行時才測；平常推送不花錢

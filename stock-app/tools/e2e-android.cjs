@@ -1027,7 +1027,7 @@ function check(ok, name, detail = "") {
   check(/^[+-]NT\$[\d,]+$/.test(usHold.ntd), "美股持股另外顯示台幣損益（NT$）", usHold.ntd);
   check(/^[+-]NT\$[\d,]+$/.test(usHold.cardNtd) && /\$[\d,]+/.test(usHold.cardText), "美股市值卡片顯示美金與台幣損益", usHold.cardText);
   const pnlCards = await page.evaluate(() => ({ tw: document.querySelector('[data-testid="tw-pnl"]')?.innerText.replace(/\s+/g, " ") || "", us: document.querySelector('[data-testid="us-pnl"]')?.innerText.replace(/\s+/g, " ") || "" }));
-  check(/^總損益 [+-]?[\d.,]+( 萬| 億)?（[+-]?\d+\.\d%）$/.test(pnlCards.tw) && /^總損益 [+-]?\$[\d,]+（[+-]?\d+\.\d%）$/.test(pnlCards.us), "台股、美股市值卡片的損益標明「總損益」", JSON.stringify(pnlCards));
+  check(/^累計損益 [+-]?[\d.,]+( 萬| 億)?（[+-]?\d+\.\d%）$/.test(pnlCards.tw) && /^累計損益 [+-]?\$[\d,]+（[+-]?\d+\.\d%）$/.test(pnlCards.us), "台股、美股市值卡片的損益標明「累計損益」", JSON.stringify(pnlCards));
   // 只有一檔美股：卡片與持股列的台幣損益要一樣，且換算出的匯率合理（不顯示匯率，從金額反推）；也確認畫面上不再出現匯率說明
   const usd = Number((usHold.pnl.match(/([+-])\$([\d,]+)/) || []).slice(1).join("").replace(/,/g, ""));
   const twd = Number(usHold.ntd.replace(/NT\$|,/g, ""));
@@ -1072,8 +1072,8 @@ function check(ok, name, detail = "") {
       tags: [...document.querySelectorAll('[data-testid="hold-brokers"]')].map((e) => e.innerText),
     }));
     log("統計持股", JSON.stringify(st).slice(0, 500));
-    check(/兩家合計/.test(st.card) && /口袋/.test(st.pocket) && /佔 100%/.test(st.pocket) && /沒有持股/.test(st.yuanta) && st.n === pocketN && st.tags.length === st.n && st.tags.every((t) => t === "口袋"),
-      "統計分頁合併兩家：口袋佔 100%、元大沒有持股，持股列標示來源券商", JSON.stringify({ pocket: st.pocket, yuanta: st.yuanta, n: st.n, pocketN }));
+    check(/兩家合計/.test(st.card) && /口袋/.test(st.pocket) && /佔兩家合計 100%/.test(st.pocket) && /累計損益 ?[+-]?[\d,]+ 元/.test(st.pocket) && /今日損益 ?[+-]?[\d,]+ 元（[+-]?\d+\.\d%）/.test(st.pocket) && /沒有持股/.test(st.yuanta) && st.n === pocketN && st.tags.length === st.n && st.tags.every((t) => t === "口袋"),
+      "統計分頁合併兩家：口袋佔 100%（市值、累計損益、今日損益都標名稱與元）、元大沒有持股，持股列標示來源券商", JSON.stringify({ pocket: st.pocket, yuanta: st.yuanta, n: st.n, pocketN }));
     await shot("06d-統計持股");
     await page.click('[data-testid="hold-tab-pocket"]');
   } else check(false, "持股分頁有口袋／元大／統計分頁");

@@ -785,8 +785,8 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
       </div>
       {tab === "stats" && <BrokerStats byBroker={byBroker} merged={views} fx={fx} />}
       <div class="summary">
-        <div class="card"><div class="muted" style={{ fontSize: "12px" }}>{tab === "stats" ? "合計" : brokerLabel}台股市值</div>{tw.cost ? <><div class="big num">{fmtMoney(tw.value)}</div><div class={`num ${cls(tw.pnl)}`} style={{ fontSize: "13px" }} data-testid="tw-pnl">總損益 {fmtMoney(tw.pnl)}（{fmtPct(tw.pnl / tw.cost)}）</div>{tw.hasDay && <div class={`num ${cls(tw.day)}`} style={{ fontSize: "12px" }} data-testid="tw-day">今日 {fmtMoney(tw.day)}（{fmtPct(tw.dayPct)}）</div>}</> : <div class="big muted">—</div>}</div>
-        <div class="card"><div class="muted" style={{ fontSize: "12px" }}>{tab === "stats" ? "合計" : brokerLabel}美股市值</div>{us.cost ? <><div class="big num">{fmtMoney(us.value, "US")}</div><div class={`num ${cls(us.pnl)}`} style={{ fontSize: "13px" }} data-testid="us-pnl">總損益 {fmtMoney(us.pnl, "US")}（{fmtPct(us.pnl / us.cost)}）</div>{fx && <div class={`num ${cls(us.pnl)}`} style={{ fontSize: "13px" }} data-testid="us-ntd">{fmtNtd(us.pnl, fx)}</div>}{us.hasDay && <div class={`num ${cls(us.day)}`} style={{ fontSize: "12px" }}>今日 {fmtMoney(us.day, "US")}（{fmtPct(us.dayPct)}）</div>}</> : <div class="big muted">—</div>}</div>
+        <div class="card"><div class="muted" style={{ fontSize: "12px" }}>{tab === "stats" ? "合計" : brokerLabel}台股市值</div>{tw.cost ? <><div class="big num">{fmtMoney(tw.value)}</div><div class={`num ${cls(tw.pnl)}`} style={{ fontSize: "13px" }} data-testid="tw-pnl">累計損益 {fmtMoney(tw.pnl)}（{fmtPct(tw.pnl / tw.cost)}）</div>{tw.hasDay && <div class={`num ${cls(tw.day)}`} style={{ fontSize: "12px" }} data-testid="tw-day">今日損益 {fmtMoney(tw.day)}（{fmtPct(tw.dayPct)}）</div>}</> : <div class="big muted">—</div>}</div>
+        <div class="card"><div class="muted" style={{ fontSize: "12px" }}>{tab === "stats" ? "合計" : brokerLabel}美股市值</div>{us.cost ? <><div class="big num">{fmtMoney(us.value, "US")}</div><div class={`num ${cls(us.pnl)}`} style={{ fontSize: "13px" }} data-testid="us-pnl">累計損益 {fmtMoney(us.pnl, "US")}（{fmtPct(us.pnl / us.cost)}）</div>{fx && <div class={`num ${cls(us.pnl)}`} style={{ fontSize: "13px" }} data-testid="us-ntd">{fmtNtd(us.pnl, fx)}</div>}{us.hasDay && <div class={`num ${cls(us.day)}`} style={{ fontSize: "12px" }}>今日損益 {fmtMoney(us.day, "US")}（{fmtPct(us.dayPct)}）</div>}</> : <div class="big muted">—</div>}</div>
       </div>
       {tab !== "stats" && <><div class="row" style={{ marginTop: "12px" }}>
         <label class="btn" style={{ flex: 1 }} aria-disabled={busy || !apiKey}>
@@ -831,23 +831,31 @@ function BrokerStats({ byBroker, merged, fx }: { byBroker: { key: Broker; label:
   const secs = new Map<string, number>();
   for (const v of merged) if (Number.isFinite(v.price)) { const k = v.market === "US" ? "美股" : /^00/.test(v.code) ? "ETF" : v.scored?.sector ?? "其他"; secs.set(k, (secs.get(k) ?? 0) + twd(v, v.price * v.shares)); }
   const secList = [...secs].filter(([, x]) => Number.isFinite(x)).sort((a, b) => b[1] - a[1]);
+  // 每一項都標清楚名稱、單位（台幣元）、正負號與 %（11/10 使用者：「元大今日 8310 怎麼來的看不懂」）
+  const nt = (x: number) => (Number.isFinite(x) ? `${fmtSigned(x)} 元` : "—");
+  const Block = ({ title, t, share, testid }: { title: string; t: ReturnType<typeof stat>; share?: number; testid: string }) => (
+    <div class="stack" style={{ gap: "6px" }} data-testid={testid}>
+      <div class="row" style={{ justifyContent: "space-between" }}><b>{title}</b><span class="muted" style={{ fontSize: "12px" }}>{t.n ? `${t.n} 檔（${t.win} 檔賺、${t.n - t.win} 檔賠）` : "沒有持股"}</span></div>
+      {t.n > 0 && <div class="grid2">
+        <div class="metric"><div class="k">目前市值</div><div class="v num">{fmtMoney(t.value)}</div><div class="d muted" style={{ fontSize: "11.5px" }}>{share !== undefined ? `佔兩家合計 ${Math.round(share * 100)}%` : `買進成本 ${fmtMoney(t.cost)}`}</div></div>
+        <div class="metric"><div class="k">累計損益</div><div class={`v num ${cls(t.pnl)}`}>{nt(t.pnl)}</div><div class={`d num ${cls(t.pnl)}`} style={{ fontSize: "11.5px" }}>{fmtPct(t.cost ? t.pnl / t.cost : NaN)}・從買進到現在</div></div>
+        <div class="metric" style={{ gridColumn: "1 / -1" }}><div class="k">今日損益</div><div class={`v num ${cls(t.day)}`}>{nt(t.day)}<span style={{ fontSize: "13px", marginLeft: "6px" }}>（{fmtPct(t.value - t.day ? t.day / (t.value - t.day) : NaN)}）</span></div><div class="d muted" style={{ fontSize: "11.5px" }}>今天每檔（現價 − 昨天收盤）× 股數，加總</div></div>
+      </div>}
+    </div>
+  );
   return (
     <div class="card stack" data-testid="broker-stats">
-      <div class="row" style={{ justifyContent: "space-between" }}><b>兩家合計</b><span class="num">{fmtMoney(all.value)}</span></div>
-      <div class={`num ${cls(all.pnl)}`} style={{ fontSize: "13px" }}>總損益 {fmtMoney(all.pnl)}（{fmtPct(all.cost ? all.pnl / all.cost : NaN)}）・今日 {fmtMoney(all.day)}・{all.n} 檔（{all.win} 檔獲利）</div>
-      {byBroker.map((b) => { const t = stat(b.rows); return (
-        <div style={{ borderTop: "1px solid var(--line)", paddingTop: "8px" }} data-testid={`broker-row-${b.key}`}>
-          <div class="row" style={{ justifyContent: "space-between" }}><b>{b.label}</b><span class="num">{t.n ? `${fmtMoney(t.value)}・佔 ${all.value ? Math.round((t.value / all.value) * 100) : 0}%` : "沒有持股"}</span></div>
-          {t.n > 0 && <div class={`num ${cls(t.pnl)}`} style={{ fontSize: "13px" }}>損益 {fmtMoney(t.pnl)}（{fmtPct(t.cost ? t.pnl / t.cost : NaN)}）・今日 {fmtMoney(t.day)}・{t.n} 檔</div>}
-        </div>
-      ); })}
+      <Block title="兩家合計" t={all} testid="broker-row-all" />
+      {byBroker.map((b) => <div style={{ borderTop: "1px solid var(--line)", paddingTop: "10px" }}><Block title={b.label} t={stat(b.rows)} share={all.value ? stat(b.rows).value / all.value : 0} testid={`broker-row-${b.key}`} /></div>)}
       {secList.length > 0 && <div style={{ borderTop: "1px solid var(--line)", paddingTop: "8px" }} data-testid="broker-sectors">
-        <b style={{ fontSize: "14px" }}>產業分布（合併）</b>
+        <b style={{ fontSize: "14px" }}>產業分布（兩家合併，依市值）</b>
         {secList.slice(0, 8).map(([k, x]) => (
           <div class="row" style={{ justifyContent: "space-between", fontSize: "13px" }}><span>{k}</span><span class="num">{all.value ? `${((x / all.value) * 100).toFixed(1)}%` : "—"}（{fmtMoney(x)}）</span></div>
         ))}
       </div>}
-      <div class="muted" style={{ fontSize: "12px" }}>同一檔兩家都有時，下面的持股列會合併成一筆（股數相加、成本加權平均），名稱旁標「口袋＋元大」。{fx ? "美股依今日匯率換成台幣後一起加總。" : "美股匯率還沒載入，暫不計入合計。"}</div>
+      <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
+        金額都是台幣：美股依今日匯率{fx ? `（1 美元 ≈ ${fx.toFixed(2)} 元）` : "（還沒載入，美股暫不計入）"}換算後一起加總。累計損益＝目前市值 − 買進成本（未扣賣出手續費與稅）。同一檔兩家都有時，下面的持股列合併成一筆（股數相加、成本加權平均），名稱旁標「口袋＋元大」。
+      </div>
     </div>
   );
 }
@@ -914,7 +922,7 @@ function HoldingRow({ v, open, onEsb, fx, brokers }: { v: any; open: (s: Scored)
     <button class="item" onClick={() => (v.scored ? open(v.scored) : isEsb && onEsb?.(v))}>
       <div style={{ minWidth: 0 }}>
         <div class="name">{v.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{v.code}</span>{brokers && <span class="muted" style={{ fontWeight: 400, fontSize: "11px", marginLeft: "6px" }} data-testid="hold-brokers">{brokers.map((b) => BROKERS.find((x) => x.key === b)!.label).join("＋")}</span>}</div>
-        <div class={`num ${cls(v.pnl)}`} style={{ fontSize: "13px", fontWeight: 600, marginTop: "2px" }} data-testid="hold-pnl"><span class="lbl" style={{ fontFamily: "var(--font)", fontSize: "11px", fontWeight: 400, color: "var(--muted)", marginRight: "4px" }}>損益</span>{fmtSigned(v.pnl, v.market)}<span style={{ whiteSpace: "nowrap" }}>（{fmtPct(v.pnlPct)}）</span>{v.market === "US" && fx && Number.isFinite(v.pnl) && <span style={{ display: "block", whiteSpace: "nowrap" }} data-testid="hold-ntd">{fmtNtd(v.pnl, fx)}</span>}</div>
+        <div class={`num ${cls(v.pnl)}`} style={{ fontSize: "13px", fontWeight: 600, marginTop: "2px" }} data-testid="hold-pnl"><span class="lbl" style={{ fontFamily: "var(--font)", fontSize: "11px", fontWeight: 400, color: "var(--muted)", marginRight: "4px" }}>累計損益</span>{fmtSigned(v.pnl, v.market)}<span style={{ whiteSpace: "nowrap" }}>（{fmtPct(v.pnlPct)}）</span>{v.market === "US" && fx && Number.isFinite(v.pnl) && <span style={{ display: "block", whiteSpace: "nowrap" }} data-testid="hold-ntd">{fmtNtd(v.pnl, fx)}</span>}</div>
         <div class="muted num" style={{ fontSize: "12px", marginTop: "2px" }} data-testid="hold-avg">{v.shares.toLocaleString()} 股・均價 {v.market === "US" ? "$" : ""}{fmtPrice(v.cost, v.market === "US" ? "US" : undefined)}</div>
         <div class="sub">{v.advice.join("；")}</div>
       </div>

@@ -23,6 +23,7 @@ import { FlowsPanel } from "./flows";
 import { EtfHoldingsPanel, isActiveEtf } from "./etfHoldings";
 import { isEtf } from "../data/tw";
 import { freeReport } from "../engine/freeReport";
+import { DisclaimerText } from "./disclaimer";
 import { levelsOf, recoveryPlan, type Levels, type RecoveryItem } from "../engine/recovery";
 import { withLiveBar } from "../engine/liveBar";
 import { isUsSymbol, MACRO_SYMBOLS, retN, sma, type MacroQuote } from "../data/us";
@@ -1989,6 +1990,8 @@ export function SettingsScreen() {
       <UpdateCard />
       <div class="section-title"><span>資料</span></div>
       <DataRefreshCard />
+      <div class="section-title"><span>免責聲明與授權</span></div>
+      <div class="card" data-testid="settings-disclaimer"><DisclaimerText /></div>
       <div class="notice">本 App 為個人研究工具，評等由公開數據依固定規則計算，AI 解析可能有誤，不構成投資建議。投資前請自行判斷。</div>
     </div>
   );

@@ -1,0 +1,46 @@
+金雷達與本專案 個人非商業使用授權
+Personal Non-Commercial Use License
+
+Copyright (c) 2026 ltotokkimo-spec. 保留所有權利 / All rights reserved.
+
+本專案（含金雷達 App 的原始碼、雲端計算流程、文件與發布的 APK，以下稱「本軟體」）的原始碼雖然公開，
+但公開不代表放棄權利。本軟體不是開放原始碼（Open Source）授權，使用條件如下。
+
+一、你可以做的事（免費）
+1. 閱讀、研究原始碼。
+2. 為你自己或家人朋友「個人、非商業」的用途，安裝與使用本軟體所發布的 APK。
+3. 把作者發布的、未修改的 APK 免費轉給他人自用，但必須同時附上 App 內的免責聲明，不得收費。
+4. 為個人學習或自用，在自己的電腦上修改與執行，但修改後的版本不得散布給他人。
+
+二、你不可以做的事（除非事先取得作者的書面同意）
+1. 商業使用：販售、收費、租用、訂閱、置入廣告，或以本軟體或其衍生物對外提供付費或公開的服務，
+   包括提供他人有償的投資分析、投資建議或訊號。
+2. 散布修改版、衍生作品，或複製本軟體的程式碼、設計、規則、介面與文字，用於製作另一個 App 或產品
+   （包含請 AI 工具依本軟體重製另一個 App）。
+3. 移除、隱藏或修改 App 內的免責聲明或這份授權。
+4. 冒用作者或本軟體的名義，或讓人誤以為你的版本是官方版本。
+5. 違反資料來源（證交所、櫃買中心、MoneyDJ、Yahoo、Nasdaq、CNBC 等）各自的使用條款。
+
+三、免責
+本軟體依「現況」提供，不附帶任何明示或默示的保證。評分、評等與各項建議只是依規則整理的資料，
+不是投資建議，也不保證獲利。使用本軟體所生的任何損失，作者不負責任。
+
+四、授權的終止
+違反上述條件時，你的使用授權立即終止，你必須刪除本軟體及所有複本。
+
+五、其他
+如需商業使用或複製、改作，請先取得作者書面同意（書面包含作者在 GitHub、訊息或電子郵件中的明確同意）。
+本授權不影響各資料來源與第三方套件原本的授權。
+
+----------------------------------------------------------------------
+English summary (the Chinese text above governs if they differ)
+
+This is NOT an open-source license. The source is publicly viewable, but all rights are reserved.
+You may read the code and use the app for personal, non-commercial purposes, and may pass the
+unmodified APK to others free of charge together with its disclaimer. You may NOT sell it, offer it as a
+paid or public service, give paid investment advice with it, distribute modified or derived versions,
+copy its code/design/rules to build another app or product (including by AI tools), remove the
+disclaimer, or impersonate the project. Without written permission from the author, any other use is
+prohibited. The software is provided "as is" without warranty; nothing in it is investment advice, and the
+author is not liable for any loss. This license does not change the terms of third-party data sources or
+packages.

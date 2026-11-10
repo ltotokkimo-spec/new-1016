@@ -75,6 +75,16 @@ function check(ok, name, detail = "") {
   page.on("response", (r) => { if (r.status() >= 400) log("HTTP", r.status(), r.url()); });
   await sleep(3000);
   await shot("01-啟動下載中");
+  // 免責聲明（11/10）：第一次打開要按「我了解」才能操作；資料照常在背後下載。按掉後重開不會再出現
+  const gate = await page.waitForSelector('[data-testid="disclaimer"]', { timeout: 30000 }).then(() => true).catch(() => false);
+  const gateTxt = gate ? await page.$eval('[data-testid="disclaimer-text"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "") : "";
+  check(gate && /不是投資建議/.test(gateTxt) && /盈虧自負/.test(gateTxt) && /授權/.test(gateTxt), "第一次打開顯示免責聲明（不是投資建議、盈虧自負、授權）", gateTxt.slice(0, 120));
+  await shot("01b-免責聲明");
+  if (gate) {
+    await page.click('[data-testid="disclaimer-ok"]');
+    await page.waitForSelector('[data-testid="disclaimer"]', { state: "detached", timeout: 5000 }).catch(() => {});
+  }
+  check(!(await page.$('[data-testid="disclaimer"]')), "按「我了解」後免責聲明關閉");
 
   // ---------- 台股：真實證交所／櫃買資料 ----------
   // 每 30 秒記錄下載進度；卡住時印出原生網路紀錄方便查原因
@@ -1308,6 +1318,10 @@ function check(ok, name, detail = "") {
   check(card.includes(`目前版本 1.0.${run}`), "App 讀到自己的版本號", card);
   // 上一版還沒有 version.json 時會是 404，之後的版本都要讀得到
   check(/已是最新版本/.test(card) || /HTTP 404/.test(card), "檢查更新可以讀到 GitHub 上的最新版資訊", card);
+  // 重開 App（page2）後免責聲明不會再出現；設定頁看得到全文
+  const gate2 = !!(await page2.$('[data-testid="disclaimer"]'));
+  const setDis = await page2.$eval('[data-testid="settings-disclaimer"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
+  check(!gate2 && /不是投資建議/.test(setDis) && /授權/.test(setDis), "重開 App 不再顯示免責聲明，設定頁看得到免責聲明與授權全文", setDis.slice(0, 100));
   // 設定頁的「立即更新全部資料」：按下去要有回應（更新中→完成），並列出各來源的資料日（之前看起來沒反應）
   await page2.click('[data-testid="refresh-all"]');
   const busyTxt = await page2.$eval('[data-testid="refresh-all"]', (b) => b.innerText).catch(() => "");

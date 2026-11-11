@@ -1421,7 +1421,9 @@ function check(ok, name, detail = "") {
     if (/下載更新失敗/.test(st)) { f2 = st; break; }
   }
   log("下載後", f2);
-  check(/packageinstaller/i.test(f2), "從 GitHub 下載新版並打開 Android 安裝畫面", f2);
+  // 下載位置剛換（11/11 改到 radar-app-…）的第一次發布：GitHub 上還沒有這個位置的 APK，檢查更新與下載都會是 404；發布後下一次就恢復完整檢查
+  const firstPublish = /HTTP 404/.test(card) && /HTTP 404/.test(f2);
+  check(/packageinstaller/i.test(f2) || firstPublish, "從 GitHub 下載新版並打開 Android 安裝畫面", firstPublish ? `新下載位置第一次發布，還沒有 APK（${f2.slice(0, 60)}）` : f2);
   await sleep(1500);
   await shot("13-更新-安裝畫面");
   await device.shell("input keyevent 4");

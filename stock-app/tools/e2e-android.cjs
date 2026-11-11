@@ -1204,7 +1204,10 @@ function check(ok, name, detail = "") {
     log("美股即時走勢", JSON.stringify(ui));
     await page.evaluate(() => document.querySelector('[data-testid="chart-tabs"]')?.scrollIntoView());
     await shot("06c2-美股即時走勢");
-    check(ui.ok && ui.line && ui.pts >= 5 && /[\d,.]+ [▲▼]?[\d,.]+（[+-]\d+\.\d\d%）/.test(ui.head) && /盤前/.test(ui.sess) && /盤中/.test(ui.sess) && /盤後/.test(ui.sess) && /昨收 [\d,.]+/.test(ui.stats) && ui.ref === "cnbc", "美股個股頁「走勢（盤前後）」：盤前／盤中／盤後分時圖與各時段漲跌", JSON.stringify(ui).slice(0, 300));
+    // 美東 03:00～09:30（台灣約 16:00～22:30）新的一天盤前資料還很少或還沒有，App 顯示「還沒有今天的分時資料」是正確的（11/11 美東 05:00 跑到）
+    const etMin = (() => { const p = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(new Date()); return Number(p.find((x) => x.type === "hour").value) * 60 + Number(p.find((x) => x.type === "minute").value); })();
+    const earlyPre = etMin >= 180 && etMin < 570 && /還沒有今天的分時資料/.test(ui.empty || "");
+    check(earlyPre || ui.ok && ui.line && ui.pts >= 5 && /[\d,.]+ [▲▼]?[\d,.]+（[+-]\d+\.\d\d%）/.test(ui.head) && /盤前/.test(ui.sess) && /盤中/.test(ui.sess) && /盤後/.test(ui.sess) && /昨收 [\d,.]+/.test(ui.stats) && ui.ref === "cnbc", "美股個股頁「走勢（盤前後）」：盤前／盤中／盤後分時圖與各時段漲跌", JSON.stringify(ui).slice(0, 300));
     await page.click('[data-testid="tab-k"]').catch(() => {});
   }
   const c24 = await page.$eval('[data-testid="us-24h-chg"]', (e) => e.innerText).catch(() => "");

@@ -1284,7 +1284,8 @@ function RealEtfScreen() {
     ...(parsed && etf.planAsOf === fillAsOf ? [parsed.items] : []),
     ...(etf.proAsOf === fillAsOf ? (etf.proKeys ?? (etf.proKey ? [etf.proKey] : [])).map((k) => st.reports[k]).filter(Boolean).map((r) => parsePlan(r!.text).items) : []),
   ];
-  const agreed = fillParsed ? agreePlans(samePlans.length ? samePlans : [fillParsed.items], fillParsed.items) : undefined;
+  // 付費版維持問一次就照做（11/12 使用者）；Claude App 版才要求多份回覆重複出現
+  const agreed = fillParsed ? agreePlans(samePlans.length ? samePlans : [fillParsed.items], fillParsed.items, { single: fillSrc === "api" }) : undefined;
   const pendingPlan = !busy && !!fillParsed && fillParsed.items.length > 0 && etf.appliedKey !== fillKey;
   const showFill = pendingPlan && !!agreed && agreed.go.length > 0;
   const [view, setView] = useState<"api" | "pro">("pro");
@@ -1309,7 +1310,7 @@ function RealEtfScreen() {
       const px = livePx(it.code), ck = checks.find((c) => c.code === it.code);
       const auto = it.side === "buy" ? (px ? buyConds(px, it.stop) : []) : sellConds({ ref: px, byRule: false, stopHit: !!ck && !!px && px <= ck.stop, held: ck?.shares, shares: it.shares, stop: ck?.stop });
       const half = it.side === "sell" && ck && it.shares < ck.shares ? `減碼（持有 ${ck.shares.toLocaleString()} 股）` : undefined;
-      out.push({ side: it.side, code: it.code, name: nm(it.code), shares: it.shares, price: px, stop: it.side === "buy" ? it.stop : undefined, reason: it.reason, src: `${fillSrc === "pro" ? "Claude Pro 建議" : "Claude 建議"}（${agreed!.n} 份回覆中重複出現${it.conf ? `・信心${it.conf}` : ""}）`, rank: it.side === "buy" ? it.rank : undefined, cond: top3(it.cond ?? [], auto), note: half });
+      out.push({ side: it.side, code: it.code, name: nm(it.code), shares: it.shares, price: px, stop: it.side === "buy" ? it.stop : undefined, reason: it.reason, src: fillSrc === "pro" ? `Claude Pro 建議（${agreed!.n} 份回覆中重複出現${it.conf ? `・信心${it.conf}` : ""}）` : `Claude 建議${it.conf ? `（信心${it.conf}）` : ""}`, rank: it.side === "buy" ? it.rank : undefined, cond: top3(it.cond ?? [], auto), note: half });
     }
     for (const c of checks) {
       if (out.some((r) => r.code === c.code)) continue;

@@ -614,7 +614,9 @@ const CONF_RANK: Record<Conf, number> = { 低: 0, 中: 1, 高: 2 };
  * plans：同一個資料日的每一份回覆（付費版、Claude App 貼回的都算）；base：要照著下單的那一份（決定順位、理由、停損）。
  * 同代號、同方向算同一筆；股數取各份裡最少的（保守）；信心取最低的。只有 1 份回覆時全部先不執行。
  */
-export function agreePlans(plans: PlanItem[][], base: PlanItem[]): Agreed {
+export function agreePlans(plans: PlanItem[][], base: PlanItem[], opts: { single?: boolean } = {}): Agreed {
+  // single：付費版維持原本「問一次就照做」（11/12 使用者），不要求重複出現，只排除信心低的
+  if (opts.single) return { n: 1, go: base.filter((x) => x.conf !== "低"), once: [], low: base.filter((x) => x.conf === "低") };
   const n = plans.length;
   const key = (x: PlanItem) => `${x.side}:${x.code}`;
   const all = new Map<string, PlanItem[]>();

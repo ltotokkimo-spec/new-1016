@@ -20,6 +20,13 @@ describe("多份回覆比對：只執行重複出現、信心不是低的交易"
     expect(a.once.map((x) => x.code).sort()).toEqual(["2317", "2603"]);
     expect(a.low.map((x) => x.code)).toEqual(["2454"]); // 兩份都有，但有一份信心低 → 取最低
   });
+  it("付費版（single）問一次就照做，只排除信心低的", () => {
+    const p = [it_("2330", "buy", 10, "高"), it_("2454", "buy", 5, "低")];
+    const a = agreePlans([p], p, { single: true });
+    expect(a.go.map((x) => x.code)).toEqual(["2330"]);
+    expect(a.low.map((x) => x.code)).toEqual(["2454"]);
+    expect(a.once).toEqual([]);
+  });
   it("同代號但方向不同不算重複", () => {
     const a = agreePlans([[it_("2330", "buy", 10)], [it_("2330", "sell", 10)]], [it_("2330", "buy", 10)]);
     expect(a.go).toEqual([]);

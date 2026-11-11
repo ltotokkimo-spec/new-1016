@@ -199,9 +199,9 @@ function check(ok, name, detail = "") {
   }, null, { timeout: 60000 }).then((h) => h.jsonValue()).catch(() => ({ ok: false, empty: "逾時" }));
   log("即時走勢", JSON.stringify(intra));
   await shot("03a-即時走勢");
-  // 剛開盤（09:00～09:10）分鐘線還沒幾根，允許只有即時價的點
+  // 剛開盤（09:00～09:30）分鐘線還沒幾根（冷門股可能只成交一兩筆），允許只有即時價的點
   const intraMin = (() => { const d = new Date(Date.now() + 8 * 3600e3); return d.getUTCHours() * 60 + d.getUTCMinutes(); })();
-  const justOpened = intraMin >= 540 && intraMin < 550;
+  const justOpened = intraMin >= 540 && intraMin < 570;
   check(intra.ok && intra.tabOn === "true" && (intra.pts >= 5 || (justOpened && intra.pts >= 1)) && intra.avg && /[▲▼]?[\d,.]+（[+-]\d+\.\d\d%）/.test(intra.head) && /昨收 [\d,.]+/.test(intra.stats) && /最高 [\d,.]+/.test(intra.stats) && /總量 [\d,]+ 張/.test(intra.stats) && /單量 [\d,]+ 張/.test(intra.stats) && intra.vols >= 1 && /漲停 [\d,.]+/.test(intra.stats),
     "個股頁預設「走勢」分頁：當日分時線、均價線、漲跌幅、昨收／高低／總量／漲跌停", JSON.stringify(intra).slice(0, 300));
   // 點圖看某一分鐘

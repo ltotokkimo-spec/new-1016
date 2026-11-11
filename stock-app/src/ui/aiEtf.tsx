@@ -492,6 +492,53 @@ function CompareCard({ api, pro, fillFrom, apiAt, proAt }: { api: PlanItem[]; pr
   );
 }
 
+/** 多份 Claude App 回覆的比對表（11/12 使用者：問了 2 次看不出結論）：每檔一列、每份回覆一欄，最後一欄是結論 */
+interface ReplyInfo { label: string; at: number; p: ReturnType<typeof parsePlan> }
+function ConsensusCard({ replies, agreed, held }: { replies: ReplyInfo[]; agreed: ReturnType<typeof agreePlans>; held: Set<string> }) {
+  const name = (c: string) => getState().prices[c]?.name ?? c;
+  const key = (x: { side: string; code: string }) => `${x.side}:${x.code}`;
+  const verdict = new Map<string, "go" | "once" | "low">();
+  agreed.go.forEach((x) => verdict.set(key(x), "go"));
+  agreed.once.forEach((x) => verdict.set(key(x), "once"));
+  agreed.low.forEach((x) => verdict.set(key(x), "low"));
+  const rows = [...verdict.keys()].map((k) => { const [side, code] = k.split(":"); return { k, side, code, v: verdict.get(k)! }; })
+    .sort((a, b) => ({ go: 0, once: 1, low: 2 })[a.v] - ({ go: 0, once: 1, low: 2 })[b.v] || (a.side === b.side ? 0 : a.side === "sell" ? -1 : 1));
+  const cell = (r: ReplyInfo, side: string, code: string) => {
+    const t = r.p.items.find((x) => x.side === side && x.code === code);
+    if (t) return <span class={t.side === "buy" ? "up" : "down"}>{t.side === "buy" ? "買" : "賣"} {t.shares.toLocaleString()} 股{t.conf ? <span class="muted">・{t.conf}</span> : null}</span>;
+    const other = r.p.items.find((x) => x.code === code);
+    if (other) return <span class={other.side === "buy" ? "up" : "down"}>{other.side === "buy" ? "反而買" : "反而賣"}</span>;
+    if (r.p.holds[code] || held.has(code)) return <span class="muted">不動</span>;
+    return <span class="muted">沒提到</span>;
+  };
+  const tag = { go: <b class="up">✅ 列入下單</b>, once: <span>⏳ 只出現 1 次</span>, low: <span class="down">⚠ 信心低，先不做</span> };
+  const n = { go: agreed.go.length, once: agreed.once.length, low: agreed.low.length };
+  return (
+    <div class="card stack" data-testid="consensus">
+      <b style={{ fontSize: "16px" }}>Claude 回覆比對（{replies.length} 份）</b>
+      <div style={{ fontSize: "14px", lineHeight: 1.7 }} data-testid="consensus-summary">
+        {replies.length < 2
+          ? <>目前只有 1 份回覆，所有買賣都先不執行。<b>再問 1 次</b>（按「在 Claude App 檢視調整」，把新回覆貼回來），兩份都出現的才會列入下單。</>
+          : !n.go && !n.once && !n.low ? <>結論：{replies.length} 份都建議維持不變，今天不用買賣。</>
+          : <>結論：{n.go ? <b class="up">{n.go} 筆重複出現 → 列入下單</b> : <b>沒有重複出現的買賣 → 今天不下單</b>}{n.once ? `；${n.once} 筆只出現 1 次 → 先不做` : ""}{n.low ? `；${n.low} 筆信心低 → 先不做` : ""}。</>}
+      </div>
+      {rows.length > 0 && <div class="scroll-x"><table class="cmp">
+        <thead><tr><th>股票</th>{replies.map((r) => <th>{r.label}<div class="muted" style={{ fontWeight: 400, fontSize: "11px" }}>{fmtAt(r.at)}</div></th>)}<th>結論</th></tr></thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr class={r.v === "go" ? "" : "diff"} data-testid="consensus-row">
+              <td>{name(r.code)} <span class="muted num">{r.code}</span></td>
+              {replies.map((rp) => <td class="num">{cell(rp, r.side, r.code)}</td>)}
+              <td>{tag[r.v]}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table></div>}
+      <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>同一檔、同方向（都買或都賣）在 2 份以上出現才算一致；股數取最少的那份，信心取最低的。「不動」＝那份回覆建議續抱，「沒提到」＝那份沒有這檔。最多比對同一天最近 3 份。</div>
+    </div>
+  );
+}
+
 /** 照 Claude 的清單填入實際成交 */
 function PlanFill({ items, planKey, cash, stops, source, asOf }: { items: PlanItem[]; planKey: string; cash: number; stops: Record<string, number>; source: string; asOf?: string }) {
   const fitted = useMemo(() => fitBudget(items, etfPrice, cash), [items]);
@@ -1280,10 +1327,11 @@ function RealEtfScreen() {
   const fillParsed = fillSrc === "pro" ? proParsed : parsed;
   // 同一個資料日的所有回覆（付費版＋貼回的 Claude App 回覆）：至少 2 份都出現、信心不是「低」的交易才列入下單（11/12 使用者要求）
   const fillAsOf = fillSrc === "pro" ? etf.proAsOf : etf.planAsOf;
-  const samePlans = [
-    ...(parsed && etf.planAsOf === fillAsOf ? [parsed.items] : []),
-    ...(etf.proAsOf === fillAsOf ? (etf.proKeys ?? (etf.proKey ? [etf.proKey] : [])).map((k) => st.reports[k]).filter(Boolean).map((r) => parsePlan(r!.text).items) : []),
+  const sameReplies: ReplyInfo[] = [
+    ...(parsed && plan && etf.planAsOf === fillAsOf ? [{ label: "付費版", at: plan.at, p: parsed }] : []),
+    ...(etf.proAsOf === fillAsOf ? (etf.proKeys ?? (etf.proKey ? [etf.proKey] : [])).map((k) => st.reports[k]).filter(Boolean).map((r, i) => ({ label: `第 ${i + 1} 份`, at: r!.at, p: parsePlan(r!.text) })) : []),
   ];
+  const samePlans = sameReplies.map((r) => r.p.items);
   // 付費版維持問一次就照做（11/12 使用者）；Claude App 版才要求多份回覆重複出現
   const agreed = fillParsed ? agreePlans(samePlans.length ? samePlans : [fillParsed.items], fillParsed.items, { single: fillSrc === "api" }) : undefined;
   const pendingPlan = !busy && !!fillParsed && fillParsed.items.length > 0 && etf.appliedKey !== fillKey;
@@ -1329,6 +1377,7 @@ function RealEtfScreen() {
   return (
     <div>
       <ProResume />
+      {fillSrc === "pro" && agreed && sameReplies.length > 0 && <ConsensusCard replies={sameReplies} agreed={agreed} held={new Set(pos.map((p) => p.code))} />}
       <OrderList rows={orderRows} holds={holdRows} cash={v.cash} asOf={st.asOf} planAsOf={fillSrc === "pro" ? etf.proAsOf : etf.planAsOf} hasPlan={showFill} wait={pendingPlan && agreed ? { n: agreed.n, once: agreed.once.map((x) => ({ name: nameOf(x.code), code: x.code, side: x.side, count: x.count })), low: agreed.low.map((x) => ({ name: nameOf(x.code), code: x.code, side: x.side })) } : undefined} canAsk={!busy && !!st.apiKey && st.twReady} busy={busy} onAsk={ask} />
       <AlertCard alerts={alerts} onAsk={ask} canAsk={!busy && !!st.apiKey && st.twReady} asOf={st.asOf} />
       <div class="card stack" data-testid="etf-summary">

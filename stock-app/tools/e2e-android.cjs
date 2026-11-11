@@ -916,6 +916,21 @@ function check(ok, name, detail = "") {
   const saveOff = await page.$eval('[data-testid="pro-save"]', (b) => b.disabled).catch(() => false);
   check(/不是 Claude 的回覆/.test(promptErr) && saveOff, "貼上送給 Claude 的提問會立刻提醒、不能儲存", promptErr.slice(0, 60));
   await page.click('[data-testid="pro-clear"]');
+  // 貼回 2 份 Claude App 回覆（11/12）：比對表每檔一列、每份一欄、最後是結論；兩份都買台積電才列入下單，只出現一次的、信心低的先不做
+  const reply = (j) => "總結：這次小幅調整，以下是建議與理由（測試用回覆，內容只供比對表檢查）。\n```json\n" + JSON.stringify(j) + "\n```";
+  for (const j of [{ trades: [{ code: "2330", side: "buy", shares: 10, conf: "高", reason: "核心" }, { code: "2317", side: "buy", shares: 50, conf: "中", reason: "AI 伺服器" }] },
+                   { trades: [{ code: "2330", side: "buy", shares: 8, conf: "中", reason: "核心" }, { code: "2454", side: "buy", shares: 5, conf: "低", reason: "觀察" }] }]) {
+    await page.fill('[data-testid="pro-text"]', reply(j));
+    await page.click('[data-testid="pro-save"]');
+    await page.waitForTimeout(800);
+  }
+  await page.waitForSelector('[data-testid="consensus"]', { timeout: 10000 }).catch(() => {});
+  const cons = await page.evaluate(() => ({ sum: document.querySelector('[data-testid="consensus-summary"]')?.innerText.replace(/\s+/g, " ") || "", rows: [...document.querySelectorAll('[data-testid="consensus-row"]')].map((e) => e.innerText.replace(/\s+/g, " ")) }));
+  log("Claude 回覆比對", JSON.stringify(cons));
+  await page.evaluate(() => document.querySelector('[data-testid="consensus"]')?.scrollIntoView());
+  await shot("05c-Claude回覆比對");
+  check(/1 筆重複出現 → 列入下單/.test(cons.sum) && cons.rows.length === 3 && cons.rows.some((r) => /2330/.test(r) && /買 10 股/.test(r) && /買 8 股/.test(r) && /列入下單/.test(r)) && cons.rows.some((r) => /2317/.test(r) && /只出現 1 次/.test(r)) && cons.rows.some((r) => /2454/.test(r) && /信心低/.test(r)),
+    "Claude 回覆比對表：2 份回覆每檔並排，重複出現的列入下單、只出現一次與信心低的先不做", JSON.stringify(cons).slice(0, 300));
   const wide = await page.evaluate(() => { const m = document.querySelector("main"); return [m.scrollWidth, m.clientWidth]; });
   check(wide[0] <= wide[1] + 1, "我的實單紀錄固定滿版，不會左右晃動", `內容寬 ${wide[0]}／螢幕寬 ${wide[1]}`);
   const rTrades = await page.$eval('[data-testid="etf-trades"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");

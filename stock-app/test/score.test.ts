@@ -21,6 +21,14 @@ describe("評分與評等", () => {
   universe.push(mk("TINY", "半導體", 0.5, 1e7, { value: 1e6 })); // 成交太小
   const { scored, sectors } = scoreStocks(universe);
 
+  it("離場但今天漲 ≥ 3% 且外資近 5 日買超：標「反彈中」並說明回測結果，評等仍是離場", () => {
+    const u = [...universe, mk("RB", "航運", -0.3, 1e5, { chg1d: 0.05, ret1w: -0.08, foreignStreak: 1 })];
+    const rb = scoreStocks(u).scored.find((x) => x.code === "RB")!;
+    expect(rb.rating).toBe("離場");
+    expect(rb.rebound).toBe(true);
+    expect(rb.reasons.join("")).toContain("反彈中");
+    expect(scoreStocks(u).scored.find((x) => x.code === "B9")!.rebound).toBe(false); // 外資賣超、沒有大漲
+  });
   it("流動性不足的股票不列入", () => {
     expect(scored.find((s) => s.code === "TINY")).toBeUndefined();
   });

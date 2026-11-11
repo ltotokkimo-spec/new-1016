@@ -6,7 +6,7 @@ import { isEtf, type Company } from "../data/tw";
 import { addDays } from "../lib/dates";
 import type { BtDay } from "./backtest";
 import { quintileExcess, rankIC } from "./factors";
-import { DEFAULT_WEIGHTS, scoreStocks, type ScoreWeights } from "./score";
+import { DEFAULT_WEIGHTS, isReboundR1, scoreStocks, type ScoreWeights } from "./score";
 
 export const VARIANTS: { key: string; label: string; w: ScoreWeights }[] = [
   { key: "old", label: "現有（動能40 籌碼40 族群20；投信占籌碼20%）", w: DEFAULT_WEIGHTS },
@@ -24,7 +24,7 @@ export const VARIANTS: { key: string; label: string; w: ScoreWeights }[] = [
  * 才把這些股票的評等從「離場」改成「觀望」。否則維持離場，只在畫面上標「反彈中」。
  */
 export const REBOUND_RULES: { key: string; label: string; test: (x: { chg1d?: number; ret1w: number; ret1m: number; foreign5?: number }) => boolean }[] = [
-  { key: "R1", label: "今天漲 ≥ 3% 且外資近 5 日買超", test: (x) => (x.chg1d ?? 0) >= 0.03 && (x.foreign5 ?? 0) > 0 },
+  { key: "R1", label: "今天漲 ≥ 3% 且外資近 5 日買超", test: isReboundR1 },
   { key: "R2", label: "今天漲 ≥ 5%", test: (x) => (x.chg1d ?? 0) >= 0.05 },
   { key: "R3", label: "近 1 週轉正（近 1 月仍跌逾 10%）", test: (x) => x.ret1w > 0 && x.ret1m < -0.1 },
 ];

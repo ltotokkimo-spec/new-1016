@@ -40,8 +40,9 @@ export function fmtMoney(x: number, market?: string) {
 export const lots = (shares: number | undefined) =>
   shares === undefined || !Number.isFinite(shares) ? "—" : `${shares > 0 ? "+" : ""}${Math.round(shares / 1000).toLocaleString("zh-TW")} 張`;
 
-export function RatingPill({ rating }: { rating: Rating | "無資料" | "無評等" | "參考" }) {
+export function RatingPill({ rating, rebound }: { rating: Rating | "無資料" | "無評等" | "參考"; rebound?: boolean }) {
   const c = rating === "買入" ? "buy" : rating === "觀望" ? "hold" : rating === "離場" ? "exit" : "none";
+  if (rebound && rating === "離場") return <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "center", gap: "3px" }}><span class={`pill ${c}`}>{rating}</span><span class="pill hold" style={{ fontSize: "11px", padding: "1px 6px" }} data-testid="rebound-tag">反彈中</span></span>;
   return <span class={`pill ${c}`}>{rating}</span>;
 }
 

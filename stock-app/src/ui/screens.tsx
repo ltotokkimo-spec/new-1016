@@ -183,7 +183,7 @@ function StockRow({ s, q, turn, onClick }: { s: Scored; q?: LiveQuote; turn?: Tu
         <div class={`c num ${cls(s.ret1m)}`}><span class="lbl">近1月</span>{fmtPct(s.ret1m)}</div>
       </div>
       <div>
-        <RatingPill rating={s.refOnly ? "參考" : s.rating} />
+        <RatingPill rating={s.refOnly ? "參考" : s.rating} rebound={s.rebound} />
         <div class="score num">分數 {s.score}</div>
       </div>
     </button>
@@ -470,7 +470,7 @@ export function StockDetail({ s, onClose, nav }: { s: Scored; onClose: () => voi
           <div class="muted" style={{ marginTop: "6px", fontSize: "13px" }}>{s.sector}・{s.market === "US" ? "美股" : `${s.market === "TPEX" ? "上櫃" : "上市"}${isEtf(s.code) ? " ETF" : ""}`}</div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <RatingPill rating={s.refOnly ? "參考" : s.rating} />
+          <RatingPill rating={s.refOnly ? "參考" : s.rating} rebound={s.rebound} />
           <div class="num" style={{ fontSize: "26px", fontWeight: 800, marginTop: "6px" }}>{s.score}<span class="muted" style={{ fontSize: "13px" }}> / 100</span></div>
         </div>
       </div>
@@ -959,7 +959,7 @@ function HoldingRow({ v, open, onEsb, fx, brokers }: { v: any; open: (s: Scored)
         {Number.isFinite(v.chg) && <div class={`c num ${cls(v.chg)}`} data-testid="hold-day"><span class="lbl">今日</span>{fmtPct(v.chg)}</div>}
         {"ext" in v && v.ext && <div class={`c num ${cls(v.ext.chg)}`} data-testid="hold-ext"><span class="lbl">{v.ext.label}</span>{fmtPrice(v.ext.price, v.market)} {fmtPct(v.ext.chg)}</div>}
       </div>
-      <RatingPill rating={v.rating} />
+      <RatingPill rating={v.rating} rebound={v.scored?.rebound} />
     </button>
   );
 }

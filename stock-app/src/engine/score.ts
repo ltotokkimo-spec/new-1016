@@ -49,8 +49,12 @@ export interface Scored extends StockInput {
   rating: Rating;
   refOnly?: boolean; // ETF：分數只供參考，不顯示買入／觀望／離場
   reasons: string[];
+  rebound?: boolean; // 離場但正在反彈（今天漲 ≥ 3% 且外資近 5 日買超）：只標示，評等不變
   foreignRatio5?: number; // 外資 5 日買超金額 ÷ 5 日成交金額估計
 }
+
+/** 「離場但反彈」的 R1 條件（11/11 回測：20 日超額 +2.34%、前後半期都正；5 日前半期 -0.73% 未通過，所以只標示不改評等） */
+export const isReboundR1 = (x: { chg1d?: number; foreign5?: number }) => (x.chg1d ?? 0) >= 0.03 && (x.foreign5 ?? 0) > 0;
 
 export const MIN_VALUE = { TW: 50_000_000, US: 20_000_000 }; // 流動性門檻：台幣 5 千萬、美元 2 千萬
 
@@ -187,8 +191,10 @@ export function scoreStocks(stocks: StockInput[], keep?: Set<string>, w: ScoreWe
     else if (score < 40 || (s.ret1m < -0.1 && foreignBad)) rating = "離場";
     if (score >= 70 && s.ret1w >= 0.2) reasons.push("短線一週漲幅超過 20%，追高風險大，先觀望");
     if (rating === "離場" && s.ret1m < -0.1 && foreignBad) reasons.push(isUS ? "近1月跌逾 10% 且跌破均線" : "近1月跌逾 10% 且外資賣超");
+    const rebound = !isUS && rating === "離場" && isReboundR1(s);
+    if (rebound) reasons.push(`反彈中：今天漲 ${pct(s.chg1d!)}、外資近 5 日買超。回測過去約 2 年同樣情況，之後 20 日平均比大盤多約 2%，但 5 日內常回檔、前半段期間不穩定，所以評等仍是離場`);
 
-    return { ...s, score, momentum, flow, sectorScore, rating, reasons, foreignRatio5: isUS ? undefined : fRatio[i] };
+    return { ...s, score, momentum, flow, sectorScore, rating, reasons, rebound, foreignRatio5: isUS ? undefined : fRatio[i] };
   });
   scored.sort((a, b) => b.score - a.score);
   return { scored, sectors };

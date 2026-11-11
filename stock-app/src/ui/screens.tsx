@@ -799,6 +799,7 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
       {!apiKey && <div class="muted" style={{ fontSize: "13px", marginTop: "8px" }}>照片匯入需要 Claude API 金鑰（到「設定」貼上）；手動新增不需要。</div>}</>}
       {err && <div class="error" style={{ marginTop: "10px" }}>{err}</div>}
 
+      {views.length > 0 && <PnlRecon views={views} fx={fx} />}
       {views.length > 0 && <RecoveryCard views={views} />}
 
       <div class="section-title"><span>{tab === "stats" ? "合併持股" : `${brokerLabel}持股`}健檢{liveNote && <span class="muted" data-testid="live-loading" style={{ fontSize: "12px", fontWeight: 400, marginLeft: "8px" }}>{liveNote}</span>}</span><span>{views.length} 檔</span></div>
@@ -813,6 +814,30 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
       {adding && <HoldingForm broker={broker} onDone={() => setAdding(false)} />}
       {esbOpen && <EsbDetail h={esbOpen} onClose={() => setEsbOpen(null)} />}
       {importing && <ImportReview broker={broker} data={importing} onDone={() => setImporting(null)} />}
+    </div>
+  );
+}
+
+/** 累計損益對帳（11/11）：把每一檔的累計損益（美股換成台幣）列出來加總，和上面卡片、統計頁的數字對得上 */
+function PnlRecon({ views, fx }: { views: any[]; fx?: number }) {
+  const [open, setOpen] = useState(false);
+  const toTwd = (v: any) => (v.market === "US" ? (fx ? v.pnl * fx : NaN) : v.pnl);
+  const rows = views.map((v) => ({ v, x: Number.isFinite(v.price) ? toTwd(v) : NaN }));
+  const ok = rows.filter((r) => Number.isFinite(r.x)), skipped = rows.filter((r) => !Number.isFinite(r.x));
+  const sum = ok.reduce((a, r) => a + r.x, 0);
+  const sg = (x: number) => `${x > 0 ? "+" : x < 0 ? "-" : ""}${Math.abs(Math.round(x)).toLocaleString("zh-TW")}`;
+  return (
+    <div class="card" style={{ marginTop: "12px" }} data-testid="pnl-recon">
+      <div class="row" style={{ justifyContent: "space-between", gap: "8px" }}>
+        <b>累計損益對帳</b>
+        <button class="btn secondary mini" onClick={() => setOpen(!open)} data-testid="pnl-recon-toggle">{open ? "收合" : "看每一檔加總"}</button>
+      </div>
+      <div class={`num ${cls(sum)}`} style={{ fontSize: "14px", marginTop: "4px" }} data-testid="pnl-recon-total">{ok.length} 檔合計 {sg(sum)} 元（台幣；美股依今日匯率換算）</div>
+      {open && <div class="stack" style={{ gap: "4px", marginTop: "8px" }}>
+        {ok.map((r) => <div class="row" style={{ justifyContent: "space-between", fontSize: "13.5px" }} data-testid="pnl-recon-row"><span>{r.v.name} <span class="muted num">{r.v.code}</span></span><span class={`num ${cls(r.x)}`}>{sg(r.x)} 元</span></div>)}
+        <div class="row" style={{ justifyContent: "space-between", fontSize: "13.5px", borderTop: "1px solid var(--line)", paddingTop: "4px", fontWeight: 600 }}><span>合計</span><span class={`num ${cls(sum)}`}>{sg(sum)} 元</span></div>
+        {skipped.length > 0 && <div class="muted" style={{ fontSize: "12px" }}>沒有算進去（還沒有現價{fx ? "" : "或匯率"}）：{skipped.map((r) => r.v.name).join("、")}</div>}
+      </div>}
     </div>
   );
 }

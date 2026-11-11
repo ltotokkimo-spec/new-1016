@@ -1055,6 +1055,11 @@ function check(ok, name, detail = "") {
   check(/^累計損益 [+-]?[\d.,]+( 萬| 億)?（[+-]?\d+\.\d%）$/.test(pnlCards.tw) && /^累計損益 [+-]NT\$[\d,]+（[+-]?\d+\.\d%）$/.test(pnlCards.us), "台股、美股市值卡片的損益標明「累計損益」", JSON.stringify(pnlCards));
   const cardCost = await page.evaluate(() => ({ tw: document.querySelector('[data-testid="tw-cost"]')?.innerText.replace(/\s+/g, " ") || "", us: document.querySelector('[data-testid="us-cost"]')?.innerText.replace(/\s+/g, " ") || "" }));
   check(/^買進成本 [\d.,]+( 萬| 億)?$/.test(cardCost.tw) && /^買進成本 NT\$[\d,]+$/.test(cardCost.us), "台股、美股市值卡片在市值下面標「買進成本」（美股用台幣）", JSON.stringify(cardCost));
+  await page.click('[data-testid="pnl-recon-toggle"]').catch(() => {});
+  const recon = await page.evaluate(() => ({ total: document.querySelector('[data-testid="pnl-recon-total"]')?.innerText.replace(/\s+/g, " ") || "", rows: [...document.querySelectorAll('[data-testid="pnl-recon-row"]')].map((e) => e.innerText.replace(/\s+/g, " ")) }));
+  const reconNums = recon.rows.map((t) => Number((/([+-]?[\d,]+) 元$/.exec(t) || [])[1]?.replace(/,/g, "")));
+  const reconTotal = Number((/合計 ([+-]?[\d,]+) 元/.exec(recon.total) || [])[1]?.replace(/,/g, ""));
+  check(recon.rows.length > 0 && reconNums.every(Number.isFinite) && Math.abs(reconNums.reduce((a, x) => a + x, 0) - reconTotal) <= recon.rows.length, "累計損益對帳：每一檔的累計損益加起來等於合計（允許四捨五入誤差）", JSON.stringify(recon).slice(0, 300));
   // 買進成本（台幣）÷（股數 × 美元均價）＝匯率，要在合理範圍，畫面不顯示匯率
   const usCv = await page.evaluate(() => { const it = [...document.querySelectorAll(".list .item")].find((e) => /AAPL/.test(e.innerText)); return it?.querySelector('[data-testid="cost-value"]')?.innerText.replace(/\s+/g, " ") || ""; });
   const usCost = Number((/買進成本 NT\$([\d,]+)/.exec(usCv) || [])[1]?.replace(/,/g, ""));

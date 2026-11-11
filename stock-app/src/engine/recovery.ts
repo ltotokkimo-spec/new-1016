@@ -112,10 +112,10 @@ export function recoveryPlan(views: HoldingView[], picks: { stocks: Scored[]; et
   const used = new Set<string>();
   const ranked = (list: Scored[], buyOnly: boolean) => list.filter((s) => !held.has(s.code) && !used.has(s.code) && (!buyOnly || s.rating === "買入")).sort((a, b) => b.score - a.score);
   const items: RecoveryItem[] = [];
-  let winners = 0;
+  let winners = 0, twWinPnl = 0;
   for (const v of [...views].sort((a, b) => (a.pnl || 0) - (b.pnl || 0))) {
     if (!Number.isFinite(v.price) || !(v.cost > 0) || !(v.shares > 0)) continue;
-    if (!(v.pnl < 0)) { if (v.pnl > 0) winners++; continue; }
+    if (!(v.pnl < 0)) { if (v.pnl > 0) { winners++; if (v.market !== "US") twWinPnl += v.pnl; } continue; }
     const us = v.market === "US", etf = !us && /^00/.test(v.code);
     const be = breakEvenPrice(v.cost, v.code, v.market);
     const k = be / v.cost;
@@ -194,7 +194,10 @@ export function recoveryPlan(views: HoldingView[], picks: { stocks: Scored[]; et
   const lines: string[] = [];
   if (!items.length) lines.push(winners ? "目前沒有虧損的持股，照各檔的停利、停損條件續抱即可。" : "還沒有可計算的持股。");
   else {
-    lines.push(`${items.length} 檔虧損${tw.length ? `，台股合計 ${Math.round(loss).toLocaleString("zh-TW")} 元` : ""}；${winners} 檔獲利。`);
+    const n0 = (x: number) => Math.round(x).toLocaleString("zh-TW");
+    const sg = (x: number) => (x > 0 ? "+" : "") + n0(x);
+    lines.push(`${items.length} 檔虧損${tw.length ? `，台股虧損合計 ${n0(loss)} 元` : ""}；${winners} 檔獲利${twWinPnl > 0 ? `，台股獲利合計 ${sg(twWinPnl)} 元` : ""}。`);
+    if (tw.length && twWinPnl > 0) lines.push(`台股虧損 ${n0(loss)} ＋ 獲利 ${sg(twWinPnl)} ＝ 累計損益 ${sg(loss + twWinPnl)} 元（和上面市值卡片的台股累計損益相同）。`);
     if (cuts.length) lines.push(`先處理 ${cuts.length} 檔「停損換股」：${cuts.map((x) => x.name).join("、")}，約可收回 ${Math.round(cutProceeds).toLocaleString("zh-TW")} 元，轉到走強的標的。`);
     if (avgs.length) lines.push(`${avgs.length} 檔評等仍是「買入」可以攤平：${avgs.map((x) => x.name).join("、")}，約需 ${Math.round(avgCash).toLocaleString("zh-TW")} 元；停損換股收回的錢可以優先用在這裡。`);
     const holdN = items.filter((x) => x.action === "續抱設條件").length;

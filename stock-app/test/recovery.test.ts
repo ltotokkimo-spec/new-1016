@@ -43,6 +43,10 @@ describe("持股分析與建議（回本計畫）", () => {
     expect(summary.losers).toBe(4);
     expect(summary.winners).toBe(1);
     expect(summary.lines.join("")).toContain("停損換股");
+    // 虧損合計 + 獲利合計 ＝ 台股累計損益（持股頁市值卡片的數字），三個數字都要寫出來讓人對得上
+    expect(summary.lines.join("")).toContain("台股虧損合計 -27,000 元");
+    expect(summary.lines.join("")).toContain("台股獲利合計 +200 元");
+    expect(summary.lines.join("")).toContain("累計損益 -26,800 元");
   });
 
   it("ETF 停損時推薦分數最高的 ETF；沒有虧損時給一句說明", () => {

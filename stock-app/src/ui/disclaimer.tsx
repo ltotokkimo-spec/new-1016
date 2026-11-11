@@ -1,6 +1,8 @@
 // 免責聲明（11/10 使用者要求，因為要分享給別人使用）：第一次打開 App 要按「我了解」才能使用；設定頁也看得到全文。
 // 改了內容就把 DISCLAIMER_VERSION 換成新日期，所有人會再看一次。
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
+import { useStore } from "../store";
+import * as upd from "../lib/update";
 
 export const DISCLAIMER_VERSION = "2026-11-10";
 const KEY = "disclaimerAck";
@@ -41,6 +43,22 @@ export function DisclaimerGate() {
           <DisclaimerText />
         </div>
         <button class="btn block" style={{ marginTop: "12px", flex: "none" }} onClick={accept} data-testid="disclaimer-ok">我了解，開始使用</button>
+      </div>
+    </div>
+  );
+}
+
+/** 遠端停用（11/11）：版本號低於雲端 version.json 的 minVersionCode 時，整個 App 只顯示這個畫面（離線重開也一樣） */
+export function BlockedGate() {
+  const info = useStore((s) => s.update.info);
+  const [cur, setCur] = useState<number | undefined>(undefined);
+  useEffect(() => { upd.currentVersion().then((v) => setCur(v?.versionCode)).catch(() => {}); }, []);
+  if (!(info?.blocked || upd.isBlocked(info?.current?.versionCode ?? cur))) return null;
+  return (
+    <div class="gate" role="dialog" aria-modal="true" aria-label="此版本已停用" data-testid="blocked" style={{ zIndex: 101 }}>
+      <div class="gate-card" style={{ justifyContent: "center" }}>
+        <h2 style={{ margin: "0 0 8px" }}>此版本已停用</h2>
+        <div class="muted" style={{ fontSize: "14px", lineHeight: 1.7 }}>這個版本的金雷達已由作者停止提供，無法再使用。如需使用，請向作者索取新版。</div>
       </div>
     </div>
   );

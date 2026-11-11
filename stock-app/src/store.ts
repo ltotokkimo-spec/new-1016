@@ -28,25 +28,25 @@ import { parseRevenue, revenueUrls, type Revenue } from "./data/revenue";
 import { emptyEtf, etfAlerts, isOffList, liquidityCut, pickCandidates, positions as etfPositions, recordNav, stopOf, valuate, type AiEtf, type EtfTrade } from "./engine/aiEtf";
 
 // Claude 每個交易日收盤後更新的虛擬自組 ETF（存在 GitHub 分支上，App 只讀取顯示）
-export const VIRTUAL_URL = "https://raw.githubusercontent.com/ltotokkimo-spec/new-1016/claude/ui-calculator-interface-t3x9kh/stock-app/virtual/virtual-etf.json";
+export const VIRTUAL_URL = "https://raw.githubusercontent.com/ltotokkimo-spec/new-1016/claude/ui-calculator-interface-t3x9kh/stock-app/virtual/v-2wy3g7efad1c.json";
 // N5 觀察組合（0050 五成＋方案 A 五成）：每天回測工作流程跑完後發布，同樣的格式
-export const WATCH_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/n5.json";
-export const WIDE_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/wide.json"; // 全個股觀察組合
-export const REGIME_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/regime.json"; // 攻守輪動觀察組合
-export const ACTIVE_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/active-etf.json"; // 主動式 ETF 個股買賣超
-export const AI_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/ai.json"; // AI 供應鏈觀察組合
+export const WATCH_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/n5.json";
+export const WIDE_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/wide.json"; // 全個股觀察組合
+export const REGIME_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/regime.json"; // 攻守輪動觀察組合
+export const ACTIVE_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/active-etf.json"; // 主動式 ETF 個股買賣超
+export const AI_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/ai.json"; // AI 供應鏈觀察組合
 // 推薦績效追蹤（每天收盤後更新）：台股、ETF、美股各一份
-const RADAR_DATA = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/";
+const RADAR_DATA = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/";
 export const picksUrl = (b: PickBook) => RADAR_DATA + BOOK_INFO[b].files.perf;
 export const picksCsvUrl = (b: PickBook) => RADAR_DATA + BOOK_INFO[b].files.csv;
 export interface ExFile { version: 1; asOf: string; from: string; source: string; ev: ExMap }
 export type PicksPerfEntry = { data: PickPerfFile; fetchedAt: number; error?: string };
 const ppKey = (b: PickBook) => (b === "TW" ? "picksPerf" : `picksPerf:${b}`); // 台股沿用 1.0.283 的鍵
-export const TURN_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/turn.json"; // 剛轉強觀察組合
-export const RULE_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/real.json"; // 實單規則觀察組合（「我的實單」的選股規則）
-export const LEAD_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/lead.json"; // 權值強化觀察組合
-export const STEADY_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/steady.json"; // 觀察組合規則的 2 年回測結果
-export const BACKTEST_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/backtest.json";
+export const TURN_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/turn.json"; // 剛轉強觀察組合
+export const RULE_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/real.json"; // 實單規則觀察組合（「我的實單」的選股規則）
+export const LEAD_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/lead.json"; // 權值強化觀察組合
+export const STEADY_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/steady.json"; // 觀察組合規則的 2 年回測結果
+export const BACKTEST_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/backtest.json";
 
 /** steady.json 裡總評比用到的欄位 */
 export interface SteadyLite { from: string; to: string; strategies: { key: string; label: string; cagr: number; maxDd: number; sharpe: number; vol: number }[] }

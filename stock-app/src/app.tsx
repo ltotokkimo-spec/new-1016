@@ -6,7 +6,7 @@ import { livePolling } from "./data/twLive";
 import { AiEtfScreen } from "./ui/aiEtf";
 import { EtfRankScreen } from "./ui/etfRank";
 import { AiJobBanner, HoldingsScreen, MacroScreen, PicksScreen, SectorsScreen, SettingsScreen, StockDetail, UpdateBanner } from "./ui/screens";
-import { DisclaimerGate } from "./ui/disclaimer";
+import { BlockedGate, DisclaimerGate } from "./ui/disclaimer";
 import { ToolsScreen } from "./ui/tools";
 
 type Tab = "picks" | "sectors" | "holdings" | "aietf" | "macro" | "etfrank" | "tools" | "settings";
@@ -121,6 +121,7 @@ export function App() {
       </nav>
       {detail && <StockDetail key={`${detail.market}:${detail.code}`} s={detail} onClose={() => setDetail(null)} nav={nav} />}
       <DisclaimerGate />
+      <BlockedGate />
     </div>
   );
 }

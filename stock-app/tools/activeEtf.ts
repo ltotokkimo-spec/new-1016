@@ -1,6 +1,6 @@
 // 每天抓所有主動式 ETF 的完整持股，和上一份比對，輸出 active-etf.json（App 的「ETF排行」主動式 ETF 排名用）。
 // 用法：node .ae-build/activeEtf.js <歷史檔 active-etf-hist.json> <輸出 active-etf.json>
-// 歷史檔從 Releases 的 stock-radar-data 下載、跑完再傳回去，所以每天只要抓「最新一份」持股就能累積。
+// 歷史檔從 Releases 的 radar-data-vug13iw701 下載、跑完再傳回去，所以每天只要抓「最新一份」持股就能累積。
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { addSnap, buildActiveData, parseMoneyDjHoldings, type ActiveHist } from "../src/lib/activeEtf";
 

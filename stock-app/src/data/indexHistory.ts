@@ -82,7 +82,7 @@ export async function indexDay(fetch: Fetcher, kv: KV, d: string, now = Date.now
 }
 
 /** 每日排程累積的指數歷史（stock-index-hist.yml 產生）：加權／櫃買的真實開高低收＋臺灣50等的每日收盤，第一次打開就有完整走勢 */
-export const INDEX_HIST_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-data/index-hist.json";
+export const INDEX_HIST_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/index-hist.json";
 export interface RemoteIndexHist { version: 1; updated?: string; ohlc: Record<string, [string, number, number, number, number][]>; closes: Record<string, [string, number][]>; seen?: string[] }
 const REMOTE_FRESH_MS = 6 * 3600_000;
 

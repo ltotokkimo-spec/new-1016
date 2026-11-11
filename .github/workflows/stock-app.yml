@@ -157,7 +157,7 @@ jobs:
         run: |
           cp android/app/build/outputs/apk/release/app-release.apk stock-radar.apk
           # App 內更新會讀這個檔案比對版本號
-          node -e 'const fs=require("fs");fs.writeFileSync("version.json",JSON.stringify({versionCode:Number(process.env.GITHUB_RUN_NUMBER),versionName:"1.0."+process.env.GITHUB_RUN_NUMBER,notes:fs.readFileSync("RELEASE_NOTES.txt","utf8").trim()}))'
+          node -e 'const fs=require("fs");fs.writeFileSync("version.json",JSON.stringify({versionCode:Number(process.env.GITHUB_RUN_NUMBER),versionName:"1.0."+process.env.GITHUB_RUN_NUMBER,minVersionCode:Number((fs.existsSync("MIN_VERSION")?fs.readFileSync("MIN_VERSION","utf8"):"0").trim())||0,notes:fs.readFileSync("RELEASE_NOTES.txt","utf8").trim()}))'
           cat version.json
           # 舊載點 stock-radar-latest 停用（11/11 使用者要求，不再提供下載）；每次都確認已刪除
           gh release delete stock-radar-latest --yes --cleanup-tag || true

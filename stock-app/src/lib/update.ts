@@ -16,8 +16,13 @@ const BASE = "https://github.com/ltotokkimo-spec/new-1016/releases/download/rada
 export const APK_URL = `${BASE}/stock-radar.apk`;
 export const VERSION_URL = `${BASE}/version.json`;
 
-export interface RemoteVersion { versionCode: number; versionName: string; notes?: string }
-export interface UpdateInfo { current?: { versionCode: number; versionName: string }; latest?: RemoteVersion; available: boolean }
+export interface RemoteVersion { versionCode: number; versionName: string; notes?: string; minVersionCode?: number }
+export interface UpdateInfo { current?: { versionCode: number; versionName: string }; latest?: RemoteVersion; available: boolean; blocked?: boolean }
+
+/** 遠端停用（11/11 使用者要求）：版本號低於 version.json 的 minVersionCode 就停用；記在手機上，離線重開也維持停用 */
+const KILL_KEY = "minVersionCode";
+export function storedMinVersion(): number { try { return Number(localStorage.getItem(KILL_KEY)) || 0; } catch { return 0; } }
+export function isBlocked(versionCode: number | undefined, min = storedMinVersion()): boolean { return !!versionCode && min > 0 && versionCode < min; }
 
 export const isNative = () => Capacitor.isNativePlatform();
 
@@ -30,7 +35,9 @@ export async function checkUpdate(): Promise<UpdateInfo> {
   // 加時間參數避開快取
   const latest = (await fetchJson(`${VERSION_URL}?t=${Date.now()}`)) as RemoteVersion;
   if (!latest || !Number.isFinite(latest.versionCode)) throw new Error("讀不到最新版資訊");
-  return { current, latest, available: !!current && latest.versionCode > current.versionCode };
+  const min = Number(latest.minVersionCode) || 0;
+  try { localStorage.setItem(KILL_KEY, String(min)); } catch { /* 存不起來就只看這次 */ }
+  return { current, latest, available: !!current && latest.versionCode > current.versionCode, blocked: isBlocked(current?.versionCode, min) };
 }
 
 export async function canInstall() { return isNative() ? (await Updater.canInstall()).allowed : false; }

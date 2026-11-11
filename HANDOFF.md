@@ -8,6 +8,7 @@
 - Repo：`ltotokkimo-spec/new-1016`，本機資料夾叫 `-`。**開發分支 `claude/ui-calculator-interface-t3x9kh`**（repo 預設分支是 `claude/conversation-start-guide-ya0q8x`，每日回測的觸發 workflow 放在那邊）。
 - 同一個 repo 還有計算機、小畫家（根目錄的 `calculator.py`、`paint.py`、`tests/`），與選股 App 無關。
 - 已發布版本：**1.0.132**（2026-10-22 深夜，Releases `stock-radar-latest`：`stock-radar.apk` ＋ `version.json`；App 內按「更新」下載）。單元測試 184 項、模擬器 e2e 約 100 項檢查。
+- **11/11 停用舊版 App（使用者要求，已用新載點重裝）**：雲端資料 Release 由 `stock-radar-data` 搬到 `radar-data-vug13iw701`（`stock-backtest.yml` 發布時把舊位置缺的檔案搬過來後刪除舊位置；主動式 ETF、指數歷史的累積檔先讀新位置、沒有才讀舊位置）；虛擬 ETF 狀態檔改名 `stock-app/virtual/v-2wy3g7efad1c.json`（舊版讀的 raw 網址 404）。舊版只剩手機端直接抓證交所等的選股與報價。**新版有遠端停用開關**：`stock-app/MIN_VERSION`（寫入 version.json 的 `minVersionCode`），版本號低於它的 App 打開就只顯示「此版本已停用」（記在手機上，離線也維持）。要停用某個分享出去的版本前，使用者自己要先更新到更高版本。
 - **11/11 APK 下載位置改到 Releases `radar-app-d43m21s655`**（使用者要求停用昨天分享出去的舊載點；`stock-radar-latest` 由 stock-app.yml 每次發布時確認刪除，不要再建回）。App 的 `src/lib/update.ts` 讀新位置；1.0.335 以前的 App 找不到更新，使用者要從新載點重新安裝一次。repo 仍是公開，新位置在 Releases 頁看得到，只擋轉傳的舊連結。
 - 使用者用 ROG Phone 6D（Android 14）。想要 iPhone 版，目前**未決**（見 §9）。
 
@@ -49,7 +50,7 @@
 | `src/ui/screens.tsx`、`aiEtf.tsx` | 畫面 |
 | `tools/e2e-android.cjs` | 模擬器真實網路測試與截圖（約 54 項檢查）；`tools/probe/*.mjs` 在 CI 探測資料來源 |
 | `.github/workflows/stock-app.yml` | 打包 APK → e2e → 發布 |
-| `virtual/virtual-etf.json`、`virtual/DAILY.md`、`tools/virtual-etf.ts` | 虛擬 ETF 狀態、每日程序、指令工具 |
+| `virtual/v-2wy3g7efad1c.json`、`virtual/DAILY.md`、`tools/virtual-etf.ts` | 虛擬 ETF 狀態、每日程序、指令工具 |
 
 ## 6. 資料來源與關鍵事實
 - **台股**：證交所／櫃買每日行情與三大法人；盤中用 `mis.twse.com.tw`（`tse_t00.tw` 加權、`tse_TW50.tw`、`tse_t24.tw` 半導體、`tse_t17.tw` 金融保險、`tse_t13.tw` 電子、`otc_o00.tw` 櫃買）。**MIS 指數的 `m` = 累計成交量（張）、`r` = 成交筆數**（已用官方每日量值對準）。盤中**成交金額與漲跌家數沒有免費來源**（`getStatis` 等端點都 404）。
@@ -66,7 +67,7 @@
 - 6990 華鉬已從追蹤清單與興櫃營收移除（歷史預測保留，備份在當時的暫存資料夾，環境重啟後沒了）。
 
 ## 8. 虛擬 ETF（Claude 用虛擬 10 萬操作）
-- 狀態檔 `stock-app/virtual/virtual-etf.json`；App 讀 `https://raw.githubusercontent.com/ltotokkimo-spec/new-1016/claude/ui-calculator-interface-t3x9kh/stock-app/virtual/virtual-etf.json`。程序在 `DAILY.md`，指令 `node --experimental-strip-types tools/virtual-etf.ts <init|fill|close|order|note|show> virtual/virtual-etf.json …`（在 `stock-app/` 執行）。
+- 狀態檔 `stock-app/virtual/v-2wy3g7efad1c.json`；App 讀 `https://raw.githubusercontent.com/ltotokkimo-spec/new-1016/claude/ui-calculator-interface-t3x9kh/stock-app/virtual/v-2wy3g7efad1c.json`。程序在 `DAILY.md`，指令 `node --experimental-strip-types tools/virtual-etf.ts <init|fill|close|order|note|show> virtual/v-2wy3g7efad1c.json …`（在 `stock-app/` 執行）。
 - **模型（10/23 使用者指定：Claude 虛擬每日選股固定用 Opus 5.5）**：每日排程沒有自己的模型設定（`model` 為空），綁定對話時會沿用「那個對話目前的模型」；`update_trigger` 的 model 對綁定既有對話的排程無效。所以要在該對話（`session_01ApWNmMJa7iJ1ivpuuMR7hZ`）輸入 `/model claude-opus-5-5`，之後不要再切走；對話內若又切成 Sonnet，排程隔天就會跟著用 Sonnet。
 - 排程（10/22 起）`trig_01P8toMCwxC8oqAhFiSS27tp`：平日 16:40（台北；10/27 使用者要求從 17:40 提早，和規則組合一致），**綁定 `session_01ApWNmMJa7iJ1ivpuuMR7hZ`（這個有 repo 與台股官方 MCP 的對話）**。舊排程 `trig_01GKTYGpLeqWRS2Nrv75CoTv` 綁的對話已失效：10/21 17:40 在沒有 repo、沒有 MCP 的空對話裡執行，**當天沒有更新**（狀態停在 10/20），已於 10/22 使用者同意後停用。10/21、10/22 已用證交所真實價格補跑（note 標【補跑】）。CLI 參數順序是 `指令 <state> <日期> <quotes>`。若這個對話不再可用，要重建排程並先測新對話查得到台股行情。
 - 10/20 收盤：淨值 97,733（−2.27%），0050 −0.50%。持有大成鋼、元大金、長榮、儒鴻、潤泰新、中鋼；10/21 開盤的委託是賣元大金 110 股、買宏碁 250 股（限價 32.85、停損 30.9）。
@@ -77,7 +78,7 @@
 
 ## 8b. 評分研究與影子追蹤（2026-10-22 起，**不要改凍結的設定**）
 - **回測拉長到約 2 年**（`stock-backtest.yml`、`tools/backtest.ts`：520 個平日，有下載時間預算 80 分鐘，連線重置時等 10→60 秒重試最多 6 次，單日失敗先用已下載的連續天數、進度存快取下次接著）。每天 16:40 自動跑（**10/28 16:40 的定時工作被 GitHub 漏掉**，預設分支的 `stock-backtest-daily.yml` 改成 16:40／17:10／17:40／18:40 四個 cron，每次先查「今天 16:30 之後有沒有成功的回測」，有就跳過，所以正常只跑一次；手動 dispatch 可勾 `force` 強制跑。已實測跳過邏輯）（10/27 使用者要求從 18:40 提早；當天三大法人若還沒公布，隔天重算會補正，因為空結果不快取）；推送改到 `src/engine/**`、`src/data/**`、`tools/backtest.ts` 也會觸發，約 10 分鐘（有快取）。
-- 回測順便輸出兩個研究檔到 Releases `stock-radar-data`：`factors.json`（`src/engine/factors.ts`，各因子對之後 5／20 日報酬的 IC、五等分、大盤漲跌與前後半）與 `scorecompare.json`（`src/engine/scoreCompare.ts`，5 組評分權重對照＋影子追蹤）。**只是研究，不影響 App 的評分**（`score.ts` 的 `DEFAULT_WEIGHTS` 沒動；`scoreStocks` 多了可選的權重參數）。
+- 回測順便輸出兩個研究檔到 Releases `radar-data-vug13iw701`：`factors.json`（`src/engine/factors.ts`，各因子對之後 5／20 日報酬的 IC、五等分、大盤漲跌與前後半）與 `scorecompare.json`（`src/engine/scoreCompare.ts`，5 組評分權重對照＋影子追蹤）。**只是研究，不影響 App 的評分**（`score.ts` 的 `DEFAULT_WEIGHTS` 沒動；`scoreStocks` 多了可選的權重參數）。
 - **2 年因子分析結論（4/14 的 9 個月結論「近 3 月漲幅反向」拉長後消失，是單一行情的巧合）**：穩定的只有「成交金額大」（20 日 IC +0.068，t 3.0）、「外資連買／外資買超佔比」微弱正向、「投信買超」穩定反向；動能、族群沒預測力；現有總分 IC≈0，大盤下跌日失效。**這 1.7 年偏多、含大型股領漲，流動性其實是大型股效應，行情轉向可能反轉。**
 - 新舊評分對照（20 日，後半期）：現有 IC +0.002；A 去投信 +0.006（不如現有）；B 去投信＋流動性 15 +0.024；**C 動能20 籌碼40（外資佔比70＋連買30、無投信）族群15 流動性25 +0.043**；D 只看外資＋流動性 +0.059（但買入檔數 43→62）。依事先標準（後半期 IC 與前 5% 都優於現有等）**沒有任何一組通過**，使用者決定做樣本外**影子追蹤**。
 - **離場但轉強（11/11，使用者看到頴崴漲停仍是離場）**：`scoreCompare.ts` 的 `REBOUND_RULES` 與權重組 R（短線轉強加分 10%）。結果（20250210～20261103）：**R 沒有比現有好**（20 日買入 +0.96% vs +1.12%，大盤跌日更差），不採用；離場股裡 R1「今天漲 ≥3% 且外資 5 日買超」20 日超額 +2.34%（前後半 +0.69%／+3.31%，其餘離場 -0.85%），但 5 日前半 -0.73% 未過事先標準；R2、R3 也未過。**評等不改**，R1 只在畫面標「反彈中」（`score.ts` 的 `isReboundR1`、`Scored.rebound`、RatingPill）。要改評等必須先跟使用者說並重新訂標準。
@@ -107,19 +108,19 @@
 
 ## 8e. 穩健選股研究與「N5 觀察組合」（2026-10-23，Opus 評估＋回測）
 
-- **研究結論（2 年回測，368 個交易日，含手續費與證交稅，隔天收盤成交；全在 `src/engine/steady.ts`，結果在 Release `stock-radar-data` 的 `steady.json`）**：沒有任何不加槓桿的選股法贏過只抱 0050（年化 +90.8%、最大回檔 −18.6%）。第一版「穩健」（斜率×R²）選到暴漲小型股，年化 +14%、回檔 −36%，**不要用**。
+- **研究結論（2 年回測，368 個交易日，含手續費與證交稅，隔天收盤成交；全在 `src/engine/steady.ts`，結果在 Release `radar-data-vug13iw701` 的 `steady.json`）**：沒有任何不加槓桿的選股法贏過只抱 0050（年化 +90.8%、最大回檔 −18.6%）。第一版「穩健」（斜率×R²）選到暴漲小型股，年化 +14%、回檔 −36%，**不要用**。
 - **方案 A**（`aPicks`）：成交金額 ≥ 3 億的普通股，近 60 日波動最小的一半 → 站上且上彎 60 日線、年化趨勢 0～100%（排除暴漲股，100% 是看過結果才定的）→ 依「趨勢×R²」取前 10 檔、每產業最多 2 檔、依波動反比配置（單檔 ≤12%）、不停損。單獨年化 +64%、回檔 −9.8%。
 - **N5 = 0050 五成＋A 五成**（回測是每 5 個交易日調整；**App 上追蹤的 N5 與權值強化 10/29 起改成每天重新判斷**，`watch.ts` 的 `decide`，改頻率後歷史會從 10/23 起重算，還沒重新回測）：年化 +78.0%、最大回檔 −10.6%、夏普 2.92（0050 為 2.69）。槓桿 00631L 年化 +197% 但回檔 −31%、單日 −13.5%，使用者不要槓桿。追強勢股／ETF 輪動／相對強度都輸 0050。
-- **已套用（使用者 10/23 同意「獨立觀察組合、照回測規則原樣」）**：`src/engine/watch.ts` 的 `runWatch` 每天在 Stock Backtest 工作流程（`tools/backtest.ts`）裡**從 `WATCH.start`（20261023）重算整個組合**（不需要保存狀態、不用 Claude、不花額度），輸出和 Claude 虛擬 ETF 同格式的 `n5.json` 到 Release `stock-radar-data`；App「自組ETF → N5 觀察」分頁（`VirtualView kind="watch"`，`store.refreshWatch`）顯示。選股當天收盤後決定、下一個交易日收盤價成交，虛擬 50 萬。**Claude 虛擬 ETF 與它的每日排程完全沒動**，兩個可以互相比較。
+- **已套用（使用者 10/23 同意「獨立觀察組合、照回測規則原樣」）**：`src/engine/watch.ts` 的 `runWatch` 每天在 Stock Backtest 工作流程（`tools/backtest.ts`）裡**從 `WATCH.start`（20261023）重算整個組合**（不需要保存狀態、不用 Claude、不花額度），輸出和 Claude 虛擬 ETF 同格式的 `n5.json` 到 Release `radar-data-vug13iw701`；App「自組ETF → N5 觀察」分頁（`VirtualView kind="watch"`，`store.refreshWatch`）顯示。選股當天收盤後決定、下一個交易日收盤價成交，虛擬 50 萬。**Claude 虛擬 ETF 與它的每日排程完全沒動**，兩個可以互相比較。
 - 開始日 10/23 當天的資料收盤後才有，所以 10/23 晚上第一次排程跑完 `n5.json` 還是空的（asOf 空）、有 10/23 的選股說明；10/26（週一）收盤才會有第一批成交。回測資料每天由 `stock-backtest-daily.yml`（預設分支）觸發。
 - 觀察重點：和 0050 的差距、最大回檔是否真的小；樣本只有 1.5 年且是多頭，要持續觀察幾個月再決定要不要真的用。若失敗：看 Actions 日誌的「N5 觀察組合」那行（有失敗會印出但不影響回測）。
 
-- **第二個觀察組合「全個股」（10/23 使用者指定：不放 0050、不限檔數、每天局部修正）**：`runWatch(..., { mode: "wide" })`＋`steady.ts` 的 `wideTargets`，輸出 `wide.json`（Release `stock-radar-data`），App「自組ETF → 全個股」分頁。條件同 A 再加 R² ≥ 0.6，通過的全部持有（依波動反比、單檔 ≤ max(5%, 1.5/檔數)、單產業 ≤ 25%），已持有者用寬鬆條件才賣（波動前 2/3、趨勢 ≤150%），與目標差距 < 0.5% 淨值不動。**回測（2 年）：每天修正 W1 年化 +23.0%、回檔 −8.8%、夏普 1.67、平均 12 檔、持股 71%；每週修正 W2 年化 +27.2%、回檔 −7.3%、夏普 2.01。都遠輸 A（+64%）與 N5（+78%）**：不限檔數其實沒讓檔數變多（條件才是限制，約 12 檔），R² 門檻與每天換股拖累報酬。App 上線的是每天版（使用者指定），要改成每週版或拿掉 R² 門檻需先問使用者。
+- **第二個觀察組合「全個股」（10/23 使用者指定：不放 0050、不限檔數、每天局部修正）**：`runWatch(..., { mode: "wide" })`＋`steady.ts` 的 `wideTargets`，輸出 `wide.json`（Release `radar-data-vug13iw701`），App「自組ETF → 全個股」分頁。條件同 A 再加 R² ≥ 0.6，通過的全部持有（依波動反比、單檔 ≤ max(5%, 1.5/檔數)、單產業 ≤ 25%），已持有者用寬鬆條件才賣（波動前 2/3、趨勢 ≤150%），與目標差距 < 0.5% 淨值不動。**回測（2 年）：每天修正 W1 年化 +23.0%、回檔 −8.8%、夏普 1.67、平均 12 檔、持股 71%；每週修正 W2 年化 +27.2%、回檔 −7.3%、夏普 2.01。都遠輸 A（+64%）與 N5（+78%）**：不限檔數其實沒讓檔數變多（條件才是限制，約 12 檔），R² 門檻與每天換股拖累報酬。App 上線的是每天版（使用者指定），要改成每週版或拿掉 R² 門檻需先問使用者。
 - **第三個觀察組合「攻守輪動 R1」（10/23 使用者授權「你決定規則」）**：`runWatch(..., { mode: "regime" })`＋`steady.ts` 的 `regimeStep`/`REGIME`，輸出 `regime.json`，App「自組ETF → 攻守輪動」。每 5 個交易日看 0050 與 60 日線（±2% 緩衝）：進攻 0050 七成＋A 三成；防守 0050 四成＋A 四成、其餘現金。**2 年回測：年化 +77.2%、回檔 −13.7%、夏普 2.77、換手 9.5 倍——幾乎等於「0050 七成＋A 三成」（+83.3%／−13.7%／2.89），防守切換沒有帶來額外好處**（這段多頭，0050 很少跌破 60 日線）。上線是為了在空頭時觀察，現階段它和 C 沒有實質差別。
 - **「總評比」分頁（10/23，App 1.0.140）**：`src/engine/compare.ts` 的 `compareGroups` 把 Claude 虛擬（第一組）與 N5／全個股／攻守輪動並排（各自全期間＋同期＋規則 2 年回測，回測數字讀 Release 的 `steady.json`，對應鍵 N5_half0050_A／W1_wideDaily／R1_regime／0050）。Claude 虛擬沒有固定規則所以沒有回測。三個規則組合要到 10/26 收盤才有淨值。
 - **證交所節流（10/27 修）**：`src/lib/net.ts` 的 `www.twse.com.tw` 間隔 3 秒，而且每次重試都要重新節流。之前 2 秒、重試不節流，連假後（往回找交易日會連打好幾個休市日）會被證交所封鎖，App 卡在「下載中：三大法人 0%」，e2e 也因此一天失敗 3 次。
 - **ETF排行分頁（10/27，使用者要求）**：底部第 6 個分頁（設定移到第 7 個，e2e 的 nth-child 已跟著改）。內容是**個股被 ETF 買賣超**的排名（使用者更正過：不是 ETF 本身被法人買賣），兩種來源切換：
-  - **主動式 ETF（預設）**：`tools/activeEtf.ts` 每天抓 MoneyDJ「個別ETF-全部持股」頁（`https://www.moneydj.com/ETF/X/Basic/Basic0007B.xdjhtm?etfid=00981A.TW`，電腦版 UA 才有完整持股與股數；手機版只有前 10 大），代號清單＝程式內 SEED＋證交所／櫃買 openapi 收盤行情裡 `00xxxA` 的代號；只算 4 碼台股（期貨、國外股票不算）。歷史持股存在 Releases `stock-radar-data` 的 `active-etf-hist.json`（每檔 ETF 最近 12 份），每次下載→加上最新一份→傳回去；`src/lib/activeEtf.ts` 把同一檔 ETF 相鄰兩份持股的股數差算在後一份的日期，輸出 `active-etf.json`（App 下載，`refreshActiveEtf`）。排程：`.github/workflows/stock-active-etf.yml` 是可重用 workflow，由 `stock-backtest.yml` 的 `active-etf` job 在每天 16:40 dispatch 時呼叫（不用改預設分支）；改 `tools/activeEtf.ts`／`src/lib/activeEtf.ts` 推送時也會單獨跑一次（放 `src/lib` 是為了不觸發 100 分鐘的回測）。10/27 第一次跑抓到 31 檔（資料日 10/21～10/22），只有一份所以 App 顯示「資料累積中」；之後每天多一份就有買賣超。**App 端即時補抓**（使用者 10/27 要求「不用等」）：`active-etf.json` 帶 `latest`（各 ETF 最新一份持股），打開 ETF排行 時 `refreshActiveLive()` 用 `fetchText`（CapacitorHttp、電腦版 UA，MoneyDJ 節流 400ms）抓 31 頁，`mergeLive()` 把比 latest 新的持股算成新的一天（同一天 GitHub 已算過的 ETF 不重算），10 分鐘內不重複；畫面顯示「已檢查最新持股（時間，取得 N 檔）」與「重新檢查」。**舊資料無法回補**：MoneyDJ 只有最新一份、不能指定日期；免費歷史只有 GitHub 個人專案 sarsadsl/etf_scratch 封存 7 檔（使用者選不補）；31 檔完整歷史只有付費的 ETFedge。口袋證券（CMoney）的內部 API 有試探但被安全規則擋下（不要再試）。注意：各 ETF 持股更新時間不一（有的晚一天），16:40 抓到的多半是前一天（當天的靠 App 打開時自己補抓）；漏抓一天時，差額會併到下一份的日期。
+  - **主動式 ETF（預設）**：`tools/activeEtf.ts` 每天抓 MoneyDJ「個別ETF-全部持股」頁（`https://www.moneydj.com/ETF/X/Basic/Basic0007B.xdjhtm?etfid=00981A.TW`，電腦版 UA 才有完整持股與股數；手機版只有前 10 大），代號清單＝程式內 SEED＋證交所／櫃買 openapi 收盤行情裡 `00xxxA` 的代號；只算 4 碼台股（期貨、國外股票不算）。歷史持股存在 Releases `radar-data-vug13iw701` 的 `active-etf-hist.json`（每檔 ETF 最近 12 份），每次下載→加上最新一份→傳回去；`src/lib/activeEtf.ts` 把同一檔 ETF 相鄰兩份持股的股數差算在後一份的日期，輸出 `active-etf.json`（App 下載，`refreshActiveEtf`）。排程：`.github/workflows/stock-active-etf.yml` 是可重用 workflow，由 `stock-backtest.yml` 的 `active-etf` job 在每天 16:40 dispatch 時呼叫（不用改預設分支）；改 `tools/activeEtf.ts`／`src/lib/activeEtf.ts` 推送時也會單獨跑一次（放 `src/lib` 是為了不觸發 100 分鐘的回測）。10/27 第一次跑抓到 31 檔（資料日 10/21～10/22），只有一份所以 App 顯示「資料累積中」；之後每天多一份就有買賣超。**App 端即時補抓**（使用者 10/27 要求「不用等」）：`active-etf.json` 帶 `latest`（各 ETF 最新一份持股），打開 ETF排行 時 `refreshActiveLive()` 用 `fetchText`（CapacitorHttp、電腦版 UA，MoneyDJ 節流 400ms）抓 31 頁，`mergeLive()` 把比 latest 新的持股算成新的一天（同一天 GitHub 已算過的 ETF 不重算），10 分鐘內不重複；畫面顯示「已檢查最新持股（時間，取得 N 檔）」與「重新檢查」。**舊資料無法回補**：MoneyDJ 只有最新一份、不能指定日期；免費歷史只有 GitHub 個人專案 sarsadsl/etf_scratch 封存 7 檔（使用者選不補）；31 檔完整歷史只有付費的 ETFedge。口袋證券（CMoney）的內部 API 有試探但被安全規則擋下（不要再試）。注意：各 ETF 持股更新時間不一（有的晚一天），16:40 抓到的多半是前一天（當天的靠 App 打開時自己補抓）；漏抓一天時，差額會併到下一份的日期。
   - **投信全部**：官方沒有「ETF 買賣個股」資料時使用者先選的替代方案——證交所 T86＋櫃買的投信買賣超（含被動 ETF 與一般基金）。`src/engine/etfRank.ts` 的 `flowRank` 依買賣超**金額**（股數×收盤）排前 20，固定 `trust`、只用個股 `tw.scored`；`buildTwInputs` 多存 `flow1`／`flow5`，`TW_SNAPSHOT_VERSION` 升到 3；`MarketState.flowDate` 是法人資料日。
 - **發布改用 release APK（10/27，使用者選 A）**：10/27 使用者手機更新時 Google Play 安全防護顯示「已封鎖有害的應用程式」。原因 Google 不公開，推測是側載＋App 自己下載安裝更新（REQUEST_INSTALL_PACKAGES）＋debug（可除錯）版本。現在 `stock-app.yml` 同時 `assembleDebug assembleRelease`：模擬器 e2e 仍用 debug（Playwright 要連 WebView 除錯），**發布 `app-release.apk`**；release 也用 `stock-radar.keystore` 的 stable 簽章（`build.gradle`），CI 新增步驟檢查 release 不可除錯、且 SHA-256 簽章和 debug 相同（不同就無法覆蓋更新、資料會丟）。release 關掉 lintVital（`lint { checkReleaseBuilds false }`）。未做：B 拿掉 App 內自動安裝、C 向 Google 申訴。被擋時的暫時解法：按「更多詳情」找「仍要安裝」，或暫時關閉 Play 安全防護掃描。
 - **K 線圖盤中即時（10/27，使用者要求）**：`src/engine/liveBar.ts` 的 `withLiveBar` 用證交所 mis 即時報價（`twLive.ts` 新增 `volume`＝v 張×1000）拼今天暫時的一根（`live: true`），只在日 K 還沒有今天那根時加；詳情頁 `shownBars` 只給 K 線圖用（法人分頁仍用正式日 K），圖下 `kbar-live` 說明；美股也拼（10/27 加：CNBC 日期是紐約交易日，和日 K 一致；同一天且盤中就用即時價取代下載當時那根，已收盤保留正式的）。10/27 09:26 實盤驗證：大成鋼開 51.00 高 51.30 低 50.50 與證交所一致、量 2,619 張（09:34 證交所 2,897 張）。台股盤中**成交金額**仍沒有免費來源，數據頁維持收盤官方數字。`candles.tsx` 改成檔數不變時保留畫面與點選、多一根時原本在最右邊才跟著移。e2e：有盤中 K 棒時檢查標示「盤中」。
@@ -175,7 +176,7 @@
 - 加權指數：`TAIEX/MI_5MINS_HIST` 每月一份真實開高低收（每月存 kv `idx:t00:YYYYMM`）。櫃買指數：`tpex.org.tw/openapi/v1/tpex_index` 只回當月，每次打開合併存到 kv `idx:o00`，越用越長。
 - 臺灣50／半導體／金融保險／電子：官方沒有歷史開高低收。逐日抓 `MI_INDEX?date=YYYYMMDD&type=IND`（每天約 22KB，**含全部指數；電子指數在這裡叫「電子工業類指數」**），存 kv `idx:d:YYYYMMDD`（休市存 `{}`）；K 棒開＝前一天收盤。證交所限速每 3 秒 1 次，70 天第一次要約 3.5 分鐘：兩天一批先出圖、關畫面就停、抓過存手機；載入時用 `beginForeground()`（history.ts）讓背景預載讓路。
 - 診斷：e2e 把 `window.__srIdxTrace=[]`，下載過程會記進去，逾時會印出（平常沒有任何作用）。
-- **每日累積檔（1.0.201，使用者 10/30 同意改排程）**：`stock-backtest.yml` 每天 18:40 的 `index-hist` job 呼叫 `stock-index-hist.yml` → `tools/indexHist.ts`，把 `index-hist.json`（Releases `stock-radar-data`）補齊後傳回。內容：`ohlc`（加權、櫃買真實開高低收）、`closes`（臺灣50／半導體／金融保險／電子工業類每日收盤）、`seen`（檢查過的日期，休市也算）。第一次要逐日抓約 260 個平日（約 15 分鐘），之後每天 1～2 個請求。App 端 `loadRemote`（indexHistory.ts）6 小時內只下載一次（kv `idx:rem`），只補檔案之後缺的日子。改程式的推送（路徑符合 stock-index-hist.yml）也會跑一次。
+- **每日累積檔（1.0.201，使用者 10/30 同意改排程）**：`stock-backtest.yml` 每天 18:40 的 `index-hist` job 呼叫 `stock-index-hist.yml` → `tools/indexHist.ts`，把 `index-hist.json`（Releases `radar-data-vug13iw701`）補齊後傳回。內容：`ohlc`（加權、櫃買真實開高低收）、`closes`（臺灣50／半導體／金融保險／電子工業類每日收盤）、`seen`（檢查過的日期，休市也算）。第一次要逐日抓約 260 個平日（約 15 分鐘），之後每天 1～2 個請求。App 端 `loadRemote`（indexHistory.ts）6 小時內只下載一次（kv `idx:rem`），只補檔案之後缺的日子。改程式的推送（路徑符合 stock-index-hist.yml）也會跑一次。
 - 美股指數日 K：CNBC bars `https://ts-api.cnbc.com/harmony/app/bars/<代號>/1D/<起>/<迄>/adjusted/EXTENDED.json`（代號同 MACRO_SYMBOLS：.SPX .IXIC .SOX .DJI .VIX），手機直接抓，一次約 1 年；kv `idx:us:<代號>` 先畫再更新。數據頁卡片 testid `idx-card-.SPX`。
 
 ## 配息入帳（2026-10-30，為 ETF 組做準備）
@@ -184,7 +185,7 @@
 - **每日排程（DAILY.md）還沒要求記配息**，現有的 Claude 虛擬操作組、規則組合都沒有記，所以它們目前仍是只看價格（高股息成分會被低估）。要不要補，等使用者決定。
 
 ## ETF 組合回測（2026-10-30，規則式框架）
-- 引擎 `src/engine/etfBacktest.ts`（純計算＋測試），資料與輸出 `tools/etfBacktest.ts`，工作流程 `stock-etf-backtest.yml`（不排程；推送或手動執行；結果 `etf-backtest.json` 發布到 Releases `stock-radar-data`）。
+- 引擎 `src/engine/etfBacktest.ts`（純計算＋測試），資料與輸出 `tools/etfBacktest.ts`，工作流程 `stock-etf-backtest.yml`（不排程；推送或手動執行；結果 `etf-backtest.json` 發布到 Releases `radar-data-vug13iw701`）。
 - 資料：Yahoo 日線（5 年）含配息與分割，上市 `.TW`、上櫃 `.TWO`。候選名單與「重疊群組」寫在 `ETF_UNIVERSE`（用 2026/09 前十大持股人工分群，**不是逐期實際重疊**）。海外型、槓桿、反向、期貨型不納入。
 - 規則：每週五收盤判斷、隔天開盤成交；0050 在 60 日線之上 → 股票型 80%／公司債 20%，之下 → 股票型 50%／公司債 30%＋長債 20%；股票型挑動能／波動排名前 3（同群組 1 檔、同類型 ≤ 2、大盤型 1 檔、主動式單檔 ≤ 20%、單檔 ≤ 40%）；已持有且排名還在前 5 就留著。規模門檻用「近 60 日平均成交金額 ≥ 5000 萬」代替（沒有歷史規模資料）。
 - 成功標準（使用者 10/30 同意）：1 含息報酬 ≥ 固定比例組合（60% 0050＋20% 00878＋20% 00720B，每季平衡）；2 最大回檔比 0050 小 20% 以上；3 0050 回落 ≥ 5% 的區間表現比 0050 好；4 年化調整成本 ≤ 1% 且平均每次 ≤ 2 筆買賣；5 配置沒有失控。
@@ -193,7 +194,7 @@
 
 ## 目前進度與待辦（2026-10-30 晚，換新對話時從這裡接）
 **已完成並發布（1.0.201）**：數據頁指數可點進去看日 K（台股指數＋美股 S&P／那斯達克／費半／道瓊／VIX）；每日排程 18:40 順便累積台股指數歷史（`index-hist.json`）。
-**已完成、未改 App**：虛擬 ETF 引擎的選用配息入帳（`recordDividend`、指令 `dividend`）；ETF 組合回測（V0 每週 `etf-backtest.json`、V1 每月 `etf-backtest-monthly.json`，都在 Releases `stock-radar-data`）。
+**已完成、未改 App**：虛擬 ETF 引擎的選用配息入帳（`recordDividend`、指令 `dividend`）；ETF 組合回測（V0 每週 `etf-backtest.json`、V1 每月 `etf-backtest-monthly.json`，都在 Releases `radar-data-vug13iw701`）。
 
 **待辦／未決（都等使用者決定，不要自己開工）**
 1. **【已結案：使用者 10/30 決定不開第七組，不要再主動做】ETF 組合（全 ETF、不分類、Claude 選配）要不要開成第七組**（以下是當時評估的紀錄；回測程式與結果檔保留，只在使用者再提時才用）：回測結果 5 條標準只達成 3 條（回檔、下跌段、配置沒失控），未達成：報酬輸固定比例組合（V1 +132.8% vs +181.4%）、調整成本（V1 年化 1.42%、平均每次 4.43 筆，標準 4 的「每次 ≤ 2 筆」可能訂得不合理）。我的建議是不開；備選：事先寫好規則的 V2（只在入選名單改變才換）、或不靠回測直接開一組由 Claude 每月判斷的虛擬組觀察。**不要自己再調參數重跑**（使用者要求每個版本只跑一次）。
@@ -212,7 +213,7 @@
 - 以前的問題：價格其實已經是最佳買價（接近試搓價），但標成「收盤」，而且 `marketOpen()` 只在 09:00～13:35 才輪詢，開盤前不會自動更新。現在 `livePolling()`（8:30～13:35）負責輪詢，`isLiveNow()` 決定要不要用即時價，畫面標「試搓」。
 - 試搓價沒有開盤價（o 是 "-"），所以 K 線不會拼「今天」那一根；興櫃（櫃買行情表）與指數沒有試搓，不受影響。
 - **驗證限制**：單元測試用 11/02 實測的真實欄位；模擬器 e2e 在 CI 跑的時間不在試搓時段，沒有辦法在模擬器上實測這個畫面。
-- 探測流程（`stock-probe.yml`）現在會把輸出另存到 Releases `stock-radar-data/probe-out.txt`（GitHub 工具連不上時也能用網址下載來看）。
+- 探測流程（`stock-probe.yml`）現在會把輸出另存到 Releases `radar-data-vug13iw701/probe-out.txt`（GitHub 工具連不上時也能用網址下載來看）。
 
 ## 漲停／跌停燈號（1.0.207，2026-11-02）
 - 規則：昨收 ±10%，取到升降單位（股票 10／50／100／500／1000 元分段；ETF 50 元以上固定 0.05）。`src/lib/limit.ts`（`limitUpPrice`／`limitDownPrice`／`limitState`／`limitFromChg`），已用 11/02 證交所給的 u／w 六組真實數字與台達電 10/30 跌停（昨收 1,480 → 1,335）驗證。
@@ -233,12 +234,12 @@
 - 沒有成交量（CNBC 指數和期貨 bars 的量不可靠，K 線 `noVol`）。
 - 虛擬幣（11/03）：`MACRO_SYMBOLS` 的「虛擬幣」組（CNBC `BTC.CM=`、`ETH.CM=`，`isCryptoSymbol` 判斷，區間報酬用 7／30／90 根）；恐懼貪婪指數 `data/fng.ts`（alternative.me `/fng/?limit=31`），`refreshMacro` 時順便抓、失敗沿用 kv `fng`。
 - 美股 24 小時行情（11/03）：`data/okx.ts`，OKX 公開 API（不需帳號）；`findXStock` 從現貨清單用「x＋代號」或「代號＋x」找交易對（清單一天抓一次存 kv `okx:inst`，只留 x 開頭或結尾的幣）；`UsOvernight`（`screens.tsx`）在美股個股頁；K 線日期用台北時間 YYYYMMDDHHmm，`CandleChart` 的 `intraday` 讓均線標成 MA5 並顯示時間。GitHub 的模擬器在美國，OKX 若擋美國 IP，CI 會驗證不到。
-- 實單規則觀察組合（11/03，使用者要比較「我的實單」的規則）：`steady.ts` 的 `REAL`／`realTargets`（App 買入候選 → 分數前 8 檔等權、留 4% 現金、單檔 ≤25%、每 5 個交易日換，`costStop` 跌破成本 10% 停損），回測鍵 `U1_real`；每日追蹤 `runWatch` mode `real`（10/23 起），產出 `real.json` 上傳 stock-radar-data；App 端 `refreshRule`／自組ETF「實單規則」分頁、總評比第 7 組。Claude 實際怎麼挑沒辦法回測，這是固定規則的近似。
+- 實單規則觀察組合（11/03，使用者要比較「我的實單」的規則）：`steady.ts` 的 `REAL`／`realTargets`（App 買入候選 → 分數前 8 檔等權、留 4% 現金、單檔 ≤25%、每 5 個交易日換，`costStop` 跌破成本 10% 停損），回測鍵 `U1_real`；每日追蹤 `runWatch` mode `real`（10/23 起），產出 `real.json` 上傳 radar-data-vug13iw701；App 端 `refreshRule`／自組ETF「實單規則」分頁、總評比第 7 組。Claude 實際怎麼挑沒辦法回測，這是固定規則的近似。
 
 ## 推薦績效追蹤（11/07，使用者要求）
 - 引擎 `src/engine/pickLog.ts`（三本：`PickBook` = TW／ETF／US，設定在 `BOOK_INFO`）；App 畫面 `src/ui/picksPerf.tsx`（選股頁三個市場分頁都有卡片）；雲端計算在 `tools/backtest.ts` 最後（`runBook`）。
 - 紀錄存在 **`stock-radar-log` 分支**：`picks.json`（台股買入）、`picks-etf.json`（ETF 分數前 10 名，ETF 沒有買入評等）、`picks-us.json`（美股買入）。**只新增不覆蓋**：`assertAppendOnly` 比對，舊紀錄被改就不寫。git 歷史保留每天版本。
-- 結果發布到 stock-radar-data：`picks-perf*.json`、`picks*.csv`。排序＝新日期在前、同一天分數高到低（`sortPerfRows`）。
+- 結果發布到 radar-data-vug13iw701：`picks-perf*.json`、`picks*.csv`。排序＝新日期在前、同一天分數高到低（`sortPerfRows`）。
 - 成本：台股／ETF 每筆 1 萬元、0.1425%（整股最低 20、零股最低 1）、證交稅股票 0.3%／ETF 0.1%；美股每筆 1,000 美元小數股、複委託買賣各 0.1% 無最低、無稅、不含匯差與股利。停損推薦價 −8%，只有日收盤所以用收盤判斷。基準：台股／ETF 加權指數與 0050；美股 SPY、QQQ。
 - 美股在雲端用 `UsLoader`（Nasdaq＋CNBC），只記已收盤的美股交易日；下載失敗超過 10 檔當天不記。
 - 「只看首次推薦」：前一個記錄日不在名單的才算首次（`firstPickIds`）。
@@ -248,5 +249,5 @@
 ## 除權息還原與 ETF 配息（11/09，使用者要求）
 - `src/engine/exdiv.ts`：從每日行情找除權息事件（收盤 − 漲跌 ≠ 前收的那天；比例＝參考價÷前收、金額＝前收−參考價）。
 - 評分的近 1 週／1 月／3 月漲跌幅「還原除權息」（`adjustReturns`）：App 在 `applyTw` 評分前套用；雲端回測 `runBacktest(…, { ex })` 與推薦紀錄也用同一套，回測 log 有「還原前／還原後」比較。
-- 雲端每天輸出 `exdiv.json`（約一年的事件）到 stock-radar-data；App `refreshExdiv` 下載，新資料到了會重新評分。
+- 雲端每天輸出 `exdiv.json`（約一年的事件）到 radar-data-vug13iw701；App `refreshExdiv` 下載，新資料到了會重新評分。
 - ETF 個股頁「配息」卡片（`EtfDividend`）：近一年配息次數／合計、年化殖利率（÷現價）、最近一次除息、填息。比例 < 0.7 當分割（例如 0050 一拆四），不算配息。

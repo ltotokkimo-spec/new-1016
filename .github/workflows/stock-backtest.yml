@@ -1,6 +1,6 @@
 name: Stock Backtest
 
-# 用 App 的評分規則回測過去約 2 年，結果發布到 Releases 的 stock-radar-data，App 會自動下載。
+# 用 App 的評分規則回測過去約 2 年，結果發布到 Releases 的 radar-data-vug13iw701，App 會自動下載。
 on:
   push:
     branches: [ main, 'claude/**' ]
@@ -124,11 +124,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view stock-radar-data >/dev/null 2>&1 || \
-            gh release create stock-radar-data --title "股市雷達回測資料" --prerelease --notes "App 自動下載的回測結果，不需要手動下載。" --target "${{ github.sha }}"
+          gh release view radar-data-vug13iw701 >/dev/null 2>&1 || \
+            gh release create radar-data-vug13iw701 --title "股市雷達回測資料" --prerelease --notes "App 自動下載的回測結果，不需要手動下載。" --target "${{ github.sha }}"
           # GitHub 的上傳 API 偶爾回 HTTP 500（11/04 連續發生），每個檔案最多試 4 次，間隔 5、10、15 秒
-          up() { for i in 1 2 3 4; do gh release upload stock-radar-data "$1" --clobber && return 0; echo "上傳 $1 失敗（第 $i 次），稍後重試"; sleep $((i*5)); done; return 1; }
+          up() { for i in 1 2 3 4; do gh release upload radar-data-vug13iw701 "$1" --clobber && return 0; echo "上傳 $1 失敗（第 $i 次），稍後重試"; sleep $((i*5)); done; return 1; }
           up backtest.json
           for f in factors.json scorecompare.json steady.json n5.json wide.json regime.json lead.json ai.json real.json turn.json exdiv.json picks-perf.json picks.csv picks-perf-etf.json picks-etf.csv picks-perf-us.json picks-us.csv; do
             if [ -f "$f" ]; then up "$f"; fi
           done
+          # 11/11 使用者要求停用舊版 App 的雲端資料：舊位置 stock-radar-data 還在的話，把新位置沒有的檔案（主動式 ETF、指數歷史累積檔等）搬過來，再刪掉舊位置
+          if gh release view stock-radar-data >/dev/null 2>&1; then
+            mkdir -p "$RUNNER_TEMP/old-data" && gh release download stock-radar-data --dir "$RUNNER_TEMP/old-data" --clobber || true
+            have=$(gh release view radar-data-vug13iw701 --json assets -q '.assets[].name')
+            for f in "$RUNNER_TEMP"/old-data/*; do [ -f "$f" ] || continue; n=$(basename "$f"); echo "$have" | grep -qxF "$n" || up "$f"; done
+            gh release delete stock-radar-data --yes --cleanup-tag && echo "舊資料位置 stock-radar-data 已刪除"
+          fi

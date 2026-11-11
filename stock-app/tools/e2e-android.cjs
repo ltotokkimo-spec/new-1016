@@ -1103,6 +1103,46 @@ function check(ok, name, detail = "") {
     await shot("06d-統計持股");
     await page.click('[data-testid="hold-tab-pocket"]');
   } else check(false, "持股分頁有口袋／元大／統計分頁");
+  // ---------- 工具分頁（11/11）：攤平計算、股息計算，從持股帶入 ----------
+  await page.click("nav.tabs button:nth-child(7)");
+  await page.waitForSelector('[data-testid="tools"]', { timeout: 10000 });
+  await page.click('[data-testid="tool-tab-avg"]');
+  const avgChip = await page.$('[data-testid="avg-chip"]');
+  check(!!avgChip, "工具 → 攤平計算：列出持股可以帶入（虧損的排前面）");
+  if (avgChip) {
+    await avgChip.click();
+    await page.waitForSelector('[data-testid="avg-result"]', { timeout: 5000 }).catch(() => {});
+    const avg = await page.evaluate(() => ({
+      res: document.querySelector('[data-testid="avg-result"]')?.innerText.replace(/\s+/g, " ") || "",
+      scen: document.querySelectorAll('[data-testid="avg-scen"] tr').length,
+      batch: document.querySelector('[data-testid="avg-batch"]')?.innerText.replace(/\s+/g, " ") || "",
+      v: ["avg-shares", "avg-cost", "avg-price", "avg-add"].map((id) => document.querySelector(`[data-testid="${id}"]`)?.value || ""),
+    }));
+    log("攤平計算", JSON.stringify(avg).slice(0, 600));
+    const m = /均價 ([\d,.]+) ([\d,.]+)/.exec(avg.res), f = (x) => Number(String(x).replace(/,/g, ""));
+    const [sh, cost, px, add] = avg.v.map(f), before = m && f(m[1]), after = m && f(m[2]);
+    const expect = (sh * cost + add * px) / (sh + add);
+    check(!!m && Math.abs(before - cost) < 0.01 && Math.abs(after - expect) < 0.01 && /回本價（含手續費、稅）/.test(avg.res) && /需要準備 [\d,]+ 元/.test(avg.res) && avg.scen === 5,
+      "攤平計算：帶入持股後算出加碼前後均價（和手算一致）、回本價、需要資金，並列 4 種加碼比較", JSON.stringify({ v: avg.v, before, after, expect: expect.toFixed(2), scen: avg.scen }));
+  }
+  await shot("07a-工具-攤平計算");
+  await page.click('[data-testid="tool-tab-div"]');
+  await page.waitForSelector('[data-testid="div-chips"]', { timeout: 5000 }).catch(() => {});
+  // 00406A 是月配 ETF（每次 0.138 元）：帶入後頻率自動選月配、每次配息自動填入
+  const picked = await page.evaluate(() => { const c = [...document.querySelectorAll('[data-testid="div-chip"]')].find((e) => /主動中信台灣收益|00406A/.test(e.innerText)) || document.querySelector('[data-testid="div-chip"]'); c?.click(); return c?.innerText || ""; });
+  await page.waitForSelector('[data-testid="div-result"]', { timeout: 5000 }).catch(() => {});
+  const dv = await page.evaluate(() => ({
+    res: document.querySelector('[data-testid="div-result"]')?.innerText.replace(/\s+/g, " ") || "",
+    per: document.querySelector('[data-testid="div-per"]')?.value || "", freq: document.querySelector('[data-testid="div-freq"]')?.value || "",
+    hist: document.querySelector('[data-testid="div-hist"]')?.innerText || "", table: document.querySelectorAll('[data-testid="div-table"] tr').length,
+    need: document.querySelector('[data-testid="div-need"]')?.innerText || "",
+  }));
+  log("股息計算", JSON.stringify({ picked, ...dv }).slice(0, 600));
+  check(/每次入帳 [\d,]+/.test(dv.res) && /一年合計 [\d,]+/.test(dv.res) && /現價殖利率 \d+\.\d%/.test(dv.res) && dv.table >= 3 && /張|股/.test(dv.need) && (!/00406A|主動中信/.test(picked) || (dv.freq === "12" && /^0\.138$/.test(dv.per))),
+    "股息計算：帶入持股後自動填每次配息與頻率（00406A 月配 0.138 元），算出每次入帳、一年合計、殖利率、複利表與目標反推", JSON.stringify({ picked, per: dv.per, freq: dv.freq, res: dv.res.slice(0, 160) }));
+  await shot("07b-工具-股息計算");
+  await page.click("nav.tabs button:nth-child(3)");
+  await page.waitForSelector('[data-testid="hold-tabs"]', { timeout: 10000 }).catch(() => {});
   // 持股的 K 線圖要畫出「我的均價線」：點進美股持股 AAPL（均價 100），圖上方標示均價與現價差
   await page.evaluate(() => [...document.querySelectorAll(".list .item")].find((e) => /AAPL/.test(e.innerText))?.click());
   await page.waitForSelector(".sheet", { timeout: 10000 });
@@ -1242,7 +1282,7 @@ function check(ok, name, detail = "") {
   // ---------- Claude AI（有提供金鑰才測） ----------
   const key = process.env.ANTHROPIC_API_KEY;
   if (key) {
-    await page2.click("nav.tabs button:nth-child(7)");
+    await page2.click("nav.tabs button:nth-child(8)");
     await page2.fill("#api-key", key);
     await page2.click("text=測試金鑰");
     await page2.waitForFunction(() => /金鑰可以使用|金鑰無效|權限|額度|連不到/.test(document.body.innerText), null, { timeout: 60000 });
@@ -1309,7 +1349,7 @@ function check(ok, name, detail = "") {
 
   // ---------- App 內更新：檢查版本、權限、從 GitHub 下載並打開系統安裝畫面 ----------
   const fg = async () => String(await device.shell("dumpsys activity activities | grep -m1 -E 'topResumedActivity|mResumedActivity'"));
-  await page2.click("nav.tabs button:nth-child(7)");
+  await page2.click("nav.tabs button:nth-child(8)");
   await page2.waitForSelector('[data-testid="update-card"]', { timeout: 10000 });
   await page2.waitForFunction(() => /已是最新版本|有新版本|檢查更新失敗|GitHub 暫時沒回應/.test(document.querySelector('[data-testid="update-card"]').innerText), null, { timeout: 60000 });
   const card = await page2.$eval('[data-testid="update-card"]', (e) => e.innerText.replace(/\s+/g, " "));

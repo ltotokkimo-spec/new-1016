@@ -64,8 +64,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 main { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px 16px 24px; -webkit-overflow-scrolling: touch; }
-.tabs { display: grid; grid-template-columns: repeat(7, 1fr); background: var(--surface); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom, 0px); }
-.tabs button { border: 0; background: none; padding: 8px 0 9px; display: grid; gap: 2px; justify-items: center; font-size: 11px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.tabs { display: grid; grid-template-columns: repeat(8, 1fr); background: var(--surface); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom, 0px); }
+.tabs button { border: 0; background: none; padding: 8px 0 9px; display: grid; gap: 2px; justify-items: center; font-size: 10.5px; color: var(--muted); cursor: pointer; white-space: nowrap; }
 .tabs button svg { width: 22px; height: 22px; }
 .tabs button[aria-current="page"] { color: var(--accent); font-weight: 700; }
 
@@ -221,3 +221,11 @@ table.cand tr.grp td { background: var(--surface-2); color: var(--muted); font-s
 /* 免責聲明（第一次打開）：蓋在最上面，資料照常在背後下載 */
 .gate { position: fixed; inset: 0; z-index: 100; background: var(--bg); overflow-y: auto; display: flex; justify-content: center; padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); }
 .gate-card { width: 100%; max-width: 560px; align-self: flex-start; }
+
+/* 工具分頁的計算表 */
+table.calc { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table.calc th { text-align: right; color: var(--muted); font-weight: 400; font-size: 12px; padding: 4px 2px; border-bottom: 1px solid var(--line); }
+table.calc td { text-align: right; padding: 6px 2px; border-bottom: 1px solid var(--line); font-family: var(--mono); }
+table.calc th:first-child, table.calc td:first-child { text-align: left; font-family: var(--font); }
+table.calc tr.sel td { background: var(--hold-bg); font-weight: 700; }
+.warn-box { border-left: 3px solid var(--hold); background: var(--hold-bg); padding: 8px 10px; border-radius: 8px; font-size: 13px; line-height: 1.6; margin-top: 12px; }

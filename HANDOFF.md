@@ -151,6 +151,7 @@
 - **雷達圖示（10/28 使用者選定 B3）**：標題雷達改金色圓環＋38 片漸淡扇形殘影（約半圈，4.5 秒一圈）＋4 個紅色目標點（掃到才亮），由 `app.tsx` 的 `RADAR_FAN`／`RADAR_BLIPS` 產生，樣式在 `styles.css` `.radar-logo`（淺色模式用深金、reduced-motion 停止）。啟動畫面（`index.html` 的 `#boot-radar`）、Android 12 系統啟動畫面（`res/drawable/radar_icon.xml`、`values-v31/styles.xml`）也一併改金色＋暖黑背景；Android 11 以下的 `splash.png` 與桌面圖示（`mipmap-*/ic_launcher*.png`）10/28 也已改金色，由 scratchpad 的產圖腳本畫（金色 B3 靜態版、底色 #120D04）。
 
 ## 虛擬ETF 共通區塊（1.0.178）
+- **工具分頁（11/11）**：底部第 7 個按鈕「工具」（設定移到第 8 個，e2e 的設定改 `nth-child(8)`）；`src/ui/tools.tsx`＋`src/engine/calc.ts`。攤平：`averageDown`（回本價用 recovery 的 `breakEvenPrice`，可打折）、`sharesForTarget`、`sharesForAmount`（滿 1 張取整張）、`batchPlan`；股息：`payout`（二代健保單次 ≥2 萬扣 2.11%、匯費 10 元、美股預扣 30%）、`dividendPlan`（逐次配息，再投入買零股含手續費）、`sharesForMonthly`。持股帶入用口袋＋元大合併。
 - **免責聲明與授權（11/10，使用者要分享 App）**：`src/ui/disclaimer.tsx` 的 `DisclaimerGate`（第一次打開蓋在最上面，localStorage `disclaimerAck` ＝ `DISCLAIMER_VERSION`，改內容就換版本日期讓所有人再看一次）＋設定頁全文；根目錄 `LICENSE`（個人非商業使用、散布修改版或複製程式碼需書面同意）。已知：簽章金鑰 `stock-radar.keystore` 與密碼在公開專案內（只從發布頁或 App 內更新安裝就沒風險；要根治需換金鑰並先做持股匯出／匯入）。
 - **口袋／元大持股（11/10）**：`Holding.broker`（沒有＝口袋，`brokerOf`），持股頁三個分頁（localStorage `holdTab`）；統計用 `mergeHoldings` 合併同代號（股數相加、成本加權）＋`BrokerStats`（美股依匯率換台幣加總）。新增／照片匯入只覆蓋同券商的同代號。
 - **持股分析與建議（11/9）**：`src/engine/recovery.ts` 的 `recoveryPlan`，持股分頁 `RecoveryCard`（預設收合）。回本價含手續費與證交稅；動作：離場或虧損達 10% → 停損換股（推薦未持有、評分最高的「買入」股，ETF 推分數最高的 ETF）；買入 → 攤平（加碼股數讓回本漲幅減半，最多加倍持股，台股滿 1 張取整張）；其他 → 續抱設條件。只列虧損持股。

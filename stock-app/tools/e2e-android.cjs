@@ -1053,6 +1053,8 @@ function check(ok, name, detail = "") {
   check(/美股市值 NT\$[\d,]+/.test(usHold.cardText) && /累計損益 [+-]NT\$[\d,]+/.test(usHold.cardText), "美股市值卡片的市值、累計損益都用台幣 NT$", usHold.cardText);
   const pnlCards = await page.evaluate(() => ({ tw: document.querySelector('[data-testid="tw-pnl"]')?.innerText.replace(/\s+/g, " ") || "", us: document.querySelector('[data-testid="us-pnl"]')?.innerText.replace(/\s+/g, " ") || "" }));
   check(/^累計損益 [+-]?[\d.,]+( 萬| 億)?（[+-]?\d+\.\d%）$/.test(pnlCards.tw) && /^累計損益 [+-]NT\$[\d,]+（[+-]?\d+\.\d%）$/.test(pnlCards.us), "台股、美股市值卡片的損益標明「累計損益」", JSON.stringify(pnlCards));
+  const cardCost = await page.evaluate(() => ({ tw: document.querySelector('[data-testid="tw-cost"]')?.innerText.replace(/\s+/g, " ") || "", us: document.querySelector('[data-testid="us-cost"]')?.innerText.replace(/\s+/g, " ") || "" }));
+  check(/^買進成本 [\d.,]+( 萬| 億)?$/.test(cardCost.tw) && /^買進成本 NT\$[\d,]+$/.test(cardCost.us), "台股、美股市值卡片在市值下面標「買進成本」（美股用台幣）", JSON.stringify(cardCost));
   // 買進成本（台幣）÷（股數 × 美元均價）＝匯率，要在合理範圍，畫面不顯示匯率
   const usCv = await page.evaluate(() => { const it = [...document.querySelectorAll(".list .item")].find((e) => /AAPL/.test(e.innerText)); return it?.querySelector('[data-testid="cost-value"]')?.innerText.replace(/\s+/g, " ") || ""; });
   const usCost = Number((/買進成本 NT\$([\d,]+)/.exec(usCv) || [])[1]?.replace(/,/g, ""));

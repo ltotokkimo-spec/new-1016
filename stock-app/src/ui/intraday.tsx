@@ -65,13 +65,15 @@ export function IntradayChart({ code, market, prefetch }: { code: string; market
   const line = (vs: number[]) => pts.map((p, i) => `${i ? "L" : "M"}${x(p.m).toFixed(1)},${y(vs[i]).toFixed(1)}`).join("");
   const est = d.est ?? [];
   const maxV = Math.max(1, ...pts.map((p) => p.vol), ...est.map((e) => e.vol));
-  const lastVol = pts[pts.length - 1].vol;
+  const lastVol = Number.isFinite(pts[pts.length - 1].vol) ? pts[pts.length - 1].vol : 0;
   const vy0 = H + gap + VH;
   const last = pts[pts.length - 1];
   const cur = sel !== null ? pts[sel] : last;
   const chg = cur.price - ref, pct = chg / ref;
   const cc = chg > 0 ? "up" : chg < 0 ? "down" : "";
-  const totalVol = pts.reduce((a, p) => a + p.vol, 0);
+  // 有的分鐘或即時價沒有成交量（開盤前用前一天的分鐘線、即時量是 NaN）：沒有數字的不算，不讓總量變成 NaN
+  const fin = (x: number | undefined) => (x !== undefined && Number.isFinite(x) ? x : 0);
+  const totalVol = pts.reduce((a, p) => a + fin(p.vol), 0);
   const hiI = pts.findIndex((p) => p.price === hi), loI = pts.findIndex((p) => p.price === lo);
   const up = limitUpPrice(ref, etf), dn = limitDownPrice(ref, etf);
   const pick = (ev: any) => {
@@ -95,7 +97,7 @@ export function IntradayChart({ code, market, prefetch }: { code: string; market
       </div>
       <div class="row num muted" style={{ fontSize: "12px", gap: "4px 12px", flexWrap: "wrap", marginTop: "2px" }} data-testid="intra-stats">
         <span>{esb ? "參考價" : "昨收"} {fmtPrice(ref)}</span><span>最高 <span class={hi > ref ? "up" : hi < ref ? "down" : ""}>{fmtPrice(hi)}</span></span><span>最低 <span class={lo > ref ? "up" : lo < ref ? "down" : ""}>{fmtPrice(lo)}</span></span>
-        <span>均價 {fmtPrice(avg[avg.length - 1])}</span><span>總量 {Math.round(Math.max(totalVol + est.reduce((a, e) => a + e.vol, 0), live?.volume ?? 0) / 1000).toLocaleString()} 張</span><span data-testid="intra-lastvol">單量 {Math.round(lastVol / 1000).toLocaleString()} 張</span>
+        <span>均價 {fmtPrice(avg[avg.length - 1])}</span><span>總量 {Math.round(Math.max(totalVol + est.reduce((a, e) => a + fin(e.vol), 0), fin(live?.volume)) / 1000).toLocaleString()} 張</span><span data-testid="intra-lastvol">單量 {Math.round(lastVol / 1000).toLocaleString()} 張</span>
         {!esb && <span>漲停 <span class="up">{fmtPrice(up)}</span>・跌停 <span class="down">{fmtPrice(dn)}</span></span>}
       </div>
       <svg viewBox={`0 0 ${W} ${vy0 + 16}`} width="100%" role="img" aria-label="即時走勢" onClick={pick} style={{ touchAction: "pan-y", marginTop: "6px" }}>

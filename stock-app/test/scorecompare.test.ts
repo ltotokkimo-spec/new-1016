@@ -50,6 +50,15 @@ describe("新舊評分對照", () => {
     expect(lines[0]).toContain("新舊評分對照");
     for (const v of VARIANTS) expect(lines.some((l) => l.startsWith(`${v.key}｜全部`))).toBe(true);
   });
+  it("離場但轉強研究：三個條件都有 5、20 日結果與事先訂好的通過判定，文字表也列出", () => {
+    expect(r.rebound!.map((x) => x.key)).toEqual(["R1", "R2", "R3"]);
+    for (const rb of r.rebound!) {
+      for (const h of [5, 20] as const) expect(rb.h[h]!.all.n).toBe(rb.h[h]!.first.n + rb.h[h]!.second.n);
+      expect(typeof rb.pass).toBe("boolean");
+      expect(rb.reasons.length).toBeGreaterThan(0);
+    }
+    expect(formatCompare(r).some((l) => l.includes("離場但轉強 R1"))).toBe(true);
+  });
   it("預設權重不變：不傳權重與傳 DEFAULT_WEIGHTS 結果一樣；流動性權重為 0 時不影響", () => {
     const stocks: StockInput[] = Array.from({ length: 40 }, (_, k) => ({ code: String(2001 + k), name: "", market: "TWSE", sector: "半導體", close: 100, value: 2e8 + (39 - k) * 1e7, ret1w: k / 100, ret1m: k / 50, ret3m: k / 30, foreign5: (k - 20) * 1000, foreignStreak: k % 6, trust5: (20 - k) * 500 }));
     const a = scoreStocks(stocks).scored.map((x) => [x.code, x.score]);

@@ -14,7 +14,23 @@ export const VARIANTS: { key: string; label: string; w: ScoreWeights }[] = [
   { key: "B", label: "B 去投信＋流動性15（動能35 籌碼35 族群15 流動15）", w: { momentum: 0.35, flow: 0.35, sector: 0.15, liquidity: 0.15, foreign: 0.7, streak: 0.3, trust: 0 } },
   { key: "C", label: "C 動能降權（動能20 籌碼40 族群15 流動25）", w: { momentum: 0.2, flow: 0.4, sector: 0.15, liquidity: 0.25, foreign: 0.7, streak: 0.3, trust: 0 } },
   { key: "D", label: "D 只看外資與流動性（籌碼60 流動40）", w: { momentum: 0, flow: 0.6, sector: 0, liquidity: 0.4, foreign: 0.7, streak: 0.3, trust: 0 } },
+  { key: "R", label: "R 短線轉強加分（動能30 籌碼40 族群20 轉強10）", w: { ...DEFAULT_WEIGHTS, momentum: 0.3, rebound: 0.1 } },
 ];
+
+/**
+ * 「離場但正在轉強」研究（11/11 使用者：頴崴連漲、漲停，評等卻一直是離場）。
+ * 條件與通過標準事先訂好：在現有評分評為「離場」的股票裡，符合條件的那群，之後 5 日與 20 日的平均報酬
+ * 都不輸當天全部股票平均（超額 ≥ 0）、也都比其餘離場股好，前半期與後半期都成立，且累積樣本 ≥ 200 筆，
+ * 才把這些股票的評等從「離場」改成「觀望」。否則維持離場，只在畫面上標「反彈中」。
+ */
+export const REBOUND_RULES: { key: string; label: string; test: (x: { chg1d?: number; ret1w: number; ret1m: number; foreign5?: number }) => boolean }[] = [
+  { key: "R1", label: "今天漲 ≥ 3% 且外資近 5 日買超", test: (x) => (x.chg1d ?? 0) >= 0.03 && (x.foreign5 ?? 0) > 0 },
+  { key: "R2", label: "今天漲 ≥ 5%", test: (x) => (x.chg1d ?? 0) >= 0.05 },
+  { key: "R3", label: "近 1 週轉正（近 1 月仍跌逾 10%）", test: (x) => x.ret1w > 0 && x.ret1m < -0.1 },
+];
+export const REBOUND_MIN_N = 200;
+export interface ReboundSlice { n: number; days: number; ex: number; restEx: number } // n：累積筆數；ex：符合條件的平均超額；restEx：其餘離場股的平均超額
+export interface ReboundStat { key: string; label: string; h: Partial<Record<H, { all: ReboundSlice; first: ReboundSlice; second: ReboundSlice }>>; pass: boolean; reasons: string[] }
 
 /**
  * 影子追蹤：C 的權重在 2026/10/22 凍結（之後不改），只算「凍結之後」的評等日，這些日子的報酬在凍結時還沒發生，
@@ -53,6 +69,7 @@ export interface CmpResult {
   version: 1; generatedAt: number; from: string; to: string; days: number; split: string; // split：前半期／後半期的分界日
   variants: { key: string; label: string; h: Partial<Record<H, CmpStat>> }[];
   shadow?: ShadowResult;
+  rebound?: ReboundStat[];
 }
 
 interface Row { date: string; up: boolean; ic: number; spread: number; top: number; buy: number; buyN: number; buyWin: number; buyCnt: number }
@@ -96,6 +113,7 @@ export function runScoreCompare(days: BtDay[], companies: Company[], opts: { now
   const acc = new Map<string, Partial<Record<H, Row[]>>>(VARIANTS.map((v) => [v.key, {}]));
   const dates: string[] = [];
   const liq: Partial<Record<H, { date: string; v: number }[]>> = {};
+  const reb = new Map<string, Partial<Record<H, { date: string; hit: number[]; rest: number[] }[]>>>(REBOUND_RULES.map((r) => [r.key, {}]));
   for (let i = CMP_HORIZONS[0]; i < days.length; i++) {
     const s = days[i].date;
     const w = i + 5;
@@ -116,6 +134,13 @@ export function runScoreCompare(days: BtDay[], companies: Company[], opts: { now
         const rs0 = base.map((x) => fwd(x.code, i, h));
         const q0 = quintileExcess(base.map((x) => x.value), rs0);
         (liq[h] ??= []).push({ date: s, v: q0[4] - q0[0] });
+        // 離場股：符合轉強條件 vs 其餘，各自的超額報酬（相對當天全部平均）
+        const avg0 = mean(fin(rs0));
+        for (const rule of REBOUND_RULES) {
+          const hit: number[] = [], rest: number[] = [];
+          base.forEach((x, j) => { if (x.rating !== "離場" || !Number.isFinite(rs0[j])) return; (rule.test(x) ? hit : rest).push(rs0[j] - avg0); });
+          ((reb.get(rule.key)!)[h] ??= []).push({ date: s, hit, rest });
+        }
       }
       for (const v of VARIANTS) {
         const { scored } = scoreStocks(inputs, undefined, v.w);
@@ -157,7 +182,31 @@ export function runScoreCompare(days: BtDay[], companies: Company[], opts: { now
       shadow.latest = { date: days[0].date, old: top(DEFAULT_WEIGHTS), shadow: top(sw) };
     }
   }
+  const rebound: ReboundStat[] = REBOUND_RULES.map((rule) => {
+    const out: ReboundStat = { key: rule.key, label: rule.label, h: {}, pass: false, reasons: [] };
+    const sl = (rows: { hit: number[]; rest: number[] }[]): ReboundSlice => {
+      const hit = rows.flatMap((r) => r.hit), rest = rows.flatMap((r) => r.rest);
+      return { n: hit.length, days: rows.filter((r) => r.hit.length).length, ex: mean(hit), restEx: mean(rest) };
+    };
+    for (const h of CMP_HORIZONS) {
+      const rows = reb.get(rule.key)![h] ?? [];
+      out.h[h] = { all: sl(rows), first: sl(rows.filter((r) => r.date < split)), second: sl(rows.filter((r) => r.date >= split)) };
+    }
+    const bad: string[] = [];
+    for (const h of CMP_HORIZONS) {
+      const x = out.h[h]!;
+      if (x.all.n < REBOUND_MIN_N) bad.push(`${h} 日樣本只有 ${x.all.n} 筆（要 ${REBOUND_MIN_N}）`);
+      for (const [nm, v] of [["全期", x.all], ["前半", x.first], ["後半", x.second]] as const) {
+        if (!(v.ex >= 0)) bad.push(`${h} 日${nm}輸大盤平均（${pc(v.ex)}）`);
+        if (!(v.ex > v.restEx)) bad.push(`${h} 日${nm}沒有比其餘離場股好（${pc(v.ex)} vs ${pc(v.restEx)}）`);
+      }
+    }
+    out.pass = !bad.length;
+    out.reasons = bad.length ? bad : ["5 日、20 日，全期與前後半期都不輸大盤、也比其餘離場股好"];
+    return out;
+  });
   return {
+    rebound,
     shadow,
     version: 1, generatedAt: opts.now ?? Date.now(), from: sorted[0] ?? "", to: sorted[sorted.length - 1] ?? "", days: dates.length, split,
     variants: VARIANTS.map((v) => {
@@ -204,6 +253,16 @@ export function formatCompare(r: CmpResult): string[] {
         out.push(`${v.key}｜${name}（${s.days}天）｜IC ${nn(s.ic)}｜多空差 ${pc(s.spread)}｜前5% ${pc(s.top)}｜買入 ${pc(s.buy)}（${Number.isFinite(s.buyN) ? s.buyN.toFixed(1) : "—"} 檔/日、贏過中位數 ${Number.isFinite(s.buyBeat) ? Math.round(s.buyBeat * 100) : "—"}%）`);
       }
     }
+  }
+  for (const rb of r.rebound ?? []) {
+    out.push(`== 離場但轉強 ${rb.key}「${rb.label}」：${rb.pass ? "通過（可改成觀望）" : "未通過（維持離場）"}`);
+    for (const h of CMP_HORIZONS) {
+      const x = rb.h[h];
+      if (!x) continue;
+      const f = (v: ReboundSlice) => `${pc(v.ex)}（${v.n} 筆）vs 其餘離場 ${pc(v.restEx)}`;
+      out.push(`   ${h} 日｜全期 ${f(x.all)}｜前半 ${f(x.first)}｜後半 ${f(x.second)}`);
+    }
+    if (!rb.pass) out.push(`   原因：${rb.reasons.slice(0, 4).join("；")}`);
   }
   const sh = r.shadow;
   if (sh) {

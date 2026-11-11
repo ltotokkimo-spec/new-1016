@@ -128,6 +128,7 @@ export function sectorStats(stocks: StockInput[]): SectorStat[] {
 export interface ScoreWeights {
   momentum: number; flow: number; sector: number; liquidity: number; // 總分：動能、籌碼、族群、流動性（成交金額百分位）
   foreign: number; streak: number; trust: number; // 台股籌碼分數：外資買超佔比、外資連買天數、投信買超佔比
+  rebound?: number; // 短線轉強：最近一天漲跌幅的百分位（11/11 研究中，App 預設 0）
 }
 export const DEFAULT_WEIGHTS: ScoreWeights = { momentum: 0.4, flow: 0.4, sector: 0.2, liquidity: 0, foreign: 0.6, streak: 0.2, trust: 0.2 };
 
@@ -150,6 +151,7 @@ export function scoreStocks(stocks: StockInput[], keep?: Set<string>, w: ScoreWe
   const pT = percentiles(tRatio);
   const pRS = percentiles(liquid.map((s) => s.rsVsIndex1m ?? NaN));
   const pL = w.liquidity > 0 ? percentiles(liquid.map((s) => s.value)) : [];
+  const pD = w.rebound ? percentiles(liquid.map((s) => s.chg1d ?? NaN)) : [];
 
   const scored = liquid.map((s, i): Scored => {
     const momentum = 0.5 * p1m[i] + 0.3 * p3m[i] + 0.2 * p1w[i];
@@ -162,7 +164,7 @@ export function scoreStocks(stocks: StockInput[], keep?: Set<string>, w: ScoreWe
     }
     const sec = secMap.get(s.sector);
     const sectorScore = sec ? sec.strength : 0.5;
-    const score = Math.round(100 * (w.momentum * momentum + w.flow * flow + w.sector * sectorScore + (w.liquidity > 0 ? w.liquidity * pL[i] : 0)));
+    const score = Math.round(100 * (w.momentum * momentum + w.flow * flow + w.sector * sectorScore + (w.liquidity > 0 ? w.liquidity * pL[i] : 0) + (w.rebound ? w.rebound * (Number.isFinite(pD[i]) ? pD[i] : 0.5) : 0)));
 
     const reasons: string[] = [];
     reasons.push(`近1週 ${pct(s.ret1w)}、近1月 ${pct(s.ret1m)}、近3月 ${pct(s.ret3m)}（動能贏過 ${Math.round(momentum * 100)}% 的股票）`);

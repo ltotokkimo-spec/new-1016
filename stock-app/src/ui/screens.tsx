@@ -832,7 +832,7 @@ function PnlRecon({ views, fx }: { views: any[]; fx?: number }) {
         <b>累計損益對帳</b>
         <button class="btn secondary mini" onClick={() => setOpen(!open)} data-testid="pnl-recon-toggle">{open ? "收合" : "看每一檔加總"}</button>
       </div>
-      <div class={`num ${cls(sum)}`} style={{ fontSize: "14px", marginTop: "4px" }} data-testid="pnl-recon-total">{ok.length} 檔合計 {sg(sum)} 元（台幣；美股依今日匯率換算）</div>
+      <div class={`num ${cls(sum)}`} style={{ fontSize: "14px", marginTop: "4px" }} data-testid="pnl-recon-total">{ok.length} 檔合計 {sg(sum)} 元（台幣；美股已換成台幣）</div>
       {open && <div class="stack" style={{ gap: "4px", marginTop: "8px" }}>
         {ok.map((r) => <div class="row" style={{ justifyContent: "space-between", fontSize: "13.5px" }} data-testid="pnl-recon-row"><span>{r.v.name} <span class="muted num">{r.v.code}</span></span><span class={`num ${cls(r.x)}`}>{sg(r.x)} 元</span></div>)}
         <div class="row" style={{ justifyContent: "space-between", fontSize: "13.5px", borderTop: "1px solid var(--line)", paddingTop: "4px", fontWeight: 600 }}><span>合計</span><span class={`num ${cls(sum)}`}>{sg(sum)} 元</span></div>

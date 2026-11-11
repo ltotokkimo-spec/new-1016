@@ -10,7 +10,7 @@ import { buyConds, sellConds, holdConds, dailyHoldingCheck, type HoldCheck, type
 import { addWeekdays, orderDay, pretty, prettyW, taipeiClock, taipeiHour, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
 import { livePolling, type LiveQuote } from "../data/twLive";
-import { cls, fmtMoney, fmtPct, fmtPrice, fmtSigned, LimitPx } from "./common";
+import { CostValue, cls, fmtMoney, fmtPct, fmtPrice, fmtSigned, LimitPx } from "./common";
 import { navStats } from "../engine/navStats";
 import { compareGroups, realAsGroup, type GroupRow } from "../engine/compare";
 import { AiProgressView, AiReportView, BalanceHint, copyText } from "./screens";
@@ -1076,6 +1076,7 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
                   <div style={{ minWidth: 0 }}>
                     <div class="name">{p.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{p.code}</span> <span class="muted" style={{ fontWeight: 400 }}>›</span></div>
                     <div class="sub num" style={{ whiteSpace: "normal" }} data-testid="virtual-pos-line">{p.shares.toLocaleString()} 股・均價 {fmtPrice(p.avgCost)}・<TwdPnl shares={p.shares} avgCost={p.avgCost} price={c} /><span style={{ whiteSpace: "nowrap" }}>佔 {c ? `${((p.shares * c / val.nav) * 100).toFixed(1)}%` : "—"}</span></div>
+                    <CostValue shares={p.shares} avgCost={p.avgCost} price={c} />
                     {v.stops?.[p.code] && <div class="sub num">停損 {fmtPrice(v.stops[p.code])}</div>}
                   </div>
                   <div class="px">
@@ -1235,7 +1236,9 @@ function RealEtfScreen() {
   // 今日漲跌幅（11/9 使用者要求）：即時價對昨收；沒有即時價就用最近一個交易日的收盤漲跌
   const dayChg = (c: string): number | undefined => {
     const q = live[c];
-    if (q && q.date && q.date >= (st.asOf ?? "") && q.price > 0 && q.prevClose > 0) return q.price / q.prevClose - 1;
+    // 開盤前即時報價還沒有成交（量 0、也不是試搓）：用上一個交易日的漲跌，不要顯示 0.0%
+    const traded = q && (q.trial || (q.volume ?? 0) > 0);
+    if (q && traded && q.date && q.date >= (st.asOf ?? "") && q.price > 0 && q.prevClose > 0) return q.price / q.prevClose - 1;
     const x = findScored(c)?.chg1d;
     return Number.isFinite(x) ? x : undefined;
   };
@@ -1364,6 +1367,7 @@ function RealEtfScreen() {
                   <div style={{ minWidth: 0 }}>
                     <div class="name">{p.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{p.code}</span> <span class="muted" style={{ fontWeight: 400 }}>›</span></div>
                     <div class="sub num" style={{ whiteSpace: "normal" }}>{p.shares.toLocaleString()} 股・均價 {fmtPrice(p.avgCost)}・<TwdPnl shares={p.shares} avgCost={p.avgCost} price={px} /><span style={{ whiteSpace: "nowrap" }}>佔 {Number.isFinite(mv) ? `${((mv / v.nav) * 100).toFixed(1)}%` : "—"}</span></div>
+                    <CostValue shares={p.shares} avgCost={p.avgCost} price={px} />
                     <div class="sub row" style={{ gap: "8px" }}><StopEdit p={p} stops={etf.stops} /><button class="btn secondary mini" onClick={() => setSellDraft({ code: p.code, shares: p.shares, price: px, n: Date.now() })} data-testid={`sell-btn-${p.code}`}>賣出</button>{rating && <span class={`pill ${rating === "買入" ? "buy" : rating === "離場" ? "exit" : "hold"}`} style={{ fontSize: "11px" }}>App {rating}</span>}</div>
                   </div>
                   <div class="px">

@@ -37,7 +37,7 @@ import { latestNotes } from "../lib/notes";
 import { fmtNtd, usdTwdRate } from "../lib/fx";
 import type { BacktestResult } from "../engine/backtest";
 import type { TurnPick } from "../engine/turning";
-import { cls, fmtMoney, fmtPct, fmtPrice, fmtSigned, LimitPx, lots, Markdown, Progress, RatingPill, Sheet } from "./common";
+import { CostValue, cls, fmtMoney, fmtPct, fmtPrice, fmtSigned, LimitPx, lots, Markdown, Progress, RatingPill, Sheet } from "./common";
 import { limitFromChg } from "../lib/limit";
 
 // ---------------- 選股 ----------------
@@ -925,6 +925,7 @@ function HoldingRow({ v, open, onEsb, fx, brokers }: { v: any; open: (s: Scored)
         <div class="name">{v.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{v.code}</span>{brokers && <span class="muted" style={{ fontWeight: 400, fontSize: "11px", marginLeft: "6px" }} data-testid="hold-brokers">{brokers.map((b) => BROKERS.find((x) => x.key === b)!.label).join("＋")}</span>}</div>
         <div class={`num ${cls(v.pnl)}`} style={{ fontSize: "13px", fontWeight: 600, marginTop: "2px" }} data-testid="hold-pnl"><span class="lbl" style={{ fontFamily: "var(--font)", fontSize: "11px", fontWeight: 400, color: "var(--muted)", marginRight: "4px" }}>累計損益</span>{fmtSigned(v.pnl, v.market)}<span style={{ whiteSpace: "nowrap" }}>（{fmtPct(v.pnlPct)}）</span>{v.market === "US" && fx && Number.isFinite(v.pnl) && <span style={{ display: "block", whiteSpace: "nowrap" }} data-testid="hold-ntd">{fmtNtd(v.pnl, fx)}</span>}</div>
         <div class="muted num" style={{ fontSize: "12px", marginTop: "2px" }} data-testid="hold-avg">{v.shares.toLocaleString()} 股・均價 {v.market === "US" ? "$" : ""}{fmtPrice(v.cost, v.market === "US" ? "US" : undefined)}</div>
+        <CostValue shares={v.shares} avgCost={v.cost} price={v.price} us={v.market === "US"} />
         <div class="sub">{v.advice.join("；")}</div>
       </div>
       <div class="px">

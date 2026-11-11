@@ -11,7 +11,8 @@ interface ApkUpdater {
 }
 const Updater = registerPlugin<ApkUpdater>("ApkUpdater");
 
-const BASE = "https://github.com/ltotokkimo-spec/new-1016/releases/download/stock-radar-latest";
+// 11/11 使用者要求停用舊載點（stock-radar-latest 已刪除），App 改從這個新位置更新
+const BASE = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-app-d43m21s655";
 export const APK_URL = `${BASE}/stock-radar.apk`;
 export const VERSION_URL = `${BASE}/version.json`;
 

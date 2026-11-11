@@ -8,6 +8,7 @@
 - Repo：`ltotokkimo-spec/new-1016`，本機資料夾叫 `-`。**開發分支 `claude/ui-calculator-interface-t3x9kh`**（repo 預設分支是 `claude/conversation-start-guide-ya0q8x`，每日回測的觸發 workflow 放在那邊）。
 - 同一個 repo 還有計算機、小畫家（根目錄的 `calculator.py`、`paint.py`、`tests/`），與選股 App 無關。
 - 已發布版本：**1.0.132**（2026-10-22 深夜，Releases `stock-radar-latest`：`stock-radar.apk` ＋ `version.json`；App 內按「更新」下載）。單元測試 184 項、模擬器 e2e 約 100 項檢查。
+- **11/11 APK 下載位置改到 Releases `radar-app-d43m21s655`**（使用者要求停用昨天分享出去的舊載點；`stock-radar-latest` 由 stock-app.yml 每次發布時確認刪除，不要再建回）。App 的 `src/lib/update.ts` 讀新位置；1.0.335 以前的 App 找不到更新，使用者要從新載點重新安裝一次。repo 仍是公開，新位置在 Releases 頁看得到，只擋轉傳的舊連結。
 - 使用者用 ROG Phone 6D（Android 14）。想要 iPhone 版，目前**未決**（見 §9）。
 
 ## 2. 工作方式（使用者指定，完整版在 CLAUDE.md）

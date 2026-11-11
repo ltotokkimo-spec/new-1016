@@ -219,8 +219,10 @@ table.cand tr.grp td { background: var(--surface-2); color: var(--muted); font-s
 @media (prefers-color-scheme: dark) { .warn-tag { color: #f0c36a; background: #3a2c10; border-color: #6b4f1a; } }
 
 /* 免責聲明（第一次打開）：蓋在最上面，資料照常在背後下載 */
-.gate { position: fixed; inset: 0; z-index: 100; background: var(--bg); overflow-y: auto; display: flex; justify-content: center; padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); }
-.gate-card { width: 100%; max-width: 560px; align-self: flex-start; }
+.gate { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: flex; justify-content: center; padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); }
+/* 文字很長時只有文字區捲動，「我了解」按鈕固定在最下面，任何螢幕都按得到 */
+.gate-card { width: 100%; max-width: 560px; display: flex; flex-direction: column; min-height: 0; }
+.gate-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 
 /* 工具分頁的計算表 */
 table.calc { width: 100%; border-collapse: collapse; font-size: 13.5px; }

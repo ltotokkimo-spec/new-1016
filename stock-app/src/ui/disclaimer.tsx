@@ -35,10 +35,12 @@ export function DisclaimerGate() {
   return (
     <div class="gate" role="dialog" aria-modal="true" aria-label="使用前請先閱讀" data-testid="disclaimer">
       <div class="gate-card">
-        <h2 style={{ margin: "0 0 4px" }}>使用前請先閱讀</h2>
-        <div class="muted" style={{ fontSize: "13px", marginBottom: "10px" }}>金雷達是個人研究工具，請了解以下內容再使用。</div>
-        <DisclaimerText />
-        <button class="btn block" style={{ marginTop: "16px" }} onClick={accept} data-testid="disclaimer-ok">我了解，開始使用</button>
+        <div class="gate-body">
+          <h2 style={{ margin: "0 0 4px" }}>使用前請先閱讀</h2>
+          <div class="muted" style={{ fontSize: "13px", marginBottom: "10px" }}>金雷達是個人研究工具，請了解以下內容再使用。</div>
+          <DisclaimerText />
+        </div>
+        <button class="btn block" style={{ marginTop: "12px", flex: "none" }} onClick={accept} data-testid="disclaimer-ok">我了解，開始使用</button>
       </div>
     </div>
   );

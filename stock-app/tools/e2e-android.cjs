@@ -1064,12 +1064,12 @@ function check(ok, name, detail = "") {
     avg: e.querySelector('[data-testid="hold-avg"]')?.innerText.replace(/\s+/g, " ") || "", cv: e.querySelector('[data-testid="cost-value"]')?.innerText.replace(/\s+/g, " ") || "" })));
   log("買進成本與目前市值", JSON.stringify(cv.slice(0, 3)));
   const cvOk = cv.length > 0 && cv.every((x) => {
-    const a = /([\d,]+) 股・均價 \$?([\d,.]+)/.exec(x.avg), c = /買進成本 \$?([\d,]+)( 元)? → 目前市值 (\$?[\d,]+( 元)?|—)/.exec(x.cv);
+    const a = /([\d,]+) 股・均價 \$?([\d,.]+)/.exec(x.avg), c = /買進成本 \$?([\d,]+)( 元)? 目前市值 (\$?[\d,]+( 元)?|—)/.exec(x.cv);
     if (!a || !c) return false;
     const want = Number(a[1].replace(/,/g, "")) * Number(a[2].replace(/,/g, "")), got = Number(c[1].replace(/,/g, ""));
     return Math.abs(want - got) <= Math.max(1, got * 0.005); // 均價畫面四捨五入過，容許 0.5%
   });
-  check(cvOk, "持股每檔顯示「買進成本 → 目前市值」，買進成本＝股數 × 均價", JSON.stringify(cv.slice(0, 2)));
+  check(cvOk, "持股每檔顯示「買進成本」下一行「目前市值」，買進成本＝股數 × 均價", JSON.stringify(cv.slice(0, 2)));
   await shot("06-持股健檢");
   // 持股分析與建議（11/9）：摘要說明幾檔虧損；展開後每檔有動作（停損換股／攤平／續抱設條件）與回本價
   const rec = await page.$eval('[data-testid="recovery-summary"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");

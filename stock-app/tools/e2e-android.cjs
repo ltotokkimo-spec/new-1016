@@ -81,7 +81,8 @@ function check(ok, name, detail = "") {
   check(gate && /不是投資建議/.test(gateTxt) && /盈虧自負/.test(gateTxt) && /授權/.test(gateTxt), "第一次打開顯示免責聲明（不是投資建議、盈虧自負、授權）", gateTxt.slice(0, 120));
   await shot("01b-免責聲明");
   if (gate) {
-    await page.click('[data-testid="disclaimer-ok"]');
+    // 剛啟動時模擬器 WebView 偶爾回報固定在畫面上的按鈕「在可視範圍外」而點不到（11/11 兩次）：先正常點，5 秒點不到就直接觸發按鈕的點擊
+    await page.click('[data-testid="disclaimer-ok"]', { timeout: 5000 }).catch(() => page.$eval('[data-testid="disclaimer-ok"]', (b) => b.click()));
     await page.waitForSelector('[data-testid="disclaimer"]', { state: "detached", timeout: 5000 }).catch(() => {});
   }
   check(!(await page.$('[data-testid="disclaimer"]')), "按「我了解」後免責聲明關閉");

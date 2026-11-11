@@ -34,7 +34,7 @@ const US_INDEX_SYMBOLS = [".SPX", ".IXIC", ".SOX", ".DJI", ".VIX"];
 const CHART_SYMBOLS = new Set([...US_INDEX_SYMBOLS, ...MACRO_SYMBOLS.filter((m) => m.group === "亞洲" || m.group === "原物料" || m.group === "虛擬幣").map((m) => m.symbol)]);
 import { nyParts, pretty, prettyW, taipeiToday, usQuoteHours, usSession } from "../lib/dates";
 import { latestNotes } from "../lib/notes";
-import { fmtNtd, usdTwdRate } from "../lib/fx";
+import { fmtNtd, ntd, usdTwdRate } from "../lib/fx";
 import type { BacktestResult } from "../engine/backtest";
 import type { TurnPick } from "../engine/turning";
 import { CostValue, cls, fmtMoney, fmtPct, fmtPrice, fmtSigned, LimitPx, lots, Markdown, Progress, RatingPill, Sheet } from "./common";
@@ -787,7 +787,7 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
       {tab === "stats" && <BrokerStats byBroker={byBroker} merged={views} fx={fx} />}
       <div class="summary">
         <div class="card"><div class="muted" style={{ fontSize: "12px" }}>{tab === "stats" ? "合計" : brokerLabel}台股市值</div>{tw.cost ? <><div class="big num">{fmtMoney(tw.value)}</div><div class={`num ${cls(tw.pnl)}`} style={{ fontSize: "13px" }} data-testid="tw-pnl">累計損益 {fmtMoney(tw.pnl)}（{fmtPct(tw.pnl / tw.cost)}）</div>{tw.hasDay && <div class={`num ${cls(tw.day)}`} style={{ fontSize: "12px" }} data-testid="tw-day">今日損益 {fmtMoney(tw.day)}（{fmtPct(tw.dayPct)}）</div>}</> : <div class="big muted">—</div>}</div>
-        <div class="card"><div class="muted" style={{ fontSize: "12px" }}>{tab === "stats" ? "合計" : brokerLabel}美股市值</div>{us.cost ? <><div class="big num">{fmtMoney(us.value, "US")}</div><div class={`num ${cls(us.pnl)}`} style={{ fontSize: "13px" }} data-testid="us-pnl">累計損益 {fmtMoney(us.pnl, "US")}（{fmtPct(us.pnl / us.cost)}）</div>{fx && <div class={`num ${cls(us.pnl)}`} style={{ fontSize: "13px" }} data-testid="us-ntd">{fmtNtd(us.pnl, fx)}</div>}{us.hasDay && <div class={`num ${cls(us.day)}`} style={{ fontSize: "12px" }} data-testid="us-day">今日損益 {fx ? fmtNtd(us.day, fx) : fmtMoney(us.day, "US")}（{fmtPct(us.dayPct)}）</div>}</> : <div class="big muted">—</div>}</div>
+        <div class="card"><div class="muted" style={{ fontSize: "12px" }}>{tab === "stats" ? "合計" : brokerLabel}美股市值</div>{us.cost ? <><div class="big num">{fx ? ntd(us.value, fx) : fmtMoney(us.value, "US")}</div><div class={`num ${cls(us.pnl)}`} style={{ fontSize: "13px" }} data-testid="us-pnl">累計損益 {fx ? fmtNtd(us.pnl, fx) : fmtMoney(us.pnl, "US")}（{fmtPct(us.pnl / us.cost)}）</div>{us.hasDay && <div class={`num ${cls(us.day)}`} style={{ fontSize: "12px" }} data-testid="us-day">今日損益 {fx ? fmtNtd(us.day, fx) : fmtMoney(us.day, "US")}（{fmtPct(us.dayPct)}）</div>}</> : <div class="big muted">—</div>}</div>
       </div>
       {tab !== "stats" && <><div class="row" style={{ marginTop: "12px" }}>
         <label class="btn" style={{ flex: 1 }} aria-disabled={busy || !apiKey}>
@@ -863,6 +863,7 @@ function BrokerStats({ byBroker, merged, fx }: { byBroker: { key: Broker; label:
 
 /** 持股分析與建議（11/9 使用者：「引導我將負損益做到正損益」）：規則計算，不花錢；預設收合，只顯示摘要 */
 function RecoveryCard({ views }: { views: any[] }) {
+  const fx = usdTwdRate(useStore((s) => s.macro.quotes));
   const st = useStore((s) => ({ tw: s.tw.scored, etf: s.etf.scored, us: s.us.scored }));
   const [levels, setLevels] = useState<Record<string, Levels | undefined>>({});
   const plan = recoveryPlan(views, { stocks: st.tw, etfs: st.etf, us: st.us }, levels);
@@ -901,7 +902,7 @@ function RecoveryCard({ views }: { views: any[] }) {
             <b>{x.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{x.code}</span></b>
             <span class={`pill ${tone[x.action]}`} style={{ fontSize: "12px" }}>{x.action}</span>
           </div>
-          <div class={`num ${cls(x.pnl)}`} style={{ fontSize: "13px" }}>累計損益 {fmtSigned(x.pnl, x.market)}（{fmtPct(x.pnlPct)}）</div>
+          <div class={`num ${cls(x.pnl)}`} style={{ fontSize: "13px" }}>累計損益 {x.market === "US" && fx ? fmtNtd(x.pnl, fx) : fmtSigned(x.pnl, x.market)}（{fmtPct(x.pnlPct)}）</div>
           <ul style={{ margin: 0, paddingLeft: "18px", fontSize: "13.5px", lineHeight: 1.7 }}>{x.lines.map((l) => <li>{l}</li>)}</ul>
           {x.sections.map((sec) => (
             <details data-testid="recovery-section" open={x.action === "停損換股"}>
@@ -923,9 +924,9 @@ function HoldingRow({ v, open, onEsb, fx, brokers }: { v: any; open: (s: Scored)
     <button class="item" onClick={() => (v.scored ? open(v.scored) : isEsb && onEsb?.(v))}>
       <div style={{ minWidth: 0 }}>
         <div class="name">{v.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{v.code}</span>{brokers && <span class="muted" style={{ fontWeight: 400, fontSize: "11px", marginLeft: "6px" }} data-testid="hold-brokers">{brokers.map((b) => BROKERS.find((x) => x.key === b)!.label).join("＋")}</span>}</div>
-        <div class={`num ${cls(v.pnl)}`} style={{ fontSize: "13px", fontWeight: 600, marginTop: "2px" }} data-testid="hold-pnl"><span class="lbl" style={{ fontFamily: "var(--font)", fontSize: "11px", fontWeight: 400, color: "var(--muted)", marginRight: "4px" }}>累計損益</span>{fmtSigned(v.pnl, v.market)}<span style={{ whiteSpace: "nowrap" }}>（{fmtPct(v.pnlPct)}）</span>{v.market === "US" && fx && Number.isFinite(v.pnl) && <span style={{ display: "block", whiteSpace: "nowrap" }} data-testid="hold-ntd">{fmtNtd(v.pnl, fx)}</span>}</div>
+        <div class={`num ${cls(v.pnl)}`} style={{ fontSize: "13px", fontWeight: 600, marginTop: "2px" }} data-testid="hold-pnl"><span class="lbl" style={{ fontFamily: "var(--font)", fontSize: "11px", fontWeight: 400, color: "var(--muted)", marginRight: "4px" }}>累計損益</span>{v.market === "US" && fx ? fmtNtd(v.pnl, fx) : fmtSigned(v.pnl, v.market)}<span style={{ whiteSpace: "nowrap" }}>（{fmtPct(v.pnlPct)}）</span></div>
         <div class="muted num" style={{ fontSize: "12px", marginTop: "2px" }} data-testid="hold-avg">{v.shares.toLocaleString()} 股・均價 {v.market === "US" ? "$" : ""}{fmtPrice(v.cost, v.market === "US" ? "US" : undefined)}</div>
-        <CostValue shares={v.shares} avgCost={v.cost} price={v.price} us={v.market === "US"} />
+        <CostValue shares={v.shares} avgCost={v.cost} price={v.price} us={v.market === "US"} fx={fx} />
         <div class="sub">{v.advice.join("；")}</div>
       </div>
       <div class="px">

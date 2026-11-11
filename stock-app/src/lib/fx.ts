@@ -14,3 +14,9 @@ export function fmtNtd(usd: number, rate: number): string {
   const n = Math.round(Math.abs(twd));
   return `${n === 0 ? "" : twd < 0 ? "-" : "+"}NT$${n.toLocaleString("en-US")}`;
 }
+
+/** 美元金額換成不帶正負號的台幣：NT$9,300 */
+export function ntd(usd: number, rate: number): string {
+  const twd = usd * rate;
+  return Number.isFinite(twd) ? `NT$${Math.round(twd).toLocaleString("en-US")}` : "—";
+}

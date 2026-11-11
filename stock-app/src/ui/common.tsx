@@ -184,8 +184,8 @@ function inline(t: string) {
 }
 
 /** 買進成本（股數 × 均價），下一行目前市值（股數 × 現價），11/11 使用者要求每檔都看得到、市值放成本下面 */
-export function CostValue({ shares, avgCost, price, us }: { shares: number; avgCost: number; price: number | undefined; us?: boolean }) {
-  const m = (x: number) => (us ? `$${Math.round(x).toLocaleString("en-US")}` : `${Math.round(x).toLocaleString("zh-TW")} 元`);
+export function CostValue({ shares, avgCost, price, us, fx }: { shares: number; avgCost: number; price: number | undefined; us?: boolean; fx?: number }) {
+  const m = (x: number) => (us ? (fx ? `NT$${Math.round(x * fx).toLocaleString("en-US")}` : `$${Math.round(x).toLocaleString("en-US")}`) : `${Math.round(x).toLocaleString("zh-TW")} 元`);
   const cost = shares * avgCost, value = price !== undefined && Number.isFinite(price) ? shares * price : NaN;
   return (
     <div class="sub num" style={{ whiteSpace: "normal" }} data-testid="cost-value">

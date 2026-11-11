@@ -1034,40 +1034,40 @@ function check(ok, name, detail = "") {
   await shot("06c-興櫃個股詳情");
   await page.click('.sheet header button[aria-label="返回"]');
   await page.waitForFunction(() => !document.querySelector(".sheet"), null, { timeout: 5000 });
-  // 美股持股：美金損益有 $ 符號，下一行台幣損益有 NT$ 符號；市值卡片也一樣
+  // 美股持股：金額（市值、累計損益、今日損益、買進成本）全部用台幣 NT$；股價與均價仍是美元 $
   await page.click("text=手動新增");
   await page.fill("#h-code", "AAPL");
   await page.fill("#h-shares", "10");
   await page.fill("#h-cost", "100");
   await page.click("text=儲存");
-  await page.waitForFunction(() => [...document.querySelectorAll(".list .item")].some((e) => /AAPL/.test(e.innerText) && e.querySelector('[data-testid="hold-ntd"]')), null, { timeout: 120000 }).catch(() => {});
+  await page.waitForFunction(() => [...document.querySelectorAll(".list .item")].some((e) => /AAPL/.test(e.innerText) && /累計損益\s*[+-]NT\$/.test(e.querySelector('[data-testid="hold-pnl"]')?.innerText || "")), null, { timeout: 120000 }).catch(() => {});
   const usHold = await page.evaluate(() => {
     const it = [...document.querySelectorAll(".list .item")].find((e) => /AAPL/.test(e.innerText));
     const t = (el) => (el ? el.innerText.replace(/\s+/g, " ").trim() : "");
-    return { label: t(it?.querySelector('[data-testid="hold-label"]')), avg: t(it?.querySelector('[data-testid="hold-avg"]')), px: t(it?.querySelector(".px")), pnl: t(it?.querySelector('[data-testid="hold-pnl"]')), ntd: t(it?.querySelector('[data-testid="hold-ntd"]')), cardNtd: t(document.querySelector('[data-testid="us-ntd"]')), cardText: t([...document.querySelectorAll(".card")].find((c) => /美股市值/.test(c.innerText))), note: document.body.innerText.replace(/\s+/g, " ") };
+    return { label: t(it?.querySelector('[data-testid="hold-label"]')), avg: t(it?.querySelector('[data-testid="hold-avg"]')), px: t(it?.querySelector(".px")), pnl: t(it?.querySelector('[data-testid="hold-pnl"]')), cardText: t([...document.querySelectorAll(".card")].find((c) => /美股市值/.test(c.innerText))), note: document.body.innerText.replace(/\s+/g, " ") };
   });
   log("美股持股", JSON.stringify(usHold));
-  check(/損益\s*[+-]\$[\d,]+（[+-]?\d+(\.\d)?%）/.test(usHold.pnl), "美股持股損益用美金符號 $", usHold.pnl);
+  check(/損益\s*[+-]NT\$[\d,]+（[+-]?\d+(\.\d)?%）/.test(usHold.pnl) && !/\$[\d,]+（/.test(usHold.pnl.replace(/NT\$/g, "")), "美股持股累計損益用台幣 NT$", usHold.pnl);
   check(/^(盤中|收盤)$/.test(usHold.label) && !/\d\d:\d\d/.test(usHold.px), "美股持股現價改標盤中／收盤（不顯示時間）", `${usHold.label} | ${usHold.px}`);
   check(/^[\d,]+ 股・均價 \$[\d,]+\.\d\d$/.test(usHold.avg), "美股持股顯示股數與均價", usHold.avg);
-  check(/^[+-]NT\$[\d,]+$/.test(usHold.ntd), "美股持股另外顯示台幣損益（NT$）", usHold.ntd);
-  check(/^[+-]NT\$[\d,]+$/.test(usHold.cardNtd) && /\$[\d,]+/.test(usHold.cardText), "美股市值卡片顯示美金與台幣損益", usHold.cardText);
+  check(/美股市值 NT\$[\d,]+/.test(usHold.cardText) && /累計損益 [+-]NT\$[\d,]+/.test(usHold.cardText), "美股市值卡片的市值、累計損益都用台幣 NT$", usHold.cardText);
   const pnlCards = await page.evaluate(() => ({ tw: document.querySelector('[data-testid="tw-pnl"]')?.innerText.replace(/\s+/g, " ") || "", us: document.querySelector('[data-testid="us-pnl"]')?.innerText.replace(/\s+/g, " ") || "" }));
-  check(/^累計損益 [+-]?[\d.,]+( 萬| 億)?（[+-]?\d+\.\d%）$/.test(pnlCards.tw) && /^累計損益 [+-]?\$[\d,]+（[+-]?\d+\.\d%）$/.test(pnlCards.us), "台股、美股市值卡片的損益標明「累計損益」", JSON.stringify(pnlCards));
-  // 只有一檔美股：卡片與持股列的台幣損益要一樣，且換算出的匯率合理（不顯示匯率，從金額反推）；也確認畫面上不再出現匯率說明
-  const usd = Number((usHold.pnl.match(/([+-])\$([\d,]+)/) || []).slice(1).join("").replace(/,/g, ""));
-  const twd = Number(usHold.ntd.replace(/NT\$|,/g, ""));
-  const impliedRate = Math.abs(twd / usd);
-  check(usHold.cardNtd === usHold.ntd && impliedRate > 20 && impliedRate < 50 && !/今日匯率/.test(usHold.note), "台幣損益由美金損益換算（匯率合理），畫面不顯示匯率", `${usd} → ${twd}（約 ${impliedRate.toFixed(1)}）`);
+  check(/^累計損益 [+-]?[\d.,]+( 萬| 億)?（[+-]?\d+\.\d%）$/.test(pnlCards.tw) && /^累計損益 [+-]NT\$[\d,]+（[+-]?\d+\.\d%）$/.test(pnlCards.us), "台股、美股市值卡片的損益標明「累計損益」", JSON.stringify(pnlCards));
+  // 買進成本（台幣）÷（股數 × 美元均價）＝匯率，要在合理範圍，畫面不顯示匯率
+  const usCv = await page.evaluate(() => { const it = [...document.querySelectorAll(".list .item")].find((e) => /AAPL/.test(e.innerText)); return it?.querySelector('[data-testid="cost-value"]')?.innerText.replace(/\s+/g, " ") || ""; });
+  const usCost = Number((/買進成本 NT\$([\d,]+)/.exec(usCv) || [])[1]?.replace(/,/g, ""));
+  const impliedRate = usCost / (10 * 100);
+  check(impliedRate > 20 && impliedRate < 50 && /目前市值 NT\$[\d,]+/.test(usCv) && !/今日匯率/.test(usHold.note), "美股買進成本、目前市值用台幣（匯率合理），畫面不顯示匯率", `${usCv}（約 ${impliedRate.toFixed(1)}）`);
   // 每檔持股多一行「買進成本 → 目前市值」（11/11），買進成本＝股數 × 均價
   const cv = await page.evaluate(() => [...document.querySelectorAll(".list .item")].filter((e) => e.querySelector('[data-testid="hold-avg"]')).map((e) => ({
     avg: e.querySelector('[data-testid="hold-avg"]')?.innerText.replace(/\s+/g, " ") || "", cv: e.querySelector('[data-testid="cost-value"]')?.innerText.replace(/\s+/g, " ") || "" })));
   log("買進成本與目前市值", JSON.stringify(cv.slice(0, 3)));
   const cvOk = cv.length > 0 && cv.every((x) => {
-    const a = /([\d,]+) 股・均價 \$?([\d,.]+)/.exec(x.avg), c = /買進成本 \$?([\d,]+)( 元)? 目前市值 (\$?[\d,]+( 元)?|—)/.exec(x.cv);
+    const a = /([\d,]+) 股・均價 (\$?)([\d,.]+)/.exec(x.avg), c = /買進成本 (NT\$)?([\d,]+)( 元)? 目前市值 ((NT\$)?[\d,]+( 元)?|—)/.exec(x.cv);
     if (!a || !c) return false;
-    const want = Number(a[1].replace(/,/g, "")) * Number(a[2].replace(/,/g, "")), got = Number(c[1].replace(/,/g, ""));
-    return Math.abs(want - got) <= Math.max(1, got * 0.005); // 均價畫面四捨五入過，容許 0.5%
+    const want = Number(a[1].replace(/,/g, "")) * Number(a[3].replace(/,/g, "")), got = Number(c[2].replace(/,/g, ""));
+    if (a[2] === "$") return !!c[1] && got / want > 20 && got / want < 50; // 美股：成本是台幣，÷（股數×美元均價）＝匯率
+    return !c[1] && Math.abs(want - got) <= Math.max(1, got * 0.005); // 均價畫面四捨五入過，容許 0.5%
   });
   check(cvOk, "持股每檔顯示「買進成本」下一行「目前市值」，買進成本＝股數 × 均價", JSON.stringify(cv.slice(0, 2)));
   await shot("06-持股健檢");

@@ -1054,7 +1054,7 @@ export function etfAdviceInput(): EtfAdviceInput {
   const etf = state.aiEtf;
   const v = valuate(etf, etfPrice);
   const holdings = etfPositions(etf.trades).filter((p) => p.shares > 0)
-    .map((p) => ({ ...p, price: etfPrice(p.code), stop: stopOf(p, etf.stops).stop, rating: etfRating(p.code) }));
+    .map((p) => ({ ...p, price: etfPrice(p.code), stop: stopOf(p, etf.stops).stop, rating: etfRating(p.code), score: findScored(p.code)?.score }));
   const held = new Set(holdings.map((h) => h.code));
   // 候選：App「買入」的高分股，每個產業最多 3 檔、全部最多 12 檔，已持有的不重複（持股那邊有最新價格）
   const minValue = liquidityCut(state.tw.scored);
@@ -1087,7 +1087,10 @@ export async function startEtfAdvice() {
 export async function saveProReply(text: string) {
   const key = `aietfpro:${Date.now()}`;
   await saveReport(key, { text: text.trim(), sources: [], model: "Claude App（Pro 訂閱）", at: Date.now() });
-  await saveAiEtf({ ...state.aiEtf, proKey: key, proAsOf: state.tw.asOf });
+  // 同一個資料日貼的回覆都留著（最多 3 份），用來比對哪些交易重複出現；換了資料日就重新算
+  const e = state.aiEtf, same = e.proAsOf === state.tw.asOf;
+  const prevKeys = same ? (e.proKeys ?? (e.proKey ? [e.proKey] : [])) : [];
+  await saveAiEtf({ ...e, proKey: key, proKeys: [...prevKeys, key].slice(-3), proAsOf: state.tw.asOf });
 }
 
 export async function setEtfFillFrom(fillFrom: "api" | "pro") {

@@ -338,7 +338,7 @@ export const claudeAppUrl = (prompt: string) => {
 };
 
 // ---------- 自組 ETF：請 Claude 建議要買哪些、買幾股 ----------
-export interface EtfHoldingBrief { code: string; name: string; shares: number; avgCost: number; price?: number; stop?: number; rating?: string }
+export interface EtfHoldingBrief { code: string; name: string; shares: number; avgCost: number; price?: number; stop?: number; rating?: string; score?: number }
 
 export interface EtfAdviceInput {
   today: string; budget: number; cash: number; nav: number;
@@ -359,8 +359,8 @@ export function aiEtfPrompt(p: EtfAdviceInput, forApp = false): string {
   const cand = [row(["代號", "名稱", "產業", "收盤", "分數", "週", "月", "外資5日"]), row(["---", "---", "---", "---", "---", "---", "---", "---"]),
     ...p.candidates.map((s) => row([s.code, s.name, s.sector, s.close, s.score, fmtPct(s.ret1w), fmtPct(s.ret1m), lots(s.foreign5)]))].join("\n");
   const holds = p.holdings.filter((h) => h.shares > 0);
-  const hold = [row(["代號", "名稱", "股數", "成本", "現價(損益)", "停損", "App評等"]), row(["---", "---", "---", "---", "---", "---", "---"]),
-    ...holds.map((h) => row([h.code, h.name, h.shares, h.avgCost.toFixed(1), h.price ? `${h.price}(${fmtPct(h.price / h.avgCost - 1)})` : "無價", h.stop ?? "—", h.rating ?? "—"]))].join("\n");
+  const hold = [row(["代號", "名稱", "股數", "成本", "現價(損益)", "停損", "App評等", "分數"]), row(["---", "---", "---", "---", "---", "---", "---", "---"]),
+    ...holds.map((h) => row([h.code, h.name, h.shares, h.avgCost.toFixed(1), h.price ? `${h.price}(${fmtPct(h.price / h.avgCost - 1)})` : "無價", h.stop ?? "—", h.rating ?? "—", h.score ?? "—"]))].join("\n");
   const prompt = `今天是 ${p.today}。我要用新台幣 ${p.budget.toLocaleString()} 元做「自組 ETF」，會照你的建議真的下單。${p.dataDate ? `\n下面的價格與籌碼是 ${p.dataDate} 收盤後的資料；我會在 ${p.orderDate} 盤中用限價單下單，請以這天下單為前提給建議（例如參考價、不要追高的價位）。` : ""}
 ${review ? `組合淨值 ${Math.round(p.nav).toLocaleString()}，可用現金 ${Math.round(p.cash).toLocaleString()}。
 
@@ -372,7 +372,7 @@ ${hold}
 【候選股（App 已篩過，共 ${p.candidates.length} 檔，依分數排序${p.minValue ? `；只留當日成交金額 ≥ ${(p.minValue / 1e8).toFixed(1)} 億的大型股` : ""}）】
 ${cand}
 
-規則：
+規則：${review ? "\n- 換股門檻：每檔持股除非「收盤跌破停損價」，或「有候選股分數比它高 10 分以上」，否則維持不變（動作填「不動」）。沒有符合這兩個條件就不要賣、不要換。" : ""}
 - 以候選股為主，也可加其他台股，但要一句話說明理由。
 - 4～8 檔、至少 3 個產業、單檔不超過總資金 25%；股數用「股」（可零股）。
 - 買進總額含手續費 0.1425% 不超過可用現金${review ? "（賣出的錢可以拿來買）" : ""}，留約 3～5% 現金。
@@ -382,13 +382,13 @@ ${cand}
 1. 一句話總結（這次${review ? "調整" : "建倉"}的主軸）
 2. Markdown 表格，每檔一行，只放這 6 欄（手機螢幕窄）：| 順位 | 股票（代號 名稱） | ${review ? "動作（買／賣／不動）" : "動作（買）"} | 股數 | 金額（佔比） | 停損價 |
    買進「依優先順序」排列，順位 1 是最該先買的（我可能只先買前幾檔，前面幾檔要能單獨成立）；賣出與不動的順位填「—」
-3. 理由：每檔一行條列，格式「名稱：理由」，20 字內
+3. 理由：每檔一行條列，格式「名稱（信心高／中／低）：理由」，20 字內；信心＝你對這筆買賣的把握，沒把握就標「低」
 4. 風險與出場條件（一兩句）
 不要長篇新聞摘要。
 
-最後附上 JSON 區塊（trades 只放要執行的買賣，買進依優先順序排、每筆買進都要給順位 rank（1＝最先買）與停損價 stop；每筆都加 cond：1～2 句「如果…→…」的條件，例如開盤跳空怎麼辦、到什麼價位調整${review ? "；holds 放「不動」持股，每檔一句續抱理由 why 與 1～2 句條件 cond" : ""}${review ? "；stops 放「不動」持股要更新的停損價，不用更新就省略" : ""}）：
+最後附上 JSON 區塊（trades 只放要執行的買賣，買進依優先順序排、每筆買進都要給順位 rank（1＝最先買）與停損價 stop；每筆都加 cond：1～2 句「如果…→…」的條件，例如開盤跳空怎麼辦、到什麼價位調整；每筆都加 conf：信心「高」「中」或「低」${review ? "；holds 放「不動」持股，每檔一句續抱理由 why 與 1～2 句條件 cond" : ""}${review ? "；stops 放「不動」持股要更新的停損價，不用更新就省略" : ""}）：
 \`\`\`json
-{"trades":[{"code":"2330","side":"buy","shares":10,"stop":900,"rank":1,"reason":"一句話","cond":["開盤高於 1,020 → 不追"]}]${review ? ',"stops":{"2454":1100},"holds":{"2454":{"why":"一句話","cond":["跌破 1,100 → 賣出"]}}' : ""}}
+{"trades":[{"code":"2330","side":"buy","shares":10,"stop":900,"rank":1,"conf":"高","reason":"一句話","cond":["開盤高於 1,020 → 不追"]}]${review ? ',"stops":{"2454":1100},"holds":{"2454":{"why":"一句話","cond":["跌破 1,100 → 賣出"]}}' : ""}}
 \`\`\``;
   if (!forApp) return prompt;
   return `${prompt}

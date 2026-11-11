@@ -32,6 +32,7 @@ export interface AiEtf {
   appliedKey?: string; // 已經填入成交的建議（不再顯示填單表）
   stops?: Record<string, number>; // 每檔的停損價（Claude 建議或自己設定）
   proKey?: string; // 最近一次貼回的 Claude App（Pro）回覆
+  proKeys?: string[]; // 同一個資料日貼回的所有 Claude App 回覆（最多 3 份，用來比對重複出現的交易）
   fillFrom?: "api" | "pro"; // 要照哪一份建議填成交
   planAsOf?: string; // 付費版建議用的收盤資料日（YYYYMMDD）
   proAsOf?: string; // Pro 版建議用的收盤資料日
@@ -210,7 +211,8 @@ export function recordNav(etf: AiEtf, date: string, v: Valuation): AiEtf {
 }
 
 // ---------- Claude 建議的格式 ----------
-export interface PlanItem { code: string; side: "buy" | "sell"; shares: number; reason: string; stop?: number; rank?: number; cond?: string[] } // cond＝Claude 寫的「如果…就…」 // rank＝買進優先順位（1＝最先買）
+export type Conf = "高" | "中" | "低";
+export interface PlanItem { code: string; side: "buy" | "sell"; shares: number; reason: string; stop?: number; rank?: number; cond?: string[]; conf?: Conf } // cond＝Claude 寫的「如果…就…」 // rank＝買進優先順位（1＝最先買）
 
 /** 從 index 開始的 { 或 [ 往後找到對應的結尾（字串裡的括號不算），找不到回傳 -1 */
 function matchEnd(text: string, start: number): number {
@@ -305,6 +307,15 @@ function findPlanJson(text: string): { json: string; start: number; end: number;
 
 /** 從 Claude 回覆取出買賣清單；回傳清單與去掉 JSON 後的說明文字 */
 export interface HoldNote { why?: string; cond: string[] }
+/** Claude 標的信心（11/12 使用者：低的先不做）：高／中／低，也接受 high/medium/low */
+export function normConf(v: unknown): Conf | undefined {
+  const s = String(v ?? "").trim().toLowerCase();
+  if (!s) return undefined;
+  if (/^(高|high|h)$/.test(s)) return "高";
+  if (/^(中|medium|mid|m)$/.test(s)) return "中";
+  if (/^(低|low|l)$/.test(s)) return "低";
+  return undefined;
+}
 const condList = (v: unknown): string[] => (Array.isArray(v) ? v : typeof v === "string" && v.trim() ? [v] : []).map((x) => String(x).trim().replace(/^(如果|假如|若)\s*/, "")).filter(Boolean).slice(0, 3);
 
 /** 回覆裡只有 JSON、沒有說明文字時（或 JSON 被截斷），把讀到的內容整理成易讀的文字，不要把原始 JSON 丟給使用者看 */
@@ -313,7 +324,7 @@ export function planReadable(p: ReturnType<typeof parsePlan>, name: (code: strin
   if (p.broken === "truncated") out.push("⚠ **這份回覆不完整**（從 Claude App 複製時被截斷，或 Claude 沒寫完）。下面是讀得到的部分；要完整內容請回 Claude App，按回覆下方的「複製」重新複製整段再貼一次。");
   if (!p.body.trim()) {
     const lab = (c: string) => { const n = name(c); return n && n !== c ? `${n} ${c}` : c; };
-    out.push(p.items.length ? "**買賣**\n" + p.items.map((x) => `- ${x.side === "buy" ? "買進" : "賣出"} ${lab(x.code)} ${x.shares.toLocaleString()} 股${x.reason ? `：${x.reason}` : ""}${x.cond?.length ? `（${x.cond.join("；")}）` : ""}`).join("\n") : "**買賣**：這次沒有要買賣");
+    out.push(p.items.length ? "**買賣**\n" + p.items.map((x) => `- ${x.side === "buy" ? "買進" : "賣出"} ${lab(x.code)} ${x.shares.toLocaleString()} 股${x.conf ? `（信心${x.conf}）` : ""}${x.reason ? `：${x.reason}` : ""}${x.cond?.length ? `（${x.cond.join("；")}）` : ""}`).join("\n") : "**買賣**：這次沒有要買賣");
     const st = Object.entries(p.stops);
     if (st.length) out.push("**停損價**：" + st.map(([c, v]) => `${lab(c)} ${v}`).join("、"));
     const hs = Object.entries(p.holds);
@@ -341,6 +352,7 @@ export function parsePlan(text: string): { items: PlanItem[]; body: string; stop
         stop: Number(x.stop) > 0 ? Number(x.stop) : undefined,
         rank: Number(x.rank ?? x.priority ?? x.順位) > 0 ? Math.round(Number(x.rank ?? x.priority ?? x.順位)) : undefined,
         cond: condList(x.cond ?? x.if ?? x.條件),
+        conf: normConf(x.conf ?? x.confidence ?? x.信心),
       }))
       .filter((x: PlanItem) => x.code && x.shares > 0);
     // 買進優先順位：有給 rank 就照 rank 排，沒給的照 JSON 裡的先後（Claude 被要求依優先順序列）；賣出排在前面
@@ -586,6 +598,41 @@ export function holdConds(o: { price?: number; avgCost: number; stop: number; ve
   if (o.price) {
     const up = o.price * 1.1, ns = Math.max(o.stop, o.price);
     if (ns > o.stop * 1.005) out.push(`漲到 ${n(up)} 以上 → 停損價從 ${n(o.stop)} 調高到 ${n(ns)}（現在的價格）：之後跌回這裡就賣，${ns >= o.avgCost ? "鎖住獲利" : "少虧一點"}`);
+  }
+  return out;
+}
+
+// ---------- 多份回覆比對（11/12 使用者：同樣的問題問 2～3 次，只執行重複出現的；信心低的先不做） ----------
+export interface Agreed {
+  n: number; // 同一個資料日有幾份回覆
+  go: PlanItem[]; // 至少 2 份都有（同代號、同方向）且信心不是「低」：列入下單
+  once: (PlanItem & { count: number })[]; // 只出現 1 次：等再問一次確認
+  low: PlanItem[]; // 信心低：先不做
+}
+const CONF_RANK: Record<Conf, number> = { 低: 0, 中: 1, 高: 2 };
+/**
+ * plans：同一個資料日的每一份回覆（付費版、Claude App 貼回的都算）；base：要照著下單的那一份（決定順位、理由、停損）。
+ * 同代號、同方向算同一筆；股數取各份裡最少的（保守）；信心取最低的。只有 1 份回覆時全部先不執行。
+ */
+export function agreePlans(plans: PlanItem[][], base: PlanItem[]): Agreed {
+  const n = plans.length;
+  const key = (x: PlanItem) => `${x.side}:${x.code}`;
+  const all = new Map<string, PlanItem[]>();
+  for (const p of plans) for (const x of p) all.set(key(x), [...(all.get(key(x)) ?? []), x]);
+  const counted = (k: string) => new Set(plans.filter((p) => p.some((x) => key(x) === k))).size;
+  const order = [...base.map(key), ...[...all.keys()].filter((k) => !base.some((x) => key(x) === k))];
+  const out: Agreed = { n, go: [], once: [], low: [] };
+  for (const k of [...new Set(order)]) {
+    const occ = all.get(k) ?? [];
+    const rep = base.find((x) => key(x) === k) ?? occ[0];
+    if (!rep) continue;
+    const confs = occ.map((x) => x.conf).filter(Boolean) as Conf[];
+    const conf = confs.length ? confs.reduce((a, b) => (CONF_RANK[b] < CONF_RANK[a] ? b : a)) : rep.conf;
+    const item: PlanItem = { ...rep, shares: Math.min(...occ.map((x) => x.shares)), conf };
+    const c = counted(k);
+    if (conf === "低") out.low.push(item);
+    else if (n >= 2 && c >= 2) out.go.push(item);
+    else out.once.push({ ...item, count: c });
   }
   return out;
 }

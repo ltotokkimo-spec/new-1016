@@ -6,7 +6,7 @@ import {
 import { aiEtfPrompt, claudeAppUrl, explainError, holdingsFromImage, shrinkImage } from "../ai/claude";
 import type { Scored } from "../engine/score";
 import type { VirtualEtf } from "../engine/virtualEtf";
-import { buyConds, sellConds, holdConds, dailyHoldingCheck, type HoldCheck, type EtfTrade, type EtfFlow, comparePlans, DEFAULT_STOP, planReadable, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
+import { buyConds, sellConds, holdConds, dailyHoldingCheck, type HoldCheck, type EtfTrade, type EtfFlow, agreePlans, comparePlans, DEFAULT_STOP, planReadable, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { addWeekdays, orderDay, pretty, prettyW, taipeiClock, taipeiHour, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
 import { livePolling, type LiveQuote } from "../data/twLive";
@@ -1147,7 +1147,8 @@ function OrderItem({ kind, rank, name, code, main, sub, whyLabel, why, cond, src
   );
 }
 
-export function OrderList({ rows, holds, cash, asOf, planAsOf, hasPlan, canAsk, busy, onAsk }: { rows: OrderRow[]; holds: HoldRow[]; cash: number; asOf?: string; planAsOf?: string; hasPlan: boolean; canAsk: boolean; busy: boolean; onAsk: () => void }) {
+export interface WaitInfo { n: number; once: { name: string; code: string; side: "buy" | "sell"; count: number }[]; low: { name: string; code: string; side: "buy" | "sell" }[] }
+export function OrderList({ rows, holds, cash, asOf, planAsOf, hasPlan, wait, canAsk, busy, onAsk }: { rows: OrderRow[]; holds: HoldRow[]; cash: number; asOf?: string; planAsOf?: string; hasPlan: boolean; wait?: WaitInfo; canAsk: boolean; busy: boolean; onAsk: () => void }) {
   const amt = (r: OrderRow) => (r.price ? r.shares * r.price : NaN);
   const sells = rows.filter((r) => r.side === "sell"), buys = rows.filter((r) => r.side === "buy");
   const buy = buys.reduce((a, r) => a + (amt(r) || 0), 0);
@@ -1196,6 +1197,14 @@ export function OrderList({ rows, holds, cash, asOf, planAsOf, hasPlan, canAsk, 
         </div>
         <div class="muted" style={{ fontSize: "11.5px", lineHeight: 1.6 }}>{buys.some((r) => r.rank) ? "買進依 Claude 的優先順位排（黑底數字，1＝最先買），只想先買幾檔就從上往下買。" : ""}參考價是最新價{planAsOf ? `（Claude 建議依 ${prettyW(planAsOf)} 收盤）` : ""}；「如果…」的條件一部分是 Claude 寫的，其餘是 App 規則自動算的（限價 +1.5% 不追、停損、漲多後把停損價調高）。成交後到下方「填入實際成交」記錄。</div>
       </>}
+      {wait && (wait.once.length > 0 || wait.low.length > 0) && (
+        <div class="warn-box" style={{ fontSize: "13px", lineHeight: 1.7 }} data-testid="order-wait">
+          <b>先不執行</b>（{wait.n} 份 Claude 回覆比對）
+          {wait.once.length > 0 && <div>只出現 1 次，等再問一次確認：{wait.once.map((x) => `${x.side === "buy" ? "買" : "賣"}${x.name}`).join("、")}</div>}
+          {wait.low.length > 0 && <div>Claude 信心低，先不做：{wait.low.map((x) => `${x.side === "buy" ? "買" : "賣"}${x.name}`).join("、")}</div>}
+          {wait.n < 2 && <div class="muted">同樣的問題再問 Claude 1～2 次（用 Claude App 免費：再按一次「在 Claude App 檢視調整」，把新回覆貼回來），重複出現的交易才會列進下單清單。</div>}
+        </div>
+      )}
       {!hasPlan && <button class="btn secondary block" disabled={!canAsk} onClick={onAsk} data-testid="order-ask">{busy ? "Claude 建議產生中…" : "請 Claude 建議要買哪些（約台幣 20～30 元）"}</button>}
     </div>
   );
@@ -1269,7 +1278,15 @@ function RealEtfScreen() {
   const fillSrc: "api" | "pro" = (etf.fillFrom === "pro" && pro) || (!plan && pro) ? "pro" : "api";
   const fillKey = fillSrc === "pro" ? etf.proKey : etf.planKey;
   const fillParsed = fillSrc === "pro" ? proParsed : parsed;
-  const showFill = !busy && !!fillParsed && fillParsed.items.length > 0 && etf.appliedKey !== fillKey;
+  // 同一個資料日的所有回覆（付費版＋貼回的 Claude App 回覆）：至少 2 份都出現、信心不是「低」的交易才列入下單（11/12 使用者要求）
+  const fillAsOf = fillSrc === "pro" ? etf.proAsOf : etf.planAsOf;
+  const samePlans = [
+    ...(parsed && etf.planAsOf === fillAsOf ? [parsed.items] : []),
+    ...(etf.proAsOf === fillAsOf ? (etf.proKeys ?? (etf.proKey ? [etf.proKey] : [])).map((k) => st.reports[k]).filter(Boolean).map((r) => parsePlan(r!.text).items) : []),
+  ];
+  const agreed = fillParsed ? agreePlans(samePlans.length ? samePlans : [fillParsed.items], fillParsed.items) : undefined;
+  const pendingPlan = !busy && !!fillParsed && fillParsed.items.length > 0 && etf.appliedKey !== fillKey;
+  const showFill = pendingPlan && !!agreed && agreed.go.length > 0;
   const [view, setView] = useState<"api" | "pro">("pro");
   const [budgetText, setBudgetText] = useState(String(etf.budget));
   const [editBudget, setEditBudget] = useState(false);
@@ -1288,11 +1305,11 @@ function RealEtfScreen() {
   const orderRows: OrderRow[] = (() => {
     const nm = (c: string) => getState().prices[c]?.name ?? pos.find((p) => p.code === c)?.name ?? c;
     const out: OrderRow[] = [];
-    if (showFill && fillParsed) for (const it of fitBudget(fillParsed.items, livePx, v.cash)) {
+    if (showFill && fillParsed) for (const it of fitBudget(agreed!.go, livePx, v.cash)) {
       const px = livePx(it.code), ck = checks.find((c) => c.code === it.code);
       const auto = it.side === "buy" ? (px ? buyConds(px, it.stop) : []) : sellConds({ ref: px, byRule: false, stopHit: !!ck && !!px && px <= ck.stop, held: ck?.shares, shares: it.shares, stop: ck?.stop });
       const half = it.side === "sell" && ck && it.shares < ck.shares ? `減碼（持有 ${ck.shares.toLocaleString()} 股）` : undefined;
-      out.push({ side: it.side, code: it.code, name: nm(it.code), shares: it.shares, price: px, stop: it.side === "buy" ? it.stop : undefined, reason: it.reason, src: fillSrc === "pro" ? "Claude Pro 建議" : "Claude 建議", rank: it.side === "buy" ? it.rank : undefined, cond: top3(it.cond ?? [], auto), note: half });
+      out.push({ side: it.side, code: it.code, name: nm(it.code), shares: it.shares, price: px, stop: it.side === "buy" ? it.stop : undefined, reason: it.reason, src: `${fillSrc === "pro" ? "Claude Pro 建議" : "Claude 建議"}（${agreed!.n} 份回覆中重複出現${it.conf ? `・信心${it.conf}` : ""}）`, rank: it.side === "buy" ? it.rank : undefined, cond: top3(it.cond ?? [], auto), note: half });
     }
     for (const c of checks) {
       if (out.some((r) => r.code === c.code)) continue;
@@ -1311,7 +1328,7 @@ function RealEtfScreen() {
   return (
     <div>
       <ProResume />
-      <OrderList rows={orderRows} holds={holdRows} cash={v.cash} asOf={st.asOf} planAsOf={fillSrc === "pro" ? etf.proAsOf : etf.planAsOf} hasPlan={showFill} canAsk={!busy && !!st.apiKey && st.twReady} busy={busy} onAsk={ask} />
+      <OrderList rows={orderRows} holds={holdRows} cash={v.cash} asOf={st.asOf} planAsOf={fillSrc === "pro" ? etf.proAsOf : etf.planAsOf} hasPlan={showFill} wait={pendingPlan && agreed ? { n: agreed.n, once: agreed.once.map((x) => ({ name: nameOf(x.code), code: x.code, side: x.side, count: x.count })), low: agreed.low.map((x) => ({ name: nameOf(x.code), code: x.code, side: x.side })) } : undefined} canAsk={!busy && !!st.apiKey && st.twReady} busy={busy} onAsk={ask} />
       <AlertCard alerts={alerts} onAsk={ask} canAsk={!busy && !!st.apiKey && st.twReady} asOf={st.asOf} />
       <div class="card stack" data-testid="etf-summary">
         <div class="row" style={{ justifyContent: "space-between" }}>
@@ -1403,7 +1420,7 @@ function RealEtfScreen() {
         </>
       )}
       {showFill && (
-        <div style={{ marginTop: "10px" }}><PlanFill key={fillKey} items={fillParsed!.items} planKey={fillKey!} cash={v.cash} stops={fillParsed!.stops} source={fillSrc === "pro" ? "Claude Pro" : "Claude API"} asOf={fillSrc === "pro" ? etf.proAsOf : etf.planAsOf} /></div>
+        <div style={{ marginTop: "10px" }}><PlanFill key={fillKey} items={agreed!.go} planKey={fillKey!} cash={v.cash} stops={fillParsed!.stops} source={fillSrc === "pro" ? "Claude Pro" : "Claude API"} asOf={fillSrc === "pro" ? etf.proAsOf : etf.planAsOf} /></div>
       )}
       {!busy && fillParsed && !fillParsed.items.length && <div class="notice" style={{ marginTop: "10px" }}>這份建議沒有要買賣（維持不變），或回覆最後沒有附上 JSON 清單。</div>}
       {!busy && !plan && !pro && (

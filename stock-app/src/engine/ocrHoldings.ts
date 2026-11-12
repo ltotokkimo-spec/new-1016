@@ -9,12 +9,13 @@ export interface OcrLine { text: string; x: number; y: number; w: number; h: num
 export interface OcrHolding { code: string; name: string; market: "TW" | "US"; shares: number; cost: number }
 
 const COST_KEY = /(成交均價|成本均價|平均成本|持有均價|買進均價|均價|成本價)/;
-const SHARES_KEY = /(持有股數|庫存股數|庫存數量|股數)/;
+// 辨識常把「股」認錯（e2e 實測：庫存股數 → 庫存服數），所以「庫存／持有」後面接任一字＋「數」也算股數欄
+const SHARES_KEY = /(持有股數|庫存股數|庫存數量|股數|庫存.數|持有.數)/;
 const LOTS_KEY = /(庫存張數|持有張數|張數)/;
 const NOT_SHARES = /(可下單|可賣|可用|委託)/;
 const CODE_RE = /(?<![\d.,])(00\d{3,4}[A-Z]?|\d{4,5}[A-Z]?)(?![\d.,%])/;
 const NUM_RE = /-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|-?\d+(?:\.\d+)?/g;
-const HEAD_WORD = /(名稱|股票|庫存股|代號|商品|市價|股價|現價|均價|成本|股數|張數|數量|可下單|損益|報酬|市值|漲跌|淨值|參考|成交|幣別)/;
+const HEAD_WORD = /(名稱|股票|庫存|持有|代號|商品|市價|股價|現價|均價|成本|股數|張數|數量|可下單|損益|報酬|市值|漲跌|淨值|參考|成交|幣別)/;
 const LABEL_ONLY = /^(現股|現|股|融資|融券|零股|下單|資|券|[>＞›〉v])$/;
 
 const num = (s: string) => Number(s.replace(/,/g, ""));

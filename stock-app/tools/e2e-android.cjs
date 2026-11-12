@@ -430,7 +430,8 @@ function check(ok, name, detail = "") {
     log("主動式 ETF 買賣成份", JSON.stringify({ summary: hd.summary, buys: hd.buys.slice(0, 3), sells: hd.sells.slice(0, 3), all: hd.all.slice(0, 3) }));
     check(/持股資料日 \d+\/\d+（.）・台股 \d+ 檔/.test(hd.summary) && !/NaN|undefined/.test(hd.summary), "主動式 ETF 詳情頁顯示持股資料日與台股檔數", hd.summary);
     check(hd.all.length >= 5 && hd.all.every((t) => /\b[1-9]\d{3}\b/.test(t) && /[\d,]+ 張/.test(t)), "主動式 ETF 詳情頁列出目前持股（個股、持有張數）", hd.all[0] || "");
-    if (/買進 \d+ 檔、賣出 \d+ 檔/.test(hd.summary)) {
+    // 當天沒有增減（買進 0 檔、賣出 0 檔）時清單本來就是空的，只有真的有買賣才檢查明細
+    if (/買進 \d+ 檔、賣出 \d+ 檔/.test(hd.summary) && !/買進 0 檔、賣出 0 檔/.test(hd.summary)) {
       check(hd.buys.every((t) => /持有 [\d,]+ → [\d,]+ 張/.test(t) && /(新增|加碼)/.test(t)) && hd.sells.every((t) => /持有 [\d,]+ → [\d,]+ 張/.test(t) && /(減碼|清倉)/.test(t)) && hd.buys.length + hd.sells.length > 0, "主動式 ETF 詳情頁列出買進（新增／加碼）與賣出（減碼／清倉）的成份股", JSON.stringify([hd.buys[0], hd.sells[0]]));
     }
     // ETF 配息（11/9）：雲端整理的除權息事件；00406A 每月配息

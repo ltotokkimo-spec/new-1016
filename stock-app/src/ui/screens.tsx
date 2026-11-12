@@ -1,3 +1,5 @@
+import { nameLookup, parseOcrHoldings, soldByOmission, type OcrLine } from "../engine/ocrHoldings";
+import { fileToBase64, recognizeText } from "../lib/ocr";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
   LIVE_MS,
@@ -747,6 +749,29 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
   const tw = total("TW"), us = total("US");
 
   // 用 Claude App 辨識截圖（免費，11/12 使用者要求拿掉付費的照片匯入）：複製提問、打開 Claude App，回覆貼回來整理成持股
+  // 手機內建辨識（11/12 使用者：不用 Claude App，截圖直接在手機上辨識；免費、離線）
+  const ocrToHoldings = (lines: OcrLine[]) => {
+    const st = getState();
+    const lookup = nameLookup([...st.holdings, ...st.tw.scored, ...st.etf.scored, ...Object.entries(st.prices).map(([code, p]) => ({ code, name: p?.name ?? "" }))]);
+    const rows = parseOcrHoldings(lines, lookup);
+    if (!rows.length) { setErr("截圖裡沒有辨識到持股（要有「股數」和「均價」欄位的庫存畫面）。可以改用下面的「用 Claude App 辨識」。"); return; }
+    setErr(""); setImporting({ rows, note: rows.some((r) => !r.code) ? "有幾檔只辨識到名稱、對不到代號，請補上代號" : "" });
+  };
+  const onOcr = async (e: Event) => {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    setBusy(true); setErr("");
+    try { ocrToHoldings(await recognizeText(await fileToBase64(file))); }
+    catch (e2: any) { setErr(`手機辨識失敗：${e2?.message ?? e2}。可以改用「用 Claude App 辨識」。`); }
+    finally { setBusy(false); }
+  };
+  // 自動測試用：把合成的庫存截圖送進同一套手機辨識流程
+  useEffect(() => {
+    (window as any).__srOcrBase64 = async (b64: string) => { setBusy(true); try { ocrToHoldings(await recognizeText(b64)); } catch (e2: any) { setErr(String(e2?.message ?? e2)); } finally { setBusy(false); } };
+    return () => { delete (window as any).__srOcrBase64; };
+  }, [broker]);
   const [appOpen, setAppOpen] = useState(false);
   const [appText, setAppText] = useState("");
   const [appCopied, setAppCopied] = useState<"" | "ok" | "fail">("");
@@ -770,11 +795,14 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
         <div class="card"><div class="muted" style={{ fontSize: "12px" }}>{tab === "stats" ? "合計" : brokerLabel}美股市值</div>{us.cost ? <><div class="big num">{fx ? ntd(us.value, fx) : fmtMoney(us.value, "US")}</div><div class="muted num" style={{ fontSize: "12px" }} data-testid="us-cost">買進成本 {fx ? ntd(us.cost, fx) : fmtMoney(us.cost, "US")}</div><div class={`num ${cls(us.pnl)}`} style={{ fontSize: "13px" }} data-testid="us-pnl">累計損益 {fx ? fmtNtd(us.pnl, fx) : fmtMoney(us.pnl, "US")}（{fmtPct(us.pnl / us.cost)}）</div>{us.hasDay && <div class={`num ${cls(us.day)}`} style={{ fontSize: "12px" }} data-testid="us-day">今日損益 {fx ? fmtNtd(us.day, fx) : fmtMoney(us.day, "US")}（{fmtPct(us.dayPct)}）</div>}</> : <div class="big muted">—</div>}</div>
       </div>
       {tab !== "stats" && <><div class="row" style={{ marginTop: "12px" }}>
-        <button class="btn" style={{ flex: 1 }} onClick={() => setAppOpen(!appOpen)} data-testid="app-import-toggle">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></svg>截圖匯入（Claude App・免費）
-        </button>
+        <label class="btn" style={{ flex: 1 }} aria-disabled={busy} data-testid="ocr-import">
+          {busy ? "辨識中…" : <><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></svg>截圖匯入（免費）</>}
+          <input type="file" accept="image/*" hidden disabled={busy} onChange={onOcr} data-testid="ocr-input" />
+        </label>
         <button class="btn secondary" onClick={() => setAdding(true)}>手動新增</button>
       </div>
+      <div class="muted" style={{ fontSize: "12px", marginTop: "6px", lineHeight: 1.6 }}>選一張{brokerLabel}證券 App 的「庫存」截圖，手機直接辨識（不用網路、不花錢）；截圖上沒有的{brokerLabel}持股會當作已賣出。辨識不準時可以
+        <button class="linkbtn" style={{ fontSize: "12px" }} onClick={() => setAppOpen(!appOpen)} data-testid="app-import-toggle">改用 Claude App 辨識</button>。</div>
       {appOpen && (
         <div class="card stack" style={{ marginTop: "10px" }} data-testid="app-import">
           <b>用 Claude App 辨識{brokerLabel}庫存截圖（免費，用你的訂閱）</b>
@@ -801,7 +829,7 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
 
       <div class="section-title"><span>{tab === "stats" ? "合併持股" : `${brokerLabel}持股`}健檢{liveNote && <span class="muted" data-testid="live-loading" style={{ fontSize: "12px", fontWeight: 400, marginLeft: "8px" }}>{liveNote}</span>}</span><span>{views.length} 檔</span></div>
       {views.length === 0 ? (
-        <div class="empty" data-testid="hold-empty">{tab === "stats" ? "還沒有持股。" : <>還沒有{brokerLabel}持股。<br />按「截圖匯入（Claude App・免費）」，把{brokerLabel}證券 App 的「庫存」截圖交給 Claude App 辨識；或按「手動新增」。</>}</div>
+        <div class="empty" data-testid="hold-empty">{tab === "stats" ? "還沒有持股。" : <>還沒有{brokerLabel}持股。<br />按「截圖匯入（免費）」，選一張{brokerLabel}證券 App 的「庫存」截圖，手機會直接辨識；或按「手動新增」。</>}</div>
       ) : (
         <div class="list">
           {views.map((v) => <HoldingRow v={v} brokers={tab === "stats" ? (v as any).brokers : undefined} open={(s) => open(s, views.map((x) => x.scored).filter((x): x is Scored => !!x))} onEsb={setEsbOpen} fx={fx} />)}
@@ -1026,6 +1054,12 @@ function ImportReview({ data, onDone, broker }: { data: { rows: ImportedHolding[
   const [rows, setRows] = useState(data.rows.map((r) => ({ ...r, sharesText: String(r.shares ?? ""), costText: String(r.cost ?? ""), keep: !!r.code && r.shares > 0 })));
   const [err, setErr] = useState("");
   const upd = (i: number, patch: Partial<(typeof rows)[number]>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  // 這家券商原本有、截圖上沒有的持股：預設視為已賣出（11/12 使用者），用最新價估算已實現損益；不想移除可取消勾選
+  const mine = holdings.filter((h) => brokerOf(h) === broker);
+  const gone = soldByOmission(mine, rows.filter((r) => r.keep), (c) => getState().live[c]?.price ?? getState().prices[c]?.close ?? findScored(c)?.close);
+  const [drop, setDrop] = useState<Record<string, boolean>>(() => Object.fromEntries(gone.map((g) => [g.id, true])));
+  const dropped = gone.filter((g) => drop[g.id] !== false);
+  const goneSum = dropped.reduce((a, g) => a + (g.pnl ?? 0), 0);
   const save = async () => {
     const picked = rows.filter((r) => r.keep && r.code).map((r) => ({ r, shares: Number(r.sharesText), cost: Number(r.costText) }));
     const bad = picked.find((x) => !(x.shares > 0) || !(x.cost > 0));
@@ -1037,12 +1071,13 @@ function ImportReview({ data, onDone, broker }: { data: { rows: ImportedHolding[
       return { id: `${Date.now()}-${code}`, code, name: findScored(code, market === "US" ? "US" : "TW")?.name ?? getState().prices[code]?.name ?? r.name, market, shares, cost, broker };
     });
     const codes = new Set(add.map((h) => h.code));
-    await saveHoldings([...holdings.filter((h) => !codes.has(h.code) || brokerOf(h) !== broker), ...add]);
+    const dropIds = new Set(dropped.map((g) => g.id));
+    await saveHoldings([...holdings.filter((h) => !dropIds.has(h.id) && (!codes.has(h.code) || brokerOf(h) !== broker)), ...add]);
     onDone();
   };
   return (
     <Sheet title="確認辨識結果" onClose={onDone}>
-      <div class="notice">會加入「{BROKERS.find((b) => b.key === broker)!.label}持股」。請核對 Claude 辨識的內容，數字不對可以直接改。這家券商同代號的持股會被覆蓋。{data.note && <><br />Claude 備註：{data.note}</>}</div>
+      <div class="notice">會加入「{BROKERS.find((b) => b.key === broker)!.label}持股」。請核對辨識的內容，數字不對可以直接改。這家券商同代號的持股會被覆蓋。{data.note && <><br />備註：{data.note}</>}</div>
       <div class="list" style={{ marginTop: "12px" }}>
         {rows.map((r, i) => (
           <div class="import-row">
@@ -1056,8 +1091,20 @@ function ImportReview({ data, onDone, broker }: { data: { rows: ImportedHolding[
           </div>
         ))}
       </div>
+      {gone.length > 0 && (
+        <div class="card stack" style={{ marginTop: "12px" }} data-testid="import-sold">
+          <b>截圖上沒有 → 視為已賣出（{dropped.length} 檔）</b>
+          {gone.map((g) => (
+            <label class="check" style={{ justifyContent: "space-between", width: "100%" }} data-testid="import-sold-row">
+              <span><input type="checkbox" checked={drop[g.id] !== false} onChange={(e) => setDrop({ ...drop, [g.id]: (e.target as HTMLInputElement).checked })} /> {g.name} <span class="muted num">{g.code}</span> {g.shares.toLocaleString()} 股</span>
+              <span class={`num ${cls(g.pnl ?? 0)}`}>{g.pnl !== undefined ? `${g.pnl > 0 ? "+" : ""}${Math.round(g.pnl).toLocaleString()} 元` : "—"}</span>
+            </label>
+          ))}
+          <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>估計已實現損益合計 <b class={`num ${cls(goneSum)}`}>{goneSum > 0 ? "+" : ""}{Math.round(goneSum).toLocaleString()} 元</b>（用最新價 −均價 × 股數估算，未扣手續費與稅；實際以成交為準）。取消勾選的會留著。</div>
+        </div>
+      )}
       {err && <div class="error" style={{ marginTop: "12px" }}>{err}</div>}
-      <button class="btn block" style={{ marginTop: "14px" }} onClick={save}>加入 {rows.filter((r) => r.keep).length} 檔持股</button>
+      <button class="btn block" style={{ marginTop: "14px" }} onClick={save}>加入 {rows.filter((r) => r.keep).length} 檔持股{dropped.length ? `、移除 ${dropped.length} 檔` : ""}</button>
     </Sheet>
   );
 }

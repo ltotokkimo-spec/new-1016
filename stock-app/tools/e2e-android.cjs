@@ -1134,6 +1134,28 @@ function check(ok, name, detail = "") {
     check(paidGone && /claude\.ai/.test(promptHref) && impRows.includes("2317|3000|198.5") && impRows.includes("2603|2000|210"), "持股截圖匯入改用 Claude App（免費）：沒有付費按鈕，貼回回覆後列出股數與成本待確認", JSON.stringify({ paidGone, impRows }));
     await page.click('.sheet button[aria-label="返回"]').catch(() => {}); // 不加入，關掉確認畫面
     await page.waitForTimeout(500);
+    // 手機內建辨識（ML Kit，離線免費，11/12）：畫一張券商庫存截圖送進同一套流程，辨識出代號、股數、均價
+    const ocrB64 = await page.evaluate(() => {
+      const c = document.createElement("canvas"); c.width = 1080; c.height = 900;
+      const g = c.getContext("2d");
+      g.fillStyle = "#fff"; g.fillRect(0, 0, 1080, 900);
+      g.fillStyle = "#111"; g.font = "bold 44px sans-serif"; g.fillText("庫存明細", 40, 80);
+      g.font = "38px sans-serif";
+      ["股票", "庫存股數", "成本均價", "現價"].forEach((h, i) => g.fillText(h, 40 + i * 260, 200));
+      [["2317 鴻海", "3,000", "198.50", "239.50"], ["2603 長榮", "2,000", "210.00", "265.50"], ["2882 國泰金", "5,000", "61.20", "68.30"]]
+        .forEach((r, j) => r.forEach((t, i) => g.fillText(t, 40 + i * 260, 320 + j * 150)));
+      return c.toDataURL("image/png").split(",")[1];
+    });
+    const hasOcrBtn = !!(await page.$('[data-testid="ocr-import"]'));
+    await page.evaluate((b) => window.__srOcrBase64(b), ocrB64);
+    await page.waitForSelector(".import-row", { timeout: 30000 }).catch(() => {});
+    const ocrRows = await page.$$eval(".import-row", (rs) => rs.map((r) => [...r.querySelectorAll("input:not([type=checkbox])")].map((i) => i.value).join("|"))).catch(() => []);
+    const ocrErr = await page.$eval(".error", (e) => e.innerText).catch(() => "");
+    log("手機辨識截圖", JSON.stringify({ hasOcrBtn, ocrRows, ocrErr }));
+    await shot("06c2-手機辨識截圖");
+    check(hasOcrBtn && ocrRows.includes("2317|3000|198.5") && ocrRows.includes("2603|2000|210") && ocrRows.includes("2882|5000|61.2"), "手機內建辨識（免費）：從庫存截圖讀出代號、股數與均價", JSON.stringify({ ocrRows, ocrErr }));
+    await page.click('.sheet button[aria-label="返回"]').catch(() => {});
+    await page.waitForTimeout(500);
     await shot("06c-元大持股");
     await page.click('[data-testid="hold-tab-stats"]');
     await page.waitForSelector('[data-testid="broker-stats"]', { timeout: 5000 }).catch(() => {});

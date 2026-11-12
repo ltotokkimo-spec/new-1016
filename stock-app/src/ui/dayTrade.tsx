@@ -1,6 +1,8 @@
 // 選股頁「當沖」分頁（11/12 使用者）：盤中成交量即時排名前 15 名，停在這頁時每 10 秒更新名次與成交量。
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { fetchRankQuotes } from "../data/volRank";
+import { loadDtFlags } from "../data/dtFlags";
+import { flagOf, type DtFlag, type DtLists } from "../engine/dtFlags";
 import { livePolling, marketOpen } from "../data/twLive";
 import { fmtValue, rankPool, rankQuotes, type RankBy, type RankRow } from "../engine/volRank";
 import type { Scored } from "../engine/score";
@@ -12,6 +14,14 @@ export const RANK_MS = 10_000;
 const TOP = 15;
 const load = (k: string, d: string) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
 const save = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* 不記也沒關係 */ } };
+
+function Flags({ f }: { f: DtFlag }) {
+  return <>
+    {f.disposal && <span class="dt-flag bad" data-testid="dt-flag" title={f.disposal.reason}>處置{f.disposal.period ? ` ${f.disposal.period}` : ""}</span>}
+    {f.noDayTrade && !f.disposal && <span class="dt-flag bad" data-testid="dt-flag">不可當沖</span>}
+    {f.noSellFirst && !f.disposal && <span class="dt-flag warn" data-testid="dt-flag">暫停先賣後買</span>}
+  </>;
+}
 
 function Move({ m }: { m: RankRow["move"] }) {
   if (m === "new") return <span class="rank-move new">新進</span>;
@@ -31,6 +41,9 @@ export function DayTradeRank({ open }: { open: (s: Scored, list?: Scored[]) => v
   const prev = useRef(new Map<string, number>());
   const quotesRef = useRef<Parameters<typeof rankQuotes>[0]>([]);
   const busyRef = useRef(false);
+  // 處置股、可當沖標的：一天抓一次
+  const [flags, setFlags] = useState<{ lists: DtLists; status: Record<string, string> } | undefined>();
+  useEffect(() => { loadDtFlags().then(setFlags).catch(() => {}); }, []);
 
   const pull = async () => {
     if (busyRef.current || !pool.length) return;
@@ -94,7 +107,7 @@ export function DayTradeRank({ open }: { open: (s: Scored, list?: Scored[]) => v
             <button class="item rank-item" onClick={() => { const s = find(r.code); if (s) open(s, list); }} data-testid="dt-row" data-code={r.code} data-lots={r.lots}>
               <span class="rank-no num">{r.rank}</span>
               <div style={{ minWidth: 0 }}>
-                <div class="name">{r.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{r.code}</span></div>
+                <div class="name">{r.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{r.code}</span> <Flags f={flagOf(r.code, find(r.code)?.market, flags?.lists)} /></div>
                 <div class="sub num"><span class={by === "vol" ? "rank-key" : ""}>量 {r.lots.toLocaleString("zh-TW")} 張</span>・<span class={by === "value" ? "rank-key" : ""}>值 {fmtValue(r.value)}</span></div>
               </div>
               <div class="px num">
@@ -107,7 +120,8 @@ export function DayTradeRank({ open }: { open: (s: Scored, list?: Scored[]) => v
         </div>
       )}
       {snap && snap.failed > 0 && <div class="muted" style={{ fontSize: "11.5px", marginTop: "6px" }} data-testid="dt-failed">這次有 {snap.failed}／{snap.total} 批沒抓到，排名可能不完整</div>}
-      <p class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
+      <p class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }} data-testid="dt-note" data-flags={flags ? JSON.stringify(flags.status) : ""}>
+        標示：<span class="dt-flag bad">處置</span> 處置期間（須預收款券，實際上不能當沖）、<span class="dt-flag bad">不可當沖</span> 不在證交所／櫃買的現股當沖標的、<span class="dt-flag warn">暫停先賣後買</span> 只能先買後賣。{flags && !flags.lists.eligible.TPEX ? "上櫃股票的可當沖標的這次沒抓到，只標處置。" : ""}{!flags ? "（標示資料下載中）" : ""}<br />
         資料來源：證交所即時報價（約每 5 秒更新，比券商看盤軟體慢幾秒）。從前一個交易日成交量最大的 200 檔股票{withEtf ? "與 40 檔 ETF" : ""}即時排名；成交值是「現價 × 成交量」估計。名次箭頭是跟上一次更新（10 秒前）比。當沖風險高，請自行設停損，這不是投資建議。
       </p>
     </div>

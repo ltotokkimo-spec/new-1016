@@ -247,3 +247,6 @@ table.calc tr.sel td { background: var(--hold-bg); font-weight: 700; }
 .rank-move { font-size: 12px; font-weight: 700; text-align: right; }
 .rank-move.new { color: var(--accent, var(--up)); }
 .rank-key { color: var(--fg); font-weight: 600; }
+.dt-flag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 6px; margin-left: 4px; vertical-align: 1px; white-space: nowrap; }
+.dt-flag.bad { background: var(--up); color: #fff; }
+.dt-flag.warn { border: 1px solid var(--muted); color: var(--muted); }

@@ -106,13 +106,40 @@ const KEY: [RegExp, number, string][] = [
 
 const norm = (s: string) => s.normalize("NFKC").toLowerCase().replace(/[\s「」『』【】（）()《》〈〉:：,，.。!！?？、'"‘’“”…\-–—|｜/]/g, "");
 /** 兩則標題是否同一件事：字元 2-gram 重疊比例 */
-export function similar(a: string, b: string): number {
-  const g = (s: string) => { const n = norm(s); const set = new Set<string>(); for (let i = 0; i < n.length - 1; i++) set.add(n.slice(i, i + 2)); return set; };
-  const A = g(a), B = g(b);
+const grams = (s: string) => { const n = norm(s); const set = new Set<string>(); for (let i = 0; i < n.length - 1; i++) set.add(n.slice(i, i + 2)); return set; };
+function overlap(A: Set<string>, B: Set<string>): number {
   if (!A.size || !B.size) return 0;
   let hit = 0;
   for (const x of A) if (B.has(x)) hit++;
   return hit / Math.min(A.size, B.size);
+}
+export function similar(a: string, b: string): number {
+  const A = grams(a), B = grams(b);
+  if (!A.size || !B.size) return 0;
+  let hit = 0;
+  for (const x of A) if (B.has(x)) hit++;
+  return hit / Math.min(A.size, B.size);
+}
+
+type Stk = { code: string; name: string };
+let idxCache: { src: Stk[]; byHead: Map<string, Stk[]>; byCode: Map<string, Stk> } | undefined;
+/** 股票名稱依前兩個字分桶、代號查表；同一份清單只建一次 */
+function stockIndex(list: Stk[]) {
+  if (idxCache?.src === list) return idxCache;
+  const byHead = new Map<string, Stk[]>();
+  const byCode = new Map<string, Stk>();
+  const seen = new Set<string>();
+  for (const st of list) {
+    if (st.code && !byCode.has(st.code)) byCode.set(st.code, st);
+    if (!st.name || st.name.length < 2 || seen.has(st.name) || /^(台灣|美國|中國|大盤|指數)$/.test(st.name)) continue;
+    seen.add(st.name);
+    const k = st.name.slice(0, 2);
+    const arr = byHead.get(k);
+    if (arr) arr.push(st); else byHead.set(k, [st]);
+  }
+  for (const arr of byHead.values()) arr.sort((a, b) => b.name.length - a.name.length);
+  idxCache = { src: list, byHead, byCode };
+  return idxCache;
 }
 
 export function organizeNews(items: NewsItem[], opts: { now?: number; stocks?: { code: string; name: string }[]; mine?: string[]; maxAgeH?: number } = {}): NewsView[] {
@@ -120,22 +147,36 @@ export function organizeNews(items: NewsItem[], opts: { now?: number; stocks?: {
   const maxAge = (opts.maxAgeH ?? 36) * 3600_000;
   const mine = new Set(opts.mine ?? []);
   // 名稱至少 2 個字才比對，避免誤判；長的名稱先比（「台積電」優先於「台積」）
-  const stocks = (opts.stocks ?? []).filter((s) => s.name && s.name.length >= 2 && !/^(台灣|美國|中國|大盤|指數)$/.test(s.name)).sort((a, b) => b.name.length - a.name.length);
-  const fresh = items.filter((x) => x.at <= now + 10 * 60_000 && now - x.at <= maxAge).sort((a, b) => b.at - a.at);
-  // 同一件事（不同媒體）併成一則，保留最早看到的最新那則，其他媒體列在 also
-  const groups: NewsItem[][] = [];
+  // 股票名稱依前兩個字分桶（11/12 使用者回報切換分頁會停頓：原本每則新聞逐一比對 3000 多檔，手機上要好幾秒）
+  const { byHead, byCode } = stockIndex(opts.stocks ?? []);
+  const fresh = items.filter((x) => x.at <= now + 10 * 60_000 && now - x.at <= maxAge).sort((a, b) => b.at - a.at).slice(0, 400);
+  // 同一件事（不同媒體）併成一則，保留最早看到的最新那則，其他媒體列在 also（每則的字組只算一次）
+  // 用「字組 → 哪幾群」的索引找重疊最多的那群，不用每群逐一比對
+  const groups: { items: NewsItem[]; g: Set<string> }[] = [];
+  const index = new Map<string, number[]>();
   for (const it of fresh) {
-    const g = groups.find((gr) => gr[0].feed !== "mops" && it.feed !== "mops" && similar(gr[0].title, it.title) >= 0.6);
-    if (g) g.push(it); else groups.push([it]);
+    if (it.feed === "mops") { groups.push({ items: [it], g: new Set() }); continue; }
+    const gi = grams(it.title);
+    const cnt = new Map<number, number>();
+    for (const x of gi) for (const k of index.get(x) ?? []) cnt.set(k, (cnt.get(k) ?? 0) + 1);
+    let best = -1;
+    for (const [k, c] of cnt) if (c / Math.min(gi.size, groups[k].g.size) >= 0.6 && Math.abs(groups[k].items[0].at - it.at) < 24 * 3600_000) { best = k; break; }
+    if (best >= 0) { groups[best].items.push(it); continue; }
+    const k = groups.length;
+    groups.push({ items: [it], g: gi });
+    for (const x of gi) { const arr = index.get(x); if (arr) arr.push(k); else index.set(x, [k]); }
   }
-  return groups.map((g) => {
+  return groups.map(({ items: g }) => {
     const it = g[0];
     const text = `${it.title} ${it.summary ?? ""}`;
     const found: { code: string; name: string }[] = [];
-    for (const s of stocks) {
-      if (found.length >= 4) break;
-      if ((it.title.includes(s.name) || new RegExp(`(?<![\\d])${s.code}(?![\\d])`).test(it.title)) && !found.some((f) => f.code === s.code || f.name.includes(s.name))) found.push(s);
+    const add = (s: { code: string; name: string }) => { if (found.length < 4 && !found.some((f) => f.code === s.code || f.name.includes(s.name))) found.push(s); };
+    for (let i = 0; i < it.title.length - 1 && found.length < 4; i++) {
+      const cands = byHead.get(it.title.slice(i, i + 2));
+      const hit = cands?.find((c) => it.title.startsWith(c.name, i));
+      if (hit) { add(hit); i += hit.name.length - 1; }
     }
+    for (const m of it.title.matchAll(/(?<![\d.])(\d{4,6}[A-Z]?)(?![\d.%])/g)) { const s = byCode.get(m[1]); if (s) add(s); }
     const mopsCode = it.feed === "mops" ? it.title.match(/（(\w+)）/)?.[1] : undefined;
     if (mopsCode && !found.some((f) => f.code === mopsCode)) found.unshift({ code: mopsCode, name: it.title.split("（")[0] });
     const isMine = found.some((f) => mine.has(f.code));

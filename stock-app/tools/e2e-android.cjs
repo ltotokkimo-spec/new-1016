@@ -608,6 +608,27 @@ function check(ok, name, detail = "") {
   log("新聞・台股大盤", JSON.stringify(twNews));
   await shot("05c-新聞台股大盤");
   check(twNews.length >= 1, "新聞可切到「台股大盤」分類", JSON.stringify(twNews));
+  // 切換分頁不能卡（11/12 使用者回報新聞和其他分頁切換會停頓）：數據 → 新聞要在 1 秒內出現新聞
+  await page.click('[data-testid="macro-tab-data"]');
+  await page.waitForSelector(".metric", { timeout: 10000 }).catch(() => {});
+  const swMs = await page.evaluate(async () => {
+    const t = performance.now();
+    document.querySelector('[data-testid="macro-tab-news"]').click();
+    while (!document.querySelector('[data-testid="news-item"]') && performance.now() - t < 5000) await new Promise((r) => requestAnimationFrame(r));
+    return Math.round(performance.now() - t);
+  });
+  const navMs = await page.evaluate(async () => {
+    const t = performance.now();
+    document.querySelector("nav.tabs button:nth-child(1)").click();
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const a = performance.now() - t;
+    const t2 = performance.now();
+    document.querySelector("nav.tabs button:nth-child(5)").click();
+    while (!document.querySelector('[data-testid="news-item"]') && performance.now() - t2 < 5000) await new Promise((r) => requestAnimationFrame(r));
+    return [Math.round(a), Math.round(performance.now() - t2)];
+  });
+  log("切換分頁耗時", JSON.stringify({ swMs, navMs }));
+  check(swMs < 1000 && navMs[0] < 1000 && navMs[1] < 1000, "數據 ↔ 新聞、選股 ↔ 數據頁（新聞）切換在 1 秒內完成，不會停頓", JSON.stringify({ swMs, navMs }));
   await page.click('[data-testid="macro-tab-data"]');
   await page.waitForTimeout(300);
 

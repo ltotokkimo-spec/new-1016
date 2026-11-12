@@ -1,6 +1,7 @@
 // 數據頁「新聞」分頁（11/12 使用者）：每次打開 App 重抓，整理國內外大事、影響大盤的消息與重大個股。
-import { useEffect, useMemo, useState } from "preact/hooks";
-import { agoText, organizeNews, topNews, type NewsCat, type NewsView } from "../engine/news";
+import { useEffect, useState } from "preact/hooks";
+import { agoText, organizeNews, topNews, type NewsCat, type NewsItem, type NewsView } from "../engine/news";
+import type { Holding } from "../engine/score";
 import { getState, refreshNews, useStore } from "../store";
 
 const CATS: NewsCat[] = ["國際", "台股大盤", "個股"];
@@ -17,6 +18,21 @@ function NewsRow({ n, now }: { n: NewsView; now: number }) {
       </div>
     </a>
   );
+}
+
+let viewCache: { key: unknown[]; views: NewsView[] } | undefined;
+let stockCache: { key: unknown[]; list: { code: string; name: string }[] } | undefined;
+function organizedFor(items: NewsItem[], holdings: Holding[], tw: { code: string; name: string }[], prices: Record<string, { name?: string } | undefined>): NewsView[] {
+  const same = (a: unknown[], b: unknown[]) => a.length === b.length && a.every((x, i) => x === b[i]);
+  const sk = [holdings, tw, prices];
+  if (!stockCache || !same(stockCache.key, sk)) {
+    stockCache = { key: sk, list: [...holdings.map((h) => ({ code: h.code, name: h.name })), ...tw.map((s) => ({ code: s.code, name: s.name })), ...Object.entries(prices).map(([code, p]) => ({ code, name: p?.name ?? "" }))] };
+  }
+  const vk = [items, stockCache.list];
+  if (!viewCache || !same(viewCache.key, vk)) {
+    viewCache = { key: vk, views: organizeNews(items, { stocks: stockCache.list, mine: holdings.map((h) => h.code) }) };
+  }
+  return viewCache.views;
 }
 
 export function NewsPane() {
@@ -40,10 +56,8 @@ export function NewsPane() {
     return () => { clearInterval(t); clearInterval(t2); };
   }, []);
   useEffect(() => setNow(Date.now()), [st.news.at]);
-  const views = useMemo(() => {
-    const stocks = [...st.holdings.map((h) => ({ code: h.code, name: h.name })), ...st.tw.slice(0, 400).map((s) => ({ code: s.code, name: s.name })), ...Object.entries(st.prices).slice(0, 3000).map(([code, p]) => ({ code, name: p?.name ?? "" }))];
-    return organizeNews(st.news.items, { now, stocks, mine: st.holdings.map((h) => h.code) });
-  }, [st.news.items, st.holdings, st.tw, now]);
+  // 整理結果跟著新聞、持股、股票清單變才重算（11/12 使用者回報切換分頁會停頓：以前每次切回來、每 30 秒都整個重算）
+  const views = organizedFor(st.news.items, st.holdings, st.tw, st.prices);
   const top = topNews(views, 6);
   const topIds = new Set(top.map((x) => x.id));
   const list = views.filter((v) => (cat === "全部" ? !topIds.has(v.id) : v.cat === cat) && (v.feed !== "mops" || v.mine || cat === "個股"));

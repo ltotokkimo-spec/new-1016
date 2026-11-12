@@ -307,8 +307,8 @@ function check(ok, name, detail = "") {
   const free = await page.$eval('[data-testid="free-report"]', (e) => e.innerText);
   log("免費解析", free.slice(0, 1500));
   check(/結論/.test(free) && /趨勢與技術面/.test(free) && /法人籌碼/.test(free) && /支撐/.test(free) && /\d+\/100/.test(free), "免費解析產生結論、技術面、籌碼與支撐壓力", free.slice(0, 120));
-  // 營收是另外下載的，等它補上（最多 30 秒）
-  const hasRev = await page.waitForFunction(() => /每月營收（/.test(document.querySelector('[data-testid="free-report"]')?.innerText || ""), null, { timeout: 30000 }).then(() => true).catch(() => false);
+  // 營收是另外下載的，等它補上（最多 60 秒；櫃買中心慢的時候要 30 秒左右，11/12 run 356 用了 29.8 秒剛好超過）
+  const hasRev = await page.waitForFunction(() => /每月營收（/.test(document.querySelector('[data-testid="free-report"]')?.innerText || ""), null, { timeout: 60000 }).then(() => true).catch(() => false);
   await page.waitForFunction(() => !/正在下載每月營收/.test(document.body.innerText), null, { timeout: 30000 }).catch(() => {});
   log("免費解析含每月營收", hasRev, JSON.stringify(await page.evaluate(() => window.__srRevenue)));
   if (hasRev) log("營收段落", (await page.$eval('[data-testid="free-report"]', (e) => e.innerText)).split("每月營收（")[1]?.slice(0, 200));

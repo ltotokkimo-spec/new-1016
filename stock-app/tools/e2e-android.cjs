@@ -467,8 +467,10 @@ function check(ok, name, detail = "") {
   const allN = await page.$eval('.chips .chip[aria-pressed="true"]', (c) => Number(/(\d+) 檔/.exec(c.textContent)?.[1]));
   check(allN >= chipN, "取消族群篩選後恢復全部", `${allN} 檔`);
 
-  // 數據：CNBC 國際指標＋證交所指數
+  // 數據：CNBC 國際指標＋證交所指數（數據頁預設打開左邊的「新聞」，先切到右邊的「數據」）
   await page.click("nav.tabs button:nth-child(5)");
+  const macroDefault = await page.waitForSelector('[data-testid="macro-tabs"] button[aria-pressed="true"]', { timeout: 10000 }).then((e) => e.innerText()).catch(() => "");
+  await page.click('[data-testid="macro-tab-data"]');
   await page.waitForFunction(() => document.querySelectorAll(".metric").length >= 8, null, { timeout: 60000 });
   const macro = await page.$$eval(".metric", (ms) => ms.map((m) => m.innerText.replace(/\s+/g, " ")));
   log("數據", JSON.stringify(macro.slice(0, 12)));
@@ -580,7 +582,7 @@ function check(ok, name, detail = "") {
   await shot("05-國內外數據");
   // 數據頁分成「數據」「新聞」兩個分頁（11/12）：新聞每次打開 App 重抓，整理國內外大事、大盤、個股
   const macroTabs = await page.$$eval('[data-testid="macro-tabs"] button', (bs) => bs.map((b) => b.textContent.trim())).catch(() => []);
-  check(macroTabs.join("|") === "數據|新聞" && macro.some((m) => m.includes("加權指數")), "數據頁有「數據」「新聞」兩個分頁，原本的數據都在「數據」分頁", JSON.stringify(macroTabs));
+  check(macroTabs.join("|") === "新聞|數據" && macroDefault === "新聞" && macro.some((m) => m.includes("加權指數")), "數據頁分頁：新聞在左（預設打開）、數據在右，原本的數據都在「數據」分頁", JSON.stringify({ macroTabs, macroDefault }));
   await page.click('[data-testid="macro-tab-news"]');
   await page.waitForFunction(() => document.querySelectorAll('[data-testid="news-item"]').length >= 8, null, { timeout: 90000 }).catch(() => {});
   const nw = await page.evaluate(() => {
@@ -989,6 +991,25 @@ function check(ok, name, detail = "") {
   const candNote = await page.$eval('[data-testid="candidates"]', (el) => el.innerText.replace(/\s+/g, " ")).catch(() => "");
   check(/只留當日成交金額 ≥ [\d.]+ 億的大型股/.test(candNote), "候選股一覽註明成交金額門檻（只留大型股）", candNote.slice(0, 160));
   await shot("05b-自組ETF");
+  // 自組 ETF 截圖匯入成交改用手機內建辨識（免費，11/12）：畫一張庫存截圖 → 對帳出要補記的買進 → 取消
+  const etfOcrBtn = await page.$eval('[data-testid="etf-photo-btn"]', (e) => e.innerText).catch(() => "");
+  const etfOcrB64 = await page.evaluate(() => {
+    const c = document.createElement("canvas"); c.width = 1080; c.height = 600;
+    const g = c.getContext("2d");
+    g.fillStyle = "#fff"; g.fillRect(0, 0, 1080, 600);
+    g.fillStyle = "#111"; g.font = "38px sans-serif";
+    ["股票", "庫存股數", "成本均價", "現價"].forEach((h, i) => g.fillText(h, 40 + i * 260, 120));
+    [["1101 台泥", "2,000", "25.50", "26.00"]].forEach((r, j) => r.forEach((t, i) => g.fillText(t, 40 + i * 260, 240 + j * 150)));
+    return c.toDataURL("image/png").split(",")[1];
+  });
+  if (await page.evaluate(() => typeof window.__srEtfImportBase64 === "function")) await page.evaluate((b) => window.__srEtfImportBase64(b), etfOcrB64);
+  await page.waitForSelector('[data-testid="etf-photo-review"]', { timeout: 30000 }).catch(() => {});
+  const etfOcr = await page.evaluate(() => ({ rows: [...document.querySelectorAll('[data-testid="etf-photo-review"] .import-row')].map((r) => r.innerText.replace(/\s+/g, " ") + "|" + [...r.querySelectorAll("input:not([type=checkbox])")].map((i) => i.value).join("|")), err: document.querySelector("main .error")?.innerText || "", raw: window.__srOcrLast || [] }));
+  log("自組ETF 截圖匯入成交", JSON.stringify({ etfOcrBtn, ...etfOcr }).slice(0, 1200));
+  await shot("05b1-自組ETF截圖匯入成交");
+  check(/手機辨識・免費/.test(etfOcrBtn) && !/付費/.test(etfOcrBtn) && etfOcr.rows.some((r) => /買進/.test(r) && /1101/.test(r) && /\|2000\|\d+(\.\d+)?$/.test(r)), "自組 ETF 截圖匯入成交改用手機辨識（免費）：辨識出台泥 2,000 股，列為要補記的買進（成交價由均價推算，和現價差太多時用現價）", JSON.stringify({ etfOcrBtn, ...etfOcr }).slice(0, 500));
+  await page.click('[data-testid="etf-photo-review"] button:has-text("取消")').catch(() => {});
+  await page.waitForTimeout(300);
   // 免費停損提醒：把停損價設在現價之上，應該馬上出現提醒與分頁紅點
   // 剛買進不會跌破預設停損（成本 −10%）；但台積電當天若被評為離場，會有離場提醒，這是正確的
   const before = await page.$eval('[data-testid="etf-alerts"]', (e) => e.innerText).catch(() => "");
@@ -1408,6 +1429,7 @@ function check(ok, name, detail = "") {
 
     // 國內外數據 AI 解讀
     await page2.click("nav.tabs button:nth-child(5)");
+    await page2.click('[data-testid="macro-tab-data"]').catch(() => {});
     await page2.click('button:has-text("產生今日解讀")');
     await page2.waitForFunction(() => document.querySelector(".report") || document.querySelector("main .error"), null, { timeout: 5 * 60_000 });
     const brief = await page2.evaluate(() => ({ err: document.querySelector("main .error")?.textContent, text: document.querySelector(".report")?.innerText, sources: document.querySelectorAll(".sources li").length }));

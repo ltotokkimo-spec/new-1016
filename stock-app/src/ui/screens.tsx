@@ -1589,13 +1589,14 @@ function IndexDetail({ name, label, onClose }: { name: string; label?: string; o
 
 // ---------------- 數據頁：「數據」「新聞」兩個分頁（11/12 使用者） ----------------
 export function MacroScreen() {
-  const [sub, setSub] = useState<"data" | "news">(() => { try { return localStorage.getItem("macroSub") === "news" ? "news" : "data"; } catch { return "data"; } });
+  // 新聞在左、數據在右（11/12 使用者）；預設打開左邊的新聞，之後記住上次看的分頁
+  const [sub, setSub] = useState<"data" | "news">(() => { try { return localStorage.getItem("macroSub") === "data" ? "data" : "news"; } catch { return "news"; } });
   const pick = (v: "data" | "news") => { setSub(v); try { localStorage.setItem("macroSub", v); } catch { /* 無痕模式 */ } };
   return (
     <div>
       <div class="seg" role="tablist" style={{ marginBottom: "12px", width: "100%", gridAutoColumns: "1fr" }} data-testid="macro-tabs">
-        <button role="tab" aria-pressed={sub === "data"} onClick={() => pick("data")} data-testid="macro-tab-data">數據</button>
         <button role="tab" aria-pressed={sub === "news"} onClick={() => pick("news")} data-testid="macro-tab-news">新聞</button>
+        <button role="tab" aria-pressed={sub === "data"} onClick={() => pick("data")} data-testid="macro-tab-data">數據</button>
       </div>
       {sub === "data" ? <DataPane /> : <NewsPane />}
     </div>

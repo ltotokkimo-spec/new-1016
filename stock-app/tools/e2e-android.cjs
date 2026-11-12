@@ -1513,6 +1513,13 @@ function check(ok, name, detail = "") {
   await device.shell("input keyevent 4");
   await sleep(1500);
   await device.shell(`appops set ${PKG} REQUEST_INSTALL_PACKAGES allow`);
+  // 模擬器偶爾吃掉返回鍵、一直停在系統設定頁（11/12 run 353）：還在設定頁就再按一次返回並把 App 叫回前景
+  for (let i = 0; i < 3 && !/stockradar/i.test(await fg()); i++) {
+    await device.shell("input keyevent 4");
+    await sleep(1000);
+    if (!/stockradar/i.test(await fg())) await device.shell(`am start -n ${PKG}/.MainActivity`);
+    await sleep(1500);
+  }
   // 從系統設定頁返回時 App 會重新檢查更新，可能蓋掉前面強制出現的「有新版」狀態；再強制一次才點得到按鈕
   // 返回後畫面可能還在重新檢查更新（按鈕暫時不可點或一直重畫）：反覆強制，等到按鈕可點再直接觸發點擊
   let clicked = false;

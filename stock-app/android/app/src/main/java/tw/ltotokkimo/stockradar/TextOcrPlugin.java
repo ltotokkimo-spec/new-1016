@@ -53,6 +53,20 @@ public class TextOcrPlugin extends Plugin {
                             o.put("w", r.width());
                             o.put("h", r.height());
                         }
+                        // 每個字詞的位置：同一行裡相隔較遠的欄位（股數、均價）用真實位置拆開
+                        JSArray els = new JSArray();
+                        for (Text.Element e : l.getElements()) {
+                            Rect er = e.getBoundingBox();
+                            if (er == null) continue;
+                            JSObject eo = new JSObject();
+                            eo.put("text", e.getText());
+                            eo.put("x", er.left);
+                            eo.put("y", er.top);
+                            eo.put("w", er.width());
+                            eo.put("h", er.height());
+                            els.put(eo);
+                        }
+                        o.put("els", els);
                         lines.put(o);
                     }
                 }

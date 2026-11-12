@@ -1151,9 +1151,10 @@ function check(ok, name, detail = "") {
     await page.waitForSelector(".import-row", { timeout: 30000 }).catch(() => {});
     const ocrRows = await page.$$eval(".import-row", (rs) => rs.map((r) => [...r.querySelectorAll("input:not([type=checkbox])")].map((i) => i.value).join("|"))).catch(() => []);
     const ocrErr = await page.$eval(".error", (e) => e.innerText).catch(() => "");
-    log("手機辨識截圖", JSON.stringify({ hasOcrBtn, ocrRows, ocrErr }));
+    const ocrRaw = await page.evaluate(() => window.__srOcrLast || []).catch(() => []);
+    log("手機辨識截圖", JSON.stringify({ hasOcrBtn, ocrRows, ocrErr, ocrRaw }).slice(0, 1500));
     await shot("06c2-手機辨識截圖");
-    check(hasOcrBtn && ocrRows.includes("2317|3000|198.5") && ocrRows.includes("2603|2000|210") && ocrRows.includes("2882|5000|61.2"), "手機內建辨識（免費）：從庫存截圖讀出代號、股數與均價", JSON.stringify({ ocrRows, ocrErr }));
+    check(hasOcrBtn && ocrRows.includes("2317|3000|198.5") && ocrRows.includes("2603|2000|210") && ocrRows.includes("2882|5000|61.2"), "手機內建辨識（免費）：從庫存截圖讀出代號、股數與均價", JSON.stringify({ ocrRows, ocrErr, ocrRaw }).slice(0, 600));
     await page.click('.sheet button[aria-label="返回"]').catch(() => {});
     await page.waitForTimeout(500);
     await shot("06c-元大持股");

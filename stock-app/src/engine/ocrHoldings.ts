@@ -56,8 +56,26 @@ function numbersIn(l: OcrLine): { v: number; x: number; y: number }[] {
   }));
 }
 
+/** ML Kit 常把同一列相隔較遠的字讀成一行（例如「股票 庫存股數 成本均價 現價」）：依空白拆開，按字寬（中文 1、英數約 0.55）估計每段的左右位置 */
+export function splitLines(lines: OcrLine[]): OcrLine[] {
+  const wOf = (t: string) => [...t].reduce((a, ch) => a + (/[\u2E80-\uFFFF]/.test(ch) ? 1 : 0.55), 0);
+  return lines.flatMap((l) => {
+    const parts = l.text.trim().split(/\s+/);
+    if (parts.length < 2) return [l];
+    const total = wOf(l.text.trim()) || 1;
+    let pos = 0;
+    const out: OcrLine[] = [];
+    for (const m of l.text.trim().matchAll(/\S+|\s+/g)) {
+      const w = wOf(m[0]);
+      if (m[0].trim()) out.push({ text: m[0], x: l.x + (l.w * pos) / total, y: l.y, w: (l.w * w) / total, h: l.h });
+      pos += w;
+    }
+    return out;
+  });
+}
+
 export function parseOcrHoldings(lines: OcrLine[], codeOfName: (name: string) => string | undefined = () => undefined): OcrHolding[] {
-  const ls = lines.filter((l) => l.text.trim());
+  const ls = splitLines(lines.filter((l) => l.text.trim()));
   const hd = findHeader(ls);
   if (!hd) return [];
   const firstNumX = Math.min(...hd.cols.filter((c) => c.key !== "other").map((c) => c.x));

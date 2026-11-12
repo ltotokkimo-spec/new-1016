@@ -51,6 +51,11 @@ describe("手機辨識庫存截圖（ML Kit 文字 → 持股）", () => {
       L("2603 長榮", 40, 420, 170, 40), L("2,000", 300, 420, 95, 40), L("210.00", 560, 420, 115, 40), L("265.50", 820, 420, 115, 40)];
     expect(parseOcrHoldings(t).map((h) => [h.code, h.shares, h.cost])).toEqual([["2317", 3000, 198.5], ["2603", 2000, 210]]);
   });
+  it("ML Kit 把整列讀成一行（欄位用空白隔開）也能拆開對欄", () => {
+    const t: OcrLine[] = [L("股票 庫存股數 成本均價 現價", 40, 172, 960, 40),
+      L("2317 鴻海 3,000 198.50 239.50", 40, 290, 990, 40), L("2603 長榮 2,000 210.00 265.50", 40, 440, 990, 40), L("2882 國泰金 5,000 61.20 68.30", 40, 590, 960, 40)];
+    expect(parseOcrHoldings(t).map((h) => [h.code, h.shares, h.cost])).toEqual([["2317", 3000, 198.5], ["2603", 2000, 210], ["2882", 5000, 61.2]]);
+  });
   it("沒有表頭（不是庫存畫面）就回傳空的", () => {
     expect(parseOcrHoldings([L("今天天氣很好", 10, 10, 200)])).toEqual([]);
   });
@@ -61,5 +66,15 @@ describe("截圖上沒有的持股視為賣出", () => {
     const s = soldByOmission([{ code: "1101", shares: 1000, cost: 40 }, { code: "2330", shares: 10, cost: 900 }, { code: "", name: "測試股", shares: 5, cost: 10 }], [{ code: "2330" }, { code: "", name: "測試股" }], (c) => (c === "1101" ? 35 : undefined));
     expect(s.map((x) => x.code)).toEqual(["1101"]); // 只辨識到名稱的也算還在
     expect(Math.round(s[0].pnl!)).toBe(-5000);
+  });
+});
+
+describe("ML Kit 字詞依間距分欄", () => {
+  it("同一行相隔較遠的字詞拆成不同欄，靠近的併在一起", async () => {
+    const { splitByElements } = await import("../src/lib/ocr");
+    const r = splitByElements({ text: "2317 鴻海 3,000 198.50", x: 40, y: 290, w: 700, h: 40, els: [
+      { text: "2317", x: 40, y: 290, w: 85, h: 40 }, { text: "鴻海", x: 135, y: 290, w: 76, h: 40 },
+      { text: "3,000", x: 300, y: 290, w: 95, h: 40 }, { text: "198.50", x: 560, y: 290, w: 115, h: 40 }] });
+    expect(r.map((l) => [l.text, l.x])).toEqual([["2317 鴻海", 40], ["3,000", 300], ["198.50", 560]]);
   });
 });

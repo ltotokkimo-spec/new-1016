@@ -1,3 +1,4 @@
+import { repairJson } from "../engine/aiEtf";
 // Claude AI：照片辨識持股、個股深度解析、國內外數據解讀。
 // 金鑰只存在你的手機裡，直接從手機呼叫 Anthropic API。
 import Anthropic from "@anthropic-ai/sdk";
@@ -292,6 +293,41 @@ export async function holdingsFromImage(apiKey: string, base64: string, mediaTyp
   } catch {
     throw new AiError("辨識結果格式不正確，請再試一次");
   }
+}
+
+/** 用 Claude App（使用者的訂閱，免費）辨識庫存截圖的提問（11/12 使用者：拿掉付費的照片匯入） */
+export function holdingsAppPrompt(broker: string): string {
+  return `我附上一張${broker}證券 App 的「庫存」截圖（可以一次附多張）。請辨識每一檔持股的代號、名稱、市場、股數與每股平均成本，只列截圖裡看得到的股票，不要猜。
+- 股數：1 張 = 1000 股；截圖寫張數要換算成股。
+- 每股平均成本：只有總成本時除以股數；看不到就填 0。
+- 市場：台股填 TW，美股填 US。
+- 看不清楚的地方寫在 note。
+
+只回這個 JSON（不用其他說明）：
+\`\`\`json
+{"holdings":[{"code":"2330","name":"台積電","market":"TW","shares":1000,"cost":580.5}],"note":""}
+\`\`\``;
+}
+
+/** 解析 Claude App 回覆的持股 JSON（複製時被截斷或格式小錯也盡量讀出來） */
+export function parseHoldingsReply(text: string): { holdings: ImportedHolding[]; note: string } | null {
+  const blocks = [...text.matchAll(/```(?:json)?\s*([\s\S]*?)(?:```|$)/g)].map((m) => m[1]);
+  const cands = [...blocks, text.slice(text.indexOf("{"))].filter((x) => x && x.includes("{"));
+  for (const c of cands.reverse()) {
+    let j: any;
+    try { j = JSON.parse(c.trim()); } catch { const r = repairJson(c.trim()); if (!r) continue; try { j = JSON.parse(r.json); } catch { continue; } }
+    const arr = Array.isArray(j) ? j : j?.holdings ?? j?.stocks ?? j?.持股;
+    if (!Array.isArray(arr)) continue;
+    const holdings: ImportedHolding[] = arr.map((x: any) => {
+      const code = String(x?.code ?? x?.代號 ?? "").trim().toUpperCase();
+      const lots = Number(x?.lots ?? x?.張數);
+      const shares = Number(x?.shares ?? x?.股數) || (lots > 0 ? lots * 1000 : 0);
+      const market: "TW" | "US" = String(x?.market ?? "").toUpperCase() === "US" || /^[A-Z][A-Z.]{0,5}$/.test(code) ? "US" : "TW";
+      return { code, name: String(x?.name ?? x?.名稱 ?? code).trim(), market, shares: Math.max(0, Math.round(shares)), cost: Number(x?.cost ?? x?.avgCost ?? x?.均價 ?? x?.成本) || 0 };
+    }).filter((x: ImportedHolding) => x.code || x.name);
+    if (holdings.length) return { holdings, note: String(j?.note ?? "").trim() };
+  }
+  return null;
 }
 
 /** 在手機上把照片縮到長邊 1600px、轉成 JPEG，省流量也省費用 */

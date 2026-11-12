@@ -6,7 +6,7 @@ import {
   addUsSymbol, removeUsSymbol, refreshLive, refreshUsLive, refreshTwIndex, refreshFutures, refreshTurnover, refreshTurnoverLive, refreshEtfNav, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
 } from "../store";
 import { BROKERS, brokerOf, mergeHoldings, type Broker, type Holding, type Rating, type Scored, type SectorStat } from "../engine/score";
-import { type AiReport, analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, parseUrls, holdingsFromImage, marketBrief, shrinkImage, MODEL, type ImportedHolding } from "../ai/claude";
+import { type AiReport, analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, parseUrls, holdingsAppPrompt, parseHoldingsReply, marketBrief, MODEL, type ImportedHolding } from "../ai/claude";
 import { twHistory } from "../data/history";
 import { esbHistory } from "../data/esb";
 import { indexHistory, isCryptoSymbol, isUsIndexSymbol, type IndexHist } from "../data/indexHistory";
@@ -746,35 +746,15 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
   };
   const tw = total("TW"), us = total("US");
 
-  // 自動測試用：讓測試程式把產生的截圖直接送進同一套辨識流程（手機上一般不會用到）
-  useEffect(() => {
-    (window as any).__srImportBase64 = async (b64: string) => {
-      setBusy(true); setErr("");
-      try {
-        const r = await holdingsFromImage(getState().settings.apiKey, b64, "image/png");
-        await recordSpend(r.costUsd, "照片辨識");
-        if (!r.holdings.length) setErr("照片裡沒有辨識到持股，請換一張清楚的庫存截圖");
-        else setImporting({ rows: r.holdings, note: r.note });
-      } catch (e2) { setErr(explainError(e2)); }
-      finally { setBusy(false); }
-    };
-    return () => { delete (window as any).__srImportBase64; };
-  }, []);
-
-  const onPhoto = async (e: Event) => {
-    const input = e.target as HTMLInputElement;
-    const file = input.files?.[0];
-    input.value = "";
-    if (!file) return;
-    setBusy(true); setErr("");
-    try {
-      const img = await shrinkImage(file);
-      const r = await holdingsFromImage(apiKey, img.base64, img.mediaType);
-      await recordSpend(r.costUsd, "照片辨識");
-      if (!r.holdings.length) setErr("照片裡沒有辨識到持股，請換一張清楚的庫存截圖");
-      else setImporting({ rows: r.holdings, note: r.note });
-    } catch (e2) { setErr(explainError(e2)); }
-    finally { setBusy(false); }
+  // 用 Claude App 辨識截圖（免費，11/12 使用者要求拿掉付費的照片匯入）：複製提問、打開 Claude App，回覆貼回來整理成持股
+  const [appOpen, setAppOpen] = useState(false);
+  const [appText, setAppText] = useState("");
+  const [appCopied, setAppCopied] = useState<"" | "ok" | "fail">("");
+  const appPrompt = holdingsAppPrompt(brokerLabel);
+  const loadAppReply = () => {
+    const r = parseHoldingsReply(appText);
+    if (!r) return setErr("回覆裡沒有找到持股 JSON：請在 Claude App 按回覆下方的「複製」，把整段貼上來");
+    setErr(""); setImporting({ rows: r.holdings, note: r.note }); setAppText(""); setAppOpen(false);
   };
 
   return (
@@ -790,13 +770,30 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
         <div class="card"><div class="muted" style={{ fontSize: "12px" }}>{tab === "stats" ? "合計" : brokerLabel}美股市值</div>{us.cost ? <><div class="big num">{fx ? ntd(us.value, fx) : fmtMoney(us.value, "US")}</div><div class="muted num" style={{ fontSize: "12px" }} data-testid="us-cost">買進成本 {fx ? ntd(us.cost, fx) : fmtMoney(us.cost, "US")}</div><div class={`num ${cls(us.pnl)}`} style={{ fontSize: "13px" }} data-testid="us-pnl">累計損益 {fx ? fmtNtd(us.pnl, fx) : fmtMoney(us.pnl, "US")}（{fmtPct(us.pnl / us.cost)}）</div>{us.hasDay && <div class={`num ${cls(us.day)}`} style={{ fontSize: "12px" }} data-testid="us-day">今日損益 {fx ? fmtNtd(us.day, fx) : fmtMoney(us.day, "US")}（{fmtPct(us.dayPct)}）</div>}</> : <div class="big muted">—</div>}</div>
       </div>
       {tab !== "stats" && <><div class="row" style={{ marginTop: "12px" }}>
-        <label class="btn" style={{ flex: 1 }} aria-disabled={busy || !apiKey}>
-          {busy ? "Claude 辨識中…" : <><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></svg>拍照／截圖匯入（API 付費）</>}
-          <input type="file" accept="image/*" hidden disabled={busy || !apiKey} onChange={onPhoto} data-testid="photo-input" />
-        </label>
+        <button class="btn" style={{ flex: 1 }} onClick={() => setAppOpen(!appOpen)} data-testid="app-import-toggle">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></svg>截圖匯入（Claude App・免費）
+        </button>
         <button class="btn secondary" onClick={() => setAdding(true)}>手動新增</button>
       </div>
-      {!apiKey && <div class="muted" style={{ fontSize: "13px", marginTop: "8px" }}>照片匯入需要 Claude API 金鑰（到「設定」貼上）；手動新增不需要。</div>}</>}
+      {appOpen && (
+        <div class="card stack" style={{ marginTop: "10px" }} data-testid="app-import">
+          <b>用 Claude App 辨識{brokerLabel}庫存截圖（免費，用你的訂閱）</b>
+          <ol class="steps muted" style={{ fontSize: "12.5px", lineHeight: 1.7, margin: 0, paddingLeft: "18px" }}>
+            <li>先在{brokerLabel}證券 App 截好「庫存」畫面。</li>
+            <li>按下面的按鈕：會複製提問並打開 Claude App。</li>
+            <li>在 Claude App <b>附上截圖</b>（迴紋針或＋），輸入框長按<b>貼上</b>提問後送出。</li>
+            <li>Claude 回答完，按回覆下方的<b>「複製」</b>，回來貼在下面，按「整理成持股」，確認後加入。</li>
+          </ol>
+          <a class="btn secondary block" href={claudeAppUrl(appPrompt)} target="_blank" rel="noreferrer"
+            onClick={() => copyText(appPrompt, (ok) => setAppCopied(ok ? "ok" : "fail"))} data-testid="app-import-open">複製提問並打開 Claude App</a>
+          {appCopied === "ok" && <div class="muted" style={{ fontSize: "12px" }}>已複製提問。記得在 Claude App 附上截圖再送出。</div>}
+          {appCopied === "fail" && <div class="muted" style={{ fontSize: "12px" }}>沒辦法自動複製，請再按一次。</div>}
+          <label class="field">貼上 Claude 的回覆
+            <textarea rows={4} value={appText} onInput={(e) => setAppText((e.target as HTMLTextAreaElement).value)} placeholder="在 Claude App 按回覆下方的「複製」，再貼到這裡" data-testid="app-import-text" />
+          </label>
+          <button class="btn block" disabled={!appText.trim()} onClick={loadAppReply} data-testid="app-import-load">整理成持股</button>
+        </div>
+      )}</>}
       {err && <div class="error" style={{ marginTop: "10px" }}>{err}</div>}
 
       {views.length > 0 && <PnlRecon views={views} fx={fx} />}
@@ -804,7 +801,7 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
 
       <div class="section-title"><span>{tab === "stats" ? "合併持股" : `${brokerLabel}持股`}健檢{liveNote && <span class="muted" data-testid="live-loading" style={{ fontSize: "12px", fontWeight: 400, marginLeft: "8px" }}>{liveNote}</span>}</span><span>{views.length} 檔</span></div>
       {views.length === 0 ? (
-        <div class="empty" data-testid="hold-empty">{tab === "stats" ? "還沒有持股。" : <>還沒有{brokerLabel}持股。<br />拍一張{brokerLabel}證券 App 的「庫存」畫面，Claude 會自動辨識代號、股數與成本；或按「手動新增」。</>}</div>
+        <div class="empty" data-testid="hold-empty">{tab === "stats" ? "還沒有持股。" : <>還沒有{brokerLabel}持股。<br />按「截圖匯入（Claude App・免費）」，把{brokerLabel}證券 App 的「庫存」截圖交給 Claude App 辨識；或按「手動新增」。</>}</div>
       ) : (
         <div class="list">
           {views.map((v) => <HoldingRow v={v} brokers={tab === "stats" ? (v as any).brokers : undefined} open={(s) => open(s, views.map((x) => x.scored).filter((x): x is Scored => !!x))} onEsb={setEsbOpen} fx={fx} />)}

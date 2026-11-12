@@ -1121,6 +1121,19 @@ function check(ok, name, detail = "") {
     await page.click('[data-testid="hold-tab-yuanta"]');
     const yEmpty = await page.waitForSelector('[data-testid="hold-empty"]', { timeout: 5000 }).then((e) => e.innerText()).catch(() => "");
     check(/還沒有元大持股/.test(yEmpty), "持股分頁有「元大持股」（目前空的，提示可拍照或手動新增）", yEmpty);
+    // 截圖匯入改用 Claude App（免費，11/12）：沒有付費的照片按鈕；貼回 Claude 的 JSON 回覆 → 出現確認畫面、股數與成本正確 → 取消
+    const paidGone = !(await page.$('[data-testid="photo-input"]')) && !/API 付費/.test(await page.evaluate(() => document.querySelector("main").innerText));
+    await page.click('[data-testid="app-import-toggle"]');
+    const promptHref = await page.$eval('[data-testid="app-import-open"]', (a) => decodeURIComponent(a.getAttribute("href") || "")).catch(() => "");
+    await page.fill('[data-testid="app-import-text"]', '好的，以下是辨識結果：\n```json\n{"holdings":[{"code":"2317","name":"鴻海","market":"TW","shares":3000,"cost":198.5},{"code":"2603","name":"長榮","market":"TW","shares":2000,"cost":210}],"note":""}\n```');
+    await page.click('[data-testid="app-import-load"]');
+    await page.waitForSelector(".import-row", { timeout: 5000 }).catch(() => {});
+    const impRows = await page.$$eval(".import-row", (rs) => rs.map((r) => [...r.querySelectorAll("input:not([type=checkbox])")].map((i) => i.value).join("|"))).catch(() => []);
+    log("Claude App 截圖匯入", JSON.stringify({ paidGone, promptHref: promptHref.slice(0, 80), impRows }));
+    await shot("06c1-Claude App 截圖匯入");
+    check(paidGone && /claude\.ai/.test(promptHref) && impRows.includes("2317|3000|198.5") && impRows.includes("2603|2000|210"), "持股截圖匯入改用 Claude App（免費）：沒有付費按鈕，貼回回覆後列出股數與成本待確認", JSON.stringify({ paidGone, impRows }));
+    await page.click('.sheet button[aria-label="返回"]').catch(() => {}); // 不加入，關掉確認畫面
+    await page.waitForTimeout(500);
     await shot("06c-元大持股");
     await page.click('[data-testid="hold-tab-stats"]');
     await page.waitForSelector('[data-testid="broker-stats"]', { timeout: 5000 }).catch(() => {});
@@ -1325,35 +1338,6 @@ function check(ok, name, detail = "") {
     await page2.waitForFunction(() => /金鑰可以使用|金鑰無效|權限|額度|連不到/.test(document.body.innerText), null, { timeout: 60000 });
     const keyMsg = await page2.$eval(".notice", (e) => e.innerText);
     check(/金鑰可以使用/.test(keyMsg), "Claude API 金鑰測試", keyMsg);
-
-    // 照片匯入：在 App 裡畫一張券商庫存截圖，送進同一套辨識流程
-    await page2.click("nav.tabs button:nth-child(3)");
-    const b64 = await page2.evaluate(() => {
-      const c = document.createElement("canvas"); c.width = 1080; c.height = 900;
-      const g = c.getContext("2d");
-      g.fillStyle = "#fff"; g.fillRect(0, 0, 1080, 900);
-      g.fillStyle = "#b00"; g.fillRect(0, 0, 1080, 120);
-      g.fillStyle = "#fff"; g.font = "bold 52px sans-serif"; g.fillText("庫存明細", 40, 82);
-      g.fillStyle = "#333"; g.font = "36px sans-serif";
-      const head = ["股票", "庫存股數", "成本均價", "現價"];
-      head.forEach((h, i) => g.fillText(h, 40 + i * 260, 200));
-      const rows = [["2317 鴻海", "3,000", "198.50", "239.50"], ["2603 長榮", "2,000", "210.00", "265.50"], ["2882 國泰金", "5,000", "61.20", "68.30"]];
-      rows.forEach((r, j) => r.forEach((t, i) => { g.fillStyle = "#111"; g.font = "40px sans-serif"; g.fillText(t, 40 + i * 260, 300 + j * 150); }));
-      return c.toDataURL("image/png").split(",")[1];
-    });
-    await page2.evaluate((b) => window.__srImportBase64(b), b64);
-    await page2.waitForFunction(() => /確認辨識結果|辨識|錯誤|失敗/.test(document.body.innerText), null, { timeout: 120000 });
-    await page2.waitForSelector(".import-row", { timeout: 120000 });
-    const rows = await page2.$$eval(".import-row", (rs) => rs.map((r) => [...r.querySelectorAll("input:not([type=checkbox])")].map((i) => i.value).join("|")));
-    log("照片辨識", JSON.stringify(rows));
-    check(rows.some((r) => r.startsWith("2317|3000")) && rows.some((r) => r.startsWith("2603|2000")) && rows.some((r) => r.startsWith("2882|5000")), "Claude 從截圖辨識出 3 檔持股與股數", rows.join(" ; "));
-    check(rows.some((r) => r === "2317|3000|198.5"), "Claude 辨識出成本均價", rows.join(" ; "));
-    await shot("08-照片辨識結果");
-    await page2.click("text=/加入 \\d 檔持股/");
-    await page2.waitForTimeout(1000);
-    const nHold = await page2.$$eval(".list .item", (x) => x.length);
-    check(nHold === 8, "匯入後共有 8 檔持股（含美股 AAPL）", `${nHold} 檔`);
-    await shot("09-匯入後持股");
 
     // 個股 AI 深度解析（含網路搜尋）
     await page2.click("nav.tabs button:nth-child(1)");

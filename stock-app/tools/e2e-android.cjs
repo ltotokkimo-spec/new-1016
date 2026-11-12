@@ -445,6 +445,41 @@ function check(ok, name, detail = "") {
   }
   await page.click(".seg button:nth-child(1)");
 
+  // 當沖分頁（11/12）：盤中成交量即時排名前 15 名，每 10 秒更新；可改依成交值排序；點進去是個股頁
+  try {
+    await page.click('[data-testid="picks-tab-dt"]');
+    await page.waitForFunction(() => document.querySelectorAll('[data-testid="dt-row"]').length >= 10 && !/抓即時資料中/.test(document.querySelector('[data-testid="dt-state"]')?.innerText || ""), null, { timeout: 60000 }).catch(() => {});
+    await sleep(1500);
+    const dtv = await page.evaluate(() => ({
+      state: document.querySelector('[data-testid="dt-state"]')?.innerText || "",
+      rows: [...document.querySelectorAll('[data-testid="dt-row"]')].map((e) => ({ code: e.dataset.code, lots: Number(e.dataset.lots), t: e.innerText.replace(/\s+/g, " ") })),
+      failed: document.querySelector('[data-testid="dt-failed"]')?.innerText || "",
+      tabs: [...document.querySelectorAll('[aria-label="市場"] button')].map((b) => b.textContent),
+      overflow: document.documentElement.scrollWidth > window.innerWidth + 1,
+    }));
+    log("當沖排行", JSON.stringify({ ...dtv, rows: dtv.rows.slice(0, 5) }));
+    check(dtv.tabs.join(",") === "台股,ETF,美股,當沖" && !dtv.overflow, "選股頁有「當沖」分頁，畫面沒有超出寬度", JSON.stringify(dtv.tabs));
+    const sortedVol = dtv.rows.every((r, i) => !i || r.lots <= dtv.rows[i - 1].lots);
+    check(dtv.rows.length === 15 && sortedVol && dtv.rows.every((r) => /^\d+ .+ \d{4,6}[A-Z]? 量 [\d,]+ 張・值 [\d.,]+ (億|萬) [\d.,]+ [+-]?\d+\.\d\d%/.test(r.t)), "當沖排行列出前 15 名，依成交量由大到小，每列有名次、名稱代號、成交量、成交值、現價、漲跌", JSON.stringify(dtv.rows.slice(0, 3).map((r) => r.t)));
+    check(/(\d\d:\d\d:\d\d 即時・每 10 秒更新|今天收盤的排名|收盤的排名（今天沒有交易）)/.test(dtv.state) && !/還沒有今天的成交/.test(dtv.state), "當沖排行用的是證交所即時資料（盤中標示更新時間，收盤後標示今天收盤）", dtv.state);
+    await shot("02d-當沖成交量排行");
+    await page.click('[data-testid="dt-by-value"]');
+    await sleep(800);
+    const vals = await page.$$eval('[data-testid="dt-row"]', (es) => es.map((e) => { const m = /值 ([\d.,]+) (億|萬)/.exec(e.innerText); return m ? parseFloat(m[1].replace(/,/g, "")) * (m[2] === "億" ? 1e4 : 1) : NaN; }));
+    check(vals.length === 15 && vals.every((v, i) => Number.isFinite(v) && (!i || v <= vals[i - 1] * 1.001)), "切到「成交值」後依成交值由大到小重排", JSON.stringify(vals.slice(0, 5)));
+    await page.click('[data-testid="dt-by-vol"]');
+    await sleep(500);
+    const first = dtv.rows[0];
+    await page.click('[data-testid="dt-row"]');
+    await page.waitForSelector(".sheet[role=dialog]", { timeout: 15000 }).catch(() => {});
+    const dtTitle = await page.$eval(".sheet[role=dialog]", (e) => e.getAttribute("aria-label") || "").catch(() => "");
+    check(!!first && dtTitle.includes(first.code), "點當沖排行第一名會打開該股的個股頁", `${first?.code} → ${dtTitle}`);
+    await page.click('button[aria-label="返回"]').catch(() => {});
+  } catch (e) {
+    check(false, "當沖分頁測試", String(e).slice(0, 200));
+  }
+  await page.click(".seg button:nth-child(1)");
+
   // 族群
   await page.click("nav.tabs button:nth-child(2)");
   await page.waitForSelector("table.sectors tbody tr", { timeout: 10000 });

@@ -1,4 +1,5 @@
 import { NewsPane } from "./news";
+import { DayTradeRank } from "./dayTrade";
 import { nameLookup, parseOcrHoldings, soldByOmission, type OcrLine } from "../engine/ocrHoldings";
 import { fileToBase64, recognizeText } from "../lib/ocr";
 import { useEffect, useMemo, useState } from "preact/hooks";
@@ -59,6 +60,9 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
   const [etfSort, setEtfSortS] = useState<"vol" | "score">(() => { try { return localStorage.getItem("etfSort") === "score" ? "score" : "vol"; } catch { return "vol"; } });
   const setEtfSort = (v: "vol" | "score") => { setEtfSortS(v); try { localStorage.setItem("etfSort", v); } catch { /* 不記也沒關係 */ } };
   const live = useStore((s) => s.live);
+  // 「當沖」分頁（11/12 使用者）：盤中成交量即時排名；記在手機裡，下次打開維持
+  const [dt, setDtS] = useState(() => { try { return localStorage.getItem("picksDT") === "1"; } catch { return false; } });
+  const setDt = (v: boolean) => { setDtS(v); try { localStorage.setItem("picksDT", v ? "1" : "0"); } catch { /* 不記也沒關係 */ } };
   // 清單前 60 檔用即時價（台股：證交所；美股：CNBC，盤中每 30 秒更新），其餘顯示最近收盤的漲跌
   const freshLive = (s: Scored): LiveQuote | undefined => {
     const lq = live[s.code];
@@ -81,9 +85,9 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
       .sort(market === "ETF" && etfSort === "vol" ? (a, b) => (b.volume ?? 0) - (a.volume ?? 0) : () => 0);
   }, [ms.scored, filter, q, sector, turnMap, market, etfSort]);
   const liveCodes = list.slice(0, 60).map((x) => x.code);
-  const liveKey = market + liveCodes.join(",");
+  const liveKey = (dt ? "dt" : market) + liveCodes.join(",");
   useEffect(() => {
-    if (!liveCodes.length) return;
+    if (!liveCodes.length || dt) return;
     const us = market === "US";
     const pull = () => (us ? refreshUsLive(liveCodes) : refreshLive(liveCodes));
     pull();
@@ -94,9 +98,10 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
   return (
     <div>
       <div class="row" style={{ justifyContent: "space-between" }}>
-        <MarketSeg market={market} setMarket={setMarket} />
-        <input class="search" type="search" placeholder="代號或名稱" value={q} onInput={(e) => setQ((e.target as HTMLInputElement).value)} aria-label="搜尋股票" />
+        <MarketSeg market={market} setMarket={(m) => { setDt(false); setMarket(m); }} dt={dt} setDt={() => { setDt(true); if (market === "US") setMarket("TW"); }} />
+        {!dt && <input class="search" type="search" placeholder="代號或名稱" value={q} onInput={(e) => setQ((e.target as HTMLInputElement).value)} aria-label="搜尋股票" />}
       </div>
+      {dt ? <div style={{ marginTop: "10px" }}><DayTradeRank open={open} /></div> : <>
       <div class="chips" style={{ marginTop: "10px" }} role="group" aria-label="評等篩選">
         {refOnly
           ? <button class="chip" aria-pressed="true">全部 {counts["全部"]} 檔</button>
@@ -147,16 +152,18 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
           </p>
         </>
       )}
+      </>}
     </div>
   );
 }
 
-function MarketSeg({ market, setMarket }: { market: Market; setMarket: (m: Market) => void }) {
+function MarketSeg({ market, setMarket, dt, setDt }: { market: Market; setMarket: (m: Market) => void; dt?: boolean; setDt?: () => void }) {
   return (
     <div class="seg" role="group" aria-label="市場">
-      <button aria-pressed={market === "TW"} onClick={() => setMarket("TW")}>台股</button>
-      <button aria-pressed={market === "ETF"} onClick={() => setMarket("ETF")}>ETF</button>
-      <button aria-pressed={market === "US"} onClick={() => setMarket("US")}>美股</button>
+      <button aria-pressed={!dt && market === "TW"} onClick={() => setMarket("TW")}>台股</button>
+      <button aria-pressed={!dt && market === "ETF"} onClick={() => setMarket("ETF")}>ETF</button>
+      <button aria-pressed={!dt && market === "US"} onClick={() => setMarket("US")}>美股</button>
+      {setDt && <button aria-pressed={!!dt} onClick={setDt} data-testid="picks-tab-dt">當沖</button>}
     </div>
   );
 }

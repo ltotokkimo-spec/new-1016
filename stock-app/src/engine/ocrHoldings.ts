@@ -8,7 +8,8 @@
 export interface OcrLine { text: string; x: number; y: number; w: number; h: number }
 export interface OcrHolding { code: string; name: string; market: "TW" | "US"; shares: number; cost: number }
 
-const COST_KEY = /(成交均價|成本均價|平均成本|持有均價|買進均價|均價|成本價)/;
+// 「價」常被認錯（e2e 實測：成本均價 → 成本均債），所以「成本均／成交均／持有均／買進均」後面接任一字也算均價欄
+const COST_KEY = /(成交均.|成本均.|平均成本|持有均.|買進均.|均價|成本價)/;
 // 辨識常把「股」認錯（e2e 實測：庫存股數 → 庫存服數），所以「庫存／持有」後面接任一字＋「數」也算股數欄
 const SHARES_KEY = /(持有股數|庫存股數|庫存數量|股數|庫存.數|持有.數)/;
 const LOTS_KEY = /(庫存張數|持有張數|張數)/;

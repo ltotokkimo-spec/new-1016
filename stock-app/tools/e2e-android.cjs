@@ -10,7 +10,9 @@ const shots = [];
 const results = [];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const t0 = Date.now();
-const log = (...a) => console.log(`[${Math.round((Date.now() - t0) / 1000)}s]`, ...a);
+let fatal = "";
+const tailLog = [];
+const log = (...a) => { const line = `[${Math.round((Date.now() - t0) / 1000)}s] ${a.map((x) => String(x)).join(" ")}`; tailLog.push(line.slice(0, 600)); if (tailLog.length > 80) tailLog.shift(); console.log(line); };
 
 // 任何一步卡住都不能讓整個測試無限等待
 const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`${what} 超過 ${ms / 1000} 秒沒有回應`)), ms))]);
@@ -1508,7 +1510,7 @@ function check(ok, name, detail = "") {
   const jsErrors = errors.filter((e) => !/Failed to load resource|favicon|code: \w*Exception/.test(e));
   check(jsErrors.length === 0, "沒有 JavaScript 程式錯誤", jsErrors.join(" | "));
 })()
-  .catch((e) => { console.error("E2E 失敗：", e.message); process.exitCode = 1; })
+  .catch((e) => { console.error("E2E 失敗：", e.message); fatal = String(e.stack || e.message).slice(0, 1500); process.exitCode = 1; })
   .finally(() => dumpAndExit());
 
 dumpAndExit = () => {
@@ -1518,6 +1520,9 @@ dumpAndExit = () => {
       for (let i = 0; i < b64.length; i += 4000) console.log(b64.slice(i, i + 4000));
       console.log(`=====END ${name}=====`);
     }
+    // 截圖很大，紀錄只抓得到最後一段：中斷原因與最後幾行紀錄在截圖後面再印一次
+    if (fatal) console.log("FATAL " + fatal);
+    console.log("TAIL " + JSON.stringify(tailLog.slice(-40)));
     console.log("RESULTS " + JSON.stringify(results));
     fs.writeFileSync("e2e-results.json", JSON.stringify(results, null, 2));
     process.exit(process.exitCode || 0);

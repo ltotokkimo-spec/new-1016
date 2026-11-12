@@ -61,6 +61,11 @@ describe("手機辨識庫存截圖（ML Kit 文字 → 持股）", () => {
     const t = raw.map((r) => { const [text, p] = r.split("@"); const [x, y, w] = p.split(",").map(Number); return L(text, x, y, w, 40); });
     expect(parseOcrHoldings(t).map((h) => [h.code, h.name, h.shares, h.cost])).toEqual([["2317", "鴻海", 3000, 198.5], ["2603", "長榮", 2000, 210], ["2882", "國泰金", 5000, 61.2]]);
   });
+  it("模擬器 ML Kit 把「成本均價」讀成「成本均債」也能對到均價欄", () => {
+    const raw = ["股票@26,84,102", "1101台泥@42,205,164", "庫存股數@302,88,148", "2,000@302,212,89", "成本均債@561,85,148", "25.50@562,208,89", "現價@807,88,101", "26.00@822,212,91"];
+    const t = raw.map((r) => { const [text, p] = r.split("@"); const [x, y, w] = p.split(",").map(Number); return L(text, x, y, w, 40); });
+    expect(parseOcrHoldings(t).map((h) => [h.code, h.name, h.shares, h.cost])).toEqual([["1101", "台泥", 2000, 25.5]]);
+  });
   it("沒有表頭（不是庫存畫面）就回傳空的", () => {
     expect(parseOcrHoldings([L("今天天氣很好", 10, 10, 200)])).toEqual([]);
   });

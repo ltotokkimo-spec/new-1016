@@ -11,6 +11,8 @@ import { useStore } from "../store";
 import { cls, fmtPct, fmtPrice } from "./common";
 
 export const RANK_MS = 10_000;
+/** 台北時間平日 9:00 以前 */
+const beforeOpen = () => { const d = new Date(Date.now() + 8 * 3600_000); return d.getUTCHours() < 9; };
 const TOP = 15;
 const load = (k: string, d: string) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
 const save = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* 不記也沒關係 */ } };
@@ -80,8 +82,11 @@ export function DayTradeRank({ open }: { open: (s: Scored, list?: Scored[]) => v
   const rows = live ? snap!.rows : yesterday;
   const today = taipeiToday();
   const isOpen = marketOpen();
+  // 證交所的資料日期比今天舊：週末休市、平日開盤前（11/13 使用者 05:59 看到「今天沒有交易」是錯的）、或平日收盤後仍是舊日期（休市日）
+  const wd = new Date(Date.now() + 8 * 3600_000).getUTCDay();
+  const oldWhy = wd === 0 || wd === 6 ? "今天休市" : beforeOpen() ? "還沒開盤" : "今天休市";
   const state = !live ? (st.asOf ? `還沒有今天的成交，先列 ${pretty(st.asOf)} 收盤的排名` : "")
-    : snap!.date && snap!.date < today ? `${pretty(snap!.date)} 收盤的排名（今天沒有交易）`
+    : snap!.date && snap!.date < today ? `${oldWhy}，先列 ${pretty(snap!.date)} 收盤的排名`
     : isOpen ? `${snap!.time?.slice(0, 8) ?? ""} 即時・每 10 秒更新` : `今天收盤的排名（${snap!.time?.slice(0, 5) ?? ""}）`;
   const find = (code: string) => st.tw.find((x) => x.code === code) ?? st.etf.find((x) => x.code === code);
   const list = rows.map((r) => find(r.code)).filter((x): x is Scored => !!x);
@@ -103,12 +108,14 @@ export function DayTradeRank({ open }: { open: (s: Scored, list?: Scored[]) => v
       </div>
       {rows.length === 0 ? <div class="empty">{busy ? "抓即時資料中…" : "抓不到即時資料，請檢查網路後按「立即更新」"}</div> : (
         <div class="list" data-testid="dt-list">
+          <div class="rank-item rank-head muted" data-testid="dt-head"><span>名次</span><span>股票名稱 代號</span><span style={{ textAlign: "right" }}>成交價（元）<br />漲跌幅</span><span style={{ textAlign: "right" }}>名次<br />變化</span></div>
           {rows.map((r) => (
             <button class="item rank-item" onClick={() => { const s = find(r.code); if (s) open(s, list); }} data-testid="dt-row" data-code={r.code} data-lots={r.lots}>
               <span class="rank-no num">{r.rank}</span>
               <div style={{ minWidth: 0 }}>
-                <div class="name">{r.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{r.code}</span> <Flags f={flagOf(r.code, find(r.code)?.market, flags?.lists)} /></div>
-                <div class="sub num"><span class={by === "vol" ? "rank-key" : ""}>量 {r.lots.toLocaleString("zh-TW")} 張</span>・<span class={by === "value" ? "rank-key" : ""}>值 {fmtValue(r.value)}</span></div>
+                <div class="name">{r.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{r.code}</span></div>
+                <div class="sub num"><span class={by === "vol" ? "rank-key" : ""}>成交量 {r.lots.toLocaleString("zh-TW")} 張</span></div>
+                <div class="sub num"><span class={by === "value" ? "rank-key" : ""}>成交值 {fmtValue(r.value)}元</span><Flags f={flagOf(r.code, find(r.code)?.market, flags?.lists)} /></div>
               </div>
               <div class="px num">
                 <div class={`p ${cls(r.chg)}`}>{fmtPrice(r.price)}</div>

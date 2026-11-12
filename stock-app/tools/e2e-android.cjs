@@ -593,6 +593,11 @@ function check(ok, name, detail = "") {
   log("新聞", JSON.stringify(nw));
   await shot("05b-新聞");
   check(nw.n >= 8 && nw.top >= 3 && nw.newestMin >= 0 && nw.newestMin <= 180 && nw.cats.length === 4, "新聞分頁列出即時新聞：有「現在最重要」、國際／台股大盤／個股分類，最新一則在 3 小時內", JSON.stringify({ n: nw.n, top: nw.top, newestMin: nw.newestMin, cats: nw.cats, note: nw.note }));
+  // 刷新：按了馬上重新抓，抓完顯示多了幾則
+  await page.click('[data-testid="news-refresh"]').catch(() => {});
+  const gotNew = await page.waitForSelector('[data-testid="news-gotnew"]', { timeout: 90000 }).then((e) => e.innerText()).catch(() => "");
+  log("新聞刷新", gotNew);
+  check(/^刷新完成/.test(gotNew), "新聞頁按「刷新」會重新找新聞，完成後顯示多了幾則", gotNew);
   await page.click('[data-testid="news-cat-台股大盤"]').catch(() => {});
   await page.waitForTimeout(400);
   const twNews = await page.$$eval('[data-testid="news-list"] [data-testid="news-item"]', (els) => els.slice(0, 5).map((e) => e.innerText.replace(/\s+/g, " ").slice(0, 80))).catch(() => []);

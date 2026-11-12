@@ -1,7 +1,7 @@
 // 數據頁「新聞」分頁（11/12 使用者）：每次打開 App 重抓，整理國內外大事、影響大盤的消息與重大個股。
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { agoText, organizeNews, topNews, type NewsCat, type NewsView } from "../engine/news";
-import { refreshNews, useStore } from "../store";
+import { getState, refreshNews, useStore } from "../store";
 
 const CATS: NewsCat[] = ["國際", "台股大盤", "個股"];
 
@@ -24,6 +24,14 @@ export function NewsPane() {
   const [cat, setCat] = useState<"全部" | NewsCat>("全部");
   const [more, setMore] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [gotNew, setGotNew] = useState<number | undefined>();
+  // 「刷新」：馬上重新抓所有來源，抓完說這次多了幾則
+  const refresh = async () => {
+    const before = new Set(st.news.items.map((x) => x.id));
+    setGotNew(undefined);
+    await refreshNews();
+    setGotNew(getState().news.items.filter((x) => !before.has(x.id)).length);
+  };
   // 停在新聞頁時每 3 分鐘重抓一次，「幾分鐘前」每 30 秒更新
   useEffect(() => {
     if (!st.news.at || Date.now() - st.news.at > 60_000) void refreshNews();
@@ -48,8 +56,12 @@ export function NewsPane() {
         <div class="muted" style={{ fontSize: "12px" }} data-testid="news-updated">
           {st.news.loading ? "正在抓最新新聞…" : st.news.at ? `${new Date(st.news.at).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })} 更新・${views.length} 則（36 小時內）` : "還沒有新聞"}
         </div>
-        <button class="btn secondary" style={{ padding: "4px 12px", fontSize: "13px" }} disabled={st.news.loading} onClick={() => void refreshNews()} data-testid="news-refresh">{st.news.loading ? "更新中…" : "重新整理"}</button>
+        <button class="btn" style={{ padding: "6px 14px", fontSize: "14px", gap: "6px" }} disabled={st.news.loading} onClick={() => void refresh()} data-testid="news-refresh">
+          <svg class={st.news.loading ? "spin" : ""} viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M21 12a9 9 0 11-3-6.7L21 8M21 3v5h-5" /></svg>
+          {st.news.loading ? "找新聞中…" : "刷新"}
+        </button>
       </div>
+      {gotNew !== undefined && !st.news.loading && <div class="muted" style={{ fontSize: "12.5px", marginBottom: "6px" }} data-testid="news-gotnew">{gotNew > 0 ? `刷新完成：多了 ${gotNew} 則新消息` : "刷新完成：目前沒有更新的消息"}</div>}
       {top.length > 0 && cat === "全部" && (
         <>
           <div class="section-title"><span>現在最重要</span><span class="muted" style={{ fontSize: "12px", fontWeight: 400 }}>依關鍵字、多家報導、新舊排序</span></div>

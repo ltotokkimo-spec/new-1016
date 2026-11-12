@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import { autoRefresh, etfAlertsNow, findScored, init, refreshEsb, refreshMacro, refreshTw, refreshUs, useStore, type AiJob, type Market } from "./store";
+import { autoRefresh, etfAlertsNow, findScored, init, refreshEsb, refreshMacro, refreshNews, refreshTw, refreshUs, useStore, type AiJob, type Market } from "./store";
 import type { Scored } from "./engine/score";
 import { pretty, taipeiToday } from "./lib/dates";
 import { livePolling } from "./data/twLive";
@@ -71,7 +71,7 @@ export function App() {
     const s = j.code ? findScored(j.code, j.market === "US" ? "US" : "TW") : undefined;
     if (s) openDetail(s);
   };
-  const refresh = () => { if (market === "US") refreshUs(); else { refreshTw(); refreshEsb(); } refreshMacro(); };
+  const refresh = () => { if (market === "US") refreshUs(); else { refreshTw(); refreshEsb(); } refreshMacro(); void refreshNews(); };
 
   return (
     <div class="shell">

@@ -578,6 +578,29 @@ function check(ok, name, detail = "") {
   const bsum = macro.find((m) => /^上市 漲 \d+／跌/.test(m))?.match(/漲 (\d+)／跌 (\d+) 持平 (\d+)/);
   check(!!bsum && +bsum[1] + +bsum[2] + +bsum[3] >= 900, "上市漲跌家數加總合理（≥900）", bsum ? bsum.slice(1).join("/") : "無");
   await shot("05-國內外數據");
+  // 數據頁分成「數據」「新聞」兩個分頁（11/12）：新聞每次打開 App 重抓，整理國內外大事、大盤、個股
+  const macroTabs = await page.$$eval('[data-testid="macro-tabs"] button', (bs) => bs.map((b) => b.textContent.trim())).catch(() => []);
+  check(macroTabs.join("|") === "數據|新聞" && macro.some((m) => m.includes("加權指數")), "數據頁有「數據」「新聞」兩個分頁，原本的數據都在「數據」分頁", JSON.stringify(macroTabs));
+  await page.click('[data-testid="macro-tab-news"]');
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid="news-item"]').length >= 8, null, { timeout: 90000 }).catch(() => {});
+  const nw = await page.evaluate(() => {
+    const items = [...document.querySelectorAll('[data-testid="news-item"]')];
+    const ats = items.map((e) => Number(e.getAttribute("data-at"))).filter((x) => x > 0);
+    const cats = [...document.querySelectorAll('[data-testid^="news-cat-"]')].map((b) => b.textContent.trim());
+    return { n: items.length, top: document.querySelectorAll('[data-testid="news-top"] [data-testid="news-item"]').length, newestMin: ats.length ? Math.round((Date.now() - Math.max(...ats)) / 60000) : -1,
+      sample: items.slice(0, 6).map((e) => e.innerText.replace(/\s+/g, " ").slice(0, 90)), cats, updated: document.querySelector('[data-testid="news-updated"]')?.textContent, note: document.querySelector('[data-testid="news-pane"] > .muted:last-child')?.textContent };
+  });
+  log("新聞", JSON.stringify(nw));
+  await shot("05b-新聞");
+  check(nw.n >= 8 && nw.top >= 3 && nw.newestMin >= 0 && nw.newestMin <= 180 && nw.cats.length === 4, "新聞分頁列出即時新聞：有「現在最重要」、國際／台股大盤／個股分類，最新一則在 3 小時內", JSON.stringify({ n: nw.n, top: nw.top, newestMin: nw.newestMin, cats: nw.cats, note: nw.note }));
+  await page.click('[data-testid="news-cat-台股大盤"]').catch(() => {});
+  await page.waitForTimeout(400);
+  const twNews = await page.$$eval('[data-testid="news-list"] [data-testid="news-item"]', (els) => els.slice(0, 5).map((e) => e.innerText.replace(/\s+/g, " ").slice(0, 80))).catch(() => []);
+  log("新聞・台股大盤", JSON.stringify(twNews));
+  await shot("05c-新聞台股大盤");
+  check(twNews.length >= 1, "新聞可切到「台股大盤」分類", JSON.stringify(twNews));
+  await page.click('[data-testid="macro-tab-data"]');
+  await page.waitForTimeout(300);
 
   // ETF 排行（第 6 個分頁）：個股被 ETF 買賣超。預設「主動式 ETF」（比對各主動式 ETF 每日持股），另可切「投信全部」
   await page.click("nav.tabs button:nth-child(6)");

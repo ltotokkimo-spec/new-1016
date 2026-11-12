@@ -1,3 +1,4 @@
+import { NewsPane } from "./news";
 import { nameLookup, parseOcrHoldings, soldByOmission, type OcrLine } from "../engine/ocrHoldings";
 import { fileToBase64, recognizeText } from "../lib/ocr";
 import { useEffect, useMemo, useState } from "preact/hooks";
@@ -1586,8 +1587,23 @@ function IndexDetail({ name, label, onClose }: { name: string; label?: string; o
   );
 }
 
-// ---------------- 數據（國內外指標＋AI 解讀） ----------------
+// ---------------- 數據頁：「數據」「新聞」兩個分頁（11/12 使用者） ----------------
 export function MacroScreen() {
+  const [sub, setSub] = useState<"data" | "news">(() => { try { return localStorage.getItem("macroSub") === "news" ? "news" : "data"; } catch { return "data"; } });
+  const pick = (v: "data" | "news") => { setSub(v); try { localStorage.setItem("macroSub", v); } catch { /* 無痕模式 */ } };
+  return (
+    <div>
+      <div class="seg" role="tablist" style={{ marginBottom: "12px", width: "100%", gridAutoColumns: "1fr" }} data-testid="macro-tabs">
+        <button role="tab" aria-pressed={sub === "data"} onClick={() => pick("data")} data-testid="macro-tab-data">數據</button>
+        <button role="tab" aria-pressed={sub === "news"} onClick={() => pick("news")} data-testid="macro-tab-news">新聞</button>
+      </div>
+      {sub === "data" ? <DataPane /> : <NewsPane />}
+    </div>
+  );
+}
+
+// ---------------- 數據（國內外指標＋AI 解讀） ----------------
+function DataPane() {
   const [idxOpen, setIdxOpen] = useState<string | null>(null);
   const [fngOpen, setFngOpen] = useState(false);
   const st = useStore((s) => ({ macro: s.macro, fng: s.fng, tw: s.tw, us: s.us, idx: s.twIndices, breadth: s.twBreadth, idxLive: s.twIndexLive, fut: s.futures, turnover: s.twTurnover, turnoverLive: s.twTurnoverLive, etfs: s.usSectorEtfs, apiKey: s.settings.apiKey, reports: s.reports }));

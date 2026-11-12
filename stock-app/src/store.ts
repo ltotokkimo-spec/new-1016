@@ -8,6 +8,8 @@ import { TwLoader, TW_SNAPSHOT_VERSION, type TwSnapshot } from "./data/twLoader"
 import { isEtf, parseEsbLatest, twUrls, type EsbQuote } from "./data/tw";
 import { UsLoader, type UsSnapshot } from "./data/usLoader";
 import { FNG_URL, parseFng, type Fng } from "./data/fng";
+import { loadNews } from "./data/news";
+import type { NewsItem } from "./engine/news";
 import { cnbcUrl, isUsSymbol, MACRO_SYMBOLS, parseCnbcQuotes, US_UNIVERSE, type MacroQuote, type UsExtra } from "./data/us";
 import { indexLiveUrl, parseIndexLive, type IndexLive } from "./data/twIndexLive";
 import { twTurnoverUrl, parseTurnover, twTurnoverLiveUrl, parseTurnoverLive } from "./data/twTurnover";
@@ -87,6 +89,7 @@ export interface State {
   usSectorEtfs: UsSnapshot["sectorEtfs"];
   macro: { status: "idle" | "loading" | "ready" | "error"; quotes: MacroQuote[]; error?: string; at?: number };
   fng?: Fng; // 虛擬幣恐懼貪婪指數
+  news: { items: NewsItem[]; at?: number; loading?: boolean; status?: { name: string; n: number; error?: string }[] }; // 數據頁「新聞」（每次打開 App 重抓）
   twIndexLive: Record<string, IndexLive>; // 台股指數盤中即時（證交所 MIS）
   etfNav: Record<string, EtfNav>; // ETF 即時預估淨值與折溢價（證交所，詳情頁用）
   etfNavAt?: number;
@@ -132,7 +135,7 @@ const starting = (): MarketState => ({ status: "loading", scored: [], sectors: [
 
 let state: State = {
   tw: starting(), etf: starting(), us: starting(), esb: {}, twIndices: [], usSectorEtfs: [],
-  macro: { status: "idle", quotes: [] }, twIndexLive: {}, futures: {}, etfNav: {}, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], update: { status: "idle" }, usExtra: [], usPending: [], usNotFound: [], aiJobs: {}, aiEtf: emptyEtf(), live: {}, picksPerf: {}, loaded: false,
+  macro: { status: "idle", quotes: [] }, news: { items: [] }, twIndexLive: {}, futures: {}, etfNav: {}, holdings: [], settings: { apiKey: "" }, reports: {}, prices: {}, spend: [], update: { status: "idle" }, usExtra: [], usPending: [], usNotFound: [], aiJobs: {}, aiEtf: emptyEtf(), live: {}, picksPerf: {}, loaded: false,
 };
 const listeners = new Set<() => void>();
 
@@ -190,6 +193,8 @@ async function initInner() {
     kv.get<EsbSnapshot>("snap:esb"),
   ]);
   set({ usExtra: (await kv.get<UsExtra[]>("usExtra")) ?? [], aiEtf: (await kv.get<AiEtf>("aiEtf")) ?? emptyEtf(), fng: (await kv.get<Fng>("fng")) ?? undefined });
+  const nc = await kv.get<State["news"]>("news");
+  if (nc?.items?.length) set({ news: { items: nc.items, at: nc.at } });
   const vt = await kv.get<State["virtual"]>("virtual");
   if (vt) set({ virtual: vt });
   const wt = await kv.get<State["watch"]>("watch");
@@ -245,7 +250,7 @@ export function autoRefresh() {
   if (usNeedsRefresh(state.us.fetchedAt, Date.now(), state.us.asOf)) refreshUs();
   else ensureUsHoldings(); // 今天的美股已下載過，但持股裡可能有還沒下載的代號
   if (twNeedsRefresh(esbFetchedAt)) refreshEsb();
-  refreshMacro(); refreshTwIndex(); refreshFutures(); refreshTurnover();
+  refreshMacro(); refreshTwIndex(); refreshFutures(); refreshTurnover(); void refreshNews();
   if (!state.virtual || Date.now() - state.virtual.fetchedAt > 10 * 60_000) refreshVirtual();
   if (!state.backtest || Date.now() - state.backtest.fetchedAt > 6 * 3600_000) refreshBacktest();
   if (!state.exdiv || Date.now() - state.exdiv.fetchedAt > 6 * 3600_000) refreshExdiv();
@@ -453,6 +458,29 @@ async function refreshFng() {
     const f = parseFng(await fetcher(`${FNG_URL}&t=${Date.now()}`));
     if (f) { set({ fng: f }); await kv.set("fng", f); }
   } catch { /* 留著上次的 */ }
+}
+
+/** 新聞：所有來源同時抓，和上次的合併（保留 36 小時內），抓不到的來源略過 */
+let newsBusy: Promise<void> | undefined;
+export function refreshNews(): Promise<void> {
+  if (newsBusy) return newsBusy;
+  newsBusy = (async () => {
+    set({ news: { ...state.news, loading: true } });
+    try {
+      const { items, status } = await loadNews();
+      const cut = Date.now() - 36 * 3600_000;
+      const byId = new Map<string, NewsItem>();
+      for (const x of [...items, ...state.news.items]) if (x.at >= cut && !byId.has(x.id)) byId.set(x.id, x);
+      const merged = [...byId.values()].sort((a, b) => b.at - a.at).slice(0, 600);
+      const ok = status.some((x) => x.n > 0);
+      const news = { items: merged, at: ok ? Date.now() : state.news.at, status };
+      set({ news });
+      if (ok) await kv.set("news", { items: merged, at: news.at });
+    } catch (e: any) {
+      set({ news: { ...state.news, loading: false, status: [{ name: "新聞", n: 0, error: String(e?.message ?? e) }] } });
+    } finally { newsBusy = undefined; }
+  })();
+  return newsBusy;
 }
 
 export async function refreshMacro() {

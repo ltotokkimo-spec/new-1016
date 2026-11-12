@@ -356,11 +356,11 @@ function check(ok, name, detail = "") {
   // 版面：箭頭在股票名稱左右兩側（◀ 名稱／代號 ▶），名稱與代號分兩行
   const lay = await page.evaluate(() => { const r = (q) => document.querySelector(q)?.getBoundingClientRect(); const p = r('[data-testid="detail-prev-stock"]'), h = r(".sheet h2"), n = r('[data-testid="detail-next"]'); return p && h && n ? { left: p.right <= h.left + 1, right: n.left >= h.right - 1, sameRow: Math.abs((p.top + p.bottom) / 2 - (n.top + n.bottom) / 2) < 4, twoLines: h.height > 30 } : null; });
   check(!!lay && lay.left && lay.right && lay.sameRow && lay.twoLines, "個股頁股票名稱左右各一個箭頭（名稱、代號分兩行）", JSON.stringify(lay));
-  // 箭頭：60 大小的金色流光三角形，左箭頭光往左、右箭頭光往右（11/05 改）
-  const arr = await page.evaluate(() => ["l", "r"].map((d) => { const e = document.querySelector(`[data-testid="flow-arrow-${d}"]`); const sh = e?.querySelector(".shine"); return e ? { w: Math.round(e.getBoundingClientRect().width), anim: sh ? getComputedStyle(sh).animationName : "" } : null; }));
-  log("切換箭頭", JSON.stringify(arr));
-  await shot("03b-流光金箭頭");
-  check(!!arr[0] && !!arr[1] && arr[0].w >= 56 && arr[1].w >= 56 && arr[0].anim === "nav-shine-l" && arr[1].anim === "nav-shine-r", "個股頁切換箭頭是放大的流光金（左箭頭光往左、右箭頭光往右）", JSON.stringify(arr));
+  // 切換按鈕：文字膠囊「上一檔／下一檔」（11/12 使用者選的樣式 8）
+  const pills = await page.evaluate(() => ["detail-prev-stock", "detail-next"].map((t) => { const e = document.querySelector(`[data-testid="${t}"]`); if (!e) return null; const r = e.getBoundingClientRect(); return { text: e.textContent.trim(), w: Math.round(r.width), h: Math.round(r.height), vw: innerWidth, inView: r.left >= 0 && r.right <= innerWidth }; }));
+  log("切換按鈕", JSON.stringify(pills));
+  await shot("03b-上一檔下一檔按鈕");
+  check(!!pills[0] && !!pills[1] && pills[0].text === "上一檔" && pills[1].text === "下一檔" && pills[0].h >= 30 && pills[0].inView && pills[1].inView, "個股頁切換鈕是「上一檔／下一檔」文字膠囊，都在畫面內", JSON.stringify(pills));
   // 上一檔：回到原本那一檔；中間顯示「第幾檔／共幾檔」
   const pos1 = await page.$eval('[data-testid="detail-pos"]', (e) => e.textContent).catch(() => "");
   if (await page.$('[data-testid="detail-prev-stock"]')) await page.click('[data-testid="detail-prev-stock"]');

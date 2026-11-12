@@ -61,19 +61,10 @@ export function Progress({ p }: { p?: { done: number; total: number; label: stri
  * 個股頁切換箭頭：金色三角形，一條白金光帶往箭頭方向掃（左箭頭往左、右箭頭往右）。
  * 光帶用 CSS transform 平移（不用 SVG 漸層動畫、不用濾鏡），手機和模擬器都不會卡；「減少動態效果」時不動。
  */
-export function FlowArrow({ dir, size = 60 }: { dir: "l" | "r"; size?: number }) {
-  const l = dir === "l", tri = l ? "M17 3 L5 12 L17 21 Z" : "M7 3 L19 12 L7 21 Z";
-  return (
-    <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true" data-testid={`flow-arrow-${dir}`} class={`flowarrow ${l ? "to-left" : "to-right"}`}>
-      <defs>
-        <linearGradient id="navgold" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#9a6400" /><stop offset=".5" stop-color="#c48a12" /><stop offset="1" stop-color="#7a4f00" /></linearGradient>
-        <linearGradient id="navshine" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#fff2b8" stop-opacity="0" /><stop offset=".5" stop-color="#fff2b8" stop-opacity=".95" /><stop offset="1" stop-color="#fff2b8" stop-opacity="0" /></linearGradient>
-        <clipPath id={`navclip-${dir}`}><path d={tri} /></clipPath>
-      </defs>
-      <path d={tri} fill="url(#navgold)" />
-      <g clip-path={`url(#navclip-${dir})`}><rect class="shine" x="-8" y="0" width="8" height="24" fill="url(#navshine)" /></g>
-    </svg>
-  );
+/** 個股頁切換上一檔／下一檔的文字膠囊按鈕（11/12 使用者選的樣式 8） */
+function NavPill({ dir }: { dir: "l" | "r" }) {
+  const chev = <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={dir === "l" ? "M15 5l-7 7 7 7" : "M9 5l7 7-7 7"} /></svg>;
+  return dir === "l" ? <>{chev}上一檔</> : <>下一檔{chev}</>;
 }
 
 /**
@@ -104,17 +95,13 @@ export function Sheet({ title, onClose, children, actions, titleNav }: { title: 
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6" /></svg>
         </button>
         {titleNav ? (
-          <div class="row" style={{ flex: 1, minWidth: 0, alignItems: "center", justifyContent: "center", gap: "0", flexWrap: "nowrap" }} data-testid="detail-nav">
-            <button class="iconbtn navarrow" aria-label={`上一檔：${titleNav.prevName}`} title={`上一檔：${titleNav.prevName}`} onClick={titleNav.prev} data-testid="detail-prev-stock" style={{ width: `${fit.arrow}px`, height: `${fit.arrow}px` }}>
-              <FlowArrow dir="l" size={fit.arrow} />
-            </button>
-            <div style={{ minWidth: 0, textAlign: "center", flex: "0 1 auto" }}>
+          <div class="row" style={{ flex: 1, minWidth: 0, alignItems: "center", justifyContent: "center", gap: "6px", flexWrap: "nowrap" }} data-testid="detail-nav">
+            <button class={`navpill${fit.arrow <= 42 ? " compact" : ""}`} aria-label={`上一檔：${titleNav.prevName}`} title={`上一檔：${titleNav.prevName}`} onClick={titleNav.prev} data-testid="detail-prev-stock"><NavPill dir="l" /></button>
+            <div style={{ minWidth: 0, textAlign: "center", flex: "1 1 auto" }}>
               <h2 style={{ flex: "none", lineHeight: 1.25, fontSize: `${fit.font}px`, whiteSpace: "normal", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflowWrap: "anywhere" }}>{titleNav.name} <span class="num" style={{ display: "block", fontSize: "15px", fontWeight: 600 }}>{titleNav.sub}</span></h2>
               <div class="muted num" style={{ fontSize: "10.5px", lineHeight: 1.2 }} data-testid="detail-pos">{titleNav.pos}/{titleNav.total}</div>
             </div>
-            <button class="iconbtn navarrow" aria-label={`下一檔：${titleNav.nextName}`} title={`下一檔：${titleNav.nextName}`} onClick={titleNav.next} data-testid="detail-next" style={{ width: `${fit.arrow}px`, height: `${fit.arrow}px` }}>
-              <FlowArrow dir="r" size={fit.arrow} />
-            </button>
+            <button class={`navpill${fit.arrow <= 42 ? " compact" : ""}`} aria-label={`下一檔：${titleNav.nextName}`} title={`下一檔：${titleNav.nextName}`} onClick={titleNav.next} data-testid="detail-next"><NavPill dir="r" /></button>
           </div>
         ) : <h2>{title}</h2>}
         {titleNav && !actions && <span style={{ width: "38px", flex: "none" }} aria-hidden="true" />}{/* 和左邊返回鍵同寬，讓名稱置中 */}

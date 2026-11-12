@@ -50,3 +50,11 @@ describe("新聞整理", () => {
     expect(agoText(NOW - 3 * 3600_000, NOW)).toBe("3 小時前");
   });
 });
+
+describe("新聞查詢", () => {
+  it("提到查詢字的才留、最新的在前；代號也算", async () => {
+    const { rankSearch } = await import("../src/engine/news");
+    const r = rankSearch([it0("友達擴大面板出貨", 300), it0("2409 外資連買三天", 30), it0("友達宣布減資", 120), it0("台積電法說會", 10)], ["友達", "2409"], { now: NOW });
+    expect(r.map((x) => x.title)).toEqual(["2409 外資連買三天", "友達宣布減資", "友達擴大面板出貨"]);
+  });
+});

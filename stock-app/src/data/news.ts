@@ -26,3 +26,27 @@ export async function loadNews(): Promise<{ items: NewsItem[]; status: { name: s
   });
   return { items, status };
 }
+
+/**
+ * 查詢（11/12 使用者：打「友達」就優先找友達最新的事件新聞）：Google 新聞搜尋近 7 天＋鉅亨網關鍵字搜尋，
+ * 名稱和代號都會一起搜；抓不到的來源略過。
+ */
+export async function searchNews(q: string, alias?: string): Promise<{ items: NewsItem[]; status: { name: string; n: number; error?: string }[] }> {
+  const terms = [q, alias].filter((x): x is string => !!x && !!x.trim());
+  const gq = terms.length > 1 ? `${terms.map((t) => `"${t}"`).join(" OR ")} when:7d` : `"${q}" when:7d`;
+  const name = terms.find((t) => !/^\d+[A-Z]?$/.test(t)) ?? q;
+  const src: { name: string; load: () => Promise<NewsItem[]> }[] = [
+    { name: "Google 新聞", load: async () => parseGoogleRss(await fetchText(G(gq))) },
+    { name: "Google 新聞（財經）", load: async () => parseGoogleRss(await fetchText(G(`"${name}" 股 when:7d`))) },
+    { name: "鉅亨網", load: async () => parseCnyes(await fetchJson(`https://ess.api.cnyes.com/ess/api/v1/news/keyword?q=${encodeURIComponent(name)}&limit=30&page=1`)) },
+  ];
+  const rs = await Promise.allSettled(src.map((s) => s.load()));
+  const items: NewsItem[] = [];
+  const seen = new Set<string>();
+  const status = rs.map((r, i) => {
+    if (r.status === "rejected") return { name: src[i].name, n: 0, error: String(r.reason?.message ?? r.reason).slice(0, 80) };
+    for (const x of r.value) if (!seen.has(x.id)) { seen.add(x.id); items.push(x); }
+    return { name: src[i].name, n: r.value.length };
+  });
+  return { items, status };
+}

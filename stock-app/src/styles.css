@@ -239,3 +239,4 @@ table.calc tr.sel td { background: var(--hold-bg); font-weight: 700; }
 .news-tag { display: inline-block; font-size: 11px; border-radius: 5px; padding: 0 5px; margin-left: 5px; background: var(--surface-2); color: var(--muted); }
 .news-tag.stock { color: var(--accent); }
 .news-tag.mine { margin: 0 6px 0 0; background: var(--hold-bg); color: var(--hold); font-weight: 700; vertical-align: 1px; }
+[data-testid="news-search"] input { border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 10px; padding: 9px 12px; font-size: 15px; }

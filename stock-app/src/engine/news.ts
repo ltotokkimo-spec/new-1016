@@ -219,3 +219,12 @@ export function agoText(at: number, now = Date.now()): string {
   if (h < 24) return `${h} 小時前`;
   return `${Math.floor(h / 24)} 天前`;
 }
+
+/** 查詢結果：同一件事併成一則，標題或摘要提到查詢字（名稱或代號）的才留（夠多時），最新的在前 */
+export function rankSearch(items: NewsItem[], terms: string[], opts: { now?: number; stocks?: { code: string; name: string }[]; mine?: string[] } = {}): NewsView[] {
+  const ts = terms.map((t) => t.trim()).filter(Boolean).map((t) => t.toLowerCase());
+  const v = organizeNews(items, { ...opts, maxAgeH: 24 * 14 });
+  const hit = (x: NewsView) => ts.some((t) => `${x.title} ${x.summary ?? ""}`.toLowerCase().includes(t));
+  const rel = v.filter(hit);
+  return (rel.length >= 3 ? rel : v).sort((a, b) => b.at - a.at);
+}

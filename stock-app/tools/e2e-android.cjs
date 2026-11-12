@@ -608,6 +608,21 @@ function check(ok, name, detail = "") {
   log("新聞・台股大盤", JSON.stringify(twNews));
   await shot("05c-新聞台股大盤");
   check(twNews.length >= 1, "新聞可切到「台股大盤」分類", JSON.stringify(twNews));
+  // 新聞查詢（11/12）：打股票名稱，找近 7 天提到它的新聞，最新的在前
+  await page.fill('[data-testid="news-q"]', "台積電");
+  await page.click('[data-testid="news-search-go"]');
+  await page.waitForFunction(() => /則・最新的在前/.test(document.querySelector('[data-testid="news-search-result"]')?.innerText || ""), null, { timeout: 90000 }).catch(() => {});
+  const nsrch = await page.evaluate(() => {
+    const items = [...document.querySelectorAll('[data-testid="news-search-result"] [data-testid="news-item"]')];
+    const ats = items.map((e) => Number(e.getAttribute("data-at")));
+    return { head: document.querySelector('[data-testid="news-search-result"] .section-title')?.innerText.replace(/\s+/g, " "), n: items.length, sorted: ats.every((a, i) => i === 0 || ats[i - 1] >= a), newestH: ats.length ? Math.round((Date.now() - ats[0]) / 3600000) : -1,
+      hit: items.filter((e) => /台積電|2330|TSMC/i.test(e.innerText)).length, sample: items.slice(0, 4).map((e) => e.innerText.replace(/\s+/g, " ").slice(0, 70)), failed: document.querySelector('[data-testid="news-search-result"] > .muted')?.innerText || "" };
+  });
+  log("新聞查詢", JSON.stringify(nsrch));
+  await shot("05d-新聞查詢");
+  check(nsrch.n >= 3 && nsrch.sorted && nsrch.hit >= 3 && nsrch.newestH >= 0 && nsrch.newestH <= 48 && /台積電／2330/.test(nsrch.head || ""), "新聞查詢：打「台積電」找出提到台積電（2330）的新聞，最新的在前", JSON.stringify(nsrch).slice(0, 500));
+  await page.click('[data-testid="news-search-clear"]').catch(() => {});
+  await page.waitForTimeout(300);
   // 切換分頁不能卡（11/12 使用者回報新聞和其他分頁切換會停頓）：數據 → 新聞要在 1 秒內出現新聞
   await page.click('[data-testid="macro-tab-data"]');
   await page.waitForSelector(".metric", { timeout: 10000 }).catch(() => {});

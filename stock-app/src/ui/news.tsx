@@ -1,6 +1,7 @@
 // 數據頁「新聞」分頁（11/12 使用者）：每次打開 App 重抓，整理國內外大事、影響大盤的消息與重大個股。
 import { useEffect, useState } from "preact/hooks";
-import { agoText, organizeNews, topNews, type NewsCat, type NewsItem, type NewsView } from "../engine/news";
+import { agoText, organizeNews, rankSearch, topNews, type NewsCat, type NewsItem, type NewsView } from "../engine/news";
+import { searchNews } from "../data/news";
 import type { Holding } from "../engine/score";
 import { getState, refreshNews, useStore } from "../store";
 
@@ -41,6 +42,28 @@ export function NewsPane() {
   const [more, setMore] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [gotNew, setGotNew] = useState<number | undefined>();
+  // 查詢（11/12 使用者）：打股票名稱、代號或關鍵字，抓近 7 天提到它的新聞，最新的在前
+  const [qText, setQText] = useState("");
+  const [search, setSearch] = useState<{ q: string; terms: string[]; loading: boolean; items: NewsItem[]; failed: string[] } | null>(null);
+  const runSearch = async (raw: string) => {
+    const q = raw.trim();
+    if (!q) { setSearch(null); return; }
+    const list = stockCache?.list ?? [];
+    const byCode = list.find((x) => x.code === q.toUpperCase());
+    const byName = list.find((x) => x.name === q) ?? (q.length >= 2 ? list.find((x) => x.name.startsWith(q)) : undefined);
+    const alias = byCode?.name || byName?.code;
+    const terms = [q, alias].filter((x): x is string => !!x);
+    // 先用手上已有的新聞（含重大訊息）馬上顯示，再補上網路搜尋的結果
+    const local = getState().news.items.filter((x) => terms.some((t) => `${x.title} ${x.summary ?? ""}`.toLowerCase().includes(t.toLowerCase())));
+    setSearch({ q, terms, loading: true, items: local, failed: [] });
+    try {
+      const r = await searchNews(byCode ? byCode.name : q, byCode ? byCode.code : byName?.code);
+      const seen = new Set(local.map((x) => x.id));
+      setSearch((cur) => cur && cur.q === q ? { ...cur, loading: false, items: [...local, ...r.items.filter((x) => !seen.has(x.id))], failed: r.status.filter((x) => x.error).map((x) => x.name) } : cur);
+    } catch {
+      setSearch((cur) => cur && cur.q === q ? { ...cur, loading: false, failed: ["全部來源"] } : cur);
+    }
+  };
   // 「刷新」：馬上重新抓所有來源，抓完說這次多了幾則
   const refresh = async () => {
     const before = new Set(st.news.items.map((x) => x.id));
@@ -75,6 +98,23 @@ export function NewsPane() {
           {st.news.loading ? "找新聞中…" : "刷新"}
         </button>
       </div>
+      <form class="row" style={{ gap: "6px", marginBottom: "10px", flexWrap: "nowrap" }} onSubmit={(e) => { e.preventDefault(); void runSearch(qText); }} data-testid="news-search">
+        <input type="search" enterKeyHint="search" placeholder="查新聞：股票名稱、代號或關鍵字（例如 友達）" value={qText} onInput={(e) => setQText((e.target as HTMLInputElement).value)} style={{ flex: 1, minWidth: 0 }} data-testid="news-q" />
+        <button class="btn" type="submit" style={{ padding: "6px 14px", flex: "none" }} disabled={!qText.trim() || !!search?.loading} data-testid="news-search-go">查詢</button>
+        {search && <button class="btn secondary" type="button" style={{ padding: "6px 10px", flex: "none" }} onClick={() => { setSearch(null); setQText(""); }} data-testid="news-search-clear">清除</button>}
+      </form>
+      {search && (() => {
+        const res = rankSearch(search.items, search.terms, { stocks: stockCache?.list, mine: st.holdings.map((h) => h.code) });
+        return (
+          <div data-testid="news-search-result">
+            <div class="section-title"><span>「{search.terms.join("／")}」的新聞</span><span class="muted" style={{ fontSize: "12px", fontWeight: 400 }}>{search.loading ? "搜尋中…" : `${res.length} 則・最新的在前`}</span></div>
+            {res.length > 0 ? <div class="card news-list">{res.slice(0, 60).map((n) => <NewsRow n={n} now={now} />)}</div>
+              : <div class="empty">{search.loading ? "搜尋中…" : "近 7 天沒有找到相關新聞，換個關鍵字試試"}</div>}
+            {search.failed.length > 0 && !search.loading && <div class="muted" style={{ fontSize: "11.5px", marginTop: "6px" }}>這次沒抓到：{search.failed.join("、")}</div>}
+          </div>
+        );
+      })()}
+      {!search && <>
       {gotNew !== undefined && !st.news.loading && <div class="muted" style={{ fontSize: "12.5px", marginBottom: "6px" }} data-testid="news-gotnew">{gotNew > 0 ? `刷新完成：多了 ${gotNew} 則新消息` : "刷新完成：目前沒有更新的消息"}</div>}
       {top.length > 0 && cat === "全部" && (
         <>
@@ -96,6 +136,7 @@ export function NewsPane() {
         <div class="empty">{st.news.loading ? "正在抓最新新聞…" : "目前沒有新聞（請檢查網路後按「重新整理」）"}</div>
       )}
       {list.length > shown.length && <button class="btn secondary block" style={{ marginTop: "10px" }} onClick={() => setMore(true)}>顯示更多（共 {list.length} 則）</button>}
+      </>}
       <div class="muted" style={{ fontSize: "11.5px", lineHeight: 1.6, marginTop: "10px" }}>
         來源：鉅亨網、Google 新聞（彙整各家媒體）、證交所／櫃買中心重大訊息。依關鍵字自動分類與排序（不用 AI、免費），點標題開啟原文。
         {failed.length > 0 && <><br />這次沒抓到：{failed.map((f) => f.name).join("、")}</>}

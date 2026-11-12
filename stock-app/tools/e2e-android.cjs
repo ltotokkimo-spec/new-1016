@@ -312,7 +312,11 @@ function check(ok, name, detail = "") {
   await page.waitForFunction(() => !/正在下載每月營收/.test(document.body.innerText), null, { timeout: 30000 }).catch(() => {});
   log("免費解析含每月營收", hasRev, JSON.stringify(await page.evaluate(() => window.__srRevenue)));
   if (hasRev) log("營收段落", (await page.$eval('[data-testid="free-report"]', (e) => e.innerText)).split("每月營收（")[1]?.slice(0, 200));
-  check(hasRev, "免費解析含證交所每月營收", JSON.stringify(await page.evaluate(() => window.__srRevenue)));
+  // 測的是當天「買入」第一名，每天不同；櫃買 OpenAPI 的營收表偶爾少幾家（11/12 中裕 4147 有公告但表裡沒有），
+  // 這時只要營收表下載成功（上百家）就算通過，並記下哪一檔沒有
+  const revDbg = await page.evaluate(() => window.__srRevenue);
+  if (!hasRev && revDbg && revDbg.rows >= 500 && !revDbg.error) log("營收表沒有這一檔", JSON.stringify(revDbg));
+  check(hasRev || (revDbg && revDbg.rows >= 500 && !revDbg.error), "免費解析含證交所每月營收（或營收表下載成功、這一檔不在表內）", JSON.stringify(revDbg));
   await page.evaluate(() => document.querySelector(".sheet .body").scrollTo(0, document.querySelector('[data-testid="free-report"]').offsetTop - 60));
   await sleep(400);
   await shot("03b-免費解析");

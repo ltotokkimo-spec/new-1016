@@ -395,7 +395,9 @@ function check(ok, name, detail = "") {
   // ETF 排序切換：參考分數（由高到低），再切回成交量
   if (await page.$('[data-testid="etf-sort-score"]')) {
     await page.click('[data-testid="etf-sort-score"]');
-    await page.waitForTimeout(500);
+    // 等標題換成「依參考分數排序」再讀（11/13 run 370：固定等 0.5 秒時清單還沒重排）
+    await page.waitForFunction(() => /依參考分數排序/.test(document.querySelector(".section-title")?.innerText || ""), null, { timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(300);
     const byScore = await page.evaluate(() => ({ title: document.querySelector(".section-title")?.innerText || "", scores: [...document.querySelectorAll(".item")].slice(0, 8).map((r) => Number(/分數 (\d+)/.exec(r.innerText)?.[1] ?? NaN)) }));
     log("ETF 依參考分數", JSON.stringify(byScore));
     check(/依參考分數排序/.test(byScore.title) && byScore.scores.length >= 5 && byScore.scores.every((v, i) => Number.isFinite(v) && (i === 0 || byScore.scores[i - 1] >= v)), "ETF 清單可切換依參考分數排序（由高到低）", JSON.stringify(byScore));

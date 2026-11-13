@@ -9,7 +9,7 @@ export interface OcrLine { text: string; x: number; y: number; w: number; h: num
 export interface OcrHolding { code: string; name: string; market: "TW" | "US"; shares: number; cost: number }
 
 // 「價」常被認錯（e2e 實測：成本均價 → 成本均債），所以「成本均／成交均／持有均／買進均」後面接任一字也算均價欄
-const COST_KEY = /(成交均.|成本均.|平均成本|持有均.|買進均.|均價|成本價)/;
+const COST_KEY = /(成交均.|成本均.|平均成本|持有均.|買進均.|均價|成本價|^均[^\d\s]$)/; // 「^均.$」：元大表頭只有「均價」兩字，「價」被認錯（均債、均償）也要認得
 // 辨識常把「股」認錯（e2e 實測：庫存股數 → 庫存服數），所以「庫存／持有」後面接任一字＋「數」也算股數欄
 const SHARES_KEY = /(持有股數|庫存股數|庫存數量|股數|庫存.數|持有.數)/;
 const LOTS_KEY = /(庫存張數|持有張數|張數)/;
@@ -32,7 +32,7 @@ function findHeader(lines: OcrLine[]): { cols: Col[]; bottom: number } | undefin
   if (!costLine) return undefined;
   const h = costLine.h || 20;
   // 表頭只收欄位名稱這類短字（避免把緊接在表頭下面的第一檔股票名稱當成表頭）
-  const head = lines.filter((l) => Math.abs(cy(l) - cy(costLine)) <= h * 2.2 && HEAD_WORD.test(norm(l.text)) && norm(l.text).length <= 8);
+  const head = lines.filter((l) => Math.abs(cy(l) - cy(costLine)) <= h * 2.2 && (HEAD_WORD.test(norm(l.text)) || COST_KEY.test(norm(l.text)) || SHARES_KEY.test(norm(l.text))) && norm(l.text).length <= 8);
   const cols: Col[] = head.map((l) => {
     const sameX = head.filter((o) => o !== l && Math.abs(cx(o) - cx(l)) < Math.max(l.w, o.w) * 0.8);
     const level: 0 | 1 = sameX.some((o) => cy(o) < cy(l) - h * 0.5) ? 1 : 0;

@@ -1305,6 +1305,46 @@ function check(ok, name, detail = "") {
     check(hasOcrBtn && ocrRows.includes("2317|3000|198.5") && ocrRows.includes("2603|2000|210") && ocrRows.includes("2882|5000|61.2"), "手機內建辨識（免費）：從庫存截圖讀出代號、股數與均價", JSON.stringify({ ocrRows, ocrErr, ocrRaw }).slice(0, 600));
     await page.click('.sheet button[aria-label="返回"]').catch(() => {});
     await page.waitForTimeout(500);
+    // 11/13 使用者：元大 App 深色「庫存」畫面辨識失敗。照同樣版面畫一張（股票、數字都是虛構的）用真的 ML Kit 辨識：
+    // 上方有市值／總成本與按鈕列；表頭兩層「市價／均價」「股數／可下單數」；長名稱換兩行、第二列是「現股」
+    const yB64 = await page.evaluate(() => {
+      const W = 1080, H = 1700, c = document.createElement("canvas"); c.width = W; c.height = H;
+      const g = c.getContext("2d"), k = W / 882;
+      g.fillStyle = "#0a0f1a"; g.fillRect(0, 0, W, H);
+      const t = (s, x, y, size, color = "#ffffff", align = "left") => { g.font = `${Math.round(size * k)}px sans-serif`; g.fillStyle = color; g.textAlign = align; g.fillText(s, x * k, y * k); };
+      ["下單", "委託", "明細", "庫存", "帳務"].forEach((s, i) => t(s, 115 + i * 146, 108, 34, i === 3 ? "#4fc3f7" : "#ffffff"));
+      t("全部", 565, 205, 36); t("含息", 340, 307, 30, "#4fc3f7"); t("不含息", 422, 307, 30); t("幣別：新台幣", 848, 307, 30, "#aaaaaa", "right");
+      t("股票市值", 330, 397, 36); t("98,765", 848, 397, 36, "#ffffff", "right"); t("總成本", 357, 462, 36); t("104,320", 848, 462, 36, "#ffffff", "right");
+      t("報酬", 357, 527, 36); t("-5,555", 848, 527, 36, "#22c55e", "right");
+      ["當沖試算", "維持率", "條件單", "庫存借款"].forEach((s, i) => { g.strokeStyle = "#445"; g.strokeRect((36 + i * 175) * k, 565 * k, 165 * k, 64 * k); t(s, 58 + i * 175, 612, 32); });
+      g.fillStyle = "#16223a"; g.fillRect(0, 698 * k, W, 86 * k);
+      t("名稱", 44, 758, 40); t("市價", 408, 732, 28, "#ffffff", "right"); t("均價", 408, 774, 28, "#ffffff", "right"); t("股數", 601, 732, 28, "#ffffff", "right"); t("可下單數", 601, 774, 28, "#ffffff", "right"); t("損益", 817, 758, 40, "#ffffff", "right");
+      const rows = [
+        [["主動統一台股", "增長"], "24.02", "25.10", "3,000", "3,000", "-3,240", "-4.30%"],
+        [["元大高股息"], "37.10", "36.20", "5,000", "5,000", "4,500", "+2.49%"],
+        [["台泥"], "24.00", "25.50", "2,000", "2,000", "-3,000", "-5.88%"],
+        [["長榮"], "205.50", "210.00", "1,000", "1,000", "-4,500", "-2.14%"],
+      ];
+      rows.forEach((r, j) => {
+        const y0 = 790 + j * 150;
+        g.strokeStyle = "#334"; g.beginPath(); g.moveTo(0, (y0 + 147) * k); g.lineTo(W, (y0 + 147) * k); g.stroke();
+        if (r[0].length > 1) { t(r[0][0], 44, y0 + 28, 26); t(r[0][1], 44, y0 + 62, 26); } else t(r[0][0], 44, y0 + 50, 38);
+        const col = r[5].startsWith("-") ? "#22c55e" : "#ef4444";
+        t(r[1], 408, y0 + 50, 38, "#ffffff", "right"); t(r[3], 601, y0 + 50, 38, "#ffffff", "right"); t(r[5], 817, y0 + 50, 38, col, "right");
+        t("現股", 44, y0 + 124, 38, "#bbbbbb"); t(r[2], 408, y0 + 124, 38, "#ffffff", "right"); t(r[4], 601, y0 + 124, 38, "#ffffff", "right"); t(r[6], 817, y0 + 124, 38, col, "right");
+      });
+      return c.toDataURL("image/png").split(",")[1];
+    });
+    await page.evaluate((b) => window.__srOcrBase64(b), yB64);
+    await page.waitForSelector(".import-row, .error", { timeout: 30000 }).catch(() => {});
+    await page.waitForTimeout(500);
+    const yRows = await page.$$eval(".import-row", (rs) => rs.map((r) => [...r.querySelectorAll("input:not([type=checkbox])")].map((i) => i.value).join("|"))).catch(() => []);
+    const yErr = await page.$eval(".error", (e) => e.innerText).catch(() => "");
+    const yRaw = await page.evaluate(() => window.__srOcrLast || []).catch(() => []);
+    log("元大深色庫存辨識", JSON.stringify({ yRows, yErr, yRaw }).slice(0, 3000));
+    await shot("06c3-元大深色庫存辨識");
+    check(["00981A|3000|25.1", "0056|5000|36.2", "1101|2000|25.5", "2603|1000|210"].every((x) => yRows.includes(x)), "元大深色「庫存」畫面（兩層表頭、名稱換行、現股列）辨識出 4 檔的代號、股數、均價", JSON.stringify({ yRows, yErr }).slice(0, 400));
+    if (yRows.length) { await page.click('.sheet button[aria-label="返回"]').catch(() => {}); await page.waitForTimeout(500); }
     await shot("06c-元大持股");
     await page.click('[data-testid="hold-tab-stats"]');
     await page.waitForSelector('[data-testid="broker-stats"]', { timeout: 5000 }).catch(() => {});

@@ -745,6 +745,7 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
   const [importing, setImporting] = useState<{ rows: ImportedHolding[]; note: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [ocrSeen, setOcrSeen] = useState<string[] | null>(null); // 辨識不到持股時，列出手機讀到的文字（使用者截圖給我們查原因）
 
   const total = (m: "TW" | "US") => {
     const vs = views.filter((v) => (m === "US") === (v.market === "US") && Number.isFinite(v.price));
@@ -762,8 +763,8 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
     const st = getState();
     const lookup = nameLookup([...st.holdings, ...st.tw.scored, ...st.etf.scored, ...Object.entries(st.prices).map(([code, p]) => ({ code, name: p?.name ?? "" }))]);
     const rows = parseOcrHoldings(lines, lookup);
-    if (!rows.length) { setErr("截圖裡沒有辨識到持股（要有「股數」和「均價」欄位的庫存畫面）。可以改用下面的「用 Claude App 辨識」。"); return; }
-    setErr(""); setImporting({ rows, note: rows.some((r) => !r.code) ? "有幾檔只辨識到名稱、對不到代號，請補上代號" : "" });
+    if (!rows.length) { setOcrSeen([...lines].sort((a, b) => a.y - b.y || a.x - b.x).map((l) => l.text.trim()).filter(Boolean)); setErr("截圖裡沒有辨識到持股（要有「股數」和「均價」欄位的庫存畫面）。可以改用下面的「用 Claude App 辨識」。"); return; }
+    setOcrSeen(null); setErr(""); setImporting({ rows, note: rows.some((r) => !r.code) ? "有幾檔只辨識到名稱、對不到代號，請補上代號" : "" });
   };
   const onOcr = async (e: Event) => {
     const input = e.target as HTMLInputElement;
@@ -831,6 +832,12 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
         </div>
       )}</>}
       {err && <div class="error" style={{ marginTop: "10px" }}>{err}</div>}
+      {err && ocrSeen && (
+        <details style={{ marginTop: "6px", fontSize: "12.5px" }} data-testid="ocr-seen">
+          <summary class="muted">看手機讀到的文字（{ocrSeen.length} 行；截圖這裡回報問題）</summary>
+          <div class="muted" style={{ whiteSpace: "pre-wrap", lineHeight: 1.5, marginTop: "4px" }}>{ocrSeen.join("｜")}</div>
+        </details>
+      )}
 
       {views.length > 0 && <PnlRecon views={views} fx={fx} />}
       {views.length > 0 && <RecoveryCard views={views} />}

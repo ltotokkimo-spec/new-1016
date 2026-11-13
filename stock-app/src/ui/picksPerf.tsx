@@ -76,7 +76,13 @@ export function PicksPerfSheet({ book = "TW", onClose }: { book?: PickBook; onCl
   const rows = useMemo(() => (firstOnly ? allRows.filter((r) => first.has(r.id)) : allRows), [allRows, first, firstOnly]);
   const st = useMemo(() => perfStats(rows, h), [rows, h]);
   const dates = useMemo(() => [...new Set(rows.map((r) => r.date))], [rows]); // 新到舊
-  const shown = (day ? rows.filter((r) => r.date === day) : rows).slice(0, all ? undefined : 60);
+  // 11/13 使用者：看不出收集 5 天後的成果 → 清單預設先列「已有結果」的，最新幾天還在追蹤的放後面
+  const [show, setShowS] = useState<"done" | "wait" | "all">("done");
+  const doneN = rows.filter((r) => r.h[h]).length;
+  const view = show === "all" || !doneN ? rows : rows.filter((r) => (show === "done" ? !!r.h[h] : !r.h[h]));
+  const shown = (day ? view.filter((r) => r.date === day) : view).slice(0, all ? undefined : 60);
+  // 每天那一批推薦 h 日後的成績（只列已經滿 h 日的日期）
+  const byDate = useMemo(() => dates.map((dt) => ({ dt, n: rows.filter((r) => r.date === dt).length, s: perfStats(rows.filter((r) => r.date === dt), h) })).filter((x) => x.s.n > 0), [rows, dates, h]);
   const d = pp?.data;
   return (
     <Sheet title={`推薦績效（實際追蹤${book === "TW" ? "" : `・${BOOK_INFO[book].label}`}）`} onClose={onClose}>
@@ -92,6 +98,12 @@ export function PicksPerfSheet({ book = "TW", onClose }: { book?: PickBook; onCl
           {firstOnly ? `連續在${listWord(book)}的只算進入名單那天；掉出後再回來算新的一次（${rows.length}／${allRows.length} 筆）` : `每天的${listWord(book)}每檔各算一筆，連續上榜的會被算好幾次（${allRows.length} 筆）`}
         </div>
         {!d ? <div class="empty">{busy ? "下載中…" : "還沒有資料"}</div> : <>
+          <div class="card" style={{ fontSize: "14.5px", lineHeight: 1.7 }} data-testid="perf-headline">
+            {st.n ? <><b>成果：</b>已滿 {h} 個交易日的 <b>{st.n}</b> 筆推薦，買進後持有 {h} 天平均每筆 <b class={cls(st.avg)}>{pc(st.avg)}</b>（已扣成本），<b>{Math.round(st.win * 100)}%</b> 賺錢；
+              比同期{benchOf(d)[0]} <b class={cls(st.avgExTaiex)}>{st.avgExTaiex !== undefined && st.avgExTaiex >= 0 ? "多賺" : "少賺"} {pc(Math.abs(st.avgExTaiex ?? NaN)).replace(/^\+/, "")}</b>。
+              {rows.length - doneN > 0 && <span class="muted">另有 {rows.length - doneN} 筆還在追蹤（推薦後未滿 {h} 天）。</span>}</>
+              : <>還沒有推薦滿 {h} 個交易日，第一批結果要等推薦後 {h} 個交易日才算得出來。</>}
+          </div>
           <div class="grid2" data-testid="perf-stats">
             <Stat k="總筆數" v={`${st.n} 筆`} d={`已滿 ${h} 個交易日／${firstOnly ? "首次推薦" : "全部"} ${rows.length} 筆`} id="perf-n" />
             <Stat k="勝率" v={st.n ? `${Math.round(st.win * 100)}%` : "—"} d="扣成本後淨報酬 > 0 的比例" id="perf-win" />
@@ -121,16 +133,32 @@ export function PicksPerfSheet({ book = "TW", onClose }: { book?: PickBook; onCl
           </div>
           {msg && <div class="muted" style={{ fontSize: "12.5px" }} data-testid="perf-msg">{msg}</div>}
 
+          {byDate.length > 0 && <>
+            <div class="section-title"><span>每天的推薦 {h} 日後成績</span><span class="muted" style={{ fontSize: "12px", fontWeight: 400 }}>點日期看那天每一筆</span></div>
+            <table class="sectors" data-testid="perf-bydate">
+              <thead><tr><th style={{ textAlign: "left" }}>推薦日</th><th>筆數</th><th>平均</th><th>賺錢</th><th>比{benchOf(d)[0].replace(/指數$/, "")}</th></tr></thead>
+              <tbody>{byDate.slice(0, 20).map((x) => (
+                <tr style={{ cursor: "pointer" }} onClick={() => { setDay(x.dt); setShowS("all"); setTimeout(() => document.querySelector('[data-testid="perf-rows"]')?.scrollIntoView({ behavior: "smooth" }), 50); }}>
+                  <td style={{ textAlign: "left" }}>{prettyW(x.dt)}</td><td class="num">{x.s.n}</td><td class={`num ${cls(x.s.avg)}`}>{pc(x.s.avg)}</td><td class="num">{Math.round(x.s.win * 100)}%</td><td class={`num ${cls(x.s.avgExTaiex)}`}>{pc(x.s.avgExTaiex)}</td>
+                </tr>))}</tbody>
+            </table>
+          </>}
+
           <div class="section-title"><span>每筆推薦<span class="muted" style={{ fontWeight: 400, fontSize: "12px" }}>（新→舊，同日分數高→低）</span></span>
-            <select value={day} onChange={(e) => setDay((e.target as HTMLSelectElement).value)} data-testid="perf-day" style={{ fontSize: "13px" }}>
+            <select value={day} onChange={(e) => { const v = (e.target as HTMLSelectElement).value; setDay(v); if (v) setShowS("all"); }} data-testid="perf-day" style={{ fontSize: "13px" }}>
               <option value="">全部日期（{rows.length} 筆）</option>
               {dates.map((x) => <option value={x}>{prettyW(x)}（{rows.filter((r) => r.date === x).length} 筆）</option>)}
             </select>
           </div>
+          <div class="chips" role="group" aria-label="清單範圍">
+            <button class="chip" aria-pressed={show === "done"} onClick={() => setShowS("done")} data-testid="perf-show-done">已有 {h} 日結果 {doneN}</button>
+            <button class="chip" aria-pressed={show === "wait"} onClick={() => setShowS("wait")} data-testid="perf-show-wait">追蹤中 {rows.length - doneN}</button>
+            <button class="chip" aria-pressed={show === "all"} onClick={() => setShowS("all")}>全部</button>
+          </div>
           <div class="list" data-testid="perf-rows">
             {shown.map((r) => <PerfRow r={r} h={h} first={!firstOnly && first.has(r.id)} usd={d.currency === "USD"} />)}
           </div>
-          {!all && (day ? rows.filter((r) => r.date === day).length : rows.length) > 60 && <button class="chip" onClick={() => setAll(true)}>顯示全部</button>}
+          {!all && (day ? view.filter((r) => r.date === day).length : view.length) > 60 && <button class="chip" onClick={() => setAll(true)}>顯示全部</button>}
         </>}
       </div>
     </Sheet>

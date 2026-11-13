@@ -228,7 +228,7 @@ ${sec(sectorsTw) || "無資料"}
 ${sec(sectorsUs) || "無資料"}
 
 【國際指標報價】
-${macro.map((m) => `${m.name}：${m.last}（${m.changePct >= 0 ? "+" : ""}${m.changePct}%）`).join("\n") || "無資料"}
+${macro.map((m) => `${m.name}：${m.last}${Number.isFinite(m.changePct) ? `（${m.changePct >= 0 ? "+" : ""}${m.changePct}%）` : "（尚未開盤）"}`).join("\n") || "無資料"}
 
 【App 評分前段班】
 ${top.slice(0, 10).map((s) => `${s.name}(${s.code}) ${s.score}分 ${s.rating}`).join("、")}

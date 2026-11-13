@@ -526,6 +526,9 @@ function check(ok, name, detail = "") {
   check(macro.some((m) => m.includes("加權指數")), "顯示台股加權指數");
   check(macro.some((m) => m.includes("S&P 500")) && macro.some((m) => m.includes("美債 10 年")), "顯示美股與美債殖利率");
   check(macro.some((m) => /^韓國 KOSPI [\d,.]+/.test(m)) && macro.some((m) => /^日經 225 [\d,.]+/.test(m)), "亞洲大盤顯示日經與韓國 KOSPI", JSON.stringify(macro.filter((m) => /KOSPI|日經/.test(m))));
+  // 11/13 使用者：開盤前韓股、恆生、上證顯示「NaN（NaN%）」；改成寫「尚未開盤」，每張卡片標報價時間（即時 HH:MM 或 M/D HH:MM）
+  const asia = macro.filter((m) => /^(日經 225|韓國 KOSPI|恆生指數|上證指數) /.test(m));
+  check(!macro.some((m) => /NaN|undefined/.test(m)) && asia.length >= 3 && asia.every((m) => /(即時 \d\d:\d\d|\d+\/\d+( \d\d:\d\d)?)$/.test(m)), "國際指標沒有 NaN，亞洲指數標出報價時間", JSON.stringify(asia));
   // 台股指數盤中即時（證交所 MIS）：有「盤中 HH:MM」或「收盤」標題，且四大指數都在
   const idxTitle = await page.$eval('[data-testid="tw-index-title"]', (e) => e.innerText).catch(() => "");
   log("台股指數區", idxTitle);

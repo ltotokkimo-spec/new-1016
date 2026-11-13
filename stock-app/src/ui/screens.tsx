@@ -30,7 +30,7 @@ import { freeReport } from "../engine/freeReport";
 import { DisclaimerText } from "./disclaimer";
 import { levelsOf, recoveryPlan, type Levels, type RecoveryItem } from "../engine/recovery";
 import { withLiveBar } from "../engine/liveBar";
-import { isUsSymbol, MACRO_SYMBOLS, retN, sma, type MacroQuote } from "../data/us";
+import { isUsSymbol, MACRO_SYMBOLS, macroDelta, retN, sma, type MacroQuote } from "../data/us";
 import { isLiveNow, livePolling, marketOpen, type LiveQuote } from "../data/twLive";
 import { INDEX_CH } from "../data/twIndexLive";
 // 數據頁可點進去看日 K 與詳細報價的國際指標（CNBC 代號）：美股指數、亞洲大盤、原物料期貨
@@ -1567,7 +1567,7 @@ function IndexDetail({ name, label, onClose }: { name: string; label?: string; o
         <div class="row" style={{ justifyContent: "space-between", alignItems: "flex-end" }}>
           <div>
             <div class="big num" data-testid="idx-price">{mq.last.toLocaleString("en-US", { maximumFractionDigits: 3 })}</div>
-            <div class={`num ${cls(mq.change)}`}>{mq.change > 0 ? "+" : ""}{mq.change}（{mq.changePct > 0 ? "+" : ""}{mq.changePct}%）</div>
+            <div class={`num ${cls(mq.change)}`}>{macroDelta(mq)}</div>
           </div>
           <div class="muted" style={{ fontSize: "12px", textAlign: "right" }}>CNBC 報價</div>
         </div>
@@ -1719,7 +1719,7 @@ function DataPane() {
             <div class="grid2">
               {items.map((m) => {
                 const q = bySymbol.get(m.symbol)!;
-                const card = <Metric k={m.label} v={q.last.toLocaleString("en-US", { maximumFractionDigits: 3 })} c={cls(q.change)} d={`${q.change > 0 ? "+" : ""}${q.change}（${q.changePct > 0 ? "+" : ""}${q.changePct}%）`} />;
+                const card = <Metric k={m.label} v={q.last.toLocaleString("en-US", { maximumFractionDigits: 3 })} c={cls(q.change)} d={macroDelta(q)} />;
                 if (!CHART_SYMBOLS.has(m.symbol)) return card;
                 return <div data-testid={`idx-card-${m.symbol}`} style={{ cursor: "pointer" }} onClick={() => setIdxOpen(`${m.symbol}|${m.label}`)}>{card}</div>;
               })}

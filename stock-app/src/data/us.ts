@@ -75,6 +75,26 @@ export interface MacroQuote {
   open?: number; high?: number; low?: number; prevClose?: number;
   yearHigh?: number; yearLow?: number; volume?: number;
   exchange?: string; currency?: string; status?: string;
+  noChange?: boolean; // CNBC 沒給漲跌（亞洲市場開盤前常見：KOSPI、恆生、上證）→ 畫面寫「尚未開盤」，不顯示 NaN
+}
+
+/** 指標報價的時間標示（台北時間）：15 分鐘內的報價寫「即時 HH:MM」，否則寫「M/D HH:MM」；只有日期就寫「M/D」 */
+export function quoteWhen(time: string, now = Date.now()): string {
+  if (!time) return "";
+  const t = Date.parse(time);
+  if (!Number.isFinite(t)) return "";
+  if (/^\d{4}-\d\d-\d\d$/.test(time)) return `${+time.slice(5, 7)}/${+time.slice(8, 10)}`;
+  const d = new Date(t + 8 * 3600_000);
+  const hm = `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+  return now - t <= 15 * 60_000 ? `即時 ${hm}` : `${d.getUTCMonth() + 1}/${d.getUTCDate()} ${hm}`;
+}
+
+/** 卡片第二行：漲跌（點數、百分比）＋報價時間；沒有漲跌時寫「尚未開盤」 */
+export function macroDelta(q: Pick<MacroQuote, "change" | "changePct" | "time" | "noChange">, now = Date.now()): string {
+  const when = quoteWhen(q.time, now);
+  if (q.noChange || !Number.isFinite(q.change)) return `尚未開盤（前一日收盤）${when ? `・${when}` : ""}`;
+  const pct = Number.isFinite(q.changePct) ? `（${q.changePct > 0 ? "+" : ""}${q.changePct}%）` : "";
+  return `${q.change > 0 ? "+" : ""}${q.change}${pct}${when ? `・${when}` : ""}`;
 }
 
 /** 有值才放進去（"-"、空字串、沒給的欄位都略過） */
@@ -95,18 +115,23 @@ export function parseCnbcQuotes(json: any): MacroQuote[] {
   if (!Array.isArray(list)) list = [list];
   return list
     .filter((q: any) => q && q.code === 0 && q.last !== undefined)
-    .map((q: any) => ({
+    .map((q: any) => {
+      const change = num(String(q.change ?? "").replace("%", ""));
+      const unch = /^UNCH/i.test(String(q.change ?? "").trim());
+      return ({
       symbol: String(q.symbol),
       name: String(q.name ?? q.shortName ?? q.symbol),
       last: num(String(q.last).replace("%", "")),
-      change: num(String(q.change ?? "").replace("%", "")),
-      changePct: num(String(q.change_pct ?? "").replace("%", "")),
+      change: unch ? 0 : change,
+      changePct: unch ? 0 : num(String(q.change_pct ?? "").replace("%", "")),
+      ...(!unch && !Number.isFinite(change) ? { noChange: true } : {}),
       time: String(q.last_time ?? q.last_timedate ?? ""),
       ...optNums({ open: q.open, high: q.high, low: q.low, prevClose: q.previous_day_closing, yearHigh: q.yrhiprice, yearLow: q.yrloprice, volume: q.volume }),
       ...(q.exchange ? { exchange: String(q.exchange) } : {}),
       ...(q.currencyCode ? { currency: String(q.currencyCode) } : {}),
       ...(q.curmktstatus ? { status: String(q.curmktstatus) } : {}),
-    }))
+    });
+    })
     .filter((q: MacroQuote) => Number.isFinite(q.last));
 }
 

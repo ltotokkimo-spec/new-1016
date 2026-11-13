@@ -104,3 +104,23 @@ describe("自己加的美股", () => {
     expect(scoreStocks(xs, new Set(["TINY"])).scored.map((x) => x.code)).toContain("TINY");
   });
 });
+
+import { macroDelta, quoteWhen } from "../src/data/us";
+describe("國際指標的漲跌與時間（11/13 開盤前 NaN）", () => {
+  const now = Date.parse("2026-11-13T00:18:00Z"); // 台北 08:18
+  it("CNBC 沒給漲跌 → 尚未開盤，不是 NaN", () => {
+    const [q] = parseCnbcQuotes({ FormattedQuoteResult: { FormattedQuote: [{ symbol: ".KS11", code: 0, name: "KOSPI", last: "5,342.73", last_time: "2026-11-12T15:30:00.000+0900", change: "", change_pct: "", previous_day_closing: "5,342.73" }] } });
+    expect(q.noChange).toBe(true);
+    expect(macroDelta(q, now)).toBe("尚未開盤（前一日收盤）・11/12 14:30");
+  });
+  it("UNCH 算 0", () => {
+    const [q] = parseCnbcQuotes({ FormattedQuoteResult: { FormattedQuote: [{ symbol: ".HSI", code: 0, last: "24,008.55", last_time: "2026-11-12", change: "UNCH", change_pct: "UNCH" }] } });
+    expect(q.change).toBe(0);
+    expect(macroDelta(q, now)).toBe("0（0%）・11/12");
+  });
+  it("即時報價標「即時 HH:MM」（台北時間）", () => {
+    expect(quoteWhen("2026-11-13T09:17:00.000+0900", now)).toBe("即時 08:17");
+    const [q] = parseCnbcQuotes({ FormattedQuoteResult: { FormattedQuote: [{ symbol: ".N225", code: 0, last: "61,212.69", last_time: "2026-11-13T09:17:00.000+0900", change: "+393.33", change_pct: "+0.65%" }] } });
+    expect(macroDelta(q, now)).toBe("+393.33（+0.65%）・即時 08:17");
+  });
+});

@@ -639,7 +639,7 @@ export function agreePlans(plans: PlanItem[][], base: PlanItem[], opts: { single
   return out;
 }
 
-// ---------- 達標離場（11/13 使用者：App 評等旁加綠燈；條件選「獲利達標＋轉弱才亮」） ----------
+// ---------- 達標離場（11/13 使用者：App 評等旁加燈號，紅燈；條件選「獲利達標＋轉弱才亮」） ----------
 export const TAKE_PROFIT = 0.1; // 累計報酬 ≥ +10%
 /**
  * closes：最近的日收盤（舊→新，最後一根可能是今天）；price：現價（盤中即時或收盤）。

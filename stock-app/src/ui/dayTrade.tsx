@@ -129,7 +129,7 @@ export function DayTradeRank({ open }: { open: (s: Scored, list?: Scored[]) => v
       {snap && snap.failed > 0 && <div class="muted" style={{ fontSize: "11.5px", marginTop: "6px" }} data-testid="dt-failed">這次有 {snap.failed}／{snap.total} 批沒抓到，排名可能不完整</div>}
       <p class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }} data-testid="dt-note" data-flags={flags ? JSON.stringify(flags.status) : ""}>
         標示：<span class="dt-flag bad">處置</span> 處置期間（須預收款券，實際上不能當沖）、<span class="dt-flag bad">不可當沖</span> 不在證交所／櫃買的現股當沖標的、<span class="dt-flag warn">暫停先賣後買</span> 只能先買後賣。上櫃股票只標處置（櫃買的可當沖標的沒有公開資料可抓）。{flags && !flags.lists.eligible.TWSE ? "這次沒抓到證交所的可當沖標的，只標處置。" : ""}{!flags ? "（標示資料下載中）" : ""}<br />
-        資料來源：證交所即時報價（約每 5 秒更新，比券商看盤軟體慢幾秒）。從前一個交易日成交量最大的 200 檔股票{withEtf ? "與 40 檔 ETF" : ""}即時排名；成交值是「現價 × 成交量」估計。名次箭頭是跟上一次更新（10 秒前）比。當沖風險高，請自行設停損，這不是投資建議。
+        資料來源：證交所即時報價（約每 5 秒更新，比券商看盤軟體慢幾秒；每 100 檔問一次，一輪約 2～3 秒抓完）。從前一個交易日成交量最大的 200 檔股票{withEtf ? "與 40 檔 ETF" : ""}即時排名；成交值是「現價 × 成交量」估計。名次箭頭是跟上一次更新（10 秒前）比。當沖風險高，請自行設停損，這不是投資建議。
       </p>
     </div>
   );

@@ -30,10 +30,11 @@ export function EtfHoldingsPanel({ code }: { code: string }) {
   const nm = (c: string) => names.get(c) ?? "";
   // 點成份股打開個股頁（11/13 使用者）；左右切換在同一區（買進／賣出／全部持股）的股票之間。評分清單外的冷門股沒有個股資料，不能點
   const listOf = (codes: string[]) => codes.map((x) => findScored(x, "TW")).filter((x): x is Scored => !!x);
+  // 用一般函式產生每一列（不是元件）：以前每次重畫都會換掉整列，手指按下、放開之間剛好重畫時點擊會失效（11/13 run 374）
   const Row = ({ c, sub, right, sub2, tone, group }: { c: string; sub: string; right: string; sub2?: string; tone: number; group: string[] }) => {
     const s = findScored(c, "TW");
     return (
-    <div class="item" style={{ cursor: s ? "pointer" : "default" }} onClick={s ? () => pushDetail(s, listOf(group)) : undefined} data-testid="hold-row" data-open={s ? "1" : undefined}>
+    <div key={c} class="item" style={{ cursor: s ? "pointer" : "default" }} onClick={s ? () => pushDetail(s, listOf(group)) : undefined} data-testid="hold-row" data-open={s ? "1" : undefined}>
       <div style={{ minWidth: 0 }}>
         <div class="name">{nm(c) || s?.name || "股票"} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{c}</span>{s && <span class="muted" style={{ fontWeight: 400 }}> ›</span>}</div>
         <div class="sub">{sub}</div>
@@ -45,7 +46,7 @@ export function EtfHoldingsPanel({ code }: { code: string }) {
   const moveRow = (group: string[]) => (m: (typeof r.moves)[number]) => {
     const tag = m.before === 0 && m.delta > 0 ? "新增" : m.after === 0 && m.delta < 0 ? "清倉" : m.delta > 0 ? "加碼" : "減碼";
     const pct = m.before > 0 ? `（${m.delta > 0 ? "+" : ""}${((m.delta / m.before) * 100).toFixed(1)}%）` : "";
-    return <Row c={m.code} sub={`持有 ${Math.round(m.before / 1000).toLocaleString("zh-TW")} → ${Math.round(m.after / 1000).toLocaleString("zh-TW")} 張${pct}`} right={lots(m.delta)} sub2={tag} tone={m.delta} group={group} />;
+    return Row({ c: m.code, sub: `持有 ${Math.round(m.before / 1000).toLocaleString("zh-TW")} → ${Math.round(m.after / 1000).toLocaleString("zh-TW")} 張${pct}`, right: lots(m.delta), sub2: tag, tone: m.delta, group });
   };
   const shown = all ? r.hold : r.hold.slice(0, 15);
   return (
@@ -70,7 +71,7 @@ export function EtfHoldingsPanel({ code }: { code: string }) {
       )}
       <div class="section-title"><span>目前持股（{r.n} 檔）</span><span>依持有張數</span></div>
       <div class="list" data-testid="hold-all">
-        {shown.map((h) => <Row c={h.code} sub={h.delta ? `${days === 1 ? "最新一天" : "近 5 日"} ${lots(h.delta)}` : "沒有增減"} right={plain(h.shares)} tone={h.delta} group={shown.map((x) => x.code)} />)}
+        {shown.map((h) => Row({ c: h.code, sub: h.delta ? `${days === 1 ? "最新一天" : "近 5 日"} ${lots(h.delta)}` : "沒有增減", right: plain(h.shares), tone: h.delta, group: shown.map((x) => x.code) }))}
       </div>
       {r.hold.length > 15 && <button class="btn secondary block" style={{ marginTop: "8px" }} onClick={() => setAll(!all)} data-testid="hold-more">{all ? "只看前 15 檔" : `看全部 ${r.hold.length} 檔`}</button>}
     </div>

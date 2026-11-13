@@ -22,6 +22,9 @@ import { AiProgressView, AiReportView, BalanceHint, copyText } from "./screens";
 const signedMoney = (x: number) => `${x < 0 ? "-" : x > 0 ? "+" : ""}${Math.round(Math.abs(x)).toLocaleString("zh-TW")}`;
 
 /** 報酬率下一行的總損益（現在的淨值減起始資金，賺紅賠綠，顏色跟著外層） */
+/** 不到 1 萬的金額 fmtMoney 不帶單位（例如「現金 23」看不懂）：補上「元」 */
+const moneyU = (x: number) => (Number.isFinite(x) && Math.abs(x) < 1e4 ? `${fmtMoney(x)} 元` : fmtMoney(x));
+
 function TotalPnl({ now, budget }: { now: number; budget: number }) {
   const x = now - budget;
   return <div style={{ whiteSpace: "nowrap" }}>總損益 {signedMoney(x)}</div>;
@@ -1055,8 +1058,8 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
           <div class="metric"><div class="k">同樣的錢買 0050</div><div class="v num">{fmtMoney(val.bench)}</div><div class={`d num ${cls(val.benchRet)}`}>報酬 {fmtPct(val.benchRet, 2)}<TotalPnl now={val.bench} budget={v.budget} /></div></div>
         </div>
         <div style={{ fontSize: "14px" }}>
-          {val.missing.length ? <span class="muted">收盤價更新後再比較輸贏</span> : val.ret >= val.benchRet ? <span class="up">贏過 0050 {fmtPct(val.ret - val.benchRet, 2)}</span> : <span class="down">落後 0050 {fmtPct(val.ret - val.benchRet, 2)}</span>}
-          <span class="muted">・現金 {fmtMoney(val.cash)}・股票市值 {fmtMoney(val.marketValue)}</span>
+          {val.missing.length ? <span class="muted">收盤價更新後再比較輸贏</span> : Math.abs(val.ret - val.benchRet) < 0.00005 ? <span class="muted">和 0050 持平</span> : val.ret >= val.benchRet ? <span class="up">贏過 0050 {fmtPct(val.ret - val.benchRet, 2)}</span> : <span class="down">落後 0050 {fmtPct(val.ret - val.benchRet, 2)}</span>}
+          <span class="muted">・現金 {moneyU(val.cash)}・股票市值 {moneyU(val.marketValue)}</span>
         </div>
         {(() => {
           const b = beforeTopUp(v);
@@ -1081,7 +1084,7 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
             ? "由規則自動計算（不需要 Claude），每個交易日收盤後更新（約 17:00）。全部是個股、不放 0050，也不限檔數：成交金額 ≥ 3 億的股票裡，波動最小的一半、站上且上彎 60 日線、年化趨勢 0～100%、走勢夠像直線（R² ≥ 0.6）的都持有，越穩買越多，單一產業合計 ≤ 25%。每天重新判斷，已持有的用較寬鬆的條件才賣，與目標差距小於淨值 0.5% 就不動，只做局部修正。成交規則：當天收盤後決定，下一個交易日收盤價成交；已計手續費與證交稅。這個「不限檔數、每天修正」的規則是新的，還沒有長期紀錄，要靠觀察。"
             : isWatch
             ? "由規則自動計算（不需要 Claude），每個交易日收盤後更新（約 17:00）。一半買 0050；另一半是方案 A：波動最小的一半股票裡，挑站上且上彎 60 日線、年化趨勢 0～100%、走勢最像直線的 10 檔（每產業最多 2 檔、越穩買越多），每天重新選股（10/29 起，原本每 5 個交易日），與目標差距小於淨值 0.2% 就不動。成交規則：選股當天收盤後決定，下一個交易日收盤價成交；已計手續費與證交稅。2 年回測（每 5 個交易日調整的版本；改成每天調整後還沒重新回測）：年化 +78%、最大回檔 −10.6%（0050 為 +91%、−18.6%）。"
-            : "Claude 每個交易日收盤後自動更新（約 18:00）。虛擬成交規則：前一天收盤後下單，隔天買進以開盤價成交（開盤高於限價就等盤中碰到限價，沒碰到就不買），賣出以開盤價成交；已計手續費與證交稅。"}
+            : "Claude 每個交易日收盤後自動更新（約 16:40～17:30）。虛擬成交規則：前一天收盤後下單，隔天買進以開盤價成交（開盤高於限價就等盤中碰到限價，沒碰到就不買），賣出以開盤價成交；已計手續費與證交稅。"}
         </div>
         {vt.error && <div class="muted" style={{ fontSize: "12px" }}>{vt.error}</div>}
         <button class="btn secondary" onClick={reload} disabled={busy} data-testid="virtual-reload">{busy ? "更新中…" : "重新下載最新紀錄"}</button>
@@ -1411,8 +1414,8 @@ function RealEtfScreen() {
         </div>
         {etf.trades.length > 0 && (
           <div style={{ fontSize: "14px" }}>
-            {v.missing.length ? <span class="muted">價格更新後再比較輸贏</span> : v.ret >= v.benchRet ? <span class="up">贏過 0050 {fmtPct(v.ret - v.benchRet, 2)}</span> : <span class="down">落後 0050 {fmtPct(v.ret - v.benchRet, 2)}</span>}
-            <span class="muted">・現金 {fmtMoney(v.cash)}・股票市值 {fmtMoney(v.marketValue)}</span>
+            {v.missing.length ? <span class="muted">價格更新後再比較輸贏</span> : Math.abs(v.ret - v.benchRet) < 0.00005 ? <span class="muted">和 0050 持平</span> : v.ret >= v.benchRet ? <span class="up">贏過 0050 {fmtPct(v.ret - v.benchRet, 2)}</span> : <span class="down">落後 0050 {fmtPct(v.ret - v.benchRet, 2)}</span>}
+            <span class="muted">・現金 {moneyU(v.cash)}・股票市值 {moneyU(v.marketValue)}</span>
           </div>
         )}
         {v.missing.length > 0 && <div class="muted" style={{ fontSize: "12px" }}>{v.missing.join("、")} 沒有最新價格，先用成本計算</div>}

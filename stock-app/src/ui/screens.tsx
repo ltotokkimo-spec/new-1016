@@ -177,7 +177,7 @@ function StockRow({ s, q, turn, onClick }: { s: Scored; q?: LiveQuote; turn?: Tu
     <button class="item" onClick={onClick} data-live={q ? "1" : undefined}>
       <div style={{ minWidth: 0 }}>
         <div class="name">{s.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{s.code}</span></div>
-        <div class="sub">
+        <div class="sub" style={s.market === "US" ? { whiteSpace: "normal" } : undefined}>
           {s.sector}
           {isEtf(s.code) && s.volume ? <>・量 <b class="num">{Math.round(s.volume / 1000).toLocaleString("zh-TW")}</b> 張</> : null}
           {s.market !== "US" ? <>・外資5日 <span class={cls(s.foreign5)}>{lots(s.foreign5)}</span></> : <>・相對大盤 <span class={cls(s.rsVsIndex1m)}>{fmtPct(s.rsVsIndex1m)}</span></>}

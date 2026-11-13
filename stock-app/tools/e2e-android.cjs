@@ -992,7 +992,7 @@ function check(ok, name, detail = "") {
   await page.fill("#etf-shares", "10");
   await page.waitForFunction(() => Number(document.querySelector("#etf-price").value) > 0, null, { timeout: 5000 }).catch(() => page.fill("#etf-price", "1000"));
   await page.click('[data-testid="etf-trade-save"]');
-  await page.waitForFunction(() => /贏過 0050|落後 0050/.test(document.querySelector('[data-testid="etf-summary"]').innerText), null, { timeout: 45000 });
+  await page.waitForFunction(() => /贏過 0050|落後 0050|和 0050 持平/.test(document.querySelector('[data-testid="etf-summary"]').innerText), null, { timeout: 45000 });
   const etfSum = await page.$eval('[data-testid="etf-summary"]', (e) => e.innerText.replace(/\s+/g, " "));
   log("自組ETF", etfSum);
   check(/現金/.test(etfSum) && /股票市值/.test(etfSum), "自組ETF 成交後顯示現金與市值");
@@ -1071,6 +1071,7 @@ function check(ok, name, detail = "") {
   page.once("dialog", (d) => d.accept());
   await page.click('[data-testid="flow-row"] button');
   await page.waitForFunction(() => !document.querySelector('[data-testid="flow-row"]'), null, { timeout: 5000 });
+  await device.shell("input keyevent 111"); // 測試工具已經替我們按了「確定」，但手機上的確認視窗還留著，會蓋住後面所有截圖：按 ESC 關掉
   const fl2 = await fsum();
   check(!/投入本金/.test(fl2.t) && fl2.cash === fl0.cash, "刪除存提款紀錄後恢復原本的現金與本金", JSON.stringify(fl2));
   // 持股列的「賣出」按鈕：帶入代號、全部股數，表單切到賣出
@@ -1116,6 +1117,8 @@ function check(ok, name, detail = "") {
   page.once("dialog", (d) => d.accept());
   await page.click('[data-testid="trade-hide"]');
   await page.waitForTimeout(600);
+  await device.shell("input keyevent 111"); // 同上：關掉留在手機上的確認視窗
+  await page.waitForTimeout(300);
   const afterHide = await page.evaluate(() => ({ rows: document.querySelectorAll('[data-testid="etf-trades"] .row').length, pos: document.querySelectorAll('.list .item .name').length, nav: document.querySelector('[data-testid="etf-summary"]').innerText.includes("股票市值") }));
   check(afterHide.rows === 0 && afterHide.pos === posBefore && afterHide.pos > 0 && afterHide.nav, "刪除成交紀錄那一列時，持股不會跟著消失", JSON.stringify({ posBefore, ...afterHide }));
   // 買不在選股「買入」清單的股票（興櫃 7861 沒有評等）：只警告不阻擋，成交紀錄那列標「非選股清單」
@@ -1705,7 +1708,9 @@ function check(ok, name, detail = "") {
   .finally(() => dumpAndExit());
 
 dumpAndExit = () => {
-    for (const [name, buf] of shots) {
+    // 紀錄工具一次只抓得到最後約 4000 行（約後半的截圖）：單數次執行改成倒著印，前半的截圖就會落在最後，兩次合起來可以看完全部（11/14 全功能健檢）
+    const ordered = Number(process.env.GITHUB_RUN_NUMBER || 0) % 2 === 1 ? [...shots].reverse() : shots;
+    for (const [name, buf] of ordered) {
       const b64 = buf.toString("base64");
       console.log(`=====BEGIN ${name}=====`);
       for (let i = 0; i < b64.length; i += 4000) console.log(b64.slice(i, i + 4000));

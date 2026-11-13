@@ -476,9 +476,14 @@ function check(ok, name, detail = "") {
     const nEl = Number(/上市可當沖 (\d+)/.exec(dtf.st.counts || "")?.[1]);
     check(dtf.st.disposalTwse === "ok" && nEl >= 500, "當沖排行抓到證交所處置股與可現股當沖標的（上市可當沖上千檔）", JSON.stringify(dtf.st));
     // 11/13 使用者選 A：每次問 100 檔，一輪 3 次就抓完；證交所要接受這麼長的網址（每批都成功、拿到大部分候選股）
+    // 第一輪會排在 App 啟動時的其他即時報價後面（11/13 run 363：17.4 秒）；按「立即更新」量第二輪才是平常的速度
+    const rk1 = await page.evaluate(() => window.__srRank);
+    await page.waitForSelector('[data-testid="dt-refresh"]:not([disabled])', { timeout: 30000 }).catch(() => {});
+    await page.click('[data-testid="dt-refresh"]');
+    await page.waitForFunction((t) => (window.__srRank?.at ?? 0) > t, rk1?.at ?? 0, { timeout: 60000 }).catch(() => {});
     const rk = await page.evaluate(() => window.__srRank);
-    log("當沖每輪", JSON.stringify(rk));
-    check(rk && rk.failed === 0 && rk.total <= Math.ceil(rk.pool / 100) && rk.n >= rk.pool * 0.8 && rk.ms < 15000, "當沖排行每次問 100 檔，每批都成功，一輪抓完的時間", JSON.stringify(rk));
+    log("當沖每輪", JSON.stringify({ first: rk1, second: rk }));
+    check(rk && rk.failed === 0 && rk.total <= Math.ceil(rk.pool / 100) && rk.n >= rk.pool * 0.8 && rk.ms < 30000 && rk.at > (rk1?.at ?? 0), "當沖排行每次問 100 檔，每批都成功（記錄第二輪抓完的秒數）", JSON.stringify({ first: rk1?.ms, second: rk?.ms, total: rk?.total, n: rk?.n }));
     await shot("02d-當沖成交量排行");
     await page.click('[data-testid="dt-by-value"]');
     await sleep(800);

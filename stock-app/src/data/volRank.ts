@@ -17,6 +17,6 @@ export async function fetchRankQuotes(pool: { code: string; market: string }[]):
   for (let i = 0; i < pool.length; i += BATCH) {
     try { Object.assign(quotes, parseLive(await fetchJson(rankUrl(pool.slice(i, i + BATCH))))); } catch { failed++; }
   }
-  (globalThis as any).__srRank = { ms: Date.now() - t0, total, failed, n: Object.keys(quotes).length, pool: pool.length }; // 測試看每輪花多久
+  (globalThis as any).__srRank = { ms: Date.now() - t0, total, failed, n: Object.keys(quotes).length, pool: pool.length, at: Date.now() }; // 測試看每輪花多久
   return { quotes, failed, total };
 }

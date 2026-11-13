@@ -43,6 +43,9 @@ export function DayTradeRank({ open }: { open: (s: Scored, list?: Scored[]) => v
   const prev = useRef(new Map<string, number>());
   const quotesRef = useRef<Parameters<typeof rankQuotes>[0]>([]);
   const busyRef = useRef(false);
+  // 每 10 秒的自動更新是開頁時設好的計時器，要讀「現在」選的排序（11/13 盤中測試：切到成交值後，下一輪又被排回成交量）
+  const byRef = useRef(by);
+  byRef.current = by;
   // 處置股、可當沖標的：一天抓一次
   const [flags, setFlags] = useState<{ lists: DtLists; status: Record<string, string> } | undefined>();
   useEffect(() => { loadDtFlags().then(setFlags).catch(() => {}); }, []);
@@ -55,7 +58,7 @@ export function DayTradeRank({ open }: { open: (s: Scored, list?: Scored[]) => v
       const qs = Object.values(r.quotes);
       if (!qs.length) { setSnap((s) => ({ rows: s?.rows ?? [], at: s?.at ?? 0, time: s?.time, date: s?.date, failed: r.failed, total: r.total })); return; }
       quotesRef.current = qs;
-      const rows = rankQuotes(qs, by, TOP, prev.current);
+      const rows = rankQuotes(qs, byRef.current, TOP, prev.current);
       prev.current = new Map(rows.map((x) => [x.code, x.rank]));
       const time = qs.reduce((m, q) => (q.time > m ? q.time : m), "");
       const date = qs.reduce((m, q) => (q.date > m ? q.date : m), "");

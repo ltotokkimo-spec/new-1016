@@ -489,6 +489,12 @@ function check(ok, name, detail = "") {
     await sleep(800);
     const vals = await page.$$eval('[data-testid="dt-row"]', (es) => es.map((e) => { const m = /值 ([\d.,]+) (億|萬)/.exec(e.innerText); return m ? parseFloat(m[1].replace(/,/g, "")) * (m[2] === "億" ? 1e4 : 1) : NaN; }));
     check(vals.length === 15 && vals.every((v, i) => Number.isFinite(v) && (!i || v <= vals[i - 1] * 1.001)), "切到「成交值」後依成交值由大到小重排", JSON.stringify(vals.slice(0, 5)));
+    // 11/13 盤中抓到：每 10 秒的自動更新會排回成交量。等過一輪更新再看一次（只有盤中會自動更新）
+    await page.evaluate(() => { const t = window.__srRank?.at ?? 0; (window).__dtT0 = t; });
+    await page.waitForFunction(() => (window.__srRank?.at ?? 0) > window.__dtT0, null, { timeout: 25000 }).catch(() => {});
+    await sleep(800);
+    const vals2 = await page.$$eval('[data-testid="dt-row"]', (es) => es.map((e) => { const m = /值 ([\d.,]+) (億|萬)/.exec(e.innerText); return m ? parseFloat(m[1].replace(/,/g, "")) * (m[2] === "億" ? 1e4 : 1) : NaN; }));
+    check(vals2.length === 15 && vals2.every((v, i) => Number.isFinite(v) && (!i || v <= vals2[i - 1] * 1.001)), "選「成交值」後，自動更新仍依成交值排序", JSON.stringify(vals2.slice(0, 5)));
     await page.click('[data-testid="dt-by-vol"]');
     await sleep(500);
     const first = dtv.rows[0];

@@ -466,7 +466,9 @@ function check(ok, name, detail = "") {
     const dtHead = await page.$eval('[data-testid="dt-head"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
     const sortedVol = dtv.rows.every((r, i) => !i || r.lots <= dtv.rows[i - 1].lots);
     check(/名次 股票名稱 代號 成交價（元） 漲跌幅 名次 變化/.test(dtHead) && dtv.rows.length === 15 && sortedVol && dtv.rows.every((r) => /^\d+ .+ \d{4,6}[A-Z]? 成交量 [\d,]+ 張 成交值 [\d.,]+ (億|萬)元( ?(處置[^0-9]*[\d\/～]*|不可當沖|暫停先賣後買))* [\d.,]+ [+-]?\d+\.\d\d%/.test(r.t)), "當沖排行列出前 15 名，依成交量由大到小，每列有名次、名稱代號、成交量（張）、成交值（元）、現價、漲跌；表頭標明各欄單位", JSON.stringify(dtv.rows.slice(0, 3).map((r) => r.t)));
-    check(/(\d\d:\d\d:\d\d 即時・每 10 秒更新|今天收盤的排名|(今天休市|還沒開盤)，先列 \d+\/\d+ 收盤的排名)/.test(dtv.state) && !/還沒有今天的成交/.test(dtv.state), "當沖排行用的是證交所即時資料（盤中標示更新時間，收盤後標示今天收盤）", dtv.state);
+    // 平日 9:00 以前證交所還沒有今天的成交量：先列前一日收盤的排名是對的（11/13 08:20 的 run 361）
+    const dtTpe = new Date(Date.now() + 8 * 3600_000), dtPre = dtTpe.getUTCDay() >= 1 && dtTpe.getUTCDay() <= 5 && dtTpe.getUTCHours() < 9;
+    check(/(\d\d:\d\d:\d\d 即時・每 10 秒更新|今天收盤的排名|(今天休市|還沒開盤)，先列 \d+\/\d+ 收盤的排名)/.test(dtv.state) && !/還沒有今天的成交/.test(dtv.state) || dtPre && /(還沒開盤|還沒有今天的成交)，先列 \d+\/\d+ 收盤的排名/.test(dtv.state), "當沖排行用的是證交所即時資料（盤中標示更新時間，收盤後標示今天收盤）", dtv.state);
     // 處置股、可當沖標的（11/12）：一天抓一次；上市可當沖標的上千檔，處置股來源要抓得到
     await page.waitForFunction(() => !!document.querySelector('[data-testid="dt-note"]')?.dataset.flags, null, { timeout: 40000 }).catch(() => {});
     const dtf = await page.evaluate(() => ({ st: JSON.parse(document.querySelector('[data-testid="dt-note"]')?.dataset.flags || "{}"), flags: [...document.querySelectorAll('[data-testid="dt-row"]')].map((e) => [e.dataset.code, [...e.querySelectorAll('[data-testid="dt-flag"]')].map((x) => x.textContent).join(",")]).filter((x) => x[1]) }));

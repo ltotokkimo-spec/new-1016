@@ -999,10 +999,11 @@ function check(ok, name, detail = "") {
   if (posPx.length) check(posPx.every((t) => /今日 ?([+-]?\d+\.\d+%|—)/.test(t) && /累計損益 ?([+-]?\d+\.\d+%|—)/.test(t)), "我的實單持股列顯示今日漲跌幅與累計損益（名稱標清楚）", JSON.stringify(posPx.slice(0, 2)));
   // 達標離場綠燈（11/13）：累計 ≥ +10% 且現價跌破 5 日線才亮；每檔的燈號要和條件一致
   await page.waitForFunction(() => { const t = window.__srTp || {}; const ks = Object.keys(t); return ks.length > 0 && ks.every((k) => t[k].bars >= 5); }, null, { timeout: 60000 }).catch(() => {});
-  const tpv = await page.evaluate(() => ({ tp: window.__srTp || {}, lights: [...document.querySelectorAll('[data-testid^="tp-"]')].map((e) => e.getAttribute("data-testid").slice(3)) }));
+  const tpv = await page.evaluate(() => ({ tp: window.__srTp || {}, lights: [...document.querySelectorAll('[data-testid^="tp-"]')].map((e) => e.getAttribute("data-testid").slice(3)), stops: [...document.querySelectorAll('[data-testid^="sl-"]')].map((e) => e.getAttribute("data-testid").slice(3)) }));
   log("達標離場", JSON.stringify(tpv).slice(0, 600));
   const tpKeys = Object.keys(tpv.tp);
   check(tpKeys.length > 0 && tpKeys.every((k) => tpv.tp[k].bars >= 5) && tpKeys.every((k) => { const t = tpv.tp[k]; const want = t.gain >= 0.1 && t.price < t.ma5; return want === t.hit && tpv.lights.includes(k) === t.hit; }), "我的實單「達標離場」綠燈：獲利 ≥ +10% 且跌破 5 日線才亮，每檔都和條件一致", JSON.stringify(Object.fromEntries(tpKeys.map((k) => [k, { g: Math.round(tpv.tp[k].gain * 1000) / 10, ma5: tpv.tp[k].ma5, px: tpv.tp[k].price, hit: tpv.tp[k].hit }]))).slice(0, 400));
+  check(tpKeys.length > 0 && tpKeys.every((k) => { const t = tpv.tp[k]; const want = Number.isFinite(t.price) && t.price <= t.stop; return tpv.stops.includes(k) === want; }), "我的實單「跌破停損」紅燈：現價 ≤ 停損價才亮，每檔都和條件一致", JSON.stringify(Object.fromEntries(tpKeys.map((k) => [k, { px: tpv.tp[k].price, stop: tpv.tp[k].stop, on: tpv.stops.includes(k) }]))).slice(0, 400));
   const posItem = await page.$('[data-testid="real-pos-item"] .name');
   if (posItem) {
     const want = await posItem.evaluate((e) => (e.innerText.match(/\b(\d{4,6}[A-Z]?)\b/) || [])[1] || "");

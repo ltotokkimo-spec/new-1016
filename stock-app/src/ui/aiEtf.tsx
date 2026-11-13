@@ -1333,7 +1333,7 @@ function RealEtfScreen() {
     })();
     return () => { alive = false; };
   }, [posKey]);
-  (window as any).__srTp = Object.fromEntries(pos.map((p) => { const px = livePx(p.code); const t = takeProfitSignal(p.avgCost, px, closesBy[p.code] ?? [], taipeiToday()); return [p.code, { ...t, price: px, bars: closesBy[p.code]?.length ?? 0 }]; })); // 自動測試核對綠燈
+  (window as any).__srTp = Object.fromEntries(pos.map((p) => { const px = livePx(p.code); const t = takeProfitSignal(p.avgCost, px, closesBy[p.code] ?? [], taipeiToday()); return [p.code, { ...t, price: px, bars: closesBy[p.code]?.length ?? 0, stop: stopOf(p, etf.stops).stop }]; })); // 自動測試核對綠燈
   const job = etf.planKey ? st.jobs[etf.planKey] : undefined;
   const busy = job?.status === "running";
   const plan = etf.planKey ? st.reports[etf.planKey] : undefined;
@@ -1460,6 +1460,12 @@ function RealEtfScreen() {
                       if (!tp.hit) return null;
                       const why = `達標離場：累計報酬 ${fmtPct(tp.gain)}（已過停利 +${Math.round(TAKE_PROFIT * 100)}%），而且現價 ${fmtPrice(px!)} 跌破 5 日線 ${fmtPrice(tp.ma5!)}，開始回落，可以考慮先賣、把獲利放進口袋。這只是提醒，不是投資建議。`;
                       return <button class="tp-light" title={why} onClick={(e) => { e.stopPropagation(); window.alert(why); }} data-testid={`tp-${p.code}`}><span class="light" />達標離場</button>;
+                    })()}{(() => {
+                      // 跌破停損（11/13 使用者：也要亮燈）：現價 ≤ 停損價亮紅燈
+                      const { stop, isDefault } = stopOf(p, etf.stops);
+                      if (px === undefined || !Number.isFinite(px) || px > stop) return null;
+                      const why = `跌破停損：現價 ${fmtPrice(px)} 已低於${isDefault ? "預設（均價 −10%）" : "你設的"}停損價 ${fmtPrice(stop)}，累計 ${fmtPct(px / p.avgCost - 1)}。照紀律應該賣出、控制虧損；若要續抱，請重新設停損價。這只是提醒，不是投資建議。`;
+                      return <button class="tp-light sl" title={why} onClick={(e) => { e.stopPropagation(); window.alert(why); }} data-testid={`sl-${p.code}`}><span class="light" />跌破停損</button>;
                     })()}</div>
                   </div>
                   <div class="px">

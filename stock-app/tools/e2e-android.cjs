@@ -154,7 +154,7 @@ function check(ok, name, detail = "") {
     // 11/13 使用者：看不出收集 5 天後的成果 → 最上面一句話寫成果、每天一批的成績表、清單預設先列已有結果的
     const ph = await page.evaluate(() => ({ head: document.querySelector('[data-testid="perf-headline"]')?.innerText.replace(/\s+/g, " ") || "", byDate: [...document.querySelectorAll('[data-testid="perf-bydate"] tbody tr')].map((tr) => tr.innerText.replace(/\s+/g, " ")).slice(0, 3), rowsRight: [...document.querySelectorAll('[data-testid="perf-row"] .px')].slice(0, 3).map((e) => e.innerText.replace(/\s+/g, " ")) }));
     log("推薦績效成果", JSON.stringify(ph));
-    if (pp.stats) check((/^成果：已滿 \d+ 個交易日的 \d+ 筆推薦，買進後持有 \d+ 天平均每筆 [+-]?\d+\.\d\d%/.test(ph.head) && ph.byDate.length > 0 && ph.byDate.every((r) => /^\d+\/\d+（.） \d+ [+-]?\d+\.\d\d% \d+% /.test(r)) && ph.rowsRight.every((t) => /\d+ 日 [+-]?\d+\.\d\d%/.test(t))) || /還沒有推薦滿/.test(ph.head), "推薦績效最上面一句話寫成果，有每天一批的成績表，清單先列已有結果的", JSON.stringify(ph).slice(0, 400));
+    if (pp.stats) check((/^成果：已滿 \d+ 個交易日的 \d+ 筆推薦，買進後持有 \d+ 天平均每筆 [+-]?\d+\.\d\d%/.test(ph.head) && ph.byDate.length > 0 && ph.byDate.every((r) => /^\d+\/\d+（.） \d+ [+-]?\d+\.\d\d% \d+% /.test(r)) && ph.rowsRight.every((t) => /\d+ 日 ?[+-]?\d+\.\d\d%/.test(t))) || /還沒有推薦滿/.test(ph.head), "推薦績效最上面一句話寫成果，有每天一批的成績表，清單先列已有結果的", JSON.stringify(ph).slice(0, 400));
     // 只看首次推薦：切換後說明文字變成「首次」，筆數不多於全部
     if (await page.$('[data-testid="perf-first"]')) {
       await page.click('[data-testid="perf-first"]').catch(() => {});

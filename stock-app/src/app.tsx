@@ -5,6 +5,7 @@ import { pretty, taipeiToday } from "./lib/dates";
 import { livePolling } from "./data/twLive";
 import { AiEtfScreen } from "./ui/aiEtf";
 import { EtfRankScreen } from "./ui/etfRank";
+import { setPushDetail } from "./ui/detailNav";
 import { AiJobBanner, HoldingsScreen, MacroScreen, PicksScreen, SectorsScreen, SettingsScreen, StockDetail, UpdateBanner } from "./ui/screens";
 import { BlockedGate, DisclaimerGate } from "./ui/disclaimer";
 import { ToolsScreen } from "./ui/tools";
@@ -38,7 +39,11 @@ export function App() {
   const [detail, setDetail] = useState<Scored | null>(null);
   // 打開個股時記住是從哪份清單點進來的，個股頁右上的箭頭可以切到下一檔
   const [detailList, setDetailList] = useState<Scored[]>([]);
-  const openDetail = (s: Scored, list?: Scored[]) => { setDetail(s); setDetailList(list ?? []); };
+  const openDetail = (s: Scored, list?: Scored[]) => { setDetail(s); setDetailList(list ?? []); setStack([]); };
+  // 個股頁裡再點另一檔（ETF 成份股）：先記住目前這檔，關掉新的那檔時回到原本那檔
+  const [stack, setStack] = useState<{ s: Scored; list: Scored[] }[]>([]);
+  setPushDetail((s, list) => { if (detail) setStack((st) => [...st, { s: detail, list: detailList }]); setDetail(s); setDetailList(list ?? []); });
+  const closeDetail = () => { const last = stack[stack.length - 1]; if (last) { setStack(stack.slice(0, -1)); setDetail(last.s); setDetailList(last.list); } else setDetail(null); };
   const nextIdx = detail && detailList.length > 1 ? detailList.findIndex((x) => x.code === detail.code && x.market === detail.market) : -1;
   const next = nextIdx >= 0 ? detailList[(nextIdx + 1) % detailList.length] : undefined;
   const prev = nextIdx >= 0 ? detailList[(nextIdx - 1 + detailList.length) % detailList.length] : undefined;
@@ -119,7 +124,7 @@ export function App() {
           </button>
         ))}
       </nav>
-      {detail && <StockDetail key={`${detail.market}:${detail.code}`} s={detail} onClose={() => setDetail(null)} nav={nav} />}
+      {detail && <StockDetail key={`${detail.market}:${detail.code}`} s={detail} onClose={closeDetail} nav={nav} />}
       <DisclaimerGate />
       <BlockedGate />
     </div>

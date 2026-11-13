@@ -447,6 +447,22 @@ function check(ok, name, detail = "") {
     check(/配息/.test(dv.card) && (/年化殖利率 \d+\.\d% 近一年配 [\d.]+ 元/.test(dv.card) && /(月配|季配|半年配|年配)/.test(dv.card) && /(已填息|還差)/.test(dv.card) || /沒有除息紀錄/.test(dv.card)), "ETF 詳情頁有配息資訊（殖利率、頻率、最近一次、填息）", dv.card.slice(0, 200));
     if (/00406A/.test(dv.title)) check(/月配/.test(dv.card) && /年化殖利率/.test(dv.card) && /除息 0\.138 元/.test(dv.card), "00406A 顯示月配、殖利率，最近一次除息金額和證交所公布的一樣（0.138 元）", dv.card.slice(0, 200));
     await shot("02c-主動式ETF買賣成份");
+    // 11/13 使用者：買進／賣出／持股的成份股要能點開看個股；返回回到這檔 ETF
+    const etfTitle = await page.$eval(".sheet[role=dialog]", (e) => e.getAttribute("aria-label") || "").catch(() => "");
+    const comp = await page.$('[data-testid="etf-holdings"] [data-testid="hold-row"][data-open="1"]');
+    if (!comp) check(false, "主動式 ETF 的成份股可以點開個股頁", "沒有可點的成份股");
+    else {
+      const want = await comp.evaluate((e) => (e.querySelector(".name")?.innerText.match(/\b(\d{4,6}[A-Z]?)\b/) || [])[1] || "");
+      await comp.click();
+      await page.waitForFunction((w) => (document.querySelector(".sheet[role=dialog]")?.getAttribute("aria-label") || "").includes(w), want, { timeout: 15000 }).catch(() => {});
+      const opened = await page.$eval(".sheet[role=dialog]", (e) => e.getAttribute("aria-label") || "").catch(() => "");
+      await shot("02c2-ETF成份股個股頁");
+      await page.click('button[aria-label="返回"]');
+      await page.waitForFunction((t) => (document.querySelector(".sheet[role=dialog]")?.getAttribute("aria-label") || "") === t, etfTitle, { timeout: 15000 }).catch(() => {});
+      const back = await page.$eval(".sheet[role=dialog]", (e) => e.getAttribute("aria-label") || "").catch(() => "");
+      log("ETF 成份股點開", JSON.stringify({ etfTitle, want, opened, back }));
+      check(!!want && opened.includes(want) && back === etfTitle, "主動式 ETF 的成份股點開是該股的個股頁，按返回回到這檔 ETF", JSON.stringify({ etfTitle, want, opened, back }));
+    }
     await page.click('button[aria-label="返回"]');
   }
   await page.click(".seg button:nth-child(1)");

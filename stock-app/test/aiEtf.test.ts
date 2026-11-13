@@ -365,3 +365,24 @@ describe("Claude Pro 實際回覆（11/9 使用者貼上）", () => {
     expect(txt).toContain("**停損價**：1216 75、5904 68、9904 23.8");
   });
 });
+
+import { takeProfitSignal } from "../src/engine/aiEtf";
+describe("達標離場綠燈（獲利 ≥ +10% 且跌破 5 日線）", () => {
+  const bars = [100, 112, 118, 120, 121].map((c, i) => ({ date: `2026110${i + 3}`, close: c })); // 11/03～11/07
+  it("獲利達標、現價跌破 5 日線 → 亮", () => {
+    const r = takeProfitSignal(100, 114, bars, "20261110");
+    expect(r.ma5).toBeCloseTo((112 + 118 + 120 + 121 + 114) / 5);
+    expect(r.hit).toBe(true);
+  });
+  it("獲利達標但還在 5 日線上 → 不亮（讓獲利多跑）", () => {
+    expect(takeProfitSignal(100, 125, bars, "20261110").hit).toBe(false);
+  });
+  it("跌破 5 日線但獲利不到 10% → 不亮", () => {
+    expect(takeProfitSignal(110, 114, bars, "20261110").hit).toBe(false);
+  });
+  it("今天已有日 K 時不重複算今天；資料不足不亮", () => {
+    const withToday = [...bars, { date: "20261110", close: 114 }];
+    expect(takeProfitSignal(100, 114, withToday, "20261110").hit).toBe(true);
+    expect(takeProfitSignal(100, 114, bars.slice(-2), "20261110").hit).toBe(false);
+  });
+});

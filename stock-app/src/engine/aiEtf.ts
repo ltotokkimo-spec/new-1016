@@ -638,3 +638,18 @@ export function agreePlans(plans: PlanItem[][], base: PlanItem[], opts: { single
   }
   return out;
 }
+
+// ---------- 達標離場（11/13 使用者：App 評等旁加綠燈；條件選「獲利達標＋轉弱才亮」） ----------
+export const TAKE_PROFIT = 0.1; // 累計報酬 ≥ +10%
+/**
+ * closes：最近的日收盤（舊→新，最後一根可能是今天）；price：現價（盤中即時或收盤）。
+ * 5 日線＝最近 4 個交易日收盤＋現價（今天已有日 K 時用今天以前的 4 根）；現價跌破 5 日線就算「轉弱」。
+ */
+export function takeProfitSignal(avgCost: number, price: number | undefined, closes: { date: string; close: number }[], today: string, minGain = TAKE_PROFIT): { hit: boolean; gain: number; ma5?: number } {
+  if (!(avgCost > 0) || price === undefined || !Number.isFinite(price)) return { hit: false, gain: NaN };
+  const gain = price / avgCost - 1;
+  const past = closes.filter((b) => b.date < today && Number.isFinite(b.close)).slice(-4).map((b) => b.close);
+  if (past.length < 4) return { hit: false, gain };
+  const ma5 = (past.reduce((a, b) => a + b, 0) + price) / 5;
+  return { hit: gain >= minGain && price < ma5, gain, ma5 };
+}

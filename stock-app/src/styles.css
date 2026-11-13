@@ -254,3 +254,6 @@ table.calc tr.sel td { background: var(--hold-bg); font-weight: 700; }
 .rank-head span:first-child { text-align: center; }
 .rank-item .name, .rank-item .sub { white-space: normal; overflow: visible; }
 .rank-item .dt-flag { margin-left: 6px; }
+/* 達標離場綠燈（11/13 使用者選 B：綠燈＋文字） */
+.tp-light { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 800; color: var(--down); background: var(--down-bg); border: 1px solid color-mix(in srgb, var(--down) 40%, transparent); border-radius: 7px; padding: 3px 8px; cursor: pointer; white-space: nowrap; }
+.tp-light .light { width: 9px; height: 9px; border-radius: 50%; background: #1fd16b; box-shadow: 0 0 0 2px rgba(31, 209, 107, 0.25), 0 0 6px #1fd16b; }

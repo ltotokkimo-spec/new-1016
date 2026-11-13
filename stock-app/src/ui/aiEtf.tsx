@@ -1,14 +1,15 @@
 // 「自組ETF」分頁：請 Claude 建議要買什麼、買幾股，照著實際下單後填入成交，追蹤淨值並和 0050 比較。
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
-  LIVE_MS, findScored, addEtfFlow, removeEtfFlow, addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshTurn, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
+  LIVE_MS, findScored, getFetcher, getKv, addEtfFlow, removeEtfFlow, addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshTurn, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError } from "../ai/claude";
 import { nameLookup, parseOcrHoldings } from "../engine/ocrHoldings";
 import { fileToBase64, recognizeText } from "../lib/ocr";
 import type { Scored } from "../engine/score";
 import type { VirtualEtf } from "../engine/virtualEtf";
-import { buyConds, sellConds, holdConds, dailyHoldingCheck, type HoldCheck, type EtfTrade, type EtfFlow, agreePlans, comparePlans, DEFAULT_STOP, planReadable, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
+import { twHistory } from "../data/history";
+import { buyConds, sellConds, holdConds, dailyHoldingCheck, takeProfitSignal, TAKE_PROFIT, type HoldCheck, type EtfTrade, type EtfFlow, agreePlans, comparePlans, DEFAULT_STOP, planReadable, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { addWeekdays, orderDay, pretty, prettyW, taipeiClock, taipeiHour, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
 import { livePolling, type LiveQuote } from "../data/twLive";
@@ -1315,6 +1316,24 @@ function RealEtfScreen() {
   // 每天的持股規則檢查（免費）：評分資料每天收盤後更新，打開就重算
   const checks = dailyHoldingCheck(etf, livePx, (c) => { const s = getState().tw.scored.find((x) => x.code === c) ?? getState().etf.scored.find((x) => x.code === c); return s && { rating: s.refOnly ? undefined : s.rating, score: s.score, ret1w: s.ret1w, ret1m: s.ret1m, foreignStreak: s.foreignStreak, foreign5: s.foreign5, refOnly: s.refOnly }; });
   const pos = positions(etf.trades).filter((p) => p.shares > 0);
+  // 達標離場綠燈要 5 日線：持股的近期日收盤（手機裡有快取，一天只補新的）
+  const [closesBy, setClosesBy] = useState<Record<string, { date: string; close: number }[]>>({});
+  const posKey = pos.map((p) => p.code).join(",");
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      for (const p of pos) {
+        if (!/^\d{4,6}[A-Z]?$/.test(p.code)) continue;
+        const s = getState().tw.scored.find((x) => x.code === p.code) ?? getState().etf.scored.find((x) => x.code === p.code);
+        try {
+          const bars = await twHistory(getFetcher(), getKv(), p.code, s?.market === "TPEX" ? "TPEX" : "TWSE", 2, Date.now(), undefined, true);
+          if (alive) setClosesBy((m) => ({ ...m, [p.code]: bars.map((b) => ({ date: b.date, close: b.close })) }));
+        } catch { /* 抓不到就不亮燈 */ }
+      }
+    })();
+    return () => { alive = false; };
+  }, [posKey]);
+  (window as any).__srTp = Object.fromEntries(pos.map((p) => { const px = livePx(p.code); const t = takeProfitSignal(p.avgCost, px, closesBy[p.code] ?? [], taipeiToday()); return [p.code, { ...t, price: px, bars: closesBy[p.code]?.length ?? 0 }]; })); // 自動測試核對綠燈
   const job = etf.planKey ? st.jobs[etf.planKey] : undefined;
   const busy = job?.status === "running";
   const plan = etf.planKey ? st.reports[etf.planKey] : undefined;
@@ -1436,7 +1455,12 @@ function RealEtfScreen() {
                     <div class="name">{p.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{p.code}</span> <span class="muted" style={{ fontWeight: 400 }}>›</span></div>
                     <div class="sub num" style={{ whiteSpace: "normal" }}>{p.shares.toLocaleString()} 股・均價 {fmtPrice(p.avgCost)}・<TwdPnl shares={p.shares} avgCost={p.avgCost} price={px} /><span style={{ whiteSpace: "nowrap" }}>佔 {Number.isFinite(mv) ? `${((mv / v.nav) * 100).toFixed(1)}%` : "—"}</span></div>
                     <CostValue shares={p.shares} avgCost={p.avgCost} price={px} />
-                    <div class="sub row" style={{ gap: "8px" }}><StopEdit p={p} stops={etf.stops} /><button class="btn secondary mini" onClick={() => setSellDraft({ code: p.code, shares: p.shares, price: px, n: Date.now() })} data-testid={`sell-btn-${p.code}`}>賣出</button>{rating && <span class={`pill ${rating === "買入" ? "buy" : rating === "離場" ? "exit" : "hold"}`} style={{ fontSize: "11px" }}>App {rating}</span>}</div>
+                    <div class="sub row" style={{ gap: "8px" }}><StopEdit p={p} stops={etf.stops} /><button class="btn secondary mini" onClick={() => setSellDraft({ code: p.code, shares: p.shares, price: px, n: Date.now() })} data-testid={`sell-btn-${p.code}`}>賣出</button>{rating && <span class={`pill ${rating === "買入" ? "buy" : rating === "離場" ? "exit" : "hold"}`} style={{ fontSize: "11px" }}>App {rating}</span>}{(() => {
+                      const tp = takeProfitSignal(p.avgCost, px, closesBy[p.code] ?? [], taipeiToday());
+                      if (!tp.hit) return null;
+                      const why = `達標離場：累計報酬 ${fmtPct(tp.gain)}（已過停利 +${Math.round(TAKE_PROFIT * 100)}%），而且現價 ${fmtPrice(px!)} 跌破 5 日線 ${fmtPrice(tp.ma5!)}，開始回落，可以考慮先賣、把獲利放進口袋。這只是提醒，不是投資建議。`;
+                      return <button class="tp-light" title={why} onClick={(e) => { e.stopPropagation(); window.alert(why); }} data-testid={`tp-${p.code}`}><span class="light" />達標離場</button>;
+                    })()}</div>
                   </div>
                   <div class="px">
                     <div class="p num"><span class="lbl">現價</span>{fmtPrice(px ?? NaN)}</div>

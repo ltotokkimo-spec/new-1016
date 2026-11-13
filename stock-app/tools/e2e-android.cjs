@@ -462,8 +462,10 @@ function check(ok, name, detail = "") {
     const comp = await page.$('[data-testid="etf-holdings"] [data-testid="hold-row"][data-open="1"]');
     if (!comp) check(false, "主動式 ETF 的成份股可以點開個股頁", "沒有可點的成份股");
     else {
-      const want = await comp.evaluate((e) => (e.querySelector(".name")?.innerText.match(/\b(\d{4,6}[A-Z]?)\b/) || [])[1] || "");
-      await comp.click();
+      // 清單會跟著即時價重畫（11/13 run 373：握著的元素被換掉），改用選擇器每次重新找
+      const compLoc = page.locator('[data-testid="etf-holdings"] [data-testid="hold-row"][data-open="1"]').first();
+      const want = await compLoc.evaluate((e) => (e.querySelector(".name")?.innerText.match(/\b(\d{4,6}[A-Z]?)\b/) || [])[1] || "");
+      await compLoc.click();
       await page.waitForFunction((w) => (document.querySelector(".sheet[role=dialog]")?.getAttribute("aria-label") || "").includes(w), want, { timeout: 15000 }).catch(() => {});
       const opened = await page.$eval(".sheet[role=dialog]", (e) => e.getAttribute("aria-label") || "").catch(() => "");
       await shot("02c2-ETF成份股個股頁");

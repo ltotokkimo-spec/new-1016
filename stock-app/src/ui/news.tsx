@@ -65,6 +65,7 @@ export function NewsPane() {
     }
   };
   // 「刷新」：馬上重新抓所有來源，抓完說這次多了幾則
+  // 正在自動抓的時候按也有效（11/13：以前按鈕會變灰、按了沒反應）：等這次抓完再算多了幾則
   const refresh = async () => {
     const before = new Set(st.news.items.map((x) => x.id));
     setGotNew(undefined);
@@ -93,7 +94,7 @@ export function NewsPane() {
         <div class="muted" style={{ fontSize: "12px" }} data-testid="news-updated">
           {st.news.loading ? "正在抓最新新聞…" : st.news.at ? `${new Date(st.news.at).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })} 更新・${views.length} 則（36 小時內）` : "還沒有新聞"}
         </div>
-        <button class="btn" style={{ padding: "6px 14px", fontSize: "14px", gap: "6px" }} disabled={st.news.loading} onClick={() => void refresh()} data-testid="news-refresh">
+        <button class="btn" style={{ padding: "6px 14px", fontSize: "14px", gap: "6px" }} onClick={() => void refresh()} data-testid="news-refresh">
           <svg class={st.news.loading ? "spin" : ""} viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M21 12a9 9 0 11-3-6.7L21 8M21 3v5h-5" /></svg>
           {st.news.loading ? "找新聞中…" : "刷新"}
         </button>

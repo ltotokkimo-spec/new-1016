@@ -11,13 +11,13 @@ export interface OcrHolding { code: string; name: string; market: "TW" | "US"; s
 // 「價」常被認錯（e2e 實測：成本均價 → 成本均債），所以「成本均／成交均／持有均／買進均」後面接任一字也算均價欄
 const COST_KEY = /(成交均.|成本均.|平均成本|持有均.|買進均.|均價|成本價|^均[^\d\s]$)/; // 「^均.$」：元大表頭只有「均價」兩字，「價」被認錯（均債、均償）也要認得
 // 辨識常把「股」認錯（e2e 實測：庫存股數 → 庫存服數），所以「庫存／持有」後面接任一字＋「數」也算股數欄
-const SHARES_KEY = /(持有股數|庫存股數|庫存數量|股數|庫存.數|持有.數)/;
+const SHARES_KEY = /(持有股數|庫存股數|庫存數量|股數|庫存.數|持有.數|^.數$)/; // 「^.數$」：元大深色畫面「股數」被讀成「殷數」（11/13 e2e）
 const LOTS_KEY = /(庫存張數|持有張數|張數)/;
 const NOT_SHARES = /(可下單|可賣|可用|委託)/;
 const CODE_RE = /(?<![\d.,])(00\d{3,4}[A-Z]?|\d{4,5}[A-Z]?)(?![\d.,%])/;
 const NUM_RE = /-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|-?\d+(?:\.\d+)?/g;
 const HEAD_WORD = /(名稱|股票|庫存|持有|代號|商品|市價|股價|現價|均價|成本|股數|張數|數量|可下單|損益|報酬|市值|漲跌|淨值|參考|成交|幣別)/;
-const LABEL_ONLY = /^(現股|現|股|融資|融券|零股|下單|資|券|[>＞›〉v])$/;
+const LABEL_ONLY = /^([現现見][股殷服]|現|现|股|融資|融券|零股|下單|資|券|[>＞›〉v])$/; // 「現股」也會被讀成簡體「现股」
 
 const num = (s: string) => Number(s.replace(/,/g, ""));
 const cx = (l: OcrLine) => l.x + l.w / 2;
@@ -131,7 +131,14 @@ export function nameLookup(list: { code: string; name: string }[]): (name: strin
     if (!n) return undefined;
     if (m.has(n)) return m.get(n);
     const hits = [...m.entries()].filter(([k]) => n.length >= 3 && (k.startsWith(n) || n.startsWith(k)));
-    return hits.length === 1 ? hits[0][1] : undefined;
+    if (hits.length === 1) return hits[0][1];
+    // 認錯一個字（11/13 e2e：主動統一台股增長 → 主勳統一台股増長）：4 字以上、只差 1～2 個字且唯一
+    if (n.length >= 4) {
+      const diff = (a: string, b: string) => { let d = Math.abs(a.length - b.length); for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) d++; return d; };
+      const near = [...m.entries()].filter(([k]) => Math.abs(k.length - n.length) <= 1 && diff(k, n) <= (n.length >= 6 ? 2 : 1));
+      if (near.length === 1) return near[0][1];
+    }
+    return undefined;
   };
 }
 

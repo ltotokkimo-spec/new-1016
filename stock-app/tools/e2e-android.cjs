@@ -1347,7 +1347,7 @@ function check(ok, name, detail = "") {
     const yRows = await page.$$eval(".import-row", (rs) => rs.map((r) => [...r.querySelectorAll("input:not([type=checkbox])")].map((i) => i.value).join("|"))).catch(() => []);
     const yErr = await page.$eval(".error", (e) => e.innerText).catch(() => "");
     const yRaw = await page.evaluate(() => window.__srOcrLast || []).catch(() => []);
-    log("元大深色庫存辨識", JSON.stringify({ yRows, yErr, yRaw }).slice(0, 3000));
+    log("元大深色庫存辨識", JSON.stringify({ yRows, yErr, yRaw }).slice(0, 8000));
     await shot("06c3-元大深色庫存辨識");
     check(["00981A|3000|25.1", "0056|5000|36.2", "1101|2000|25.5", "2603|1000|210"].every((x) => yRows.includes(x)), "元大深色「庫存」畫面（兩層表頭、名稱換行、現股列）辨識出 4 檔的代號、股數、均價", JSON.stringify({ yRows, yErr }).slice(0, 400));
     if (yRows.length) { await page.click('.sheet button[aria-label="返回"]').catch(() => {}); await page.waitForTimeout(500); }

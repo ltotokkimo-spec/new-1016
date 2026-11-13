@@ -294,6 +294,16 @@ function check(ok, name, detail = "") {
   check((await page.$$('[data-testid="flow-chart"] rect')).length >= 15 && (await page.$$('[data-testid="flow-chart"] path')).length >= 1, "法人分頁畫出每日買賣超柱狀圖與股價線");
   await page.click('[data-testid="flow-foreign"]');
   check((await page.$$('[data-testid="flow-chart"] rect')).length >= 15, "切到外資後圖仍有柱狀");
+  // 11/13 使用者：法人旁邊加「公司」分頁（做什麼、規模、經營者）
+  if (await page.$('[data-testid="tab-profile"]')) {
+    await page.click('[data-testid="tab-profile"]');
+    await page.waitForSelector('[data-testid="profile"]', { timeout: 60000 }).catch(() => {});
+    const prof = await page.evaluate(() => ({ biz: document.querySelector('[data-testid="profile-business"]')?.innerText || "", mix: document.querySelector('[data-testid="profile-mix"]')?.innerText || "", table: (document.querySelector('[data-testid="profile-table"]')?.innerText || "").replace(/\s+/g, " "), all: (document.querySelector('[data-testid="profile"]')?.innerText || "").replace(/\s+/g, " ").slice(0, 600) }));
+    log("公司分頁", JSON.stringify(prof));
+    await shot("03-個股公司資料");
+    check(/董事長 \S+/.test(prof.table) && /實收資本額 [\d,.]+ (億|兆)元/.test(prof.table) && /市值（估） [\d,.]+ (億|兆)元/.test(prof.table) && /成立日期 \d{4}\/\d\d\/\d\d/.test(prof.table), "個股「公司」分頁顯示董事長、資本額、市值、成立日期", prof.table.slice(0, 200));
+    check(prof.biz.length >= 6, "個股「公司」分頁顯示主要經營業務（做什麼產品）", prof.biz || prof.all.slice(0, 300));
+  } else check(false, "個股頁有「公司」分頁");
   await page.click('[data-testid="tab-k"]');
   check(!!(await page.$("canvas.candle")), "切回 K 線圖");
   check(/外資近 5 日/.test(detail.text) && /評等理由/.test(detail.text), "個股顯示外資籌碼與評等理由");

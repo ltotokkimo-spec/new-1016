@@ -1,5 +1,6 @@
 import { NewsPane } from "./news";
 import { DayTradeRank } from "./dayTrade";
+import { ProfilePanel } from "./profile";
 import { nameLookup, parseOcrHoldings, soldByOmission, type OcrLine } from "../engine/ocrHoldings";
 import { fileToBase64, recognizeText } from "../lib/ocr";
 import { useEffect, useMemo, useState } from "preact/hooks";
@@ -397,8 +398,9 @@ export function StockDetail({ s, onClose, nav }: { s: Scored; onClose: () => voi
   const [barsErr, setBarsErr] = useState("");
   const [barsMore, setBarsMore] = useState(true); // 更早的月份還在下載
   // 圖表分頁：台股預設「走勢」（當日分時），記住上次選的（美股只有 K 線）
-  const [chartTab, setChartTab0] = useState<"intra" | "k" | "flow">(() => { try { const v = localStorage.getItem("detailChart"); return v === "k" || (v === "flow" && s.market !== "US") ? v : "intra"; } catch { return "intra"; } });
-  const setChartTab = (t: "intra" | "k" | "flow") => { setChartTab0(t); try { localStorage.setItem("detailChart", t); } catch { /* 不重要 */ } };
+  const hasProfile = s.market !== "US" && !isEtf(s.code);
+  const [chartTab, setChartTab0] = useState<"intra" | "k" | "flow" | "profile">(() => { try { const v = localStorage.getItem("detailChart"); return v === "k" || (v === "flow" && s.market !== "US") || (v === "profile" && hasProfile) ? v : "intra"; } catch { return "intra"; } });
+  const setChartTab = (t: "intra" | "k" | "flow" | "profile") => { setChartTab0(t); try { localStorage.setItem("detailChart", t); } catch { /* 不重要 */ } };
   // 點方塊看詳細：近 1 週／1 月／3 月、相對 S&P 500、折溢價開說明頁；法人的方塊直接切到下面的「法人」逐日表
   const [mx, setMx] = useState<null | "1w" | "1m" | "3m" | "rs" | "nav">(null);
   const goFlows = () => { setChartTab("flow"); setTimeout(() => document.querySelector('[data-testid="chart-tabs"]')?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); };
@@ -508,6 +510,7 @@ export function StockDetail({ s, onClose, nav }: { s: Scored; onClose: () => voi
           <button aria-pressed={chartTab === "intra"} onClick={() => setChartTab("intra")} data-testid="tab-intra">{s.market === "US" ? "走勢（盤前後）" : "走勢"}</button>
           <button aria-pressed={chartTab === "k" || (chartTab === "flow" && s.market === "US")} onClick={() => setChartTab("k")} data-testid="tab-k">{s.market === "US" ? "K 線圖（日）" : "K 線圖"}</button>
           {s.market !== "US" && <button aria-pressed={chartTab === "flow"} onClick={() => setChartTab("flow")} data-testid="tab-flow">法人</button>}
+          {hasProfile && <button aria-pressed={chartTab === "profile"} onClick={() => setChartTab("profile")} data-testid="tab-profile">公司</button>}
         </div>
       </div>
       <div class="card">
@@ -515,6 +518,8 @@ export function StockDetail({ s, onClose, nav }: { s: Scored; onClose: () => voi
           ? <UsIntradayChart code={s.code} />
           : chartTab === "intra"
           ? <IntradayChart code={s.code} market={s.market} prefetch={nav?.around} />
+          : chartTab === "profile" && hasProfile
+          ? <ProfilePanel code={s.code} market={s.market === "TPEX" ? "TPEX" : "TWSE"} price={lq?.price ?? s.close} />
           : chartTab === "flow" && s.market !== "US"
           ? (bars ? <FlowsPanel code={s.code} market={s.market === "TPEX" ? "TPEX" : "TWSE"} bars={bars} livePrice={lq?.price} /> : barsErr ? <div class="error">{barsErr}</div> : <div class="empty">載入中…</div>)
           : shownBars ? (shownBars.length > 1 ? <>

@@ -974,6 +974,9 @@ function check(ok, name, detail = "") {
   const cc = await page.evaluate(() => ({ svg: document.querySelectorAll('[data-testid="compare-chart"] svg path[stroke-width="2"]').length, dash: document.querySelectorAll('[data-testid="compare-chart"] svg path[stroke-dasharray="5 3"]').length, legend: [...document.querySelectorAll('[data-testid="compare-legend"]')].map((e) => e.innerText.replace(/\s+/g, " ")) }));
   log("總評比走勢圖", JSON.stringify(cc));
   check(cc.svg >= 6 && cc.dash === 1 && cc.legend.length === cc.svg + 1 && cc.legend.every((t) => /[+-]?\d+\.\d\d%|—/.test(t)), "總評比有全部組合＋0050 的每天走勢圖（圖例標最新累積報酬）", JSON.stringify(cc).slice(0, 300));
+  // 雙引擎（11/14 新增）：還沒有淨值紀錄時圖例也要列出（寫「收盤後開始畫線」），有紀錄後是一條線；兩種情況圖表區都要看得到「雙引擎」
+  const dualChart = await page.$eval('[data-testid="compare-chart"]', (e) => e.innerText.replace(/\s+/g, " "));
+  check(/雙引擎/.test(dualChart), "總評比的走勢圖區看得到雙引擎（有資料畫線、還沒有資料寫開始畫線的日期）", dualChart.slice(-200));
   await page.click('[data-testid="compare-hide"]');
   check((await page.$$eval('[data-testid="compare-chart"] svg path[stroke-width="2"]', (e) => e.length)) === cc.svg - 1, "點 👁 可隱藏那一組的線");
   await page.click('[data-testid="compare-hide"]');

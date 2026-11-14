@@ -735,7 +735,7 @@ export function AiEtfScreen({ open }: { open?: (s: Scored, list?: Scored[]) => v
 
 const SERIES_COLORS = ["#e5484d", "#3b8bef", "#2fb457", "#f0a020", "#a46be0", "#14b8c4", "#d9468f", "#8a7a2e", "#5b6ee1", "#111111"];
 /** 總評比的走勢圖：全部組合（各自累積報酬）加一條 0050 對照，一張圖看每天誰領先 */
-function CompareChart({ series }: { series: { label: string; pts: { date: string; r: number }[]; own: { date: string; r: number }[]; hold: { date: string; r: number }[] }[] }) {
+function CompareChart({ series, waiting = [] }: { series: { label: string; pts: { date: string; r: number }[]; own: { date: string; r: number }[]; hold: { date: string; r: number }[] }[]; waiting?: { label: string; note: string }[] }) {
   const [mode, setMode] = useState<"own" | "hold">("own");
   const [hide, setHide] = useState<Record<string, boolean>>({});
   const [sel, setSel] = useState("");
@@ -744,7 +744,7 @@ function CompareChart({ series }: { series: { label: string; pts: { date: string
   const ref = ok.find((x) => x.label === sel) ?? ok[0];
   const bench = (mode === "hold" ? ref?.hold : ref?.own) ?? [];
   const dates = [...new Set([...ok.flatMap((x) => x.pts.map((p) => p.date)), ...bench.map((p) => p.date)])].sort();
-  if (dates.length < 2) return <div class="card muted" style={{ fontSize: "13px" }} data-testid="compare-chart">走勢圖要至少兩天的資料，明天收盤後就會畫出來。</div>;
+  if (dates.length < 2) return <div class="card muted" style={{ fontSize: "13px" }} data-testid="compare-chart">走勢圖要至少兩天的資料，明天收盤後就會畫出來。{waiting.map((w) => <div key={w.label} data-testid="compare-waiting">{w.label}：{w.note}</div>)}</div>;
   const W = 340, H = 220, padL = 40, padR = 8, padT = 10, padB = 20, n = dates.length;
   const vis = ok.filter((x) => !hide[x.label]);
   const all = [...vis.flatMap((x) => x.pts.map((p) => p.r)), ...(hide["0050"] ? [] : bench.map((p) => p.r)), 0];
@@ -792,6 +792,7 @@ function CompareChart({ series }: { series: { label: string; pts: { date: string
             </span>
           );
         })}
+        {waiting.map((w) => <span key={w.label} class="chip muted" style={{ display: "inline-flex", alignItems: "center", gap: "6px" }} data-testid="compare-waiting"><b style={{ color: "var(--muted)" }}>━</b> {w.label} <span>{w.note}</span></span>)}
       </div>
     </div>
   );
@@ -880,6 +881,7 @@ function CompareView() {
 
       <div class="section-title"><span>每天走勢圖</span><span>累積報酬</span></div>
       <CompareChart
+        waiting={groups.filter((g) => g.v && !g.v.nav.length && !g.real).map((g) => ({ label: g.short, note: `${prettyW(g.v!.asOf ? addWeekdays(g.v!.asOf, 1) : g.v!.start)} 收盤後開始畫線` }))}
         series={groups.filter((g) => g.v && g.v.nav.length).map((g) => ({ label: g.short, pts: g.v!.nav.map((p) => ({ date: p.date, r: g.v!.budget ? p.nav / g.v!.budget - 1 : 0 })), own: g.v!.nav.map((p) => ({ date: p.date, r: g.v!.budget ? p.bench / g.v!.budget - 1 : 0 })), hold: (() => { const c = cmp.closes, p0 = c.get(g.v!.nav[0].date); return p0 ? g.v!.nav.filter((p) => c.has(p.date)).map((p) => ({ date: p.date, r: c.get(p.date)! / p0 - 1 })) : []; })() }))}
       />
 

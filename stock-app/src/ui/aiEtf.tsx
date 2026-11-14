@@ -14,7 +14,7 @@ import { onAppResume, readClipboard } from "../lib/clip";
 import { addWeekdays, orderDay, pretty, prettyW, taipeiClock, taipeiHour, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
 import { livePolling, type LiveQuote } from "../data/twLive";
-import { CostValue, cls, fmtMoney, fmtPct, fmtPrice, fmtSigned, LimitPx } from "./common";
+import { CostValue, cls, fmtMoney, fmtPct, fmtPrice, fmtSigned, LimitPx, Markdown } from "./common";
 import { navStats } from "../engine/navStats";
 import { compareGroups, realAsGroup, type GroupRow } from "../engine/compare";
 import { AiProgressView, AiReportView, BalanceHint, copyText } from "./screens";
@@ -601,7 +601,55 @@ function ConsensusCard({ replies, agreed, held }: { replies: ReplyInfo[]; agreed
           </div>
         ))}
       </div>}
+      <ReplyDetails replies={replies} held={held} name={name} />
       <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>同一檔、同方向（都買或都賣）在 2 份以上出現才算一致；股數取最少的那份，信心取最低的。「不動」＝那份回覆建議續抱，「沒提到」＝那份沒有這檔。最多比對同一天最近 3 份。</div>
+    </div>
+  );
+}
+
+/**
+ * 回覆比對裡的「資料」（使用者 11/14：只看到結果、看不到 Claude 說了什麼）：
+ * 每一檔持股各份回覆怎麼說（續抱理由與條件、買賣、停損），以及每份回覆的全文。每一檔、每一份都可以收合。
+ */
+function ReplyDetails({ replies, held, name }: { replies: ReplyInfo[]; held: Set<string>; name: (c: string) => string }) {
+  const codes = [...new Set([...held, ...replies.flatMap((r) => [...Object.keys(r.p.holds), ...r.p.items.map((x) => x.code), ...Object.keys(r.p.stops)])])];
+  const view = (r: ReplyInfo, code: string) => {
+    const t = r.p.items.find((x) => x.code === code), h = r.p.holds[code], stop = r.p.stops[code];
+    const head = t ? `${t.side === "buy" ? "買進" : "賣出"} ${t.shares.toLocaleString()} 股${t.conf ? `（信心${t.conf}）` : ""}` : h ? "續抱" : held.has(code) ? "續抱（沒有寫理由）" : "沒提到";
+    const why = t?.reason || h?.why || "";
+    return { head, why, cond: h?.cond ?? [], stop, cls: t ? (t.side === "buy" ? "up" : "down") : "" };
+  };
+  if (!replies.length) return null;
+  return (
+    <div class="stack" style={{ gap: "6px" }} data-testid="reply-details">
+      {codes.length > 0 && <b style={{ fontSize: "14px", marginTop: "4px" }}>每一檔各份怎麼說（{codes.length} 檔，點開看理由）</b>}
+      {codes.map((code) => {
+        const vs = replies.map((r) => view(r, code));
+        return (
+          <details data-testid="reply-stock" style={{ border: "1px solid var(--line)", borderRadius: "10px", padding: "8px 12px" }}>
+            <summary style={{ cursor: "pointer", listStyle: "revert" }}>
+              <b>{name(code)}</b> <span class="muted num" style={{ fontSize: "12.5px" }}>{code}</span>
+              <span style={{ fontSize: "12.5px", marginLeft: "6px" }}>{vs.map((v, i) => <span key={i} class={v.cls}>{i ? "／" : ""}{v.head.replace(/（.*$/, "")}</span>)}</span>
+            </summary>
+            <div class="stack" style={{ gap: "8px", marginTop: "8px" }}>
+              {replies.map((r, i) => { const v = vs[i]; return (
+                <div style={{ fontSize: "13px", lineHeight: 1.6 }}>
+                  <div><span class="muted" style={{ fontSize: "12px" }}>{r.label}：</span><b class={v.cls}>{v.head}</b>{v.stop ? <span class="muted">・停損 {v.stop}</span> : null}</div>
+                  {v.why && <div>{v.why}</div>}
+                  {v.cond.length > 0 && <ul style={{ margin: "2px 0 0", paddingLeft: "18px" }}>{v.cond.map((c) => <li class="muted" style={{ fontSize: "12.5px" }}>{c}</li>)}</ul>}
+                </div>
+              ); })}
+            </div>
+          </details>
+        );
+      })}
+      <b style={{ fontSize: "14px", marginTop: "4px" }}>每份回覆全文（點開看）</b>
+      {replies.map((r) => (
+        <details data-testid="reply-full" style={{ border: "1px solid var(--line)", borderRadius: "10px", padding: "8px 12px" }}>
+          <summary style={{ cursor: "pointer", listStyle: "revert" }}><b>{r.label}</b> <span class="muted" style={{ fontSize: "12px" }}>{fmtAt(r.at)}・{r.p.items.length ? `${r.p.items.length} 筆買賣` : "維持不變"}</span></summary>
+          <div style={{ marginTop: "8px", fontSize: "13.5px" }}><Markdown text={planReadable(r.p, name)} /></div>
+        </details>
+      ))}
     </div>
   );
 }
@@ -1357,6 +1405,7 @@ function HoldCheckCard({ checks, asOf, priceNote }: { checks: HoldCheck[]; asOf?
 }
 
 function RealEtfScreen() {
+  const [tradesOpen, setTradesOpen] = useState(() => { try { return localStorage.getItem("etfTradesOpen") === "1"; } catch { return false; } }); // 成交紀錄預設收合（11/14 使用者）
   const st = useStore((s) => ({ asOf: s.tw.asOf, etf: s.aiEtf, prices: s.prices, scored: s.tw.scored, reports: s.reports, jobs: s.aiJobs, apiKey: s.settings.apiKey, twReady: s.tw.status === "ready" }));
   const { etf } = st;
   // 價格：盤中（或今天收盤後）用證交所即時價，沒有就用最近收盤；開著這頁每 30 秒更新
@@ -1591,7 +1640,8 @@ function RealEtfScreen() {
 
       {etf.trades.length > 0 && (
         <>
-          <div class="section-title"><span>成交紀錄</span><span>{etf.trades.filter((t) => !t.hidden).length} 筆</span></div>
+          <details open={tradesOpen} onToggle={(e) => { const o = (e.currentTarget as HTMLDetailsElement).open; setTradesOpen(o); try { localStorage.setItem("etfTradesOpen", o ? "1" : "0"); } catch { /* 不重要 */ } }} data-testid="etf-trades-box">
+          <summary class="section-title" style={{ cursor: "pointer", listStyle: "none" }} data-testid="etf-trades-toggle"><span>{tradesOpen ? "▾" : "▸"} 成交紀錄</span><span>{etf.trades.filter((t) => !t.hidden).length} 筆・{tradesOpen ? "點一下收合" : "點一下展開"}</span></summary>
           <div class="card" style={{ padding: "6px 10px" }} data-testid="etf-trades">
             {[...etf.trades].reverse().filter((t) => !t.hidden).map((t) => (
               <div class="row" style={{ justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: "13px", flexWrap: "nowrap" }}>
@@ -1600,6 +1650,7 @@ function RealEtfScreen() {
               </div>
             ))}
           </div>
+          </details>
           <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, marginTop: "6px" }}>{TRADE_HINT}　按 ✕ 只是把那一列從列表移除，上面的持股、現金和損益不會跟著變；要更正持股，請用持股的「賣出」或「手動新增一筆成交」。</div>
           <button class="btn danger block" style={{ marginTop: "12px" }} onClick={() => window.confirm("清空整個自組 ETF（成交紀錄與走勢）重新開始？") && resetAiEtf()}>清空重新開始</button>
         </>

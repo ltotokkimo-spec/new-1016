@@ -1163,6 +1163,12 @@ function check(ok, name, detail = "") {
     await page.waitForTimeout(800);
   }
   await page.waitForSelector('[data-testid="consensus"]', { timeout: 10000 }).catch(() => {});
+  // 回覆比對裡看得到資料（11/14）：每一檔各份怎麼說、每份全文，點開才展開
+  const rd = await page.evaluate(() => ({ stocks: document.querySelectorAll('[data-testid="reply-stock"]').length, full: document.querySelectorAll('[data-testid="reply-full"]').length }));
+  check(rd.stocks >= 1 && rd.full >= 2, "回覆比對附上每一檔各份的看法與每份回覆全文（可收合）", JSON.stringify(rd));
+  await page.click('[data-testid="reply-full"] summary');
+  const fullTxt = await page.$eval('[data-testid="reply-full"]', (e) => e.innerText.replace(/\s+/g, " "));
+  check(/總結：這次小幅調整/.test(fullTxt), "點開「第 1 份」看得到 Claude 回覆全文", fullTxt.slice(0, 120));
   const cons = await page.evaluate(() => ({ sum: document.querySelector('[data-testid="consensus-summary"]')?.innerText.replace(/\s+/g, " ") || "", rows: [...document.querySelectorAll('[data-testid="consensus-row"]')].map((e) => e.innerText.replace(/\s+/g, " ")) }));
   log("Claude 回覆比對", JSON.stringify(cons));
   await page.evaluate(() => document.querySelector('[data-testid="consensus"]')?.scrollIntoView());
@@ -1171,6 +1177,12 @@ function check(ok, name, detail = "") {
     "Claude 回覆比對表：2 份回覆每檔並排，重複出現的列入下單、只出現一次與信心低的先不做", JSON.stringify(cons).slice(0, 300));
   const wide = await page.evaluate(() => { const m = document.querySelector("main"); return [m.scrollWidth, m.clientWidth]; });
   check(wide[0] <= wide[1] + 1, "我的實單紀錄固定滿版，不會左右晃動", `內容寬 ${wide[0]}／螢幕寬 ${wide[1]}`);
+  // 成交紀錄預設收合（11/14）：先檢查收合、再點開
+  const tradesClosed = await page.$eval('[data-testid="etf-trades-box"]', (e) => !e.open).catch(() => null);
+  check(tradesClosed === true, "我的實單「成交紀錄」預設收合", String(tradesClosed));
+  await page.click('[data-testid="etf-trades-toggle"]');
+  await page.waitForTimeout(400);
+  check(await page.$eval('[data-testid="etf-trades-box"]', (e) => e.open), "點「成交紀錄」可以展開");
   const rTrades = await page.$eval('[data-testid="etf-trades"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   check(/成交價 [\d.,]+・損益 [+-]?[\d,]+/.test(rTrades) && !rTrades.includes("@"), "實單成交紀錄寫「成交價・損益」、不再用 @ 符號", rTrades.slice(0, 120));
   // 按成交紀錄的 ✕：只是從列表移除，持股不能跟著消失

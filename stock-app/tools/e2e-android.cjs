@@ -955,6 +955,31 @@ function check(ok, name, detail = "") {
   check(/雙引擎觀察組合/.test(dualTxt) && /虛擬資金 50\.0 萬/.test(dualTxt) && /成長組（五成）/.test(dualTxt) && /低波動組（五成）/.test(dualTxt) && /回測偏樂觀/.test(dualTxt), "雙引擎觀察組合顯示（虛擬 50 萬、兩組規則說明、回測偏樂觀的提醒）", String(dualTxt).slice(0, 200));
   check(/成長組(重新選股|沿用上次選股)/.test(dualTxt) && !/沒有下載到月營收資料/.test(dualTxt), "雙引擎的每日說明列出成長組選股（月營收資料有下載到）", String(dualTxt).slice(-300));
   await shot("05d5-雙引擎觀察組合");
+  // 四因子選股名單（11/15 新增）：選股頁多一個「四因子」，現有評等不變；quad.json 由同一次推送的回測產生，還沒發布就每 30 秒重進一次選股頁（最多 8 分鐘）
+  await page.click("nav.tabs button:nth-child(1)");
+  await page.click(".seg button:nth-child(1)"); // 台股（也離開當沖分頁）
+  let quadChip = "";
+  for (let i = 0; i < 16; i++) {
+    quadChip = await page.$eval('[data-testid="quad-chip"]', (e) => e.textContent).catch(() => "");
+    if (quadChip) break;
+    await page.waitForTimeout(30000);
+    await page.click("nav.tabs button:nth-child(2)");
+    await page.click("nav.tabs button:nth-child(1)");
+    await page.waitForTimeout(2500);
+  }
+  check(/四因子 \d+ 檔/.test(quadChip), "選股頁（台股）多一個「四因子」名單", quadChip);
+  const buyChip0 = await page.$$eval(".chips .chip", (cs) => cs.map((c) => c.textContent).find((t) => /^買入/.test(t)) || "");
+  await page.click('[data-testid="quad-chip"]');
+  await page.waitForSelector('[data-testid="quad-card"]', { timeout: 5000 });
+  const quadUi = await page.evaluate(() => ({ card: document.querySelector('[data-testid="quad-card"]').innerText.replace(/\s+/g, " "), rows: document.querySelectorAll('[data-testid="quad-table"] tbody tr').length, list: document.querySelectorAll(".list .item").length, n: Number((document.querySelector('[data-testid="quad-chip"]').textContent.match(/\d+/) || ["-1"])[0]) }));
+  log("四因子名單", JSON.stringify(quadUi).slice(0, 700));
+  check(/追蹤中的候選，不是正式評等/.test(quadUi.card) && /現有買入/.test(quadUi.card) && /影子 C/.test(quadUi.card) && /偏樂觀/.test(quadUi.card) && quadUi.rows === 4, "四因子說明卡：規則、三組並排的回測與追蹤表、回測偏樂觀的提醒", quadUi.card.slice(0, 200));
+  check(quadUi.n > 0 && quadUi.list === Math.min(150, quadUi.n), "四因子名單列出的檔數和標籤一致", JSON.stringify({ n: quadUi.n, list: quadUi.list }));
+  await shot("02q-四因子名單");
+  const buyChip1 = await page.$$eval(".chips .chip", (cs) => cs.map((c) => c.textContent).find((t) => /^買入/.test(t)) || "");
+  check(!!buyChip0 && buyChip0 === buyChip1, "現有「買入」評等的檔數不受四因子影響", `${buyChip0}｜${buyChip1}`);
+  await page.click("nav.tabs button:nth-child(4)");
+  await page.waitForSelector('[data-testid="mode-compare"]', { timeout: 10000 });
   // 模式按鈕排成三列（每列 4 個），文字不能被擠成直排
   const segRows = await page.$$eval('[data-testid^="mode-"]', (bs) => ({ tops: [...new Set(bs.map((b) => Math.round(b.getBoundingClientRect().top)))].length, maxH: Math.max(...bs.map((b) => b.getBoundingClientRect().height)) }));
   check(segRows.tops === 3 && segRows.maxH < 60, "自組ETF 模式按鈕排成三列、文字不擠成直排", JSON.stringify(segRows));

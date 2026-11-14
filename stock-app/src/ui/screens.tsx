@@ -8,7 +8,7 @@ import {
   LIVE_MS,
   findScored, getFetcher, getKv, getState, holdingViews, refreshEsb, refreshMacro, refreshTw, refreshUs, saveHoldings, saveReport,
   saveSettings, clearCache, useStore, usBars, recordSpend, estimatedBalance, checkForUpdate, installUpdate,
-  addUsSymbol, removeUsSymbol, refreshLive, refreshUsLive, refreshTwIndex, refreshFutures, refreshTurnover, refreshTurnoverLive, refreshEtfNav, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
+  addUsSymbol, removeUsSymbol, refreshLive, refreshUsLive, refreshTwIndex, refreshFutures, refreshTurnover, refreshTurnoverLive, refreshEtfNav, refreshQuad, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
 } from "../store";
 import { BROKERS, brokerOf, mergeHoldings, type Broker, type Holding, type Rating, type Scored, type SectorStat } from "../engine/score";
 import { type AiReport, analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, parseUrls, holdingsAppPrompt, parseHoldingsReply, marketBrief, MODEL, type ImportedHolding } from "../ai/claude";
@@ -41,6 +41,7 @@ import { nyParts, pretty, prettyW, taipeiToday, usQuoteHours, usSession } from "
 import { latestNotes } from "../lib/notes";
 import { fmtNtd, ntd, usdTwdRate } from "../lib/fx";
 import type { BacktestResult } from "../engine/backtest";
+import type { QuadResult } from "../engine/quad";
 import type { TurnPick } from "../engine/turning";
 import { CostValue, cls, fmtMoney, fmtPct, fmtPrice, fmtSigned, LimitPx, lots, Markdown, Progress, RatingPill, Sheet } from "./common";
 import { limitFromChg } from "../lib/limit";
@@ -50,12 +51,16 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
   market: Market; setMarket: (m: Market) => void; sector: string; setSector: (s: string) => void; open: (s: Scored, list?: Scored[]) => void;
 }) {
   const ms = useStore((s) => (market === "TW" ? s.tw : market === "ETF" ? s.etf : s.us));
-  const [filter0, setFilter] = useState<Rating | "全部" | "剛轉強">("買入");
+  const [filter0, setFilter] = useState<Rating | "全部" | "剛轉強" | "四因子">("買入");
+  // 四因子（11/15）：追蹤中的候選名單，雲端每天算好；只有台股。不是正式評等，現有買入／觀望／離場不變
+  const quad = useStore((s) => (market === "TW" ? s.quad?.data : undefined));
+  const quadMap = useMemo(() => new Map((quad?.picks ?? []).map((p) => [p.code, p])), [quad]);
+  useEffect(() => { const x = getState().quad; if (!x || Date.now() - x.fetchedAt > 10 * 60_000) void refreshQuad(); }, []); // 進選股頁時順便更新（名單每天傍晚才變，10 分鐘內不重抓）
   // 剛轉強：每天回測時一起算好（需要 3 個月以上的日K），只有台股
   const turn = useStore((s) => (market === "TW" ? s.backtest?.data.turning : undefined));
   const turnMap = useMemo(() => new Map((turn?.picks ?? []).map((p) => [p.code, p])), [turn]);
   const refOnly = market === "ETF";
-  const filter = refOnly ? "全部" : filter0 === "剛轉強" && !turn ? "買入" : filter0; // ETF 不分評等；美股沒有「剛轉強」，從台股切過來時改回「買入」
+  const filter = refOnly ? "全部" : (filter0 === "剛轉強" && !turn) || (filter0 === "四因子" && !quad) ? "買入" : filter0; // ETF 不分評等；美股沒有「剛轉強」，從台股切過來時改回「買入」
   const [q, setQ] = useState("");
   // ETF 清單排序：成交量（預設）或參考分數；記在手機裡，下次打開維持
   const [etfSort, setEtfSortS] = useState<"vol" | "score">(() => { try { return localStorage.getItem("etfSort") === "score" ? "score" : "vol"; } catch { return "vol"; } });
@@ -71,20 +76,20 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
   };
   // 從「族群」分頁點進來時只看該族群，評等檔數也跟著只算該族群
   const counts = useMemo(() => {
-    const c: Record<string, number> = { 全部: 0, 買入: 0, 觀望: 0, 離場: 0, 剛轉強: 0 };
-    for (const s of ms.scored) if (!sector || s.sector === sector) { c["全部"]++; c[s.rating]++; if (turnMap.has(s.code)) c["剛轉強"]++; }
+    const c: Record<string, number> = { 全部: 0, 買入: 0, 觀望: 0, 離場: 0, 剛轉強: 0, 四因子: 0 };
+    for (const s of ms.scored) if (!sector || s.sector === sector) { c["全部"]++; c[s.rating]++; if (turnMap.has(s.code)) c["剛轉強"]++; if (quadMap.has(s.code)) c["四因子"]++; }
     return c;
-  }, [ms.scored, sector, turnMap]);
+  }, [ms.scored, sector, turnMap, quadMap]);
   const list = useMemo(() => {
     const t = q.trim().toUpperCase();
     return ms.scored.filter((s) =>
       // 有輸入搜尋字時不限評等與族群：想查哪一檔都找得到（例如在「買入」頁查聯電）
-      (t || filter === "全部" || (filter === "剛轉強" ? turnMap.has(s.code) : s.rating === filter)) && (t || !sector || s.sector === sector) &&
+      (t || filter === "全部" || (filter === "剛轉強" ? turnMap.has(s.code) : filter === "四因子" ? quadMap.has(s.code) : s.rating === filter)) && (t || !sector || s.sector === sector) &&
       (!t || s.code.toUpperCase().includes(t) || s.name.toUpperCase().includes(t)))
       // ETF 依最近一個交易日的成交量排序（其他市場維持依分數）；用固定的收盤量，盤中不會一直重新排列
       // 參考分數：scored 本來就是分數高到低，維持原順序
-      .sort(market === "ETF" && etfSort === "vol" ? (a, b) => (b.volume ?? 0) - (a.volume ?? 0) : () => 0);
-  }, [ms.scored, filter, q, sector, turnMap, market, etfSort]);
+      .sort(market === "ETF" && etfSort === "vol" ? (a, b) => (b.volume ?? 0) - (a.volume ?? 0) : filter === "四因子" && !t ? (a, b) => (quadMap.get(a.code)?.rank ?? 1e9) - (quadMap.get(b.code)?.rank ?? 1e9) : () => 0);
+  }, [ms.scored, filter, q, sector, turnMap, quadMap, market, etfSort]);
   const liveCodes = list.slice(0, 60).map((x) => x.code);
   const liveKey = (dt ? "dt" : market) + liveCodes.join(",");
   useEffect(() => {
@@ -106,8 +111,8 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
       <div class="chips" style={{ marginTop: "10px" }} role="group" aria-label="評等篩選">
         {refOnly
           ? <button class="chip" aria-pressed="true">全部 {counts["全部"]} 檔</button>
-          : (["買入", ...(turn ? ["剛轉強"] as const : []), "觀望", "離場", "全部"] as const).map((f) => (
-            <button class="chip" aria-pressed={filter === f} onClick={() => setFilter(f)} data-testid={f === "剛轉強" ? "turn-chip" : undefined}>{f} {counts[f] ?? 0} 檔</button>
+          : (["買入", ...(quad ? ["四因子"] as const : []), ...(turn ? ["剛轉強"] as const : []), "觀望", "離場", "全部"] as const).map((f) => (
+            <button class="chip" aria-pressed={filter === f} onClick={() => setFilter(f)} data-testid={f === "剛轉強" ? "turn-chip" : f === "四因子" ? "quad-chip" : undefined}>{f} {counts[f] ?? 0} 檔</button>
           ))}
       </div>
       {sector && (
@@ -116,8 +121,8 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
           <button class="chip" aria-pressed="true" onClick={() => setSector("")}>看全部族群 ✕</button>
         </div>
       )}
-      {filter === "剛轉強" && turn ? <TurnCard turn={turn} /> : <BacktestCard market={market} />}
-      {filter !== "剛轉強" && <PicksPerfCard book={market} />}
+      {filter === "四因子" && quad ? <QuadCard quad={quad} /> : filter === "剛轉強" && turn ? <TurnCard turn={turn} /> : <BacktestCard market={market} />}
+      {filter !== "剛轉強" && filter !== "四因子" && <PicksPerfCard book={market} />}
       {ms.error && <div class="error" style={{ marginTop: "10px" }}>{ms.error}</div>}
       {ms.warning && <div class="notice" style={{ marginTop: "10px" }}>{ms.warning}</div>}
       {ms.status === "loading" && <Progress p={ms.progress} />}
@@ -125,7 +130,7 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
       {ms.status === "ready" && (
         <>
           <div class="section-title">
-            <span>{q.trim() ? `搜尋「${q.trim()}」・全部評等` : <>{sector ? `${sector}・` : ""}{filter === "全部" ? (market === "ETF" ? "全部 ETF" : "全部股票") : filter === "剛轉強" ? "剛轉強" : `評等「${filter}」`}・{market === "ETF" ? (etfSort === "vol" ? `依成交量排序${ms.asOf ? `（${prettyW(ms.asOf)}）` : ""}` : "依參考分數排序") : "依分數排序"}</>}</span>
+            <span>{q.trim() ? `搜尋「${q.trim()}」・全部評等` : <>{sector ? `${sector}・` : ""}{filter === "全部" ? (market === "ETF" ? "全部 ETF" : "全部股票") : filter === "剛轉強" ? "剛轉強" : filter === "四因子" ? "四因子名單（依四因子分數排序）" : `評等「${filter}」`}・{market === "ETF" ? (etfSort === "vol" ? `依成交量排序${ms.asOf ? `（${prettyW(ms.asOf)}）` : ""}` : "依參考分數排序") : "依分數排序"}</>}</span>
             <span>{list.length} 檔</span>
           </div>
           {market === "ETF" && (
@@ -137,7 +142,7 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
           {market === "US" && <UsLookup q={q} found={list.length > 0} />}
           {list.length === 0 ? (
             <div class="empty">
-              {filter === "剛轉強" && !q && !sector ? `${prettyW(turn?.asOf ?? "")}收盤沒有股票同時符合「剛轉強」的條件。` : filter === "買入" && !q && !sector ? <>今天沒有股票同時符合「分數 70 以上、外資買超、一週漲幅未過熱」。<br /><button class="chip" style={{ marginTop: "10px" }} onClick={() => setFilter("觀望")}>看「觀望」名單</button></> : q.trim() ? `找不到「${q.trim()}」。這裡只列當日成交金額 5 千萬以上的股票，冷門股可能不在清單；也可以試試股票代號。` : "沒有符合的股票"}
+              {filter === "四因子" && !q && !sector ? `${prettyW(quad?.asOf ?? "")}收盤沒有四因子名單（當天沒有「買入」檔數可對照，或月營收資料沒下載到）。` : filter === "剛轉強" && !q && !sector ? `${prettyW(turn?.asOf ?? "")}收盤沒有股票同時符合「剛轉強」的條件。` : filter === "買入" && !q && !sector ? <>今天沒有股票同時符合「分數 70 以上、外資買超、一週漲幅未過熱」。<br /><button class="chip" style={{ marginTop: "10px" }} onClick={() => setFilter("觀望")}>看「觀望」名單</button></> : q.trim() ? `找不到「${q.trim()}」。這裡只列當日成交金額 5 千萬以上的股票，冷門股可能不在清單；也可以試試股票代號。` : "沒有符合的股票"}
             </div>
           ) : (
             <div class="list">
@@ -222,6 +227,43 @@ type BtGroup = "買入" | "觀望" | "離場" | "全部";
 
 /** 選股頁上方的回測摘要：這套評等過去準不準 */
 // 剛轉強的條件說明與過去表現
+/** 四因子名單的說明與三組追蹤（11/15）：現有買入、影子 C、四因子並排；回測偏樂觀，重點看定案後的追蹤 */
+function QuadCard({ quad }: { quad: QuadResult }) {
+  const rows: [string, "old" | "c" | "quad" | "all"][] = [["現有買入", "old"], ["影子 C", "c"], ["四因子", "quad"], ["全部股票", "all"]];
+  const p0 = (x?: number) => (x === undefined || !Number.isFinite(x) ? "—" : `${Math.round(x * 100)}%`);
+  const ymd = (d: string) => (d ? `${d.slice(0, 4)}/${Number(d.slice(4, 6))}/${Number(d.slice(6))}` : "—");
+  const t20 = quad.track.stats.quad[20]?.days ?? 0, t5 = quad.track.stats.quad[5]?.days ?? 0;
+  const td = { padding: "5px 4px", textAlign: "right" as const, whiteSpace: "nowrap" as const };
+  return (
+    <div class="card stack" style={{ marginTop: "10px" }} data-testid="quad-card">
+      <div style={{ fontWeight: 700 }}>四因子名單（追蹤中的候選，不是正式評等）</div>
+      <div style={{ fontSize: "13px", lineHeight: 1.7 }}>
+        條件：近 1 週漲幅未過熱、股價站上且上彎 60 日線的個股裡，依「外資近 60 日買超佔成交量 30%、近 20 日成交金額 25%、近 60 日波動小 25%、近 3 個月營收年增 20%」排名，取和「買入」相同的檔數。現有的買入／觀望／離場評等沒有改。
+      </div>
+      <div class="scroll-x">
+        <table class="cmp" style={{ fontSize: "12.5px" }} data-testid="quad-table">
+          <thead><tr><th>之後 20 日</th><th style={td}>回測勝率</th><th style={td}>回測超額</th><th style={td}>追蹤勝率</th><th style={td}>追蹤超額</th></tr></thead>
+          <tbody>
+            {rows.map(([label, g]) => { const h = quad.hist.stats[g][20], t = quad.track.stats[g][20]; return (
+              <tr class={g === "quad" ? "diff" : ""}>
+                <td style={{ whiteSpace: "nowrap" }}>{g === "quad" ? <b>{label}</b> : label}</td>
+                <td class="num" style={td}>{p0(h?.win)}</td>
+                <td class={`num ${g === "all" ? "" : cls(h?.ex ?? 0)}`} style={td}>{g === "all" ? "—" : h ? fmtPct(h.ex, 1) : "—"}</td>
+                <td class="num" style={td}>{p0(t?.win)}</td>
+                <td class={`num ${g === "all" ? "" : cls(t?.ex ?? 0)}`} style={td}>{g === "all" ? "—" : t ? fmtPct(t.ex, 1) : "—"}</td>
+              </tr>
+            ); })}
+          </tbody>
+        </table>
+      </div>
+      <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }} data-testid="quad-note">
+        勝率＝隔天收盤買進、20 個交易日後是賺的比例；超額＝比當天全部股票的平均多多少。回測是 {ymd(quad.hist.from)}～{ymd(quad.hist.to)}，這段資料在訂規則前已經看過，數字偏樂觀，而且勝率有一大部分來自這段期間大型股領漲。
+        追蹤從 {prettyW(quad.track.start)} 起每個交易日算一次，{t20 > 0 ? `20 日已有 ${t20} 天` : t5 > 0 ? `20 日還沒滿、5 日已有 ${t5} 天` : "還沒有滿 5 日的結果"}；要累積到約明年 1 月中才比較得出好壞，在那之前不要只看這份名單下單。根據 {prettyW(quad.asOf)} 收盤，每天傍晚更新。
+      </div>
+    </div>
+  );
+}
+
 function TurnCard({ turn }: { turn: NonNullable<BacktestResult["turning"]> }) {
   const x = turn.stat[20];
   return (

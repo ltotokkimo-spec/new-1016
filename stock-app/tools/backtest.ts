@@ -9,6 +9,7 @@ import { formatFactors, runFactors } from "../src/engine/factors";
 import { formatCompare, runScoreCompare } from "../src/engine/scoreCompare";
 import { AI_CODES, aiTargets, buildCtx, formatSteady, runSteady } from "../src/engine/steady";
 import { runWatch, WATCH } from "../src/engine/watch";
+import { runQuad } from "../src/engine/quad";
 import { knownYm, parseRevHtml, prevYm, revTable, type RevEntry, type RevTable } from "../src/engine/revHist";
 import { adjustedSeries, indicators } from "../src/engine/turning";
 import { addDays, taipeiToday, usLatestSession, weekdaysBack } from "../src/lib/dates";
@@ -20,7 +21,7 @@ import { appendPicks, applyFinal, assertAppendOnly, assertFinalAppendOnly, BOOK_
 import { UsLoader } from "../src/data/usLoader";
 import type { KV } from "../src/lib/kv";
 
-const [cacheDir = ".bt-cache", outFile = "backtest.json", factorsFile = "factors.json", compareFile = "scorecompare.json", steadyFile = "steady.json", watchFile = "n5.json", wideFile = "wide.json", regimeFile = "regime.json", leadFile = "lead.json", aiFile = "ai.json", realFile = "real.json", turnFile = "turn.json", dualFile = "dual.json"] = process.argv.slice(2);
+const [cacheDir = ".bt-cache", outFile = "backtest.json", factorsFile = "factors.json", compareFile = "scorecompare.json", steadyFile = "steady.json", watchFile = "n5.json", wideFile = "wide.json", regimeFile = "regime.json", leadFile = "lead.json", aiFile = "ai.json", realFile = "real.json", turnFile = "turn.json", dualFile = "dual.json", quadFile = "quad.json"] = process.argv.slice(2);
 fs.mkdirSync(cacheDir, { recursive: true });
 
 const fileKV = (dir: string): KV => {
@@ -290,6 +291,15 @@ try {
   log(`剛轉強觀察組合：${w.start} 起，資料日 ${w.asOf || "（尚未開始）"}，成交 ${w.trades.length} 筆，淨值 ${w.nav.at(-1)?.nav ?? WATCH.budget}（0050 對照 ${w.nav.at(-1)?.bench ?? WATCH.budget}）`);
   log("剛轉強最後說明：", w.notes.at(-1)?.text);
 } catch (e) { log("剛轉強觀察組合失敗（不影響回測）：", e); }
+// 四因子選股名單（使用者 11/15：和現有「買入」並列顯示、一起追蹤）：需要歷史月營收；沒有營收就不產生名單（App 會顯示沒有資料）
+try {
+  const q = runQuad(days, companies, rev);
+  fs.writeFileSync(quadFile, JSON.stringify(q));
+  const f = (s?: { days: number; win: number; ex: number }) => (s ? `${s.days} 天 勝率 ${(s.win * 100).toFixed(1)}% 超額 ${(s.ex * 100).toFixed(1)}%` : "尚無");
+  log(`四因子名單：${q.asOf} 收盤 ${q.picks.length} 檔（現有買入 ${q.k} 檔），前 8：${q.picks.slice(0, 8).map((p) => `${p.name}${p.code}`).join("、") || "無"}`);
+  log(`四因子回測（${q.hist.from}～${q.hist.to}，20 日）：現有 ${f(q.hist.stats.old[20])}；影子C ${f(q.hist.stats.c[20])}；四因子 ${f(q.hist.stats.quad[20])}`);
+  log(`四因子追蹤（${q.track.start} 起）：5 日 現有 ${f(q.track.stats.old[5])}；影子C ${f(q.track.stats.c[5])}；四因子 ${f(q.track.stats.quad[5])}｜20 日 四因子 ${f(q.track.stats.quad[20])}`);
+} catch (e) { log("四因子名單失敗（不影響回測）：", e); }
 // 雙引擎觀察組合（使用者 11/14 同意上線）：成長組五成（營收年增＋營收創高＋外資買超）＋低波動方案 A 五成；11/13 起算（規則定案前最後一個資料日）
 try {
   const w = runWatch(days, companies, { mode: "dual", rev });

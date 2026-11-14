@@ -44,6 +44,7 @@ export const picksCsvUrl = (b: PickBook) => RADAR_DATA + BOOK_INFO[b].files.csv;
 export interface ExFile { version: 1; asOf: string; from: string; source: string; ev: ExMap }
 export type PicksPerfEntry = { data: PickPerfFile; fetchedAt: number; error?: string };
 const ppKey = (b: PickBook) => (b === "TW" ? "picksPerf" : `picksPerf:${b}`); // 台股沿用 1.0.283 的鍵
+export const QUAD_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/quad.json"; // 四因子選股名單（11/15）
 export const DUAL_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/dual.json"; // 雙引擎觀察組合（11/14）
 export const TURN_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/turn.json"; // 剛轉強觀察組合
 export const RULE_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/real.json"; // 實單規則觀察組合（「我的實單」的選股規則）
@@ -52,6 +53,7 @@ export const STEADY_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/
 export const BACKTEST_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/backtest.json";
 
 /** steady.json 裡總評比用到的欄位 */
+import type { QuadResult } from "./engine/quad";
 export interface SteadyLite { from: string; to: string; strategies: { key: string; label: string; cagr: number; maxDd: number; sharpe: number; vol: number }[] }
 
 export type Market = "TW" | "ETF" | "US";
@@ -120,6 +122,7 @@ export interface State {
   exdiv?: { data: ExFile; fetchedAt: number }; // 除權息事件（雲端每天整理）：評分還原除權息、ETF 配息資訊
   activeEtf?: { data: ActiveEtfData; fetchedAt: number; error?: string; liveAt?: number; liveProgress?: { done: number; total: number }; liveFound?: number; liveHoldings?: { code: string; name: string; date: string; shares: Record<string, number> }[] };
   steady?: { data: SteadyLite; fetchedAt: number };
+  quad?: { data: QuadResult; fetchedAt: number }; // 四因子選股名單（追蹤中的候選，不是正式評等）
   live: Record<string, LiveQuote>; // 證交所即時報價（盤中每 30 秒更新）
   liveAt?: number;
   liveError?: string; // 最近一次台股即時價抓取失敗的原因（成功就清掉）
@@ -215,6 +218,8 @@ async function initInner() {
   if (rule0) set({ rule: rule0 });
   const turn0 = await kv.get<State["turn"]>("turn");
   if (turn0) set({ turn: turn0 });
+  const quad0 = await kv.get<State["quad"]>("quad");
+  if (quad0) set({ quad: quad0 });
   const dual0 = await kv.get<State["dual"]>("dual");
   if (dual0) set({ dual: dual0 });
   for (const b of ["TW", "ETF", "US"] as PickBook[]) {
@@ -257,6 +262,7 @@ export function autoRefresh() {
   refreshMacro(); refreshTwIndex(); refreshFutures(); refreshTurnover(); void refreshNews();
   if (!state.virtual || Date.now() - state.virtual.fetchedAt > 10 * 60_000) refreshVirtual();
   if (!state.backtest || Date.now() - state.backtest.fetchedAt > 6 * 3600_000) refreshBacktest();
+  if (!state.quad || Date.now() - state.quad.fetchedAt > 3 * 3600_000) void refreshQuad();
   if (!state.exdiv || Date.now() - state.exdiv.fetchedAt > 6 * 3600_000) refreshExdiv();
 }
 
@@ -889,6 +895,17 @@ export async function refreshSteady() {
     const v = { data: { from: data.from, to: data.to, strategies: data.strategies.map((x) => ({ key: x.key, label: x.label, cagr: x.cagr, maxDd: x.maxDd, sharpe: x.sharpe, vol: x.vol })) }, fetchedAt: Date.now() };
     await kv.set("steady", v);
     set({ steady: v });
+  } catch { /* 沒下載到就沿用上次的 */ }
+}
+
+/** 四因子選股名單（雲端每天收盤後算好）；沒下載到就沿用上次的 */
+export async function refreshQuad() {
+  try {
+    const data = (await fetchData(QUAD_URL)) as QuadResult;
+    if (data?.version !== 1 || !Array.isArray(data.picks)) throw new Error("格式不對");
+    const v = { data, fetchedAt: Date.now() };
+    await kv.set("quad", v);
+    set({ quad: v });
   } catch { /* 沒下載到就沿用上次的 */ }
 }
 

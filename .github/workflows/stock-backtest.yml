@@ -119,6 +119,36 @@ jobs:
             console.log("OK", r.from, "~", r.to, "評等日", s.signals, "買入樣本", s.groups["買入"][20]?.n);
           '
 
+      # 研究用（11/14 使用者要求設計自組 ETF 新規則）：把回測用的原始資料快取＋歷史月營收打包放到 Release，
+      # 讓 Claude 的雲端環境（連不到證交所）可以下載後在本機反覆模擬。只在推送時做，每天的定時回測不做。
+      - name: 匯出研究資料（只在推送時）
+        if: github.event_name == 'push'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p .research/rev
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
+          ok=0; bad=0
+          for ym in $(node -e 'const o=[];let y=2024,m=1;const n=new Date();while(y<n.getUTCFullYear()||(y===n.getUTCFullYear()&&m<=n.getUTCMonth()+1)){o.push((y-1911)+"_"+m);m++;if(m>12){m=1;y++}}console.log(o.join(" "))'); do
+            for mk in sii otc; do
+              f=".research/rev/${mk}_${ym}.html"
+              got=0
+              for host in mopsov.twse.com.tw mops.twse.com.tw; do
+                if curl -sS -m 40 -A "$UA" -o "$f" "https://$host/nas/t21/$mk/t21sc03_${ym}_0.html" && [ "$(wc -c < "$f")" -gt 20000 ]; then got=1; break; fi
+                sleep 2
+              done
+              if [ $got = 1 ]; then ok=$((ok+1)); else bad=$((bad+1)); rm -f "$f"; fi
+              sleep 2
+            done
+          done
+          echo "月營收檔：成功 $ok、失敗 $bad"
+          cp backtest.json steady.json .research/ 2>/dev/null || true
+          du -sh .bt-cache .research
+          tar czf research-data.tgz .bt-cache .research
+          ls -la research-data.tgz
+          for i in 1 2 3 4; do gh release upload radar-data-vug13iw701 research-data.tgz --clobber && break; sleep $((i*5)); done
+
       - name: 發布結果（App 下載）
         if: github.event_name != 'pull_request'
         env:

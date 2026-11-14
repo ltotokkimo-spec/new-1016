@@ -871,9 +871,9 @@ function CompareView() {
         <b>虛擬 ETF 總評比</b>
         <UpdateStamp asOf={asOf} updatedAt={Math.max(0, ...groups.filter((g) => !g.real).map((g) => g.v?.updatedAt ?? 0)) || undefined} fetchedAt={Math.max(0, ...[virtual, watch, wide, regime, leadG, aiG, ruleG].map((x) => x?.fetchedAt ?? 0)) || undefined} lagging={groups.filter((g) => !g.real && g.v?.asOf && asOf && g.v.asOf < asOf).map((g) => `${g.short}（${prettyW(g.v!.asOf)}）`)} />
         <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
-          八組虛擬組合各用虛擬 50 萬，每組也和「同樣的錢買 0050」比。{realG ? <>最後一列「我的實單」是你實際的買賣，從第一筆成交 {prettyW(realG.start)} 起算（中途存提款用時間加權報酬扣掉，淨值是你打開 App 時記下的，沒打開的日子會跳過）。</> : <>「我的實單」有成交紀錄後會一起列進來。</>}{asOf ? <>資料日 {prettyW(asOf)} 收盤。</> : null}
+          九組虛擬組合各用虛擬 50 萬，每組也和「同樣的錢買 0050」比。{realG ? <>最後一列「我的實單」是你實際的買賣，從第一筆成交 {prettyW(realG.start)} 起算（中途存提款用時間加權報酬扣掉，淨值是你打開 App 時記下的，沒打開的日子會跳過）。</> : <>「我的實單」有成交紀錄後會一起列進來。</>}{asOf ? <>資料日 {prettyW(asOf)} 收盤。</> : null}
           {lead && readyAll.length > 1 ? <> 目前比 0050 領先最多的是 <b>{lead.label}</b>（{fmtPct(lead.all!.diff, 2)}）。</> : null}
-          起算日不同（Claude 虛擬 10/19、其他七組 10/23 起、第一批成交約 10/26），累積天數少時差距主要是雜訊，不要當結論。
+          起算日不同（Claude 虛擬 10/19；雙引擎 11/13 起、第一批成交 11/16；其他七組 10/23 起、第一批成交約 10/26），累積天數少時差距主要是雜訊，不要當結論。
         </div>
         <button class="btn secondary" onClick={reload} disabled={busy} data-testid="compare-reload">{busy ? "更新中…" : "重新下載全部"}</button>
       </div>

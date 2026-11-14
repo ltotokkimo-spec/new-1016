@@ -544,12 +544,13 @@ function ConsensusCard({ replies, agreed, held }: { replies: ReplyInfo[]; agreed
     .sort((a, b) => ({ go: 0, once: 1, low: 2 })[a.v] - ({ go: 0, once: 1, low: 2 })[b.v] || (a.side === b.side ? 0 : a.side === "sell" ? -1 : 1));
   const cell = (r: ReplyInfo, side: string, code: string) => {
     const t = r.p.items.find((x) => x.side === side && x.code === code);
-    if (t) return <span class={t.side === "buy" ? "up" : "down"}>{t.side === "buy" ? "買" : "賣"} {t.shares.toLocaleString()} 股{t.conf ? <span class="muted">・{t.conf}</span> : null}</span>;
+    if (t) return <span class={t.side === "buy" ? "up" : "down"}>{t.side === "buy" ? "買" : "賣"} {t.shares.toLocaleString()} 股{t.conf ? <span class="muted" style={{ display: "block", fontSize: "11.5px" }}>信心{t.conf}</span> : null}</span>;
     const other = r.p.items.find((x) => x.code === code);
     if (other) return <span class={other.side === "buy" ? "up" : "down"}>{other.side === "buy" ? "反而買" : "反而賣"}</span>;
     if (r.p.holds[code] || held.has(code)) return <span class="muted">不動</span>;
     return <span class="muted">沒提到</span>;
   };
+  const hm = (t: number) => new Date(t).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
   const tag = { go: <b class="up">✅ 列入下單</b>, once: <span>⏳ 只出現 1 次</span>, low: <span class="down">⚠ 信心低，先不做</span> };
   const n = { go: agreed.go.length, once: agreed.once.length, low: agreed.low.length };
   return (
@@ -561,18 +562,28 @@ function ConsensusCard({ replies, agreed, held }: { replies: ReplyInfo[]; agreed
           : !n.go && !n.once && !n.low ? <>結論：{replies.length} 份都建議維持不變，今天不用買賣。</>
           : <>結論：{n.go ? <b class="up">{n.go} 筆重複出現 → 列入下單</b> : <b>沒有重複出現的買賣 → 今天不下單</b>}{n.once ? `；${n.once} 筆只出現 1 次 → 先不做` : ""}{n.low ? `；${n.low} 筆信心低 → 先不做` : ""}。</>}
       </div>
-      {rows.length > 0 && <div class="scroll-x"><table class="cmp">
-        <thead><tr><th>股票</th>{replies.map((r) => <th>{r.label}<div class="muted" style={{ fontWeight: 400, fontSize: "11px" }}>{fmtAt(r.at)}</div></th>)}<th>結論</th></tr></thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr class={r.v === "go" ? "" : "diff"} data-testid="consensus-row">
-              <td>{name(r.code)} <span class="muted num">{r.code}</span></td>
-              {replies.map((rp) => <td class="num">{cell(rp, r.side, r.code)}</td>)}
-              <td>{tag[r.v]}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table></div>}
+      {rows.length > 0 && <div class="stack" style={{ gap: "8px" }} data-testid="consensus-list">
+        {/* 手機上三份回覆並排的表格太擠、結論欄會被切掉（使用者 11/14 回報）：改成一檔一張小卡，上排股票＋結論，下排每份回覆各一格 */}
+        <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }} data-testid="consensus-times">
+          {new Date(replies[0].at).toLocaleDateString("zh-TW", { month: "numeric", day: "numeric" })} 載入：{replies.map((r) => `${r.label} ${hm(r.at)}`).join("・")}
+        </div>
+        {rows.map((r) => (
+          <div data-testid="consensus-row" style={{ padding: "10px 12px", borderRadius: "10px", border: "1px solid var(--line)", background: r.v === "go" ? "transparent" : "var(--hold-bg)" }}>
+            <div class="row" style={{ justifyContent: "space-between", alignItems: "baseline", gap: "8px", flexWrap: "wrap" }}>
+              <b style={{ fontSize: "15px" }}><span class={r.side === "buy" ? "up" : "down"} style={{ fontSize: "13px", marginRight: "6px" }}>{r.side === "buy" ? "買進" : "賣出"}</span>{name(r.code)} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{r.code}</span></b>
+              <span style={{ fontSize: "13px", whiteSpace: "nowrap" }}>{tag[r.v]}</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(${replies.length}, minmax(0, 1fr))`, gap: "6px", marginTop: "8px" }}>
+              {replies.map((rp) => (
+                <div style={{ minWidth: 0 }}>
+                  <div class="muted" style={{ fontSize: "11px" }}>{rp.label}</div>
+                  <div class="num" style={{ fontSize: "13.5px", lineHeight: 1.4, overflowWrap: "anywhere" }}>{cell(rp, r.side, r.code)}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>}
       <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>同一檔、同方向（都買或都賣）在 2 份以上出現才算一致；股數取最少的那份，信心取最低的。「不動」＝那份回覆建議續抱，「沒提到」＝那份沒有這檔。最多比對同一天最近 3 份。</div>
     </div>
   );

@@ -975,6 +975,10 @@ function check(ok, name, detail = "") {
   log("四因子名單", JSON.stringify(quadUi).slice(0, 700));
   check(/追蹤中的候選，不是正式評等/.test(quadUi.card) && /現有買入/.test(quadUi.card) && /影子 C/.test(quadUi.card) && /偏樂觀/.test(quadUi.card) && quadUi.rows === 4, "四因子說明卡：規則、三組並排的回測與追蹤表、回測偏樂觀的提醒", quadUi.card.slice(0, 200));
   check(quadUi.n > 0 && quadUi.list === Math.min(150, quadUi.n), "四因子名單列出的檔數和標籤一致", JSON.stringify({ n: quadUi.n, list: quadUi.list }));
+  // 每一列要顯示四因子名次、分數和四項原始數字，而且名次由 1 開始依序排列（11/15 使用者：排列看起來不是分數）
+  const quadRows = await page.$$eval(".list .item", (rs) => rs.slice(0, 40).map((r) => ({ rank: Number((r.querySelector('[data-testid="quad-rank"]')?.textContent.match(/第 (\d+) 名/) || [0, 0])[1]), info: r.querySelector('[data-testid="quad-info"]')?.textContent || "" })));
+  const ranksOk = quadRows.length > 0 && quadRows.every((r, i) => r.rank === i + 1) && quadRows.every((r) => /外資60日.*成交.*波動.*營收年增/.test(r.info));
+  check(ranksOk, "四因子每一列顯示名次（1、2、3…依序）與四項原始數字", JSON.stringify(quadRows.slice(0, 3)));
   await shot("02q-四因子名單");
   const buyChip1 = await page.$$eval(".chips .chip", (cs) => cs.map((c) => c.textContent).find((t) => /^買入/.test(t)) || "");
   check(!!buyChip0 && buyChip0 === buyChip1, "現有「買入」評等的檔數不受四因子影響", `${buyChip0}｜${buyChip1}`);

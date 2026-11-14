@@ -41,7 +41,7 @@ import { nyParts, pretty, prettyW, taipeiToday, usQuoteHours, usSession } from "
 import { latestNotes } from "../lib/notes";
 import { fmtNtd, ntd, usdTwdRate } from "../lib/fx";
 import type { BacktestResult } from "../engine/backtest";
-import type { QuadResult } from "../engine/quad";
+import type { QuadPick, QuadResult } from "../engine/quad";
 import type { TurnPick } from "../engine/turning";
 import { CostValue, cls, fmtMoney, fmtPct, fmtPrice, fmtSigned, LimitPx, lots, Markdown, Progress, RatingPill, Sheet } from "./common";
 import { limitFromChg } from "../lib/limit";
@@ -146,7 +146,7 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
             </div>
           ) : (
             <div class="list">
-              {list.slice(0, 150).map((s) => <StockRow s={s} q={freshLive(s)} turn={filter === "剛轉強" ? turnMap.get(s.code) : undefined} onClick={() => open(s, list.slice(0, 150))} />)}
+              {list.slice(0, 150).map((s) => <StockRow s={s} q={freshLive(s)} turn={filter === "剛轉強" ? turnMap.get(s.code) : undefined} quad={filter === "四因子" ? quadMap.get(s.code) : undefined} onClick={() => open(s, list.slice(0, 150))} />)}
             </div>
           )}
           <p class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
@@ -174,7 +174,7 @@ function MarketSeg({ market, setMarket, dt, setDt }: { market: Market; setMarket
   );
 }
 
-function StockRow({ s, q, turn, onClick }: { s: Scored; q?: LiveQuote; turn?: TurnPick; onClick: () => void }) {
+function StockRow({ s, q, turn, quad, onClick }: { s: Scored; q?: LiveQuote; turn?: TurnPick; quad?: QuadPick; onClick: () => void }) {
   const price = q?.price ?? s.close;
   const chg = q && Number.isFinite(q.prevClose) ? q.price / q.prevClose - 1 : s.chg1d;
   const intraday = !!q && !q.final && (s.market === "US" || q.date === taipeiToday());
@@ -187,6 +187,7 @@ function StockRow({ s, q, turn, onClick }: { s: Scored; q?: LiveQuote; turn?: Tu
           {isEtf(s.code) && s.volume ? <>・量 <b class="num">{Math.round(s.volume / 1000).toLocaleString("zh-TW")}</b> 張</> : null}
           {s.market !== "US" ? <>・外資5日 <span class={cls(s.foreign5)}>{lots(s.foreign5)}</span></> : <>・相對大盤 <span class={cls(s.rsVsIndex1m)}>{fmtPct(s.rsVsIndex1m)}</span></>}
         </div>
+        {quad && <div class="sub" style={{ whiteSpace: "normal" }} data-testid="quad-info">外資60日 <span class={cls(quad.flow60)}>{(quad.flow60 * 100).toFixed(1)}%</span>・成交 <b class="num">{quad.value20 >= 1e8 ? `${(quad.value20 / 1e8).toFixed(quad.value20 >= 1e10 ? 0 : 1)} 億` : `${Math.round(quad.value20 / 1e4).toLocaleString("zh-TW")} 萬`}</b>・波動 {(quad.vol60 * 100).toFixed(1)}%・營收年增 <span class={cls(quad.yoy3)}>{fmtPct(quad.yoy3, 0)}</span></div>}
         {turn && <>
           <div class="sub" style={{ whiteSpace: "normal" }} data-testid="turn-info">離20日線 {fmtPct(turn.gap20)}・MACD {turn.turnedAgo ? `${turn.turnedAgo} 天前` : "今天"}翻正</div>
           <div class="sub" style={{ whiteSpace: "normal" }} data-testid="turn-stop">停損參考 <b class="num">{fmtPrice(turn.stop, s.market)}</b></div>
@@ -200,7 +201,7 @@ function StockRow({ s, q, turn, onClick }: { s: Scored; q?: LiveQuote; turn?: Tu
       </div>
       <div>
         <RatingPill rating={s.refOnly ? "參考" : s.rating} rebound={s.rebound} />
-        <div class="score num">分數 {s.score}</div>
+        {quad ? <div class="score num" data-testid="quad-rank">四因子 第 {quad.rank} 名<br /><span class="muted" style={{ fontSize: "11px" }}>分數 {Math.round(quad.score * 100)}（舊分 {s.score}）</span></div> : <div class="score num">分數 {s.score}</div>}
       </div>
     </button>
   );
@@ -238,7 +239,7 @@ function QuadCard({ quad }: { quad: QuadResult }) {
     <div class="card stack" style={{ marginTop: "10px" }} data-testid="quad-card">
       <div style={{ fontWeight: 700 }}>四因子名單（追蹤中的候選，不是正式評等）</div>
       <div style={{ fontSize: "13px", lineHeight: 1.7 }}>
-        條件：近 1 週漲幅未過熱、股價站上且上彎 60 日線的個股裡，依「外資近 60 日買超佔成交量 30%、近 20 日成交金額 25%、近 60 日波動小 25%、近 3 個月營收年增 20%」排名，取和「買入」相同的檔數。現有的買入／觀望／離場評等沒有改。
+        條件：近 1 週漲幅未過熱、股價站上且上彎 60 日線的個股裡，依「外資近 60 日買超佔成交量 30%、近 20 日成交金額 25%、近 60 日波動小 25%、近 3 個月營收年增 20%」排名，取和「買入」相同的檔數。下面名單是依這個四因子分數排序，每一列右邊是四因子名次與分數（括號是原本評分的分數，兩套分數不一樣所以順序不同），中間一行是四項原始數字。現有的買入／觀望／離場評等沒有改。
       </div>
       <div class="scroll-x">
         <table class="cmp" style={{ fontSize: "12.5px" }} data-testid="quad-table">

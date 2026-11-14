@@ -143,3 +143,30 @@ describe("配息入帳（選用，沒有配息的組合算出來不變）", () =
     expect(valuate(d, price).bench - base.bench).toBeCloseTo(525 * 2, 6);
   });
 });
+
+describe("核心股跌破停損多看一天（11/14 使用者選 A）", () => {
+  const base = { ...fillPending(placeOrders(newVirtual("20261019"), "20261018", [
+    { code: "2330", name: "台積電", side: "buy", shares: 10, limit: 2500, stop: 2200, reason: "核心" },
+    { code: "2027", name: "大成鋼", side: "buy", shares: 100, limit: 52, stop: 46.5, reason: "衛星" },
+  ]), "20261019", { "2330": q(2400), "2027": q(50), "0050": q(100) }), core: ["2330"] };
+  it("核心第一次收盤跌破只記下、不賣；衛星照舊隔天賣", () => {
+    const d1 = closeDay(base, "20261020", { "2330": q(2150), "2027": q(46), "0050": q(98) });
+    expect(d1.pending.map((o) => o.code)).toEqual(["2027"]);
+    expect(d1.stopWatch).toEqual({ "2330": "20261020" });
+    // 同一天重跑 close 不會變成第二天
+    expect(closeDay(d1, "20261020", { "2330": q(2150), "2027": q(46), "0050": q(98) }).pending.map((o) => o.code)).toEqual(["2027"]);
+  });
+  it("隔天收盤仍在停損價之下 → 排下一個交易日開盤賣出", () => {
+    const d1 = closeDay(base, "20261020", { "2330": q(2150), "2027": q(50), "0050": q(98) });
+    const d2 = closeDay(d1, "20261021", { "2330": q(2180), "2027": q(50), "0050": q(98) });
+    expect(d2.pending).toMatchObject([{ code: "2330", side: "sell", shares: 10 }]);
+    expect(d2.pending[0].reason).toContain("10/20 起連續 2 天");
+    expect(d2.stopWatch).toEqual({});
+  });
+  it("隔天站回停損價之上 → 取消觀察、不賣", () => {
+    const d1 = closeDay(base, "20261020", { "2330": q(2150), "2027": q(50), "0050": q(98) });
+    const d2 = closeDay(d1, "20261021", { "2330": q(2250), "2027": q(50), "0050": q(98) });
+    expect(d2.pending).toEqual([]);
+    expect(d2.stopWatch).toEqual({});
+  });
+});

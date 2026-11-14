@@ -20,6 +20,9 @@ export interface VirtualEtf extends AiEtf {
   topUps?: { date: string; from: number; to: number }[];
   cashPlan?: CashPlan; // 資金水位：Claude 每天收盤後依大盤跌幅更新
   plan?: SchedulePlan; // 規則組合的調整時程（Claude 虛擬操作沒有固定頻率，不用這個）
+  // 核心股（11/14 使用者選 A）：收盤跌破停損先記下（stopWatch＝第一次跌破的日期），隔天收盤仍在停損價之下才排第三天開盤賣出
+  core?: string[];
+  stopWatch?: Record<string, string>;
 }
 
 /** 規則組合怎麼排調整：每 every 個交易日在收盤後判斷一次，lastDecision 是最近一次判斷日，差距小於淨值 band 不動 */
@@ -114,14 +117,27 @@ export function closeDay(v: VirtualEtf, date: string, q: Record<string, Quote>):
   const val = valuate(out, (c) => last[c]?.close);
   if (!val.missing.length) out = { ...out, ...recordNav(out, date, val) };
   const pending = [...out.pending];
+  const watch = { ...(out.stopWatch ?? {}) };
+  const held = new Set<string>();
   for (const p of positions(out.trades)) {
     if (p.shares <= 0) continue;
+    held.add(p.code);
     const stop = out.stops?.[p.code];
     const px = last[p.code]?.close;
-    if (stop && px !== undefined && px <= stop && !pending.some((o) => o.code === p.code && o.side === "sell"))
-      pending.push({ code: p.code, name: p.name, side: "sell", shares: p.shares, reason: `收盤 ${px} 跌破停損價 ${stop}，隔天開盤賣出`, placed: date });
+    const below = !!stop && px !== undefined && px <= stop;
+    if (!below) { delete watch[p.code]; continue; }
+    if (pending.some((o) => o.code === p.code && o.side === "sell")) continue;
+    // 核心股多看一天：第一次收盤跌破只記下來；前一個交易日已經跌破（watch 有記錄、不是今天）才排賣出
+    if (out.core?.includes(p.code) && (!watch[p.code] || watch[p.code] === date)) {
+      watch[p.code] = date;
+      continue;
+    }
+    const twice = out.core?.includes(p.code) ? `（${watch[p.code].slice(4, 6).replace(/^0/, "")}/${watch[p.code].slice(6).replace(/^0/, "")} 起連續 2 天）` : "";
+    pending.push({ code: p.code, name: p.name, side: "sell", shares: p.shares, reason: `收盤 ${px} 跌破停損價 ${stop}${twice}，隔天開盤賣出`, placed: date });
+    delete watch[p.code];
   }
-  return { ...out, pending };
+  for (const c of Object.keys(watch)) if (!held.has(c)) delete watch[c];
+  return { ...out, pending, ...(Object.keys(watch).length || out.stopWatch ? { stopWatch: watch } : {}) };
 }
 
 /** 加入隔天的委託（同一檔同方向的舊委託會被取代） */

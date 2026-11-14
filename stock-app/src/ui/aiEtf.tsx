@@ -608,48 +608,59 @@ function ConsensusCard({ replies, agreed, held }: { replies: ReplyInfo[]; agreed
 }
 
 /**
- * 回覆比對裡的「資料」（使用者 11/14：只看到結果、看不到 Claude 說了什麼）：
- * 每一檔持股各份回覆怎麼說（續抱理由與條件、買賣、停損），以及每份回覆的全文。每一檔、每一份都可以收合。
+ * 回覆比對的「重點表」（使用者 11/14：每檔各份怎麼說太多又重複 → 整理成一張表說重點）：
+ * 每一檔一列：動作（各份一致就只寫一個，不一致才分開列）、停損價、重點（取最新一份的理由與條件）。原文縮成最下面一個收合項。
  */
 function ReplyDetails({ replies, held, name }: { replies: ReplyInfo[]; held: Set<string>; name: (c: string) => string }) {
-  const codes = [...new Set([...held, ...replies.flatMap((r) => [...Object.keys(r.p.holds), ...r.p.items.map((x) => x.code), ...Object.keys(r.p.stops)])])];
-  const view = (r: ReplyInfo, code: string) => {
-    const t = r.p.items.find((x) => x.code === code), h = r.p.holds[code], stop = r.p.stops[code];
-    const head = t ? `${t.side === "buy" ? "買進" : "賣出"} ${t.shares.toLocaleString()} 股${t.conf ? `（信心${t.conf}）` : ""}` : h ? "續抱" : held.has(code) ? "續抱（沒有寫理由）" : "沒提到";
-    const why = t?.reason || h?.why || "";
-    return { head, why, cond: h?.cond ?? [], stop, cls: t ? (t.side === "buy" ? "up" : "down") : "" };
-  };
   if (!replies.length) return null;
+  const codes = [...new Set([...held, ...replies.flatMap((r) => [...Object.keys(r.p.holds), ...r.p.items.map((x) => x.code), ...Object.keys(r.p.stops)])])];
+  const rows = codes.map((code) => {
+    const acts = replies.map((r) => {
+      const t = r.p.items.find((x) => x.code === code);
+      return t ? `${t.side === "buy" ? "買進" : "賣出"}` : r.p.holds[code] || held.has(code) ? "續抱" : "沒提到";
+    });
+    const uniq = [...new Set(acts)];
+    const act = uniq.length === 1 ? uniq[0] : acts.map((a, i) => `${i + 1}:${a}`).join(" ");
+    // 重點：從最新一份往回找第一份有寫理由或條件的
+    let why = "", cond: string[] = [], stop: number | undefined;
+    for (let k = replies.length - 1; k >= 0; k--) {
+      const r = replies[k], h = r.p.holds[code], t = r.p.items.find((x) => x.code === code);
+      if (!why) why = t?.reason || h?.why || "";
+      if (!cond.length) cond = h?.cond ?? [];
+      if (stop === undefined) stop = r.p.stops[code];
+    }
+    return { code, act, diff: uniq.length > 1, why, cond, stop };
+  });
   return (
-    <div class="stack" style={{ gap: "6px" }} data-testid="reply-details">
-      {codes.length > 0 && <b style={{ fontSize: "14px", marginTop: "4px" }}>每一檔各份怎麼說（{codes.length} 檔，點開看理由）</b>}
-      {codes.map((code) => {
-        const vs = replies.map((r) => view(r, code));
-        return (
-          <details data-testid="reply-stock" style={{ border: "1px solid var(--line)", borderRadius: "10px", padding: "8px 12px" }}>
-            <summary style={{ cursor: "pointer", listStyle: "revert" }}>
-              <b>{name(code)}</b> <span class="muted num" style={{ fontSize: "12.5px" }}>{code}</span>
-              <span style={{ fontSize: "12.5px", marginLeft: "6px" }}>{vs.map((v, i) => <span key={i} class={v.cls}>{i ? "／" : ""}{v.head.replace(/（.*$/, "")}</span>)}</span>
-            </summary>
-            <div class="stack" style={{ gap: "8px", marginTop: "8px" }}>
-              {replies.map((r, i) => { const v = vs[i]; return (
-                <div style={{ fontSize: "13px", lineHeight: 1.6 }}>
-                  <div><span class="muted" style={{ fontSize: "12px" }}>{r.label}：</span><b class={v.cls}>{v.head}</b>{v.stop ? <span class="muted">・停損 {v.stop}</span> : null}</div>
-                  {v.why && <div>{v.why}</div>}
-                  {v.cond.length > 0 && <ul style={{ margin: "2px 0 0", paddingLeft: "18px" }}>{v.cond.map((c) => <li class="muted" style={{ fontSize: "12.5px" }}>{c}</li>)}</ul>}
-                </div>
-              ); })}
+    <div class="stack" style={{ gap: "8px" }} data-testid="reply-details">
+      {rows.length > 0 && (
+        <div class="scroll-x" data-testid="reply-table">
+          <table class="cmp" style={{ fontSize: "12.5px" }}>
+            <thead><tr><th style={{ whiteSpace: "nowrap" }}>股票</th><th style={{ whiteSpace: "nowrap" }}>建議</th><th style={{ whiteSpace: "nowrap" }}>停損</th><th>重點</th></tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr class={r.diff ? "diff" : ""} data-testid="reply-row">
+                  <td style={{ whiteSpace: "nowrap" }}><b>{name(r.code)}</b><div class="muted num" style={{ fontSize: "11px" }}>{r.code}</div></td>
+                  <td style={{ whiteSpace: "nowrap" }}><span class={/買進/.test(r.act) ? "up" : /賣出/.test(r.act) ? "down" : ""}>{r.act}</span></td>
+                  <td class="num" style={{ whiteSpace: "nowrap" }}>{r.stop ?? "—"}</td>
+                  <td style={{ whiteSpace: "normal", lineHeight: 1.5 }}>{r.why || <span class="muted">—</span>}{r.cond.length > 0 && <div class="muted" style={{ fontSize: "11.5px" }}>{r.cond.slice(0, 2).join("；")}</div>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <details data-testid="reply-full" style={{ border: "1px solid var(--line)", borderRadius: "10px", padding: "8px 12px" }}>
+        <summary style={{ cursor: "pointer", listStyle: "revert", fontSize: "13px" }}>看 {replies.length} 份回覆原文</summary>
+        <div class="stack" style={{ gap: "10px", marginTop: "8px" }}>
+          {replies.map((r) => (
+            <div>
+              <b style={{ fontSize: "13px" }}>{r.label}</b> <span class="muted" style={{ fontSize: "12px" }}>{fmtAt(r.at)}</span>
+              <div style={{ fontSize: "13px" }}><Markdown text={planReadable(r.p, name)} /></div>
             </div>
-          </details>
-        );
-      })}
-      <b style={{ fontSize: "14px", marginTop: "4px" }}>每份回覆全文（點開看）</b>
-      {replies.map((r) => (
-        <details data-testid="reply-full" style={{ border: "1px solid var(--line)", borderRadius: "10px", padding: "8px 12px" }}>
-          <summary style={{ cursor: "pointer", listStyle: "revert" }}><b>{r.label}</b> <span class="muted" style={{ fontSize: "12px" }}>{fmtAt(r.at)}・{r.p.items.length ? `${r.p.items.length} 筆買賣` : "維持不變"}</span></summary>
-          <div style={{ marginTop: "8px", fontSize: "13.5px" }}><Markdown text={planReadable(r.p, name)} /></div>
-        </details>
-      ))}
+          ))}
+        </div>
+      </details>
     </div>
   );
 }

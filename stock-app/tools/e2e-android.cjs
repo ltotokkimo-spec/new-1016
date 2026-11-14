@@ -1163,12 +1163,12 @@ function check(ok, name, detail = "") {
     await page.waitForTimeout(800);
   }
   await page.waitForSelector('[data-testid="consensus"]', { timeout: 10000 }).catch(() => {});
-  // 回覆比對裡看得到資料（11/14）：每一檔各份怎麼說、每份全文，點開才展開
-  const rd = await page.evaluate(() => ({ stocks: document.querySelectorAll('[data-testid="reply-stock"]').length, full: document.querySelectorAll('[data-testid="reply-full"]').length }));
-  check(rd.stocks >= 1 && rd.full >= 2, "回覆比對附上每一檔各份的看法與每份回覆全文（可收合）", JSON.stringify(rd));
+  // 回覆比對的重點表（11/14）：每檔一列，原文縮成一個收合項
+  const rd = await page.evaluate(() => ({ rows: document.querySelectorAll('[data-testid="reply-row"]').length, full: document.querySelectorAll('[data-testid="reply-full"]').length, old: document.querySelectorAll('[data-testid="reply-stock"]').length }));
+  check(rd.rows >= 1 && rd.full === 1 && rd.old === 0, "回覆比對是一張重點表（每檔一列）加一個收合的原文，沒有重複的逐檔各份說明", JSON.stringify(rd));
   await page.click('[data-testid="reply-full"] summary');
   const fullTxt = await page.$eval('[data-testid="reply-full"]', (e) => e.innerText.replace(/\s+/g, " "));
-  check(/總結：這次小幅調整/.test(fullTxt), "點開「第 1 份」看得到 Claude 回覆全文", fullTxt.slice(0, 120));
+  check(/總結：這次小幅調整/.test(fullTxt), "點開「回覆原文」看得到 Claude 回覆全文", fullTxt.slice(0, 120));
   const cons = await page.evaluate(() => ({ sum: document.querySelector('[data-testid="consensus-summary"]')?.innerText.replace(/\s+/g, " ") || "", rows: [...document.querySelectorAll('[data-testid="consensus-row"]')].map((e) => e.innerText.replace(/\s+/g, " ")) }));
   log("Claude 回覆比對", JSON.stringify(cons));
   await page.evaluate(() => document.querySelector('[data-testid="consensus"]')?.scrollIntoView());

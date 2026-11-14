@@ -973,7 +973,7 @@ function check(ok, name, detail = "") {
   await page.waitForSelector('[data-testid="quad-card"]', { timeout: 5000 });
   const quadUi = await page.evaluate(() => ({ card: document.querySelector('[data-testid="quad-card"]').innerText.replace(/\s+/g, " "), rows: document.querySelectorAll('[data-testid="quad-table"] tbody tr').length, list: document.querySelectorAll(".list .item").length, n: Number((document.querySelector('[data-testid="quad-chip"]').textContent.match(/\d+/) || ["-1"])[0]) }));
   log("四因子名單", JSON.stringify(quadUi).slice(0, 700));
-  check(/追蹤中的候選，不是正式評等/.test(quadUi.card) && /現有買入/.test(quadUi.card) && /影子 C/.test(quadUi.card) && /偏樂觀/.test(quadUi.card) && quadUi.rows === 4, "四因子說明卡：規則、三組並排的回測與追蹤表、回測偏樂觀的提醒", quadUi.card.slice(0, 200));
+  check(/追蹤中的候選，不是正式評等/.test(quadUi.card) && /現有買入/.test(quadUi.card) && /影子 C/.test(quadUi.card) && /偏樂觀/.test(quadUi.card) && quadUi.rows === 6 && /5日賣超/.test(quadUi.card), "四因子說明卡：規則、三組並排的回測與追蹤表（含外資近 5 日買超／賣超的比較）、回測偏樂觀的提醒", quadUi.card.slice(0, 200));
   check(quadUi.n > 0 && quadUi.list === Math.min(150, quadUi.n), "四因子名單列出的檔數和標籤一致", JSON.stringify({ n: quadUi.n, list: quadUi.list }));
   // 每一列要顯示四因子名次、分數和四項原始數字，而且名次由 1 開始依序排列（11/15 使用者：排列看起來不是分數）
   const quadRows = await page.$$eval(".list .item", (rs) => rs.slice(0, 40).map((r) => ({ rank: Number((r.querySelector('[data-testid="quad-rank"]')?.textContent.match(/第 (\d+) 名/) || [0, 0])[1]), info: r.querySelector('[data-testid="quad-info"]')?.textContent || "" })));

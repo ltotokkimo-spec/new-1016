@@ -30,9 +30,10 @@ export const QUAD = {
 } as const;
 type H = (typeof QUAD.horizons)[number];
 
-export interface QuadPick { code: string; name: string; rank: number; score: number; flow60: number; value20: number; vol60: number; yoy3: number }
+export interface QuadPick { code: string; name: string; rank: number; score: number; flow60: number; flow5: number; value20: number; vol60: number; yoy3: number } // flow5：外資近 5 日買賣超佔成交量（負＝賣超，只標示、不影響排名）
 export interface QuadStat { days: number; n: number; win: number; beat: number; avg: number; ex: number } // n：平均每天幾檔；ex：比當天全部股票的平均多多少
-export type QuadGroup = "old" | "c" | "quad" | "all";
+/** old 現有買入、c 影子 C、quad 四因子、all 全部股票；sell5／buy5＝四因子名單裡外資近 5 日賣超／買超的（11/15 使用者要求比較：長榮 60 日買超但近期轉賣仍排前面） */
+export type QuadGroup = "old" | "c" | "quad" | "sell5" | "buy5" | "all";
 export interface QuadResult {
   version: 1; generatedAt: number;
   asOf: string; k: number; picks: QuadPick[];
@@ -62,8 +63,10 @@ export function quadFactors(c: Ctx, code: string, j: number) {
   for (let k = j - QUAD.volDays + 1; k <= j; k++) { const a = px(k), b = px(k - 1); if (!(a > 0 && b > 0)) { rets.length = 0; break; } rets.push(a / b - 1); }
   const m = mean(rets), vol = rets.length > 1 ? Math.sqrt(rets.reduce((t, x) => t + (x - m) ** 2, 0) / (rets.length - 1)) : NaN;
   const ma0 = ma(j), ma1 = ma(j - QUAD.maLag);
+  let f5 = 0, v5 = 0;
+  for (let k = j - 4; k <= j; k++) { f5 += c.flows[k]?.get(code)?.[1] ?? 0; v5 += c.rows[k]?.get(code)?.[5] ?? 0; }
   return {
-    flow60: v > 0 ? f / v : NaN, value20: okVal ? val / QUAD.liqDays : NaN, vol60: vol,
+    flow60: v > 0 ? f / v : NaN, flow5: v5 > 0 ? f5 / v5 : NaN, value20: okVal ? val / QUAD.liqDays : NaN, vol60: vol,
     yoy3: (c.rev ? revFactors(c.rev, code, c.dates[j])?.yoy3 : undefined) ?? NaN,
     trendOk: px(j) > ma0 && ma0 > ma1,
   };
@@ -83,7 +86,7 @@ export function quadPicks(c: Ctx, j: number, base: Scored[], k: number): QuadPic
   for (const o of cand) {
     const r = ranks.map((m) => m.get(o.x.code));
     if (r.some((v) => v === undefined)) continue; // 四項都要有資料
-    out.push({ code: o.x.code, name: o.x.name, rank: 0, score: r.reduce((t: number, v, i) => t + w[i] * v!, 0), flow60: o.f.flow60, value20: o.f.value20, vol60: o.f.vol60, yoy3: o.f.yoy3 });
+    out.push({ code: o.x.code, name: o.x.name, rank: 0, score: r.reduce((t: number, v, i) => t + w[i] * v!, 0), flow60: o.f.flow60, flow5: o.f.flow5, value20: o.f.value20, vol60: o.f.vol60, yoy3: o.f.yoy3 });
   }
   out.sort((a, b) => b.score - a.score || (a.code < b.code ? -1 : 1));
   return out.slice(0, k).map((p, i) => ({ ...p, rank: i + 1 }));
@@ -102,7 +105,7 @@ export function runQuad(days: BtDay[], companies: Company[], rev: RevTable | und
     return scoreStocks(inputs.filter((x) => !isEtf(x.code)), undefined, w).scored;
   };
   const px = (code: string, k: number) => { const s = c.series.get(code); return s && k >= s.start && k - s.start < s.adj.length ? s.adj[k - s.start] : NaN; };
-  const groups: QuadGroup[] = ["old", "c", "quad", "all"];
+  const groups: QuadGroup[] = ["old", "c", "quad", "sell5", "buy5", "all"];
   type Acc = Record<QuadGroup, Record<number, { rets: number[]; beat: number[]; ex: number[]; n: number[] }>>;
   const mk = (): Acc => Object.fromEntries(groups.map((g) => [g, Object.fromEntries(QUAD.horizons.map((h) => [h, { rets: [], beat: [], ex: [], n: [] }]))])) as unknown as Acc;
   const hist = mk(), track = mk();
@@ -117,9 +120,11 @@ export function runQuad(days: BtDay[], companies: Company[], rev: RevTable | und
     const isTrack = c.dates[j] >= start, acc = isTrack ? track : hist;
     if (!isTrack) { if (!histFrom) histFrom = c.dates[j]; histTo = c.dates[j]; }
     const old = base.filter((x) => x.rating === "買入").map((x) => x.code);
+    const qp = quadPicks(c, j, base, old.length);
     const picks: Record<QuadGroup, string[]> = {
       old, c: scoredAt(j, cW).filter((x) => x.rating === "買入").map((x) => x.code),
-      quad: quadPicks(c, j, base, old.length).map((p) => p.code), all: base.map((x) => x.code),
+      quad: qp.map((p) => p.code), sell5: qp.filter((p) => p.flow5 < 0).map((p) => p.code), buy5: qp.filter((p) => p.flow5 >= 0).map((p) => p.code),
+      all: base.map((x) => x.code),
     };
     for (const h of QUAD.horizons) {
       if (j + 1 + h >= N) continue;

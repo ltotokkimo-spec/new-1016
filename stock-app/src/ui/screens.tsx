@@ -187,7 +187,7 @@ function StockRow({ s, q, turn, quad, onClick }: { s: Scored; q?: LiveQuote; tur
           {isEtf(s.code) && s.volume ? <>・量 <b class="num">{Math.round(s.volume / 1000).toLocaleString("zh-TW")}</b> 張</> : null}
           {s.market !== "US" ? <>・外資5日 <span class={cls(s.foreign5)}>{lots(s.foreign5)}</span></> : <>・相對大盤 <span class={cls(s.rsVsIndex1m)}>{fmtPct(s.rsVsIndex1m)}</span></>}
         </div>
-        {quad && <div class="sub" style={{ whiteSpace: "normal" }} data-testid="quad-info">外資60日 <span class={cls(quad.flow60)}>{(quad.flow60 * 100).toFixed(1)}%</span>・成交 <b class="num">{quad.value20 >= 1e8 ? `${(quad.value20 / 1e8).toFixed(quad.value20 >= 1e10 ? 0 : 1)} 億` : `${Math.round(quad.value20 / 1e4).toLocaleString("zh-TW")} 萬`}</b>・波動 {(quad.vol60 * 100).toFixed(1)}%・營收年增 <span class={cls(quad.yoy3)}>{fmtPct(quad.yoy3, 0)}</span></div>}
+        {quad && <div class="sub" style={{ whiteSpace: "normal" }} data-testid="quad-info">外資60日 <span class={cls(quad.flow60)}>{(quad.flow60 * 100).toFixed(1)}%</span>・近5日 <span class={cls(quad.flow5)} data-testid={quad.flow5 < 0 ? "quad-sell5" : undefined}>{quad.flow5 < 0 ? "⚠賣超 " : "買超 "}{(Math.abs(quad.flow5) * 100).toFixed(0)}%</span>・成交 <b class="num">{quad.value20 >= 1e8 ? `${(quad.value20 / 1e8).toFixed(quad.value20 >= 1e10 ? 0 : 1)} 億` : `${Math.round(quad.value20 / 1e4).toLocaleString("zh-TW")} 萬`}</b>・波動 {(quad.vol60 * 100).toFixed(1)}%・營收年增 <span class={cls(quad.yoy3)}>{fmtPct(quad.yoy3, 0)}</span></div>}
         {turn && <>
           <div class="sub" style={{ whiteSpace: "normal" }} data-testid="turn-info">離20日線 {fmtPct(turn.gap20)}・MACD {turn.turnedAgo ? `${turn.turnedAgo} 天前` : "今天"}翻正</div>
           <div class="sub" style={{ whiteSpace: "normal" }} data-testid="turn-stop">停損參考 <b class="num">{fmtPrice(turn.stop, s.market)}</b></div>
@@ -230,7 +230,7 @@ type BtGroup = "買入" | "觀望" | "離場" | "全部";
 // 剛轉強的條件說明與過去表現
 /** 四因子名單的說明與三組追蹤（11/15）：現有買入、影子 C、四因子並排；回測偏樂觀，重點看定案後的追蹤 */
 function QuadCard({ quad }: { quad: QuadResult }) {
-  const rows: [string, "old" | "c" | "quad" | "all"][] = [["現有買入", "old"], ["影子 C", "c"], ["四因子", "quad"], ["全部股票", "all"]];
+  const rows: [string, "old" | "c" | "quad" | "sell5" | "buy5" | "all"][] = [["現有買入", "old"], ["影子 C", "c"], ["四因子", "quad"], ["↳ 5日買超", "buy5"], ["↳ 5日賣超", "sell5"], ["全部股票", "all"]];
   const p0 = (x?: number) => (x === undefined || !Number.isFinite(x) ? "—" : `${Math.round(x * 100)}%`);
   const ymd = (d: string) => (d ? `${d.slice(0, 4)}/${Number(d.slice(4, 6))}/${Number(d.slice(6))}` : "—");
   const t20 = quad.track.stats.quad[20]?.days ?? 0, t5 = quad.track.stats.quad[5]?.days ?? 0;
@@ -247,7 +247,7 @@ function QuadCard({ quad }: { quad: QuadResult }) {
           <tbody>
             {rows.map(([label, g]) => { const h = quad.hist.stats[g][20], t = quad.track.stats[g][20]; return (
               <tr class={g === "quad" ? "diff" : ""}>
-                <td style={{ whiteSpace: "nowrap" }}>{g === "quad" ? <b>{label}</b> : label}</td>
+                <td style={{ whiteSpace: "nowrap", ...(g === "sell5" || g === "buy5" ? { fontSize: "12px", color: "var(--muted)" } : {}) }}>{g === "quad" ? <b>{label}</b> : label}</td>
                 <td class="num" style={td}>{p0(h?.win)}</td>
                 <td class={`num ${g === "all" ? "" : cls(h?.ex ?? 0)}`} style={td}>{g === "all" ? "—" : h ? fmtPct(h.ex, 1) : "—"}</td>
                 <td class="num" style={td}>{p0(t?.win)}</td>
@@ -258,7 +258,7 @@ function QuadCard({ quad }: { quad: QuadResult }) {
         </table>
       </div>
       <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }} data-testid="quad-note">
-        勝率＝隔天收盤買進、20 個交易日後是賺的比例；超額＝比當天全部股票的平均多多少。回測是 {ymd(quad.hist.from)}～{ymd(quad.hist.to)}，這段資料在訂規則前已經看過，數字偏樂觀，而且勝率有一大部分來自這段期間大型股領漲。
+        「↳ 5日買超／賣超」是把四因子名單依外資近 5 日方向分開看：名單用外資近 60 日排名，近期才轉賣的股票（例如長榮）仍可能排前面，這兩列比較它們之後的表現，賣超那列比較差才代表近期轉賣值得避開。勝率＝隔天收盤買進、20 個交易日後是賺的比例；超額＝比當天全部股票的平均多多少。回測是 {ymd(quad.hist.from)}～{ymd(quad.hist.to)}，這段資料在訂規則前已經看過，數字偏樂觀，而且勝率有一大部分來自這段期間大型股領漲。
         追蹤從 {prettyW(quad.track.start)} 起每個交易日算一次，{t20 > 0 ? `20 日已有 ${t20} 天` : t5 > 0 ? `20 日還沒滿、5 日已有 ${t5} 天` : "還沒有滿 5 日的結果"}；要累積到約明年 1 月中才比較得出好壞，在那之前不要只看這份名單下單。根據 {prettyW(quad.asOf)} 收盤，每天傍晚更新。
       </div>
     </div>

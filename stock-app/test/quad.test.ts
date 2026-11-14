@@ -41,6 +41,8 @@ describe("四因子選股名單（11/15：和現有買入並列、一起追蹤�
     const c = buildCtx(days, companies, rev), j = c.N - 1;
     const a = quadFactors(c, "2001", j), z = quadFactors(c, "2060", j);
     expect(a.flow60).toBeCloseTo(30000 / 1e6, 10);
+    expect(a.flow5).toBeCloseTo(30000 / 1e6, 10); // 每天買一樣多，5 日佔比和 60 日相同
+    expect(z.flow5).toBeLessThan(0);
     expect(a.value20).toBeCloseTo(2e8 + 60 * 1e7, 0);
     expect(a.vol60).toBeGreaterThan(0);
     expect(a.yoy3).toBeCloseTo(1600 / 800 - 1, 10);
@@ -71,6 +73,10 @@ describe("四因子選股名單（11/15：和現有買入並列、一起追蹤�
     expect(r.track.stats.all[5]!.days).toBeGreaterThan(r.track.stats.all[20]?.days ?? 0); // 5 日的結果比 20 日先成熟
     expect(r.hist.stats.all[20]!.ex).toBeCloseTo(0, 10); // 全部股票的超額一定是 0
     expect(runQuad(days, companies, rev, { now: 0, start: "20261001" })).toEqual(r);
+    // 外資近 5 日賣超／買超分組：兩組的檔數加起來等於四因子（這份合成資料裡入選的都是買超，賣超那組是空的）
+    const q20 = r.hist.stats.quad[20]!, b20 = r.hist.stats.buy5[20]!;
+    expect(b20.n).toBeCloseTo(q20.n, 10);
+    expect(r.hist.stats.sell5[20]?.n ?? 0).toBe(0);
     const d = runQuad(days, companies, rev, { now: 0 }); // 預設起始日在資料之後：追蹤還是空的
     expect(Object.keys(d.track.stats.quad).length).toBe(0);
     expect(d.picks.length).toBe(d.k);

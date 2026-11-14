@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buyConds, sellConds, holdConds, cashFlow, comparePlans, reconcilePhoto, emptyEtf, etfAlerts, fitBudget, groupBySector, isOffList, isOwnPrompt, looksLikePlanReply, parsePlan, planReadable, repairJson, liquidityCut, pickCandidates, tradePnls, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
+import { buyConds, sellConds, holdConds, cashFlow, comparePlans, reconcilePhoto, emptyEtf, etfAlerts, fitBudget, groupBySector, isOffList, isOwnPrompt, looksLikePlanReply, proClipboardAction, replySig, parsePlan, planReadable, repairJson, liquidityCut, pickCandidates, tradePnls, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
 
 const t = (code: string, side: "buy" | "sell", shares: number, price: number, benchPrice = 100, date = "20261017") =>
   ({ id: code + side + date, date, code, name: code, side, shares, price, benchPrice });
@@ -384,5 +384,24 @@ describe("達標離場綠燈（獲利 ≥ +10% 且跌破 5 日線）", () => {
     const withToday = [...bars, { date: "20261110", close: 114 }];
     expect(takeProfitSignal(100, 114, withToday, "20261110").hit).toBe(true);
     expect(takeProfitSignal(100, 114, bars.slice(-2), "20261110").hit).toBe(false);
+  });
+});
+
+describe("從 Claude App 回來自動載入（11/14：少按一步）", () => {
+  const body = "台積電續抱，鴻海減碼，理由如下。".repeat(8);
+  const reply = `${body}\n{"trades":[{"code":"2330","side":"buy","shares":5,"reason":"x"}]}`;
+  it("完整的回覆直接載入；同一份（已載入或略過）不再載入；換一份新的會載入", () => {
+    expect(proClipboardAction(reply, [])).toEqual({ action: "load", items: 1 });
+    expect(proClipboardAction(reply, [replySig(reply)]).action).toBe("none");
+    expect(proClipboardAction(`  ${reply}\n`, [replySig(reply)]).action).toBe("none"); // 前後空白不算不同
+    expect(proClipboardAction(reply.replace('"shares":5', '"shares":6'), [replySig(reply)]).action).toBe("load");
+  });
+  it("App 自己的提問、一般文字不載入；被截斷的回覆先問", () => {
+    expect(proClipboardAction("今天是 2026/10/21。我要用新台幣 500,000 元做一個「自組 ETF」，會照你的建議真的下單。".padEnd(300, "字"), []).action).toBe("none");
+    expect(proClipboardAction("隨便一段很長的文字".repeat(30), []).action).toBe("none");
+    const cut = `${body}\n\`\`\`json\n{"trades":[{"code":"2330","side":"buy","shares":5,"reason":"x"},{"code":"23`;
+    const r = proClipboardAction(cut, []);
+    if (looksLikePlanReply(cut).truncated) expect(r).toMatchObject({ action: "ask", truncated: true });
+    else expect(["load", "none"]).toContain(r.action);
   });
 });

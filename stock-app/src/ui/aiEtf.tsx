@@ -10,7 +10,7 @@ import type { Scored } from "../engine/score";
 import type { VirtualEtf } from "../engine/virtualEtf";
 import { twHistory } from "../data/history";
 import { buyConds, sellConds, holdConds, dailyHoldingCheck, takeProfitSignal, TAKE_PROFIT, type HoldCheck, type EtfTrade, type EtfFlow, agreePlans, comparePlans, DEFAULT_STOP, planReadable, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, proClipboardAction, replySig, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
-import { readClipboard } from "../lib/clip";
+import { onAppResume, readClipboard } from "../lib/clip";
 import { addWeekdays, orderDay, pretty, prettyW, taipeiClock, taipeiHour, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
 import { livePolling, type LiveQuote } from "../data/twLive";
@@ -314,6 +314,10 @@ const proSeen = {
   get: (): string[] => { try { const v = JSON.parse(localStorage.getItem(PRO_SEEN) ?? "[]"); return Array.isArray(v) ? v : []; } catch { return []; } },
   add: (text: string) => { try { localStorage.setItem(PRO_SEEN, JSON.stringify([...proSeen.get().filter((x) => x !== replySig(text)), replySig(text)].slice(-10))); } catch { /* 不重要 */ } },
 };
+// 剪貼簿偵測的最新狀態：顯示在「用 Claude Pro 檢視」按鈕旁邊（提示卡在頁面最上面，人通常捲在下面看不到）
+let proStatusText = "";
+const setProStatus = (t: string) => { proStatusText = t ? `${new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })} ${t}` : ""; window.dispatchEvent(new Event("pro-status")); };
+const scrollToPro = () => setTimeout(() => (document.querySelector('[data-testid="pro-loaded"], [data-testid="pro-found"]') as HTMLElement | null)?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
 let proChecking = false; // 正在等焦點／讀剪貼簿：不要同時跑兩次
 let proLoading = false; // 回到前景會同時觸發 focus 和 visibilitychange：避免同一份回覆載入兩次
 
@@ -334,6 +338,8 @@ function ProResume() {
       setMsg(truncated
         ? "⚠ 已載入，但這段回覆不完整（複製時被截斷，或 Claude 沒寫完），只讀得到前面的部分。建議回 Claude App 按回覆下方的「複製」重新複製整段，再貼一次。"
         : `${auto ? "已自動載入" : "已載入"} Claude 的建議（${items ? `${items} 筆買賣` : "維持不變"}），往下看整理好的結果${items ? "與填成交表單" : ""}。`);
+      setProStatus(`${auto ? "已自動載入" : "已載入"} Claude 的回覆（${items ? `${items} 筆買賣` : "維持不變"}），已捲到頁面最上面的整理結果。`);
+      scrollToPro(); // 提示與整理結果在頁面最上面，按鈕在很下面：載入後自動捲上去
     } finally { proLoading = false; setBusy(false); }
   };
   const check = async () => {
@@ -342,11 +348,19 @@ function ProResume() {
     if (proChecking) return;
     proChecking = true;
     try {
+      setProStatus("正在讀剪貼簿…");
       const text = await readClipboard(true);
       const r = proClipboardAction(text, proSeen.get());
       if (r.action === "load") await load(text, r.items, false, true);
-      else if (r.action === "ask") { setFound({ text, items: r.items, truncated: true }); setMsg(""); }
-    } catch { /* 沒有權限或畫面還沒回到前景：用下面的按鈕，按下去就有權限 */ }
+      else if (r.action === "ask") { setFound({ text, items: r.items, truncated: true }); setMsg(""); setProStatus("剪貼簿裡的回覆不完整（被截斷），請看頁面最上面的提示。"); scrollToPro(); }
+      else {
+        const t = text.trim();
+        setProStatus(!t ? "剪貼簿是空的。請在 Claude 按回覆下方的「複製」再切回來。"
+          : isOwnPrompt(t) || t.slice(0, 80).includes("我要用新台幣") ? "剪貼簿裡還是金雷達的提問。請在 Claude 按「回覆」下方的「複製」（不是複製提問）再切回來。"
+          : proSeen.get().includes(replySig(t)) ? "剪貼簿裡是已經載入過的那份回覆，沒有重複載入。"
+          : `剪貼簿有 ${t.length} 個字，但不像 Claude 的建議回覆（找不到最後的 JSON 買賣清單）。可以貼到下面的輸入框手動儲存。`);
+      }
+    } catch (e) { setProStatus(`讀不到剪貼簿（${String((e as Error)?.message ?? e).slice(0, 60)}）。請用下面的輸入框手動貼上。`); }
     finally { proChecking = false; }
   };
   useEffect(() => {
@@ -354,7 +368,8 @@ function ProResume() {
     const on = () => { if (document.visibilityState === "visible") check(); };
     document.addEventListener("visibilitychange", on);
     window.addEventListener("focus", on);
-    return () => { document.removeEventListener("visibilitychange", on); window.removeEventListener("focus", on); };
+    const offResume = onAppResume(() => { void check(); }); // 手機 App：原生的「回到前景」通知
+    return () => { document.removeEventListener("visibilitychange", on); window.removeEventListener("focus", on); offResume(); };
   }, []);
   const pasteAndLoad = async () => {
     try {
@@ -395,6 +410,8 @@ function ProReview({ disabled, review }: { disabled: boolean; review: boolean })
   const [copied, setCopied] = useState<"" | "ok" | "fail">("");
   const [text, setText] = useState("");
   const [err, setErr] = useState("");
+  const [status, setStatus] = useState(proStatusText);
+  useEffect(() => { const on = () => setStatus(proStatusText); window.addEventListener("pro-status", on); return () => window.removeEventListener("pro-status", on); }, []);
   const prompt = disabled ? "" : aiEtfPrompt(etfAdviceInput(), true);
   const PROMPT_MSG = "⚠ 這是 App 送給 Claude 的提問，不是 Claude 的回覆。按「在 Claude App 檢視調整」時剪貼簿會被換成提問，所以要先到 Claude 那邊（Claude App 或正在對話的視窗）長按「它的回覆」→ 複製，再回來貼上。";
   const onText = (v: string) => { setText(v); setErr(isOwnPrompt(v) ? PROMPT_MSG : ""); };
@@ -416,14 +433,15 @@ function ProReview({ disabled, review }: { disabled: boolean; review: boolean })
         <li>按下面的按鈕，會自動複製提問並打開 Claude App。</li>
         <li>在 Claude App 的輸入框<b>貼上並送出</b>，等它回答完。</li>
         <li>按回覆<b>下方的「複製」圖示</b>（複製整段回覆；不用全選整個對話）。</li>
-        <li>回到這個 App，會<b>自動載入並整理</b>（不用再按）；沒有自動載入時，按最上面的「貼上 Claude 的回覆並載入」。</li>
+        <li>切回這個 App，會<b>自動載入並整理</b>，畫面會自動捲到最上面的整理結果（不用再按、不用貼）。按鈕下方的「自動偵測」會寫出這次讀到什麼；沒有自動載入時再用下面的輸入框手動貼上。</li>
       </ol>
       <a class="btn secondary block" aria-disabled={disabled} href={prompt ? claudeAppUrl(prompt) : undefined} target="_blank" rel="noreferrer"
-        onClick={() => { if (prompt) { proFlag.set(); copyText(prompt, (ok) => setCopied(ok ? "ok" : "fail")); } }} data-testid="pro-open">
+        onClick={() => { if (prompt) { proFlag.set(); setProStatus("已按下按鈕，等你從 Claude 複製回覆後切回來。"); copyText(prompt, (ok) => setCopied(ok ? "ok" : "fail")); } }} data-testid="pro-open">
         在 Claude App {review ? "檢視調整" : "建議建倉"}
       </a>
       {copied === "ok" && <div class="muted" style={{ fontSize: "12px" }} data-testid="pro-copied">已複製提問。Claude 沒有自動帶入的話，在輸入框長按「貼上」再送出。</div>}
       {copied === "fail" && <div class="muted" style={{ fontSize: "12px" }}>沒辦法自動複製提問，請再按一次。</div>}
+      {status && <div class="notice" style={{ fontSize: "12.5px" }} data-testid="pro-status">自動偵測：{status}</div>}
       <label class="field">偵測不到時，手動貼上 Claude 的回覆
         <textarea rows={4} value={text} onInput={(e) => onText((e.target as HTMLTextAreaElement).value)} placeholder="在 Claude App 長按回覆 →「複製」，再貼到這裡" data-testid="pro-text" />
       </label>

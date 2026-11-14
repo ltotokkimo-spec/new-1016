@@ -1,7 +1,7 @@
 // 剪貼簿讀取：手機 App 用原生外掛（網頁的 readText 在內嵌網頁裡沒按按鈕會被拒絕），瀏覽器用網頁 API。
-import { Capacitor, registerPlugin } from "@capacitor/core";
+import { Capacitor, registerPlugin, type Plugin } from "@capacitor/core";
 
-interface ClipNative {
+interface ClipNative extends Plugin {
   has(): Promise<{ has: boolean }>;
   read(): Promise<{ text: string }>;
   write(o: { text: string }): Promise<void>;
@@ -23,6 +23,14 @@ export async function readClipboard(waitFocus = false): Promise<string> {
     return (await Clip.read()).text; // 沒等到焦點也試一次（舊版 Android 不需要焦點）
   }
   return await navigator.clipboard.readText();
+}
+
+/** App 從背景回到前景時呼叫 cb（手機 App 才有；回傳取消的函式） */
+export function onAppResume(cb: () => void): () => void {
+  if (!Capacitor.isNativePlatform()) return () => {};
+  let off = false, handle: { remove: () => Promise<void> } | undefined;
+  Clip.addListener("resume", cb).then((h) => { if (off) void h.remove(); else handle = h; }, () => {});
+  return () => { off = true; void handle?.remove(); };
 }
 
 // 自動測試用：把文字放進手機的系統剪貼簿，模擬「在 Claude App 按了複製」

@@ -21,6 +21,13 @@ public class ClipPlugin extends Plugin {
         return (ClipboardManager) getContext().getSystemService(Context.CLIPBOARD_SERVICE);
     }
 
+    /** App 從背景回到前景：通知網頁端（不靠網頁自己的 visibilitychange，那個在有些手機上不一定會觸發） */
+    @Override
+    protected void handleOnResume() {
+        super.handleOnResume();
+        notifyListeners("resume", new JSObject());
+    }
+
     @PluginMethod
     public void has(PluginCall call) {
         getActivity().runOnUiThread(() -> {

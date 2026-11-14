@@ -1113,7 +1113,7 @@ function check(ok, name, detail = "") {
   check(/不是 Claude 的回覆/.test(promptErr) && saveOff, "貼上送給 Claude 的提問會立刻提醒、不能儲存", promptErr.slice(0, 60));
   await page.click('[data-testid="pro-clear"]');
   // 貼回 2 份 Claude App 回覆（11/12）：比對表每檔一列、每份一欄、最後是結論；兩份都買台積電才列入下單，只出現一次的、信心低的先不做
-  let autoTried = false;
+  let autoTried = false, resumeTried = false;
   const reply = (j) => "總結：這次小幅調整，以下是建議與理由（測試用回覆，內容只供比對表檢查）。\n```json\n" + JSON.stringify(j) + "\n```";
   for (const j of [{ trades: [{ code: "2330", side: "buy", shares: 10, conf: "高", reason: "核心" }, { code: "2317", side: "buy", shares: 50, conf: "中", reason: "AI 伺服器" }] },
                    { trades: [{ code: "2330", side: "buy", shares: 8, conf: "中", reason: "核心" }, { code: "2454", side: "buy", shares: 5, conf: "低", reason: "觀察" }] }]) {
@@ -1136,6 +1136,25 @@ function check(ok, name, detail = "") {
       if (again) await page.click("text=不用了");
       await page.evaluate(() => localStorage.removeItem("proPending"));
       if (/已自動載入/.test(auto)) continue;
+    }
+    if (!resumeTried) {
+      // 第二份走「真的切出去再切回來」（11/14 使用者回報兩版都沒作用）：回覆放進系統剪貼簿、只設旗標不送任何網頁事件，
+      // 按 HOME 回桌面再把 App 叫回前景；要自動載入、畫面要自動捲到最上面的提示、按鈕旁的「自動偵測」要寫出結果
+      resumeTried = true;
+      await page.evaluate((t) => window.__srClipWrite(t), reply(j));
+      await page.evaluate(() => { localStorage.setItem("proPending", String(Date.now())); document.querySelector('[data-testid="pro-review"]')?.scrollIntoView({ block: "center" }); });
+      await page.waitForTimeout(500);
+      await device.shell("input keyevent 3");
+      await sleep(2500);
+      await device.shell(`am start -n ${PKG}/.MainActivity`);
+      const loaded2 = await page.waitForFunction(() => !localStorage.getItem("proPending") && JSON.parse(localStorage.getItem("proSeen") || "[]").length >= 2, null, { timeout: 15000 }).then(() => true).catch(() => false);
+      await page.waitForTimeout(1500);
+      const st2 = await page.evaluate(() => ({ status: document.querySelector('[data-testid="pro-status"]')?.innerText || "", msgTop: Math.round(document.querySelector('[data-testid="pro-loaded"]')?.getBoundingClientRect().top ?? -9999), h: innerHeight, seen: localStorage.getItem("proSeen"), flag: localStorage.getItem("proPending") }));
+      log("切出去再切回來的自動載入", JSON.stringify(st2));
+      check(loaded2 && /已自動載入 Claude 的回覆（2 筆買賣）/.test(st2.status), "真的切到桌面再切回金雷達：不按任何按鈕就自動載入剪貼簿的 Claude 回覆，按鈕旁寫出偵測結果", JSON.stringify(st2));
+      check(st2.msgTop >= 0 && st2.msgTop < st2.h, "自動載入後畫面自動捲到最上面的「已自動載入」提示（人在頁面下方也看得到）", JSON.stringify(st2));
+      await shot("05c1-切回來自動載入");
+      if (loaded2) continue;
     }
     await page.fill('[data-testid="pro-text"]', reply(j));
     await page.click('[data-testid="pro-save"]');

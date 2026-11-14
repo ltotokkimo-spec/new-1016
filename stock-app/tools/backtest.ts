@@ -9,6 +9,7 @@ import { formatFactors, runFactors } from "../src/engine/factors";
 import { formatCompare, runScoreCompare } from "../src/engine/scoreCompare";
 import { AI_CODES, aiTargets, buildCtx, formatSteady, runSteady } from "../src/engine/steady";
 import { runWatch, WATCH } from "../src/engine/watch";
+import { knownYm, parseRevHtml, prevYm, revTable, type RevEntry, type RevTable } from "../src/engine/revHist";
 import { adjustedSeries, indicators } from "../src/engine/turning";
 import { addDays, taipeiToday, usLatestSession, weekdaysBack } from "../src/lib/dates";
 import { buildTwInputs } from "../src/data/twLoader";
@@ -19,7 +20,7 @@ import { appendPicks, applyFinal, assertAppendOnly, assertFinalAppendOnly, BOOK_
 import { UsLoader } from "../src/data/usLoader";
 import type { KV } from "../src/lib/kv";
 
-const [cacheDir = ".bt-cache", outFile = "backtest.json", factorsFile = "factors.json", compareFile = "scorecompare.json", steadyFile = "steady.json", watchFile = "n5.json", wideFile = "wide.json", regimeFile = "regime.json", leadFile = "lead.json", aiFile = "ai.json", realFile = "real.json", turnFile = "turn.json"] = process.argv.slice(2);
+const [cacheDir = ".bt-cache", outFile = "backtest.json", factorsFile = "factors.json", compareFile = "scorecompare.json", steadyFile = "steady.json", watchFile = "n5.json", wideFile = "wide.json", regimeFile = "regime.json", leadFile = "lead.json", aiFile = "ai.json", realFile = "real.json", turnFile = "turn.json", dualFile = "dual.json"] = process.argv.slice(2);
 fs.mkdirSync(cacheDir, { recursive: true });
 
 const fileKV = (dir: string): KV => {
@@ -184,9 +185,53 @@ try {
   fs.writeFileSync(compareFile, JSON.stringify(cr));
   for (const line of formatCompare(cr)) log(line);
 } catch (e) { log("評分對照失敗（不影響回測）：", e); }
+// 歷史月營收（雙引擎的成長組用，使用者 11/14 同意上線）：公開資訊觀測站每月一頁（Big5），已公布滿一段時間的月份存快取。
+// 下載失敗不影響其他回測：少了營收，雙引擎的成長組那一半會先放現金，說明裡會寫。
+let rev: RevTable | undefined;
+try {
+  const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
+  const dec = new TextDecoder("big5");
+  const latestYm = knownYm(days[0].date), firstYm = prevYm(days[days.length - 1].date.slice(0, 6), 8);
+  const todayYmd = taipeiToday();
+  const months: { ym: string; rows: RevEntry[] }[] = [];
+  let hit = 0, got = 0, bad = 0;
+  for (let ym = firstYm; ym <= latestYm; ym = prevYm(ym, -1)) {
+    for (const mk of ["sii", "otc"] as const) {
+      const file = path.join(cacheDir, `rev-${mk}-${ym}.json`);
+      let rows: RevEntry[] | undefined;
+      try { rows = JSON.parse(fs.readFileSync(file, "utf8")); hit++; } catch { /* 沒有快取 */ }
+      if (!rows) {
+        const roc = `${Number(ym.slice(0, 4)) - 1911}_${Number(ym.slice(4))}`;
+        for (const host of ["mopsov.twse.com.tw", "mops.twse.com.tw"]) {
+          try {
+            requests++;
+            const r = await fetch(`https://${host}/nas/t21/${mk}/t21sc03_${roc}_0.html`, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(40_000) });
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            const parsed = parseRevHtml(dec.decode(await r.arrayBuffer()));
+            if (parsed.length < 300) throw new Error(`只解析到 ${parsed.length} 家`);
+            rows = parsed;
+            break;
+          } catch (e) { log(`月營收 ${mk} ${ym}（${host}）下載失敗：${String(e).slice(0, 100)}`); }
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+        await new Promise((r) => setTimeout(r, 1500));
+        if (rows) {
+          got++;
+          // 公布月（下個月）15 日以後才存快取：10 日的期限前後還有公司陸續補申報
+          if (todayYmd >= `${prevYm(ym, -1)}15`) fs.writeFileSync(file, JSON.stringify(rows));
+        } else bad++;
+      }
+      if (rows) months.push({ ym, rows });
+    }
+  }
+  rev = revTable(months);
+  const chk = rev.get(latestYm)?.get("2330");
+  log(`歷史月營收：${firstYm}～${latestYm}，快取 ${hit}、下載 ${got}、失敗 ${bad}；最新月份家數 ${rev.get(latestYm)?.size ?? 0}；台積電 ${latestYm} 營收 ${chk?.rev ?? "無"}（千元）、去年同月 ${chk?.lastYear ?? "無"}`);
+  if (!(rev.get(latestYm)?.size! > 1000)) { log("最新月份的營收家數太少，雙引擎的成長組這次不選股"); rev = undefined; }
+} catch (e) { log("歷史月營收下載失敗（雙引擎的成長組先放現金）：", e); rev = undefined; }
 // 穩健選股（研究用）：逐日模擬組合，和現行買入、0050 比較；失敗也不能讓回測失敗
 try {
-  const sr = runSteady(days, companies);
+  const sr = runSteady(days, companies, { rev });
   fs.writeFileSync(steadyFile, JSON.stringify(sr));
   for (const line of formatSteady(sr)) log(line);
   // AI 清單檢查：最新資料日有行情的檔數，與依市值配置的權重（確認代號都對得上）
@@ -245,6 +290,16 @@ try {
   log(`剛轉強觀察組合：${w.start} 起，資料日 ${w.asOf || "（尚未開始）"}，成交 ${w.trades.length} 筆，淨值 ${w.nav.at(-1)?.nav ?? WATCH.budget}（0050 對照 ${w.nav.at(-1)?.bench ?? WATCH.budget}）`);
   log("剛轉強最後說明：", w.notes.at(-1)?.text);
 } catch (e) { log("剛轉強觀察組合失敗（不影響回測）：", e); }
+// 雙引擎觀察組合（使用者 11/14 同意上線）：成長組五成（營收年增＋營收創高＋外資買超）＋低波動方案 A 五成；11/13 起算（規則定案前最後一個資料日）
+try {
+  const w = runWatch(days, companies, { mode: "dual", rev });
+  fs.writeFileSync(dualFile, JSON.stringify(w));
+  log(`雙引擎觀察組合：${w.start} 起，資料日 ${w.asOf || "（尚未開始）"}，成交 ${w.trades.length} 筆，淨值 ${w.nav.at(-1)?.nav ?? WATCH.budget}（0050 對照 ${w.nav.at(-1)?.bench ?? WATCH.budget}），明天委託 ${w.pending.length} 筆`);
+  log("雙引擎最後說明：", w.notes.at(-1)?.text);
+  const trial = runWatch(days, companies, { mode: "dual", rev, start: days[Math.min(days.length - 1, 30)].date });
+  const tv = trial.nav.at(-1);
+  log(`雙引擎試跑（${trial.start} 起，不發布）：成交 ${trial.trades.length} 筆，淨值 ${tv?.nav}（${tv ? ((tv.nav / trial.budget - 1) * 100).toFixed(2) : "—"}%）0050 對照 ${tv?.bench}（${tv ? ((tv.bench / trial.budget - 1) * 100).toFixed(2) : "—"}%）`);
+} catch (e) { log("雙引擎觀察組合失敗（不影響回測）：", e); }
 // 實單規則觀察組合（使用者 11/03 要求：「我的實單」的選股規則沒比較過，和其他組同一天 10/23 起算同場比）
 try {
   const w = runWatch(days, companies, { mode: "real" });

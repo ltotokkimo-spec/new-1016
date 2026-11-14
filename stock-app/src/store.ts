@@ -44,6 +44,7 @@ export const picksCsvUrl = (b: PickBook) => RADAR_DATA + BOOK_INFO[b].files.csv;
 export interface ExFile { version: 1; asOf: string; from: string; source: string; ev: ExMap }
 export type PicksPerfEntry = { data: PickPerfFile; fetchedAt: number; error?: string };
 const ppKey = (b: PickBook) => (b === "TW" ? "picksPerf" : `picksPerf:${b}`); // 台股沿用 1.0.283 的鍵
+export const DUAL_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/dual.json"; // 雙引擎觀察組合（11/14）
 export const TURN_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/turn.json"; // 剛轉強觀察組合
 export const RULE_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/real.json"; // 實單規則觀察組合（「我的實單」的選股規則）
 export const LEAD_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/lead.json"; // 權值強化觀察組合
@@ -114,6 +115,7 @@ export interface State {
   ai?: { data: VirtualEtf; fetchedAt: number; error?: string };
   rule?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 實單規則觀察組合
   turn?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 剛轉強觀察組合
+  dual?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 雙引擎觀察組合（成長組＋低波動組）
   picksPerf: Partial<Record<PickBook, PicksPerfEntry>>; // 推薦績效追蹤（台股、ETF、美股）
   exdiv?: { data: ExFile; fetchedAt: number }; // 除權息事件（雲端每天整理）：評分還原除權息、ETF 配息資訊
   activeEtf?: { data: ActiveEtfData; fetchedAt: number; error?: string; liveAt?: number; liveProgress?: { done: number; total: number }; liveFound?: number; liveHoldings?: { code: string; name: string; date: string; shares: Record<string, number> }[] };
@@ -213,6 +215,8 @@ async function initInner() {
   if (rule0) set({ rule: rule0 });
   const turn0 = await kv.get<State["turn"]>("turn");
   if (turn0) set({ turn: turn0 });
+  const dual0 = await kv.get<State["dual"]>("dual");
+  if (dual0) set({ dual: dual0 });
   for (const b of ["TW", "ETF", "US"] as PickBook[]) {
     const pp0 = await kv.get<PicksPerfEntry>(ppKey(b));
     if (pp0) set({ picksPerf: { ...state.picksPerf, [b]: pp0 } });
@@ -783,6 +787,19 @@ export async function refreshTurn() {
   } catch {
     if (state.turn) set({ turn: { ...state.turn, error: "這次沒下載到最新資料，顯示上次的內容" } });
     else set({ turn: undefined });
+  }
+}
+
+export async function refreshDual() {
+  try {
+    const data = (await fetchData(DUAL_URL)) as VirtualEtf;
+    if (data?.version !== 1 || !Array.isArray(data.trades)) throw new Error("格式不對");
+    const v = { data, fetchedAt: Date.now() };
+    await kv.set("dual", v);
+    set({ dual: v });
+  } catch {
+    if (state.dual) set({ dual: { ...state.dual, error: "這次沒下載到最新資料，顯示上次的內容" } });
+    else set({ dual: undefined });
   }
 }
 

@@ -8,6 +8,7 @@ import type { BtDay } from "./backtest";
 import { scoreStocks } from "./score";
 import { adjustedSeries, indicators, type Indicators } from "./turning";
 import { liquidityCut, pickCandidates } from "./aiEtf";
+import { revFactors, type RevTable } from "./revHist";
 
 /**
  * 「我的實單」的選股規則（使用者 11/03 要求和其他組比較）：和 App「請 Claude 建議」用同一份候選清單，
@@ -118,6 +119,7 @@ export interface Ctx {
   sector: Map<string, string>;
   capital: Map<string, number>; // 實收資本額（元）
   flows: Map<string, [string, number, number, number]>[]; // 舊到新：代號 → [代號, 外資, 投信, 自營]（股）
+  rev?: RevTable; // 歷史月營收（雙引擎的成長組用；沒有就不選成長股）
 }
 
 const px = (s: Series | undefined, j: number) => (s && j >= s.start && j - s.start < s.adj.length ? s.adj[j - s.start] : NaN);
@@ -187,7 +189,7 @@ export function inverseVolWeights(vols: number[], maxW: number): number[] {
 }
 
 
-export function buildCtx(days: BtDay[], companies: Company[]): Ctx {
+export function buildCtx(days: BtDay[], companies: Company[], rev?: RevTable): Ctx {
   const old = [...days].reverse();
   return {
     N: days.length, dates: old.map((d) => d.date), series: adjustedSeries(days),
@@ -195,6 +197,7 @@ export function buildCtx(days: BtDay[], companies: Company[]): Ctx {
     sector: new Map(companies.map((x) => [x.code, x.industry || "其他"])),
     capital: new Map(companies.filter((x) => (x.capital ?? 0) > 0).map((x) => [x.code, x.capital!])),
     flows: old.map((d) => new Map((d.flows ?? []).map((r) => [r[0], r]))),
+    rev,
   };
 }
 
@@ -275,6 +278,78 @@ export function wideTargets(c: Ctx, j: number, held: ReadonlySet<string>): Map<s
   }));
 }
 
+
+/**
+ * 「雙引擎」（使用者 11/14 同意上線觀察）：一半「成長組」＋一半「低波動組」（方案 A）。
+ * 研究（2025/6～2026/11，本機用同一份回測資料）發現兩種風格輪流有效：前段（～2026/4）營收成長股大漲、低波動股落後，
+ * 後段相反；單獨用任何一種，總有一段大輸 0050，各放一半則兩段的報酬與回檔都贏 0050。
+ * ⚠️ 這個「各半」的組合是看完全部資料後才組出來的（成長組單獨在驗證期是失敗的），回測數字偏樂觀，要靠上線後的實際觀察。
+ * 成長組：20 日平均成交金額 ≥ 5 億的普通股，依「近 3 個月營收年增率、月營收創近 12 個月新高、外資近 60 日買超佔成交量」
+ * 三項排名平均取前 20 檔（已持有的排名在前 40 內就續抱、單一產業最多 6 檔），依市值平方根配置、單檔上限 25%，每 20 個交易日調整。
+ */
+export const GROWTH = { minValue: 5e8, top: 20, keep: 40, perSector: 6, maxWeight: 0.25, flowDays: 60, minHistory: 125, every: 20 } as const;
+export const DUAL = { growth: 0.5, steady: 0.5, every: 5, band: 0.005, start: "20261113" } as const;
+
+/** 橫斷面排名百分位（0～1，越大越好）；不是數字的不給 */
+function pctRank(codes: string[], vals: number[]): Map<string, number> {
+  const idx = codes.map((_, i) => i).filter((i) => Number.isFinite(vals[i])).sort((a, b) => vals[a] - vals[b]);
+  const out = new Map<string, number>();
+  idx.forEach((i, r) => out.set(codes[i], idx.length > 1 ? r / (idx.length - 1) : 0.5));
+  return out;
+}
+export interface GrowthPick { code: string; weight: number; score: number; yoy3: number; newHigh: boolean; flow: number }
+/** 成長組在第 j 天收盤後的選股（權重合計 1；沒有營收資料就回傳空的）。held：成長組目前持有的代號（續抱緩衝用） */
+export function growthPicks(c: Ctx, j: number, held: ReadonlySet<string> = new Set()): GrowthPick[] {
+  if (!c.rev || j < GROWTH.minHistory) return [];
+  const uni: string[] = [];
+  for (const [code, row] of c.rows[j]) {
+    if (!isCommonStock(code) || !(row[2] > 0)) continue;
+    let t = 0, ok = true;
+    for (let k = j - 19; k <= j; k++) { const r = c.rows[k]?.get(code); if (!r) { ok = false; break; } t += r[4]; }
+    if (!ok || !(t / 20 >= GROWTH.minValue)) continue;
+    if (!(px(c.series.get(code), j - GROWTH.minHistory) > 0)) continue; // 至少半年的行情
+    uni.push(code);
+  }
+  const rf = uni.map((code) => revFactors(c.rev!, code, c.dates[j]));
+  const flow = uni.map((code) => {
+    let f = 0, v = 0;
+    for (let k = j - GROWTH.flowDays + 1; k <= j; k++) { f += c.flows[k]?.get(code)?.[1] ?? 0; v += c.rows[k]?.get(code)?.[5] ?? 0; }
+    return v > 0 ? f / v : NaN;
+  });
+  const ranks = [pctRank(uni, rf.map((x) => x?.yoy3 ?? NaN)), pctRank(uni, rf.map((x) => x?.newHigh ?? NaN)), pctRank(uni, flow)];
+  const scored: { i: number; code: string; score: number }[] = [];
+  uni.forEach((code, i) => {
+    const r = ranks.map((m) => m.get(code));
+    if (r.every((x) => x !== undefined)) scored.push({ i, code, score: (r[0]! + r[1]! + r[2]!) / 3 }); // 三項都要有資料
+  });
+  scored.sort((a, b) => b.score - a.score || (a.code < b.code ? -1 : 1));
+  const per = new Map<string, number>(), chosen: typeof scored = [];
+  const take = (x: (typeof scored)[number]) => {
+    const sec = c.sector.get(x.code) ?? "其他";
+    if ((per.get(sec) ?? 0) >= GROWTH.perSector) return;
+    per.set(sec, (per.get(sec) ?? 0) + 1); chosen.push(x);
+  };
+  scored.forEach((x, rank) => { if (chosen.length < GROWTH.top && held.has(x.code) && rank < GROWTH.keep) take(x); }); // 已持有且還在前 40 名：續抱
+  for (const x of scored) { if (chosen.length >= GROWTH.top) break; if (!chosen.includes(x)) take(x); }
+  if (!chosen.length) return [];
+  const raw = chosen.map((x) => Math.sqrt(Math.max(0, (c.capital.get(x.code) ?? 0) * (c.rows[j].get(x.code)?.[2] ?? 0))));
+  const tot = raw.reduce((a, b) => a + b, 0);
+  const w = capWeights(tot > 0 ? raw.map((x) => x / tot) : raw.map(() => 1 / raw.length), GROWTH.maxWeight);
+  return chosen.map((x, k) => ({ code: x.code, weight: w[k], score: x.score, yoy3: rf[x.i]!.yoy3, newHigh: rf[x.i]!.newHigh === 1, flow: flow[x.i] }));
+}
+/** 回測用：雙引擎（成長 wG＋低波動 wA＋0050 wCore）。每 5 個交易日呼叫一次；成長組每 4 次（20 個交易日）才重選 */
+export function dualPicker(c: Ctx, wG: number, wA: number, wCore = 0): Picker {
+  let last: GrowthPick[] | null = null, n = 0;
+  return (j) => {
+    if (!last || n % (GROWTH.every / DUAL.every) === 0) last = growthPicks(c, j, new Set((last ?? []).map((x) => x.code)));
+    n++;
+    const m = new Map<string, number>();
+    for (const x of last) m.set(x.code, (m.get(x.code) ?? 0) + x.weight * wG);
+    if (wA) for (const [k, v] of aPicks(c, j)) m.set(k, (m.get(k) ?? 0) + v * wA);
+    if (wCore) m.set(BENCH, (m.get(BENCH) ?? 0) + wCore);
+    return m;
+  };
+}
 
 export interface LeadOpts { universe?: number; tilts?: boolean; trend?: "cash" | "shift" | "off" }
 /** 單檔上限：超過的部分依比例分給其他檔（總和不變） */
@@ -594,8 +669,8 @@ function stats(key: string, label: string, c: Ctx, j0: number, sim: ReturnType<t
 }
 
 /** days：新到舊、連續的交易日（和 runBacktest 一樣） */
-export function runSteady(days: BtDay[], companies: Company[], opts: { now?: number } = {}): SteadyResult {
-  const c = buildCtx(days, companies), N = c.N;
+export function runSteady(days: BtDay[], companies: Company[], opts: { now?: number; rev?: RevTable } = {}): SteadyResult {
+  const c = buildCtx(days, companies, opts.rev), N = c.N;
   const j0 = Math.max(STEADY.lookback + 25, 100);
   if (N < j0 + 30) throw new Error(`交易日太少（${N}），至少要 ${j0 + 30} 天`);
   const benchS = c.series.get(BENCH);
@@ -784,6 +859,14 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
   add("U2_realDaily", "U2 實單規則改成每天微調（差距 <0.5% 不動，其餘同 U1）", (j) => realTargets(days, companies, c, j), { every: 1, band: STEADY.wideBand, costStop: REAL.stop });
   add("U3_realDailyFull", "U3 實單規則每天完全照目標換（不留差距，看手續費拖累）", (j) => realTargets(days, companies, c, j), { every: 1, costStop: REAL.stop });
   add("N7_half0050_rs", "N7 0050 五成＋相對強度五成（月換）", mix(hold0050, 0.5, bigRs), { every: 20 });
+  // 雙引擎（使用者 11/14 同意上線觀察）：有歷史月營收才算。成長組單獨、各半（上線版）、成長 3 低波 7、三分（含 0050）
+  if (c.rev) {
+    const dOpt = { every: DUAL.every, band: DUAL.band };
+    add("G1_growth", "G1 成長組單獨（營收年增＋營收創高＋外資買超，前 20 檔，月調）", dualPicker(c, 1, 0), dOpt);
+    add("D1_dual", "D1 雙引擎（成長組五成＋低波動方案 A 五成）", dualPicker(c, DUAL.growth, DUAL.steady), dOpt);
+    add("D2_dual37", "D2 雙引擎偏穩（成長三成＋低波動七成）", dualPicker(c, 0.3, 0.7), dOpt);
+    add("D3_third", "D3 三分（0050、成長、低波動各三分之一）", dualPicker(c, 1 / 3, 1 / 3, 1 / 3), dOpt);
+  }
   out.push(stats("0050", "買進持有 0050", c, j0, benchSim, benchSim.eq));
 
   const last = N - 1;

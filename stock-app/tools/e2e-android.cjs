@@ -939,7 +939,23 @@ function check(ok, name, detail = "") {
   log("剛轉強觀察組合", String(turnTxt).slice(0, 260));
   check(/剛轉強觀察組合/.test(turnTxt) && /虛擬資金 50\.0 萬/.test(turnTxt) && /滿 20 個交易日後/.test(turnTxt), "剛轉強觀察組合顯示（虛擬 50 萬、出場規則說明）", String(turnTxt).slice(0, 200));
   await shot("05d4-剛轉強觀察組合");
-  // 9 個模式按鈕排成三列（每列 4 個），文字不能被擠成直排
+  // 雙引擎觀察組合（11/14 新增）：成長組＋低波動組各半；dual.json 由同一次推送的回測產生，還沒上傳完就等一下
+  await page.click('[data-testid="mode-dual"]');
+  // 第一次要下載 2 年多的月營收，回測可能比 App 打包晚幾分鐘發布：每 30 秒重新進這個分頁一次（重新下載），最多等 8 分鐘
+  let dualTxt = "";
+  for (let i = 0; i < 16; i++) {
+    dualTxt = await page.$eval('[data-testid="virtual-view"], body', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
+    if (/雙引擎觀察組合（成長組/.test(dualTxt) && /虛擬資金 50\.0 萬/.test(dualTxt)) break;
+    await page.waitForTimeout(30000);
+    await page.click('[data-testid="mode-compare"]');
+    await page.click('[data-testid="mode-dual"]');
+    await page.waitForTimeout(3000);
+  }
+  log("雙引擎觀察組合", String(dualTxt).slice(0, 400));
+  check(/雙引擎觀察組合/.test(dualTxt) && /虛擬資金 50\.0 萬/.test(dualTxt) && /成長組（五成）/.test(dualTxt) && /低波動組（五成）/.test(dualTxt) && /回測偏樂觀/.test(dualTxt), "雙引擎觀察組合顯示（虛擬 50 萬、兩組規則說明、回測偏樂觀的提醒）", String(dualTxt).slice(0, 200));
+  check(/成長組(重新選股|沿用上次選股)/.test(dualTxt) && !/沒有下載到月營收資料/.test(dualTxt), "雙引擎的每日說明列出成長組選股（月營收資料有下載到）", String(dualTxt).slice(-300));
+  await shot("05d5-雙引擎觀察組合");
+  // 模式按鈕排成三列（每列 4 個），文字不能被擠成直排
   const segRows = await page.$$eval('[data-testid^="mode-"]', (bs) => ({ tops: [...new Set(bs.map((b) => Math.round(b.getBoundingClientRect().top)))].length, maxH: Math.max(...bs.map((b) => b.getBoundingClientRect().height)) }));
   check(segRows.tops === 3 && segRows.maxH < 60, "自組ETF 模式按鈕排成三列、文字不擠成直排", JSON.stringify(segRows));
   // 總評比：第一組（Claude 虛擬）和三個規則組合放在一起

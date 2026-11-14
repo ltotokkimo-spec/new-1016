@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { BtDay } from "../src/engine/backtest";
 import { runWatch, WATCH } from "../src/engine/watch";
+import { buildCtx, DUAL, GROWTH, growthPicks } from "../src/engine/steady";
+import { prevYm, revTable, type RevEntry } from "../src/engine/revHist";
 import { valuate } from "../src/engine/aiEtf";
 import { weekdaysBack } from "../src/lib/dates";
 import type { FRow, QRow } from "../src/data/twLoader";
@@ -231,3 +233,45 @@ describe("剛轉強觀察組合（11/04 使用者選 T1-混合）", () => {
   });
 });
 
+
+describe("雙引擎觀察組合（11/14 使用者同意上線：成長組五成＋低波動組五成）", () => {
+  // 合成月營收：代號越小年增率越高，全部每月創高
+  const months: { ym: string; rows: RevEntry[] }[] = [];
+  for (let k = 0; k < 26; k++) months.push({ ym: prevYm("202610", k), rows: companies.map((c, i) => [c.code, 1000 + (26 - k) * (40 - i), 500 + i * 20] as RevEntry) });
+  const rev = revTable(months);
+  const r = runWatch(days, companies, { start: startAt, now: 0, mode: "dual", rev });
+  const held = (v: typeof r) => { const m = new Map<string, number>(); for (const t of v.trades) m.set(t.code, (m.get(t.code) ?? 0) + (t.side === "buy" ? t.shares : -t.shares)); return [...m].filter(([, n]) => n > 0); };
+  it("每 5 個交易日判斷、成長組每 20 個交易日重選；不買 0050；現金不為負；結果穩定", () => {
+    expect(r.plan?.every).toBe(5);
+    expect(r.plan?.band).toBe(DUAL.band);
+    expect(r.notes.some((n) => n.text.includes("成長組重新選股"))).toBe(true);
+    expect(r.notes.some((n) => n.text.includes("成長組沿用上次選股"))).toBe(true);
+    expect(r.trades.length).toBeGreaterThan(0);
+    expect(r.trades.some((t) => t.code === "0050")).toBe(false);
+    expect(valuate(r, (c) => r.last[c]?.close).cash).toBeGreaterThanOrEqual(-1);
+    expect(runWatch(days, companies, { start: startAt, now: 0, mode: "dual", rev }).trades).toEqual(r.trades);
+  });
+  it("成長組最多 20 檔、每個產業最多 6 檔，合計約五成", () => {
+    const g = growthPicks(buildCtx(days, companies, rev), days.length - 1);
+    expect(g.length).toBeGreaterThan(0);
+    expect(g.length).toBeLessThanOrEqual(GROWTH.top);
+    expect(g.reduce((a, x) => a + x.weight, 0)).toBeCloseTo(1, 6);
+    const per = new Map<string, number>();
+    for (const x of g) { const s = companies.find((c) => c.code === x.code)!.industry; per.set(s, (per.get(s) ?? 0) + 1); }
+    expect(Math.max(...per.values())).toBeLessThanOrEqual(GROWTH.perSector);
+    for (const x of g) expect(x.weight).toBeLessThanOrEqual(GROWTH.maxWeight + 1e-9);
+    const val = valuate(r, (c) => r.last[c]?.close);
+    expect(val.marketValue / val.nav).toBeLessThanOrEqual(1.001);
+  });
+  it("沒有月營收資料：成長組不選股（那一半放現金），說明寫出原因，低波動組照常", () => {
+    const n = runWatch(days, companies, { start: startAt, now: 0, mode: "dual" });
+    expect(n.notes.some((x) => x.text.includes("沒有下載到月營收資料"))).toBe(true);
+    const val = valuate(n, (c) => n.last[c]?.close);
+    expect(val.marketValue / val.nav).toBeLessThan(0.56);
+    expect(held(n).length).toBeLessThanOrEqual(10);
+  });
+  it("預設從 DUAL.start 起算（規則定案日），不是其他組的 10/23", () => {
+    expect(DUAL.start > WATCH.start).toBe(true);
+    expect(runWatch(days, companies, { now: 0, mode: "dual", rev }).start).toBe(DUAL.start);
+  });
+});

@@ -551,7 +551,19 @@ function ConsensusCard({ replies, agreed, held }: { replies: ReplyInfo[]; agreed
     return <span class="muted">沒提到</span>;
   };
   const hm = (t: number) => new Date(t).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", hour12: false });
-  const tag = { go: <b class="up">✅ 列入下單</b>, once: <span>⏳ 只出現 1 次</span>, low: <span class="down">⚠ 信心低，先不做</span> };
+  // 每一檔最後一行直接寫結果（使用者 11/14 要求）：要不要下單、買賣幾股、為什麼
+  const result = (r: { side: string; code: string; v: "go" | "once" | "low" }) => {
+    const act = r.side === "buy" ? "買進" : "賣出";
+    const same = replies.map((rp, i) => (rp.p.items.some((x) => x.side === r.side && x.code === r.code) ? i + 1 : 0)).filter(Boolean);
+    const opp = replies.map((rp, i) => (rp.p.items.some((x) => x.side !== r.side && x.code === r.code) ? i + 1 : 0)).filter(Boolean);
+    const who = (list: number[]) => (list.length === replies.length ? `${list.length} 份都` : `第 ${list.join("、")} 份`);
+    if (r.v === "go") {
+      const it = agreed.go.find((x) => x.side === r.side && x.code === r.code);
+      return { ok: true, head: `✅ 結果：列入下單，${act} ${it ? it.shares.toLocaleString() : ""} 股`, why: `${who(same)}建議${act}${same.length > 1 ? "，股數取最少的那份" : ""}${it?.conf ? `，信心${it.conf}` : ""}。` };
+    }
+    if (r.v === "low") return { ok: false, head: `⚠ 結果：不下單（信心低，先不做）`, why: `${who(same)}建議${act}，但信心是「低」。` };
+    return { ok: false, head: `⏳ 結果：不下單（只出現 1 次）`, why: opp.length ? `意見相反：${who(same)}建議${act}，${who(opp)}建議${r.side === "buy" ? "賣出" : "買進"}。` : replies.length < 2 ? `只有 1 份回覆，再問一次、兩份都出現才下單。` : `只有${who(same)}建議${act}，其他沒有這個建議。` };
+  };
   const n = { go: agreed.go.length, once: agreed.once.length, low: agreed.low.length };
   return (
     <div class="card stack" data-testid="consensus">
@@ -571,7 +583,6 @@ function ConsensusCard({ replies, agreed, held }: { replies: ReplyInfo[]; agreed
           <div data-testid="consensus-row" style={{ padding: "10px 12px", borderRadius: "10px", border: "1px solid var(--line)", background: r.v === "go" ? "transparent" : "var(--hold-bg)" }}>
             <div class="row" style={{ justifyContent: "space-between", alignItems: "baseline", gap: "8px", flexWrap: "wrap" }}>
               <b style={{ fontSize: "15px" }}><span class={r.side === "buy" ? "up" : "down"} style={{ fontSize: "13px", marginRight: "6px" }}>{r.side === "buy" ? "買進" : "賣出"}</span>{name(r.code)} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{r.code}</span></b>
-              <span style={{ fontSize: "13px", whiteSpace: "nowrap" }}>{tag[r.v]}</span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: `repeat(${replies.length}, minmax(0, 1fr))`, gap: "6px", marginTop: "8px" }}>
               {replies.map((rp) => (
@@ -581,6 +592,12 @@ function ConsensusCard({ replies, agreed, held }: { replies: ReplyInfo[]; agreed
                 </div>
               ))}
             </div>
+            {(() => { const x = result(r); return (
+              <div style={{ marginTop: "8px", paddingTop: "8px", borderTop: "1px dashed var(--line)", lineHeight: 1.5 }} data-testid="consensus-result">
+                <b class={x.ok ? "up" : ""} style={{ fontSize: "14.5px" }}>{x.head}</b>
+                <div class="muted" style={{ fontSize: "12px" }}>{x.why}</div>
+              </div>
+            ); })()}
           </div>
         ))}
       </div>}

@@ -33,7 +33,7 @@ export function fmtMoney(x: number, market?: string) {
   const a = Math.abs(x);
   if (market === "US") return `${sign}$${a.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
   if (a >= 1e8) return `${sign}${(a / 1e8).toFixed(2)} 億`;
-  if (a >= 1e4) return `${sign}${(a / 1e4).toFixed(1)} 萬`;
+  if (a >= 1e4) return `${sign}${(a / 1e4).toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} 萬`; // 千分位：9,975.3 萬（11/14 健檢：族群頁「-9975.3 萬」不好讀）
   return `${sign}${Math.round(a).toLocaleString("zh-TW")}`;
 }
 

@@ -35,9 +35,11 @@ public class ClipPlugin extends Plugin {
             boolean has = false;
             try {
                 ClipboardManager m = cm();
-                has = m != null && getActivity().hasWindowFocus() && m.hasPrimaryClip();
+                // 不另外檢查「主畫面有沒有焦點」：系統自己會判斷這個 App 能不能讀（鍵盤、文字選單佔著焦點時主畫面沒有焦點，但系統仍允許）
+                has = m != null && m.hasPrimaryClip();
             } catch (Exception e) { /* 當作沒有 */ }
             r.put("has", has);
+            r.put("focus", getActivity().hasWindowFocus());
             call.resolve(r);
         });
     }

@@ -1113,9 +1113,30 @@ function check(ok, name, detail = "") {
   check(/不是 Claude 的回覆/.test(promptErr) && saveOff, "貼上送給 Claude 的提問會立刻提醒、不能儲存", promptErr.slice(0, 60));
   await page.click('[data-testid="pro-clear"]');
   // 貼回 2 份 Claude App 回覆（11/12）：比對表每檔一列、每份一欄、最後是結論；兩份都買台積電才列入下單，只出現一次的、信心低的先不做
+  let autoTried = false;
   const reply = (j) => "總結：這次小幅調整，以下是建議與理由（測試用回覆，內容只供比對表檢查）。\n```json\n" + JSON.stringify(j) + "\n```";
   for (const j of [{ trades: [{ code: "2330", side: "buy", shares: 10, conf: "高", reason: "核心" }, { code: "2317", side: "buy", shares: 50, conf: "中", reason: "AI 伺服器" }] },
                    { trades: [{ code: "2330", side: "buy", shares: 8, conf: "中", reason: "核心" }, { code: "2454", side: "buy", shares: 5, conf: "低", reason: "觀察" }] }]) {
+    if (!autoTried) {
+      // 第一份走「在 Claude App 按複製 → 回到金雷達自動載入」（11/14）：把回覆放進手機真的系統剪貼簿，模擬按過按鈕後回到前景，不按任何按鈕就要載入
+      autoTried = true;
+      await page.waitForTimeout(3500); // 前面那次偵測（剪貼簿是空的）最多等 3 秒焦點，等它結束
+      const wrote = await page.evaluate((t) => window.__srClipWrite(t).then(() => "ok", (e) => "失敗：" + e), reply(j)).catch((e) => "失敗：" + e);
+      await page.evaluate(() => { localStorage.setItem("proPending", String(Date.now())); document.dispatchEvent(new Event("visibilitychange")); });
+      const auto = await page.waitForSelector('[data-testid="pro-loaded"]', { timeout: 12000 }).then((h) => h.innerText()).catch(() => "");
+      const flag = await page.evaluate(() => localStorage.getItem("proPending"));
+      log("自動載入剪貼簿的回覆", wrote, auto, "proPending=" + flag);
+      check(wrote === "ok" && /已自動載入 Claude 的建議（2 筆買賣）/.test(auto) && !flag, "從 Claude App 複製回覆後回到金雷達會自動載入（讀手機的系統剪貼簿，不用按按鈕）", `${wrote}｜${auto}`);
+      await shot("05c0-自動載入Claude回覆");
+      // 同一份回覆再回來一次：不能重複載入（比對表仍只有 1 份）
+      await page.evaluate(() => { localStorage.setItem("proPending", String(Date.now())); document.dispatchEvent(new Event("visibilitychange")); });
+      await page.waitForTimeout(4500);
+      const again = await page.evaluate(() => !!document.querySelector('[data-testid="pro-resume"]'));
+      check(again, "同一份回覆不會重複載入（改顯示等待卡）");
+      if (again) await page.click("text=不用了");
+      await page.evaluate(() => localStorage.removeItem("proPending"));
+      if (/已自動載入/.test(auto)) continue;
+    }
     await page.fill('[data-testid="pro-text"]', reply(j));
     await page.click('[data-testid="pro-save"]');
     await page.waitForTimeout(800);

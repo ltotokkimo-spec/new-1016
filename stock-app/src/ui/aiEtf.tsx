@@ -10,6 +10,7 @@ import type { Scored } from "../engine/score";
 import type { VirtualEtf } from "../engine/virtualEtf";
 import { twHistory } from "../data/history";
 import { buyConds, sellConds, holdConds, dailyHoldingCheck, takeProfitSignal, TAKE_PROFIT, type HoldCheck, type EtfTrade, type EtfFlow, agreePlans, comparePlans, DEFAULT_STOP, planReadable, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, proClipboardAction, replySig, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
+import { readClipboard } from "../lib/clip";
 import { addWeekdays, orderDay, pretty, prettyW, taipeiClock, taipeiHour, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
 import { livePolling, type LiveQuote } from "../data/twLive";
@@ -313,6 +314,7 @@ const proSeen = {
   get: (): string[] => { try { const v = JSON.parse(localStorage.getItem(PRO_SEEN) ?? "[]"); return Array.isArray(v) ? v : []; } catch { return []; } },
   add: (text: string) => { try { localStorage.setItem(PRO_SEEN, JSON.stringify([...proSeen.get().filter((x) => x !== replySig(text)), replySig(text)].slice(-10))); } catch { /* 不重要 */ } },
 };
+let proChecking = false; // 正在等焦點／讀剪貼簿：不要同時跑兩次
 let proLoading = false; // 回到前景會同時觸發 focus 和 visibilitychange：避免同一份回覆載入兩次
 
 /** 從 Claude App 回來：剪貼簿有完整的 Claude 回覆就直接載入並整理（11/14 起不用再按一次）；回覆被截斷才先問；讀不到剪貼簿就請你按「貼上並載入」 */
@@ -337,12 +339,15 @@ function ProResume() {
   const check = async () => {
     if (!proFlag.get()) { setPending(false); return; }
     setPending(true);
+    if (proChecking) return;
+    proChecking = true;
     try {
-      const text = await navigator.clipboard.readText();
+      const text = await readClipboard(true);
       const r = proClipboardAction(text, proSeen.get());
       if (r.action === "load") await load(text, r.items, false, true);
       else if (r.action === "ask") { setFound({ text, items: r.items, truncated: true }); setMsg(""); }
     } catch { /* 沒有權限或畫面還沒回到前景：用下面的按鈕，按下去就有權限 */ }
+    finally { proChecking = false; }
   };
   useEffect(() => {
     check();
@@ -353,7 +358,7 @@ function ProResume() {
   }, []);
   const pasteAndLoad = async () => {
     try {
-      const text = await navigator.clipboard.readText();
+      const text = await readClipboard();
       const r = looksLikePlanReply(text);
       if (!r.ok) return setMsg("剪貼簿裡還沒有 Claude 的回覆。請到 Claude App 長按回覆 →「複製」，再回來按一次。");
       await load(text, r.items, r.truncated);
@@ -376,7 +381,7 @@ function ProResume() {
   if (pending) return (
     <div class="card stack" style={{ borderColor: "var(--accent)", marginBottom: "12px" }} data-testid="pro-resume">
       <b>從 Claude App 回來了嗎？</b>
-      <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>在 Claude App 按回覆下方的「複製」再回來，App 會自動載入並整理。沒有自動載入的話（這支手機不讓 App 自己讀剪貼簿），按下面的按鈕。</div>
+      <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>在 Claude App 按回覆下方的「複製」再回來，App 會自動載入並整理。沒有自動載入的話，按下面的按鈕。</div>
       <button class="btn block" onClick={pasteAndLoad} data-testid="pro-resume-paste">貼上 Claude 的回覆並載入</button>
       {msg && <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>{msg}</div>}
       <button class="linkbtn" onClick={cancel}>不用了</button>

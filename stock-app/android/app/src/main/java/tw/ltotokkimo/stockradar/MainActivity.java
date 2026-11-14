@@ -8,6 +8,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(ApkUpdaterPlugin.class);
         registerPlugin(TextOcrPlugin.class);
+        registerPlugin(ClipPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

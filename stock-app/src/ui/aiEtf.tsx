@@ -1108,8 +1108,10 @@ function UpdateStamp({ asOf, updatedAt, fetchedAt, lagging }: { asOf?: string; u
 function CompareView() {
   const ruleG = useStore((s) => s.rule), turnG = useStore((s) => s.turn), dualG = useStore((s) => s.dual), dualPlusG = useStore((s) => s.dualPlus);
   const myEtf = useStore((s) => s.aiEtf);
+  const dualRealEtf = useStore((s) => s.dualReal); // 雙引擎實單（11/15 使用者要加進總評比）
   const myPrices = useStore((s) => s.prices);
   const realG = useMemo(() => { const v = valuate(myEtf, etfPrice); return realAsGroup(myEtf, { date: taipeiToday(), nav: Math.round(v.nav), bench: Math.round(v.bench) }); }, [myEtf, myPrices]);
+  const dualRealG = useMemo(() => { if (!dualRealEtf) return undefined; const v = valuate(dualRealEtf, etfPrice); return realAsGroup(dualRealEtf, { date: taipeiToday(), nav: Math.round(v.nav), bench: Math.round(v.bench) }); }, [dualRealEtf, myPrices]);
   const virtual = useStore((s) => s.virtual), watch = useStore((s) => s.watch), wide = useStore((s) => s.wide), regime = useStore((s) => s.regime), leadG = useStore((s) => s.lead), aiG = useStore((s) => s.ai), steady = useStore((s) => s.steady);
   const [busy, setBusy] = useState(false);
   const reload = async () => { setBusy(true); await Promise.all([refreshVirtual(), refreshWatch(), refreshWide(), refreshRegime(), refreshLead(), refreshAi(), refreshRule(), refreshTurn(), refreshDual(), refreshDualPlus(), refreshSteady()]); setBusy(false); };
@@ -1126,9 +1128,10 @@ function CompareView() {
     { key: "dual", label: "雙引擎（成長組五成＋低波動組五成，11/13 起算）", short: "雙引擎", v: dualG?.data, bt: "D1_dual" },
     { key: "dualplus", label: "雙引擎＋（加外資條件與 Claude 新聞否決，11/13 起算）", short: "雙引擎＋", v: dualPlusG?.data, bt: "D4_dualPlus" },
     { key: "real", label: "我的實單（你實際的買賣，從第一筆成交起算）", short: "我的實單", v: realG, bt: undefined as string | undefined, real: true },
-  ].filter((g) => g.key !== "real" || g.v) as { key: string; label: string; short: string; v?: VirtualEtf; bt?: string; real?: boolean }[];
+    { key: "dualreal", label: "雙引擎實單（你照雙引擎＋實際的買賣，從第一筆成交起算）", short: "雙引擎實單", v: dualRealG, bt: undefined as string | undefined, real: true },
+  ].filter((g) => !g.real || g.v) as { key: string; label: string; short: string; v?: VirtualEtf; bt?: string; real?: boolean }[];
   const cmp = compareGroups(groups.map((g) => ({ key: g.key, label: g.short, v: g.v, noCommon: g.real })));
-  const asOf = cmp.rows.filter((r) => r.key !== "real").map((r) => r.asOf ?? "").sort().at(-1);
+  const asOf = cmp.rows.filter((r) => r.key !== "real" && r.key !== "dualreal").map((r) => r.asOf ?? "").sort().at(-1);
   // AI5_min1 是 11/9 新增的回測鍵：雲端回測還沒重算前先用原本的 AI2_cap
   const bt = (key?: string) => steady?.data.strategies.find((x) => x.key === key) ?? (key === "AI5_min1" ? steady?.data.strategies.find((x) => x.key === "AI2_cap") : undefined);
   const th = { padding: "4px 6px", textAlign: "right" as const, fontWeight: 600, whiteSpace: "nowrap" as const };
@@ -1157,7 +1160,7 @@ function CompareView() {
         <b>虛擬 ETF 總評比</b>
         <UpdateStamp asOf={asOf} updatedAt={Math.max(0, ...groups.filter((g) => !g.real).map((g) => g.v?.updatedAt ?? 0)) || undefined} fetchedAt={Math.max(0, ...[virtual, watch, wide, regime, leadG, aiG, ruleG].map((x) => x?.fetchedAt ?? 0)) || undefined} lagging={groups.filter((g) => !g.real && g.v?.asOf && asOf && g.v.asOf < asOf).map((g) => `${g.short}（${prettyW(g.v!.asOf)}）`)} />
         <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
-          九組虛擬組合各用虛擬 50 萬，每組也和「同樣的錢買 0050」比。{realG ? <>最後一列「我的實單」是你實際的買賣，從第一筆成交 {prettyW(realG.start)} 起算（中途存提款用時間加權報酬扣掉，淨值是你打開 App 時記下的，沒打開的日子會跳過）。</> : <>「我的實單」有成交紀錄後會一起列進來。</>}{asOf ? <>資料日 {prettyW(asOf)} 收盤。</> : null}
+          十組虛擬組合各用虛擬 50 萬，每組也和「同樣的錢買 0050」比。{realG ? <>「我的實單」是你實際的買賣，從第一筆成交 {prettyW(realG.start)} 起算（中途存提款用時間加權報酬扣掉，淨值是你打開 App 時記下的，沒打開的日子會跳過）。</> : <>「我的實單」有成交紀錄後會一起列進來。</>}{dualRealG ? <>「雙引擎實單」是你照雙引擎＋實際的買賣，從第一筆成交 {prettyW(dualRealG.start)} 起算，可以和「雙引擎＋」（同樣規則的模擬）直接比，差距就是零股、成交價與手續費的影響。</> : <>「雙引擎實單」有成交紀錄後也會一起列進來。</>}{asOf ? <>資料日 {prettyW(asOf)} 收盤。</> : null}
           {lead && readyAll.length > 1 ? <> 目前比 0050 領先最多的是 <b>{lead.label}</b>（{fmtPct(lead.all!.diff, 2)}）。</> : null}
           起算日不同（Claude 虛擬 10/19；雙引擎 11/13 起、第一批成交 11/16；其他七組 10/23 起、第一批成交約 10/26），累積天數少時差距主要是雜訊，不要當結論。
         </div>
@@ -1197,7 +1200,7 @@ function CompareView() {
         <table style={{ width: "100%", fontSize: "13px", borderCollapse: "collapse" }}>
           <thead><tr class="muted"><th style={{ ...th, textAlign: "left" }}>組合</th><th style={th}>年化</th><th style={th}>最大回檔</th><th style={th}>夏普</th></tr></thead>
           <tbody>
-            {groups.map((g) => { const b = bt(g.bt); return (
+            {groups.filter((g) => !g.real).map((g) => { const b = bt(g.bt); return (
               <tr style={{ borderTop: "1px solid var(--line)" }}>
                 <td style={{ ...td, textAlign: "left", whiteSpace: "normal", fontWeight: 600 }}>{g.short}</td>
                 {g.bt ? (b ? <>

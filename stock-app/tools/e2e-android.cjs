@@ -1006,6 +1006,14 @@ function check(ok, name, detail = "") {
   log("雙引擎實單", drTxt.slice(0, 600), "下單筆數", drOrders);
   check(/雙引擎實單（照「雙引擎＋」/.test(drTxt) && /本金 50\.0 萬/.test(drTxt) && (drOrders > 0 || /今天不用下單|還沒有目標配置/.test(drTxt)), "自組ETF 有「雙引擎實單」：本金 50 萬，依雙引擎目標配置列出要下的單", drTxt.slice(0, 200));
   await shot("05d6-雙引擎實單");
+  // 有下單清單時記錄第一筆（只留第一筆勾選），之後檢查總評比出現「雙引擎實單」（11/15）
+  let drRecorded = false;
+  if (drOrders > 0) {
+    await page.$$eval('[data-testid="dualreal-order"] input[type=checkbox]', (cs) => cs.forEach((c, i) => { if (i > 0 && c.checked) c.click(); }));
+    await page.click('[data-testid="dualreal-save"]');
+    drRecorded = await page.waitForSelector('[data-testid="dualreal-trades-box"]', { timeout: 10000 }).then(() => true).catch(() => false);
+    check(drRecorded, "雙引擎實單：勾選一筆按「記錄勾選的成交」後出現成交紀錄");
+  }
   // 模式按鈕排成三列（每列 4 個），文字不能被擠成直排
   const segRows = await page.$$eval('[data-testid^="mode-"]', (bs) => ({ tops: [...new Set(bs.map((b) => Math.round(b.getBoundingClientRect().top)))].length, maxH: Math.max(...bs.map((b) => b.getBoundingClientRect().height)) }));
   check(segRows.tops === 4 && segRows.maxH < 60, "自組ETF 模式按鈕排成四列（13 個）、文字不擠成直排", JSON.stringify(segRows));
@@ -1016,6 +1024,7 @@ function check(ok, name, detail = "") {
   const cmpTxt = await page.$eval('[data-testid="compare-view"]', (e) => e.innerText.replace(/\s+/g, " "));
   log("總評比", cmpTxt.slice(0, 400));
   check(["Claude 虛擬", "N5 觀察", "全個股", "攻守輪動", "權值強化", "AI 供應鏈"].every((n) => cmpTxt.includes(n)) && /各組從自己的起始日算起/.test(cmpTxt), "總評比列出六組", cmpTxt.slice(0, 160));
+  if (drRecorded) check(/雙引擎實單/.test(cmpTxt), "總評比列出「雙引擎實單」（有成交紀錄後）", cmpTxt.slice(0, 300));
   const allRow = await page.$eval('[data-testid="compare-all"] tbody tr', (e) => e.innerText.replace(/\s+/g, " "));
   check(/Claude 虛擬.*[+-]?\d+\.\d+%/.test(allRow), "總評比第一組（Claude 虛擬）顯示實際報酬", allRow);
   await page.waitForFunction(() => /年化/.test(document.querySelector('[data-testid="compare-bt"]')?.innerText || "") && /\d+\.\d+%/.test(document.querySelector('[data-testid="compare-bt"]')?.innerText || ""), null, { timeout: 30000 });

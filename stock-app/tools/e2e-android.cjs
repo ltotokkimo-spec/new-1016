@@ -1011,6 +1011,12 @@ function check(ok, name, detail = "") {
   log("雙引擎實單", drTxt.slice(0, 600), "下單筆數", drOrders);
   check(/雙引擎實單（照「雙引擎＋」/.test(drTxt) && /資金水位/.test(drTxt) && /投入 50\.0 萬/.test(drTxt) && (drOrders > 0 || /今天不用下單|還沒有目標配置/.test(drTxt)), "自組ETF 有「雙引擎實單」：本金 50 萬，依雙引擎目標配置列出要下的單", drTxt.slice(0, 200));
   await shot("05d6-雙引擎實單");
+  // 重新整理清單（11/16）：按鈕在、按下去後出現「已重新整理」說明
+  if (await page.$('[data-testid="dualreal-refresh"]')) {
+    await page.click('[data-testid="dualreal-refresh"]');
+    const rn = await page.waitForFunction(() => /已重新整理/.test(document.querySelector('[data-testid="dualreal-refresh-note"]')?.innerText || ""), null, { timeout: 40000 }).then(() => page.$eval('[data-testid="dualreal-refresh-note"]', (e) => e.innerText)).catch(() => "");
+    check(/已重新整理/.test(rn), "雙引擎實單：按「重新整理清單」後顯示已重新整理（有即時價或說明沒抓到）", rn.slice(0, 120));
+  }
   // 資金水位（11/15）：橫條＋改現金；增加投入 10 萬後投入變 60 萬
   await page.click('[data-testid="dualreal-add"]');
   await page.fill('[data-testid="dualreal-water-input"]', "100000");

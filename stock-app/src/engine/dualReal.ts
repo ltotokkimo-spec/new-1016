@@ -19,6 +19,7 @@ export function dualOrders(etf: AiEtf, targets: Record<string, number>, price: (
   const held = new Map(positions(etf.trades).filter((p) => p.shares > 0).map((p) => [p.code, p]));
   const out: DualOrder[] = [];
   let cash = v.cash;
+  const reserve = Math.max(0, etf.cashReserve ?? 0); // 保留現金：買進最多只動用到這個水位（賣出回收的錢算進可動用）
   for (const [code, p] of held) { // 先賣
     const px = price(code);
     if (!(px && px > 0)) continue;
@@ -35,7 +36,7 @@ export function dualOrders(etf: AiEtf, targets: Record<string, number>, price: (
     if (!(px && px > 0)) continue;
     const have = (held.get(code)?.shares ?? 0) * px, gap = w * nav - have;
     if (gap < band * nav) continue;
-    const shares = Math.floor(Math.min(gap, cash / (1 + FEE)) / px);
+    const shares = Math.floor(Math.min(gap, Math.max(0, cash - reserve) / (1 + FEE)) / px);
     if (shares <= 0) continue;
     cash += cashFlow({ side: "buy", shares, price: px, code });
     out.push({ code, name: name(code), side: "buy", shares, price: px, target: w, now: have / nav, reason: have > 0 ? `加碼：目標 ${(w * 100).toFixed(1)}%，目前 ${((have / nav) * 100).toFixed(1)}%` : `新增：目標 ${(w * 100).toFixed(1)}%` });
@@ -47,8 +48,9 @@ export function dualOrders(etf: AiEtf, targets: Record<string, number>, price: (
 export interface WaterLevel {
   cost: number; marketValue: number; cash: number; invested: number; nav: number;
   unrealized: number; realized: number;
+  reserve: number; // 保留現金（元，最多算到現有現金）
   /** 橫條各段寬度（%）：stock 股票（賺錢時＝成本、賠錢時＝市值）、gain 賺、loss 賠的缺口、cash 現金；tick＝成本線位置 */
-  bar: { stock: number; gain: number; loss: number; cash: number; tick: number };
+  bar: { stock: number; gain: number; loss: number; cash: number; tick: number; reserve: number };
 }
 export function waterLevel(etf: AiEtf, price: (code: string) => number | undefined): WaterLevel {
   const v = valuate(etf, price);
@@ -59,6 +61,6 @@ export function waterLevel(etf: AiEtf, price: (code: string) => number | undefin
   const cash = Math.max(0, v.cash);
   const total = Math.max(cost, v.marketValue) + cash; // 賠錢時橫條總長＝成本＋現金，缺口留在成本線左邊
   const pct = (x: number) => (total > 0 ? (x / total) * 100 : 0);
-  const bar = { stock: pct(Math.min(cost, v.marketValue)), gain: pct(Math.max(0, unrealized)), loss: pct(Math.max(0, -unrealized)), cash: pct(cash), tick: pct(cost) };
-  return { cost, marketValue: v.marketValue, cash: v.cash, invested: v.invested, nav: v.nav, unrealized, realized, bar };
+  const bar = { stock: pct(Math.min(cost, v.marketValue)), gain: pct(Math.max(0, unrealized)), loss: pct(Math.max(0, -unrealized)), cash: pct(cash), tick: pct(cost), reserve: pct(Math.min(Math.max(0, etf.cashReserve ?? 0), cash)) };
+  return { cost, marketValue: v.marketValue, cash: v.cash, invested: v.invested, nav: v.nav, unrealized, realized, reserve: Math.max(0, etf.cashReserve ?? 0), bar };
 }

@@ -40,7 +40,7 @@ describe("資金水位：股票成本、賺賠、現金（11/15）", () => {
   it("空帳戶：整條都是現金", () => {
     const w = waterLevel(emptyEtf(500_000), price);
     expect(w).toMatchObject({ cost: 0, cash: 500_000, invested: 500_000, unrealized: 0 });
-    expect(w.bar).toEqual({ stock: 0, gain: 0, loss: 0, cash: 100, tick: 0 });
+    expect(w.bar).toEqual({ stock: 0, gain: 0, loss: 0, cash: 100, tick: 0, reserve: 0 });
   });
   it("賺錢：成本＋賺＋現金＝100%，成本線在成本右緣", () => {
     const etf: AiEtf = { ...emptyEtf(500_000), trades: [buy("2330", 100, 800)] }; // 成本 8 萬（含手續費），市值 10 萬
@@ -67,5 +67,23 @@ describe("資金水位：股票成本、賺賠、現金（11/15）", () => {
     expect(waterLevel(more, price).cash - waterLevel(etf, price).cash).toBe(100_000);
     expect(dualOrders(etf, { "2412": 0.3 }, price, name)).toEqual([]);
     expect(dualOrders(more, { "2412": 0.3 }, price, name)[0]).toMatchObject({ side: "buy", code: "2412" });
+  });
+});
+
+describe("保留現金：買進不動用保留的那筆（11/15）", () => {
+  it("沒設定＝和以前一樣；保留 10 萬，買進最多只用到現金剩 10 萬", () => {
+    const t = { "2412": 0.5 }; // 目標 25 萬，現金 50 萬
+    const full = dualOrders(emptyEtf(500_000), t, price, name);
+    expect(full[0].shares).toBe(Math.floor(250_000 / 120));
+    const kept = dualOrders({ ...emptyEtf(500_000), cashReserve: 400_000 }, t, price, name); // 只能動用 10 萬
+    expect(kept[0].shares).toBe(Math.floor(100_000 / (1 + FEE) / 120));
+    expect(dualOrders({ ...emptyEtf(500_000), cashReserve: 500_000 }, t, price, name)).toEqual([]); // 全部保留＝不買
+  });
+  it("水位：保留的現金標在現金段右側，最多算到現有現金", () => {
+    const w = waterLevel({ ...emptyEtf(500_000), cashReserve: 100_000 }, price);
+    expect(w.reserve).toBe(100_000);
+    expect(w.bar.reserve).toBeCloseTo(20, 6);
+    expect(waterLevel({ ...emptyEtf(500_000), cashReserve: 900_000 }, price).bar.reserve).toBe(100);
+    expect(waterLevel(emptyEtf(500_000), price).bar.reserve).toBe(0);
   });
 });

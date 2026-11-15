@@ -1,7 +1,7 @@
 // 「自組ETF」分頁：請 Claude 建議要買什麼、買幾股，照著實際下單後填入成交，追蹤淨值並和 0050 比較。
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import {
-  addDualTrades, addDualFlow, hideDualTrade, resetDualReal, snapshotDualNav,
+  addDualTrades, addDualFlow, setDualReserve, hideDualTrade, resetDualReal, snapshotDualNav,
   LIVE_MS, findScored, getFetcher, getKv, addEtfFlow, removeEtfFlow, addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshTurn, refreshDual, refreshDualPlus, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError } from "../ai/claude";
@@ -691,17 +691,17 @@ function Roll({ value, fmt }: { value: number; fmt: (x: number) => string }) {
 const WATER = { cost: "#2f4b6e", cash: "#c9d8ea", tick: "#12263a", gain: "#d7263d", loss: "#00e676" };
 function DualWater({ etf, v }: { etf: AiEtf; v: Valuation }) {
   const w = waterLevel(etf, etfPrice);
-  const [edit, setEdit] = useState<"" | "add" | "cash">("");
+  const [edit, setEdit] = useState<"" | "add" | "cash" | "keep">("");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [grown, setGrown] = useState(false); // 第一次顯示時橫條從 0 長出來
   const [coin, setCoin] = useState(0);
   useEffect(() => { const id = requestAnimationFrame(() => requestAnimationFrame(() => setGrown(true))); return () => cancelAnimationFrame(id); }, []);
   const num = Number(text.replace(/[,\s]/g, ""));
-  const delta = edit === "add" ? num : num - w.cash; // 改現金：和帳上現金的差額記成存入／提領
-  const ok = text.trim() !== "" && Number.isFinite(num) && (edit === "add" ? num !== 0 && w.cash + num >= 0 && w.invested + num > 0 : num >= 0 && Math.round(delta) !== 0 && w.invested + delta > 0);
-  const open = (m: "add" | "cash") => { setEdit(edit === m ? "" : m); setText(""); };
-  const apply = async () => { if (!ok || busy) return; setBusy(true); try { await addDualFlow(delta); if (edit === "add" && delta > 0) setCoin((c) => c + 1); setEdit(""); setText(""); } finally { setBusy(false); } };
+  const delta = edit === "add" ? num : edit === "keep" ? 0 : num - w.cash; // 改現金：和帳上現金的差額記成存入／提領
+  const ok = text.trim() !== "" && Number.isFinite(num) && (edit === "keep" ? num >= 0 && Math.round(num) !== Math.round(w.reserve) : edit === "add" ? num !== 0 && w.cash + num >= 0 && w.invested + num > 0 : num >= 0 && Math.round(delta) !== 0 && w.invested + delta > 0);
+  const open = (m: "add" | "cash" | "keep") => { setEdit(edit === m ? "" : m); setText(""); };
+  const apply = async () => { if (!ok || busy) return; setBusy(true); try { if (edit === "keep") await setDualReserve(num); else { await addDualFlow(delta); if (edit === "add" && delta > 0) setCoin((c) => c + 1); } setEdit(""); setText(""); } finally { setBusy(false); } };
   const seg = (left: number, width: number, background: string) => width > 0 ? <div style={{ position: "absolute", top: 0, bottom: 0, left: `${left}%`, width: `${width}%`, background }} /> : null;
   const link = { color: WATER.cost, fontWeight: 700, background: "none", border: 0, padding: "2px 0", font: "inherit", fontSize: "13px" } as const;
   const sw = (background: string) => <i style={{ width: "11px", height: "11px", borderRadius: "3px", display: "inline-block", background }} />;
@@ -721,6 +721,7 @@ function DualWater({ etf, v }: { etf: AiEtf; v: Valuation }) {
           <div class="wb-seg wb-cash" style={{ left: `${w.bar.stock + w.bar.gain + w.bar.loss}%`, width: `${grown ? w.bar.cash : 0}%` }} />
         </div>
         {(w.bar.gain > 0 || w.bar.loss > 0) && <div class={`wb-halo ${w.bar.gain > 0 ? "g" : "l"}`} style={{ left: `${w.bar.stock}%`, width: `${Math.max(w.bar.gain, w.bar.loss)}%` }} />}
+        {w.reserve > 0 && w.bar.reserve > 0 && <div class="wb-keep" style={{ left: `${100 - w.bar.reserve}%`, width: `${w.bar.reserve}%` }} data-testid="dualreal-keep-mark" />}
         {w.cost > 0 && <div class="wb-tick" style={{ left: `calc(${w.bar.tick}% - 1px)` }} />}
         {coin > 0 && <span key={coin} class="wb-coin" style={{ left: "85%" }}>＋💰</span>}
       </div>
@@ -730,20 +731,22 @@ function DualWater({ etf, v }: { etf: AiEtf; v: Valuation }) {
           {w.cost > 0 && <span class={cls(w.unrealized)} style={{ whiteSpace: "nowrap" }}>未實現 <b class="num"><Roll value={w.unrealized} fmt={signedMoney} /></b></span>}
         </div>
         <div class="row" style={{ justifyContent: "space-between", gap: "8px" }}>
-          <span>現金 <b class="num"><Roll value={w.cash} fmt={moneyU} /></b>　<button style={{ ...link, ...(edit === "cash" ? { textDecoration: "underline" } : {}) }} onClick={() => open("cash")} data-testid="dualreal-cash-edit">✎ 改現金</button>　<button style={{ ...link, ...(edit === "add" ? { textDecoration: "underline" } : {}) }} onClick={() => open("add")} data-testid="dualreal-add">＋再投入</button></span>
+          <span>現金 <b class="num"><Roll value={w.cash} fmt={moneyU} /></b>{w.reserve > 0 && <span class="muted" data-testid="dualreal-keep-note">（保留 {moneyU(w.reserve)}）</span>}　<button style={{ ...link, ...(edit === "cash" ? { textDecoration: "underline" } : {}) }} onClick={() => open("cash")} data-testid="dualreal-cash-edit">✎ 改現金</button>　<button style={{ ...link, ...(edit === "add" ? { textDecoration: "underline" } : {}) }} onClick={() => open("add")} data-testid="dualreal-add">＋再投入</button>　<button style={{ ...link, ...(edit === "keep" ? { textDecoration: "underline" } : {}) }} onClick={() => open("keep")} data-testid="dualreal-keep">🛡 保留現金</button></span>
           {w.realized !== 0 && <span class="muted" style={{ whiteSpace: "nowrap" }}>已實現 <span class={`num ${cls(w.realized)}`}>{signedMoney(w.realized)}</span></span>}
         </div>
       </div>
       {edit && (
         <div class="stack" style={{ gap: "6px" }}>
-          <div class="seg" role="group"><button aria-pressed={edit === "cash"} onClick={() => { setEdit("cash"); setText(""); }}>改現金</button><button aria-pressed={edit === "add"} onClick={() => { setEdit("add"); setText(""); }}>再投入</button></div>
+          <div class="seg" role="group"><button aria-pressed={edit === "cash"} onClick={() => { setEdit("cash"); setText(""); }}>改現金</button><button aria-pressed={edit === "add"} onClick={() => { setEdit("add"); setText(""); }}>再投入</button><button aria-pressed={edit === "keep"} onClick={() => { setEdit("keep"); setText(""); }}>保留現金</button></div>
+          {edit === "keep" && <div class="row" style={{ gap: "6px", flexWrap: "wrap" }}>{[0, 5, 10, 20].map((pc) => <button key={pc} class="btn secondary" style={{ padding: "4px 10px", fontSize: "13px" }} onClick={() => setText(String(Math.round((w.nav * pc) / 100 / 1000) * 1000))}>{pc === 0 ? "不保留" : `總值 ${pc}%`}</button>)}</div>}
           <div class="row" style={{ gap: "8px" }}>
-            <label class="field" style={{ flex: 1, margin: 0 }}>{edit === "add" ? "再投入（元，要提領就填負數）" : "券商帳上實際的現金（元）"}
-              <input inputMode={edit === "add" ? "text" : "numeric"} placeholder={edit === "add" ? "100000" : String(Math.round(w.cash))} value={text} onInput={(e) => setText((e.target as HTMLInputElement).value)} data-testid="dualreal-water-input" /></label>
-            <button class="btn" style={{ alignSelf: "flex-end" }} disabled={!ok || busy} onClick={() => void apply()} data-testid="dualreal-water-ok">{edit === "add" ? "加入" : "更新"}</button>
+            <label class="field" style={{ flex: 1, margin: 0 }}>{edit === "add" ? "再投入（元，要提領就填負數）" : edit === "keep" ? "要保留的現金（元，0＝不保留）" : "券商帳上實際的現金（元）"}
+              <input inputMode={edit === "add" ? "text" : "numeric"} placeholder={edit === "add" ? "100000" : edit === "keep" ? String(Math.round(w.reserve)) : String(Math.round(w.cash))} value={text} onInput={(e) => setText((e.target as HTMLInputElement).value)} data-testid="dualreal-water-input" /></label>
+            <button class="btn" style={{ alignSelf: "flex-end" }} disabled={!ok || busy} onClick={() => void apply()} data-testid="dualreal-water-ok">{edit === "add" ? "加入" : edit === "keep" ? "設定" : "更新"}</button>
           </div>
           <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
-            {ok ? <>投入 {moneyU(w.invested)} → <b style={{ color: "var(--fg)" }}>{moneyU(w.invested + delta)}</b>，現金 {moneyU(w.cash)} → <b style={{ color: "var(--fg)" }}>{moneyU(w.cash + delta)}</b>；每檔目標金額照新的總值重算，「要下的單」會跟著更新。</>
+            {edit === "keep" ? (ok ? <>保留 <b style={{ color: "var(--fg)" }}>{moneyU(num)}</b>，買進最多只動用 <b style={{ color: "var(--fg)" }}>{moneyU(Math.max(0, w.cash - num))}</b> 現金（賣出回收的錢也算在內），「要下的單」會跟著更新。</> : "保留的現金不會被「要下的單」拿去買股票，其餘照雙引擎目標配置。例如保留 10 萬，買進最多只用到現金剩 10 萬為止，比觀察組合少買一點、抗跌一點。")
+              : ok ? <>投入 {moneyU(w.invested)} → <b style={{ color: "var(--fg)" }}>{moneyU(w.invested + delta)}</b>，現金 {moneyU(w.cash)} → <b style={{ color: "var(--fg)" }}>{moneyU(w.cash + delta)}</b>；每檔目標金額照新的總值重算，「要下的單」會跟著更新。</>
               : edit === "add" ? "加進來的錢先放現金，「要下的單」會照新的總值算出要加買哪些、各幾股。提領不能超過現金。" : "填券商 App 上看到的可用現金。和帳上的差額會記成存入或提領，不影響報酬率。"}
           </div>
         </div>
@@ -758,7 +761,7 @@ function DualWater({ etf, v }: { etf: AiEtf; v: Valuation }) {
         </div>
       </>}
       <div class="muted" style={{ fontSize: "11.5px" }}>
-        <span style={lg}>{sw(WATER.cost)}股票成本</span><span style={lg}>{sw(WATER.gain)}賺</span><span style={lg}>{sw(WATER.loss)}賠</span><span style={lg}>{sw(WATER.cash)}現金</span><span style={lg}><i style={{ width: "2px", height: "12px", background: WATER.tick, display: "inline-block" }} />成本線</span>
+        <span style={lg}>{sw(WATER.cost)}股票成本</span><span style={lg}>{sw(WATER.gain)}賺</span><span style={lg}>{sw(WATER.loss)}賠</span><span style={lg}>{sw(WATER.cash)}現金</span><span style={lg}>{sw("repeating-linear-gradient(135deg,rgba(42,75,107,.45) 0 2px,#c9d8ea 2px 4px)")}保留現金</span><span style={lg}><i style={{ width: "2px", height: "12px", background: WATER.tick, display: "inline-block" }} />成本線</span>
       </div>
     </div>
   );

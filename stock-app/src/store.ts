@@ -1083,6 +1083,8 @@ export async function addDualFlow(amount: number) {
   await saveDualReal({ ...etf, flows: [...(etf.flows ?? []), flow], nav });
   await snapshotDualNav();
 }
+/** 雙引擎實單「保留現金」：要下的單買進時不動用這筆（0＝不保留） */
+export async function setDualReserve(amount: number) { if (Number.isFinite(amount) && amount >= 0) await saveDualReal({ ...dualRealOf(), cashReserve: Math.round(amount) || undefined }); }
 export async function resetDualReal() { set({ dualReal: undefined }); await kv.del("dualReal"); }
 
 async function saveAiEtf(etf: AiEtf) {

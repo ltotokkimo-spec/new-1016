@@ -31,7 +31,8 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
   const wide = opts.mode === "wide", regime = opts.mode === "regime", lead = opts.mode === "lead", ai = opts.mode === "ai", real = opts.mode === "real", turn = opts.mode === "turn", plus = opts.mode === "dualplus", dual = opts.mode === "dual" || plus;
   // 雙引擎＋：當天有效的新聞否決（代號 → 否決）
   const vetoAt = (d: string) => new Map((plus ? opts.vetoes ?? [] : []).filter((x) => x.from <= d && (!x.until || d <= x.until)).map((x) => [x.code, x]));
-  let lastA: Map<string, number> | undefined; // 雙引擎＋：非判斷日因否決臨時調整時，沿用上次的低波動組
+  let lastA: Map<string, number> | undefined;
+  let curGroups: Record<string, "growth" | "steady" | "both"> | undefined; // 雙引擎：最近一次判斷的分類 // 雙引擎＋：非判斷日因否決臨時調整時，沿用上次的低波動組
   let regimeOn: boolean | undefined; // 攻守輪動目前的狀態
   const start = opts.start ?? (dual ? DUAL.start : WATCH.start), budget = opts.budget ?? WATCH.budget;
   let v: VirtualEtf = { ...newVirtual(start, budget), updatedAt: opts.now ?? Date.now(), stops: {} };
@@ -159,6 +160,8 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
       for (const [code, w] of a) t.set(code, (t.get(code) ?? 0) + w * DUAL.steady);
       const vetoed = [...t.keys(), ...hold.keys()].filter((k, i, arr) => arr.indexOf(k) === i && vetoNow.has(k));
       for (const k of vetoed) t.delete(k); // 否決的不買、已持有的賣出；那部分先放現金
+      const gs = new Set(growth.map((x) => x.code));
+      curGroups = Object.fromEntries([...t.keys()].map((k) => [k, gs.has(k) && a.has(k) ? "both" : gs.has(k) ? "growth" : "steady"]));
       setTarget(t);
       // 每檔一行、比重大的在前（11/15 使用者：原本擠成一段太亂）
       const gl = [...growth].sort((a, b) => b.weight - a.weight).map((x) => `・${name(x.code, j)} ${x.code}　${(x.weight * DUAL.growth * 100).toFixed(1)}%　營收年增 ${pc(x.yoy3, 0)}${x.newHigh ? "・創高" : ""}`).join("\n");
@@ -202,5 +205,5 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
   const every = wide || lead || turn || !(regime || ai || real || dual) ? 1 : ai ? WATCH.aiEvery : real ? REAL.every : dual ? DUAL.every : WATCH.every;
   const nextStock = lastDayTarget ? [...lastDayTarget.values()].reduce((a, b) => a + b, 0) : undefined; // 明天調整完的股票目標比重（其餘是現金）
   const lastVetoes = plus && v.asOf ? [...vetoAt(v.asOf).values()].map((x) => ({ ...x, name: x.name ?? name(x.code, c.N - 1) })) : undefined;
-  return { ...v, pending, ...(lastVetoes ? { vetoes: lastVetoes } : {}), ...(curTarget ? { targets: Object.fromEntries([...curTarget].map(([k, w]) => [k, Math.round(w * 1e6) / 1e6])), targetsDate: curTargetDate } : {}), plan: { every, lastDecision, nextStock, band: wide ? STEADY.wideBand : turn ? TURN2.band : dual ? DUAL.band : lead || ai ? LEAD.band : WATCH.minTrade } };
+  return { ...v, pending, ...(lastVetoes ? { vetoes: lastVetoes } : {}), ...(curGroups ? { groups: curGroups } : {}), ...(curTarget ? { targets: Object.fromEntries([...curTarget].map(([k, w]) => [k, Math.round(w * 1e6) / 1e6])), targetsDate: curTargetDate } : {}), plan: { every, lastDecision, nextStock, band: wide ? STEADY.wideBand : turn ? TURN2.band : dual ? DUAL.band : lead || ai ? LEAD.band : WATCH.minTrade } };
 }

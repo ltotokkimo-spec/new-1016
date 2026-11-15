@@ -997,6 +997,11 @@ function check(ok, name, detail = "") {
   log("雙引擎＋", plusTxt.slice(0, 500));
   check(/雙引擎＋觀察組合（/.test(plusTxt) && /虛擬資金 50\.0 萬/.test(plusTxt) && /新聞否決/.test(plusTxt) && /目前的新聞否決（\d+ 檔）/.test(plusTxt), "雙引擎＋觀察組合顯示（虛擬 50 萬、外資條件與新聞否決說明、目前否決清單）", plusTxt.slice(0, 200));
   await shot("05d5b-雙引擎＋");
+  // 分類標籤（11/15）：委託清單每一檔標成長型／低波動型（雲端資料有 groups 才有；還沒更新的舊資料沒有標籤）
+  const tags = await page.$$eval('[data-testid="virtual-pending"] [data-testid="group-tag"]', (ts) => ts.map((t) => t.textContent));
+  const pendN = await page.$$eval('[data-testid="virtual-pending"] .up, [data-testid="virtual-pending"] .down', (x) => x.length).catch(() => 0);
+  log("雙引擎＋分類標籤", JSON.stringify({ tags: tags.slice(0, 12), pendN }));
+  if (tags.length) check(tags.length === pendN && tags.every((t) => /^(成長型|低波動型|成長＋低波動|已不在名單)$/.test(t)) && tags.some((t) => t === "成長型") && tags.some((t) => t === "低波動型"), "雙引擎＋委託清單每一檔標成長型／低波動型", JSON.stringify(tags.slice(0, 12)));
   // 雙引擎實單（11/15）：本金 50 萬、和我的實單分開記帳；有目標配置就列出要下的單（或今天不用下單），雲端還沒算出目標時說明原因
   await page.click('[data-testid="mode-dualreal"]');
   await page.waitForSelector('[data-testid="dualreal-summary"]', { timeout: 10000 });

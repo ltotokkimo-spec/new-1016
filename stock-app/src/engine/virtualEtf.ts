@@ -27,6 +27,7 @@ export interface VirtualEtf extends AiEtf {
   targets?: Record<string, number>;
   targetsDate?: string;
   vetoes?: DualVeto[]; // 雙引擎＋：最後一個資料日仍有效的新聞否決
+  groups?: Record<string, "growth" | "steady" | "both">; // 雙引擎：目標名單裡每檔屬於成長組、低波動組或兩組都有（11/15，清單上標分類）
 }
 
 /**

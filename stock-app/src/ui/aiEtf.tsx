@@ -724,7 +724,7 @@ function DualRealScreen() {
         : !d.targets ? <div class="card muted" style={{ fontSize: "13px" }}>雙引擎＋還沒有目標配置（雲端每天傍晚更新），晚一點再來看。</div>
         : !twReady ? <div class="card muted" style={{ fontSize: "13px" }}>等台股收盤價下載完才能估算股數…</div>
         : orders.length === 0 ? <div class="card" style={{ fontSize: "13.5px" }} data-testid="dualreal-noorder">今天不用下單：持股和雙引擎的目標配置差距都小於淨值 {(DUAL_REAL.band * 100).toFixed(1)}%。下次判斷約在 {d.plan?.lastDecision ? prettyW(addWeekdays(d.plan.lastDecision, d.plan.every)) : "幾天後"} 收盤後。</div>
-        : <>{d.vetoes && d.vetoes.length > 0 && <div class="notice" style={{ fontSize: "12.5px", marginBottom: "8px" }} data-testid="dualreal-vetoes">新聞否決中：{d.vetoes.map((x) => `${x.name ?? x.code}（${x.reason}）`).join("、")}。這些不在下單清單裡，持有的會列在賣出。</div>}<DualFill key={orders.map((o) => `${o.side}${o.code}${o.shares}`).join(",")} orders={orders} /></>}
+        : <>{d.vetoes && d.vetoes.length > 0 && <div class="notice" style={{ fontSize: "12.5px", marginBottom: "8px" }} data-testid="dualreal-vetoes">新聞否決中：{d.vetoes.map((x) => `${x.name ?? x.code}（${x.reason}）`).join("、")}。這些不在下單清單裡，持有的會列在賣出。</div>}<DualFill key={orders.map((o) => `${o.side}${o.code}${o.shares}`).join(",")} orders={orders} groups={d.groups} /></>}
 
       {pos.length > 0 && <>
         <div class="section-title"><span>目前持股</span><span>{pos.length} 檔</span></div>
@@ -734,7 +734,7 @@ function DualRealScreen() {
             const r = px ? px / p.avgCost - 1 : NaN;
             return (
               <div class="row" style={{ justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: "13px" }}>
-                <span>{p.name} <span class="muted num">{p.code}</span><br /><span class="muted num" style={{ fontSize: "12px" }}>{p.shares.toLocaleString()} 股・成本 {fmtPrice(p.avgCost)}・佔 {(w * 100).toFixed(1)}%（目標 {(tw * 100).toFixed(1)}%）</span></span>
+                <span>{p.name} <span class="muted num">{p.code}</span><GroupTag groups={d?.groups} code={p.code} /><br /><span class="muted num" style={{ fontSize: "12px" }}>{p.shares.toLocaleString()} 股・成本 {fmtPrice(p.avgCost)}・佔 {(w * 100).toFixed(1)}%（目標 {(tw * 100).toFixed(1)}%）</span></span>
                 <span class={`num ${cls(r)}`} style={{ textAlign: "right" }}>{Number.isFinite(r) ? fmtPct(r, 1) : "—"}<br /><span style={{ fontSize: "12px" }}>{px ? signedMoney((px - p.avgCost) * p.shares) : ""}</span></span>
               </div>
             );
@@ -763,8 +763,17 @@ function DualRealScreen() {
   );
 }
 
+/** 雙引擎的分類標籤（11/15 使用者）：成長型／低波動型／兩組都有；不在名單（要賣出的）顯示「已不在名單」 */
+type DualGroups = Record<string, "growth" | "steady" | "both"> | undefined;
+function GroupTag({ groups, code }: { groups: DualGroups; code: string }) {
+  if (!groups) return null;
+  const g = groups[code];
+  const [txt, bg, fg] = g === "growth" ? ["成長型", "#fdecec", "#c0392b"] : g === "steady" ? ["低波動型", "#e8f1fb", "#2463a6"] : g === "both" ? ["成長＋低波動", "#f3e8fb", "#7a3fa6"] : ["已不在名單", "var(--hold-bg)", "var(--muted)"];
+  return <span style={{ fontSize: "11px", padding: "1px 6px", borderRadius: "8px", background: bg, color: fg, whiteSpace: "nowrap", marginLeft: "4px", verticalAlign: "1px" }} data-testid="group-tag">{txt}</span>;
+}
+
 /** 雙引擎實單的下單清單：勾選、改成實際的股數與成交價，一次記錄 */
-function DualFill({ orders }: { orders: DualOrder[] }) {
+function DualFill({ orders, groups }: { orders: DualOrder[]; groups?: DualGroups }) {
   const [rows, setRows] = useState(() => orders.map((o) => ({ ...o, keep: true, sharesText: String(o.shares), priceText: String(o.price) })));
   const [err, setErr] = useState("");
   const [done, setDone] = useState("");
@@ -785,7 +794,7 @@ function DualFill({ orders }: { orders: DualOrder[] }) {
         <div class="row" style={{ gap: "6px", alignItems: "center", borderBottom: "1px solid var(--line)", paddingBottom: "6px" }} data-testid="dualreal-order">
           <input type="checkbox" checked={r.keep} onChange={(e) => upd(i, { keep: (e.target as HTMLInputElement).checked })} aria-label={`記錄 ${r.name}`} />
           <div style={{ flex: 1, minWidth: 0, fontSize: "13px" }}>
-            <b class={r.side === "buy" ? "up" : "down"}>{r.side === "buy" ? "買" : "賣"}</b> {r.name} <span class="muted num">{r.code}</span>
+            <b class={r.side === "buy" ? "up" : "down"}>{r.side === "buy" ? "買" : "賣"}</b> {r.name} <span class="muted num">{r.code}</span><GroupTag groups={groups} code={r.code} />
             <div class="muted" style={{ fontSize: "11.5px" }}>{r.reason}</div>
           </div>
           <input class="num" style={{ width: "62px" }} inputMode="numeric" value={r.sharesText} onInput={(e) => upd(i, { sharesText: (e.target as HTMLInputElement).value })} aria-label="股數" />
@@ -1410,7 +1419,7 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
           {isWatch && <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }} data-testid="pending-note">{prettyW(v.asOf)} 收盤後判斷、{nextDay ? `${prettyW(nextDay)} ` : "下一個交易日"}收盤價成交（遇國定假日順延）；股數依 {prettyW(v.asOf)} 收盤價估算，實際以成交日收盤價為準。</div>}
           {v.pending.map((o) => (
             <div style={{ fontSize: "14px", lineHeight: 1.6 }}>
-              <span class={o.side === "buy" ? "up" : "down"}>{o.side === "buy" ? "買進" : "賣出"}</span> <b>{o.name}</b> <span class="muted num">{o.code}</span> {o.shares.toLocaleString()} 股{o.limit ? `・限價 ${o.limit}` : isWatch ? "・收盤價" : "・開盤價"}
+              <span class={o.side === "buy" ? "up" : "down"}>{o.side === "buy" ? "買進" : "賣出"}</span> <b>{o.name}</b> <span class="muted num">{o.code}</span><GroupTag groups={v.groups} code={o.code} /> {o.shares.toLocaleString()} 股{o.limit ? `・限價 ${o.limit}` : isWatch ? "・收盤價" : "・開盤價"}
               <div class="muted" style={{ fontSize: "12px" }}>{o.reason}</div>
             </div>
           ))}

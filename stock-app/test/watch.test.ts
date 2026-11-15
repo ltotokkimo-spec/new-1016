@@ -254,6 +254,11 @@ describe("雙引擎觀察組合（11/14 使用者同意上線：成長組五成�
     expect(r.targets && Object.keys(r.targets).length).toBeGreaterThan(0);
     expect(Object.values(r.targets!).reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(1.0001);
     expect(r.targetsDate).toBe(r.plan?.lastDecision);
+    // 分類標籤（11/15）：目標名單每一檔都有分類，成長組選到的是 growth（或兩組都有）
+    expect(Object.keys(r.groups ?? {}).sort()).toEqual(Object.keys(r.targets!).sort());
+    const g = growthPicks(buildCtx(days, companies, rev), days.length - 1);
+    expect(Object.values(r.groups!).every((x) => ["growth", "steady", "both"].includes(x))).toBe(true);
+    expect(Object.entries(r.groups!).some(([, x]) => x !== "steady")).toBe(g.length > 0);
   });
   it("成長組最多 20 檔、每個產業最多 6 檔，合計約五成", () => {
     const g = growthPicks(buildCtx(days, companies, rev), days.length - 1);

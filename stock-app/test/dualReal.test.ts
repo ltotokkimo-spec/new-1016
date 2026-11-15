@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DUAL_REAL, dualOrders } from "../src/engine/dualReal";
+import { DUAL_REAL, dualOrders, waterLevel } from "../src/engine/dualReal";
 import { emptyEtf, FEE, valuate, type AiEtf } from "../src/engine/aiEtf";
 
 const px: Record<string, number> = { "2330": 1000, "2412": 120, "2886": 40, "0050": 60 };
@@ -32,5 +32,40 @@ describe("雙引擎實單：依目標權重算出這個帳戶要下的單（11/1
   it("沒有價格的股票跳過；淨值是 0 時不下單", () => {
     expect(dualOrders(emptyEtf(500_000), { "9999": 0.5 }, price, name)).toEqual([]);
     expect(dualOrders(emptyEtf(0), { "2330": 0.5 }, price, name)).toEqual([]);
+  });
+});
+
+describe("資金水位：股票成本、賺賠、現金（11/15）", () => {
+  const buy = (code: string, shares: number, p: number): AiEtf["trades"][number] => ({ id: code, date: "20261113", code, name: code, side: "buy", shares, price: p, benchPrice: 60 });
+  it("空帳戶：整條都是現金", () => {
+    const w = waterLevel(emptyEtf(500_000), price);
+    expect(w).toMatchObject({ cost: 0, cash: 500_000, invested: 500_000, unrealized: 0 });
+    expect(w.bar).toEqual({ stock: 0, gain: 0, loss: 0, cash: 100, tick: 0 });
+  });
+  it("賺錢：成本＋賺＋現金＝100%，成本線在成本右緣", () => {
+    const etf: AiEtf = { ...emptyEtf(500_000), trades: [buy("2330", 100, 800)] }; // 成本 8 萬（含手續費），市值 10 萬
+    const w = waterLevel(etf, price);
+    expect(w.cost).toBeCloseTo(80_000 * (1 + FEE), 6);
+    expect(w.unrealized).toBeCloseTo(100_000 - w.cost, 6);
+    expect(w.bar.loss).toBe(0);
+    expect(w.bar.stock + w.bar.gain + w.bar.cash).toBeCloseTo(100, 6);
+    expect(w.bar.tick).toBeCloseTo(w.bar.stock, 6);
+    expect(w.cost + w.cash).toBeCloseTo(500_000, 6);
+  });
+  it("賠錢：市值＋缺口＋現金＝100%，成本線在缺口右緣", () => {
+    const etf: AiEtf = { ...emptyEtf(500_000), trades: [buy("2330", 100, 1200)] };
+    const w = waterLevel(etf, price);
+    expect(w.unrealized).toBeLessThan(0);
+    expect(w.bar.gain).toBe(0);
+    expect(w.bar.stock + w.bar.loss + w.bar.cash).toBeCloseTo(100, 6);
+    expect(w.bar.tick).toBeCloseTo(w.bar.stock + w.bar.loss, 6);
+  });
+  it("增加投入：現金和投入一起變多，要下的單照新的總值放大", () => {
+    const etf: AiEtf = { ...emptyEtf(500_000), trades: [buy("2412", 1250, 120)] };
+    const more: AiEtf = { ...etf, flows: [{ id: "f", date: "20261116", amount: 100_000 }] };
+    expect(waterLevel(more, price).invested).toBe(600_000);
+    expect(waterLevel(more, price).cash - waterLevel(etf, price).cash).toBe(100_000);
+    expect(dualOrders(etf, { "2412": 0.3 }, price, name)).toEqual([]);
+    expect(dualOrders(more, { "2412": 0.3 }, price, name)[0]).toMatchObject({ side: "buy", code: "2412" });
   });
 });

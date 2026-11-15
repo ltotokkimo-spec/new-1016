@@ -1069,6 +1069,20 @@ export async function addDualTrades(trades: Omit<EtfTrade, "id" | "benchPrice">[
 }
 export async function hideDualTrade(id: string) { const etf = dualRealOf(); await saveDualReal({ ...etf, trades: etf.trades.map((t) => (t.id === id ? { ...t, hidden: true } : t)) }); }
 export async function setDualBudget(budget: number) { if (budget > 0) await saveDualReal({ ...dualRealOf(), budget }); }
+/** 雙引擎實單增加／減少投入資金（11/15 資金水位）：還沒有成交時直接改本金；有成交後記成存入／提領（報酬用時間加權，不會被存入的錢稀釋） */
+export async function addDualFlow(amount: number) {
+  const etf = dualRealOf();
+  amount = Math.round(amount);
+  if (!Number.isFinite(amount) || !amount) return;
+  if (!etf.trades.length && !etf.flows?.length) { if (etf.budget + amount > 0) await saveDualReal({ ...etf, budget: etf.budget + amount }); return; }
+  const date = state.tw.asOf ?? taipeiToday();
+  const b = valuate(etf, etfPrice);
+  if (b.cash + amount < 0) return; // 提領不能超過現金
+  const flow = { id: `f${Date.now()}`, date, amount, navBefore: Math.round(b.nav), benchBefore: Math.round(b.bench) };
+  const nav = etf.nav.map((x) => (x.date >= date ? { ...x, nav: x.nav + amount, bench: x.bench + amount } : x));
+  await saveDualReal({ ...etf, flows: [...(etf.flows ?? []), flow], nav });
+  await snapshotDualNav();
+}
 export async function resetDualReal() { set({ dualReal: undefined }); await kv.del("dualReal"); }
 
 async function saveAiEtf(etf: AiEtf) {

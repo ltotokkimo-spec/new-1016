@@ -1009,8 +1009,19 @@ function check(ok, name, detail = "") {
   const drTxt = await page.$eval('[data-testid="dualreal"]', (e) => e.innerText.replace(/\s+/g, " "));
   const drOrders = await page.$$eval('[data-testid="dualreal-order"]', (rs) => rs.length);
   log("雙引擎實單", drTxt.slice(0, 600), "下單筆數", drOrders);
-  check(/雙引擎實單（照「雙引擎＋」/.test(drTxt) && /本金 50\.0 萬/.test(drTxt) && (drOrders > 0 || /今天不用下單|還沒有目標配置/.test(drTxt)), "自組ETF 有「雙引擎實單」：本金 50 萬，依雙引擎目標配置列出要下的單", drTxt.slice(0, 200));
+  check(/雙引擎實單（照「雙引擎＋」/.test(drTxt) && /資金水位/.test(drTxt) && /投入 50\.0 萬/.test(drTxt) && (drOrders > 0 || /今天不用下單|還沒有目標配置/.test(drTxt)), "自組ETF 有「雙引擎實單」：本金 50 萬，依雙引擎目標配置列出要下的單", drTxt.slice(0, 200));
   await shot("05d6-雙引擎實單");
+  // 資金水位（11/15）：橫條＋改現金；增加投入 10 萬後投入變 60 萬
+  await page.click('[data-testid="dualreal-add"]');
+  await page.fill('[data-testid="dualreal-water-input"]', "100000");
+  await page.click('[data-testid="dualreal-water-ok"]');
+  const wTxt = await page.waitForFunction(() => /投入 60\.0 萬/.test(document.querySelector('[data-testid="dualreal-water"]')?.innerText || ""), null, { timeout: 10000 }).then(() => page.$eval('[data-testid="dualreal-water"]', (e) => e.innerText.replace(/\s+/g, " "))).catch(() => "");
+  check(/投入 60\.0 萬/.test(wTxt) && /改現金/.test(wTxt), "雙引擎實單資金水位：增加投入 10 萬後，投入與現金變 60 萬", wTxt.slice(0, 200));
+  await page.click('[data-testid="dualreal-add"]');
+  await page.fill('[data-testid="dualreal-water-input"]', "-100000");
+  await page.click('[data-testid="dualreal-water-ok"]');
+  await page.waitForFunction(() => /投入 50\.0 萬/.test(document.querySelector('[data-testid="dualreal-water"]')?.innerText || ""), null, { timeout: 10000 }).catch(() => {});
+  await shot("05d7-資金水位");
   // 有下單清單時記錄第一筆（只留第一筆勾選），之後檢查總評比出現「雙引擎實單」（11/15）
   let drRecorded = false;
   if (drOrders > 0) {

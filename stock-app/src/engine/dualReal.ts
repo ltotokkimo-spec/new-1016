@@ -42,3 +42,23 @@ export function dualOrders(etf: AiEtf, targets: Record<string, number>, price: (
   }
   return out;
 }
+
+/** 資金水位（使用者 11/15）：股票成本、高於成本賺的／低於成本賠的、現金，各佔橫條多少（百分比）。 */
+export interface WaterLevel {
+  cost: number; marketValue: number; cash: number; invested: number; nav: number;
+  unrealized: number; realized: number;
+  /** 橫條各段寬度（%）：stock 股票（賺錢時＝成本、賠錢時＝市值）、gain 賺、loss 賠的缺口、cash 現金；tick＝成本線位置 */
+  bar: { stock: number; gain: number; loss: number; cash: number; tick: number };
+}
+export function waterLevel(etf: AiEtf, price: (code: string) => number | undefined): WaterLevel {
+  const v = valuate(etf, price);
+  const ps = positions(etf.trades);
+  const cost = ps.reduce((a, p) => a + (p.shares > 0 ? p.shares * p.avgCost : 0), 0);
+  const realized = ps.reduce((a, p) => a + p.realized, 0);
+  const unrealized = v.marketValue - cost;
+  const cash = Math.max(0, v.cash);
+  const total = Math.max(cost, v.marketValue) + cash; // 賠錢時橫條總長＝成本＋現金，缺口留在成本線左邊
+  const pct = (x: number) => (total > 0 ? (x / total) * 100 : 0);
+  const bar = { stock: pct(Math.min(cost, v.marketValue)), gain: pct(Math.max(0, unrealized)), loss: pct(Math.max(0, -unrealized)), cash: pct(cash), tick: pct(cost) };
+  return { cost, marketValue: v.marketValue, cash: v.cash, invested: v.invested, nav: v.nav, unrealized, realized, bar };
+}

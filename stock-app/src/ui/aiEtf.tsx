@@ -1,7 +1,7 @@
 // 「自組ETF」分頁：請 Claude 建議要買什麼、買幾股，照著實際下單後填入成交，追蹤淨值並和 0050 比較。
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
-  addDualTrades, hideDualTrade, setDualBudget, resetDualReal, snapshotDualNav,
+  addDualTrades, addDualFlow, hideDualTrade, resetDualReal, snapshotDualNav,
   LIVE_MS, findScored, getFetcher, getKv, addEtfFlow, removeEtfFlow, addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshTurn, refreshDual, refreshDualPlus, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError } from "../ai/claude";
@@ -12,8 +12,8 @@ import type { VirtualEtf } from "../engine/virtualEtf";
 import { twHistory } from "../data/history";
 import { buyConds, sellConds, holdConds, dailyHoldingCheck, takeProfitSignal, TAKE_PROFIT, type HoldCheck, type EtfTrade, type EtfFlow, agreePlans, comparePlans, DEFAULT_STOP, planReadable, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, proClipboardAction, replySig, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { onAppResume, readClipboard } from "../lib/clip";
-import { DUAL_REAL, dualOrders, type DualOrder } from "../engine/dualReal";
-import { emptyEtf } from "../engine/aiEtf";
+import { DUAL_REAL, dualOrders, waterLevel, type DualOrder } from "../engine/dualReal";
+import { emptyEtf, type AiEtf, type Valuation } from "../engine/aiEtf";
 import { addWeekdays, orderDay, pretty, prettyW, taipeiClock, taipeiHour, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
 import { livePolling, type LiveQuote } from "../data/twLive";
@@ -672,6 +672,77 @@ function ReplyDetails({ replies, held, name }: { replies: ReplyInfo[]; held: Set
  * 雙引擎實單（11/15 使用者）：用真的錢照「雙引擎」觀察組合下單。App 依觀察組合最近一次判斷的目標權重，
  * 用這個帳戶自己的淨值算出要買賣哪些、幾股；成交後記進來，和「我的實單」分開記帳，各自和 0050 比。
  */
+// 資金水位（使用者 11/15）：一條橫條看股票成本、賺賠、現金；可以改成實際現金、增加投入資金，「要下的單」跟著目前總值重算
+const WATER = { cost: "#2f4b6e", cash: "#c9d8ea", tick: "#12263a", gain: "#d7263d", loss: "repeating-linear-gradient(135deg,#13834a 0 3px,#cdebd9 3px 6px)" };
+function DualWater({ etf, v }: { etf: AiEtf; v: Valuation }) {
+  const w = waterLevel(etf, etfPrice);
+  const [edit, setEdit] = useState<"" | "add" | "cash">("");
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const num = Number(text.replace(/[,\s]/g, ""));
+  const delta = edit === "add" ? num : num - w.cash; // 改現金：和帳上現金的差額記成存入／提領
+  const ok = text.trim() !== "" && Number.isFinite(num) && (edit === "add" ? num !== 0 && w.cash + num >= 0 && w.invested + num > 0 : num >= 0 && Math.round(delta) !== 0 && w.invested + delta > 0);
+  const open = (m: "add" | "cash") => { setEdit(edit === m ? "" : m); setText(""); };
+  const apply = async () => { if (!ok || busy) return; setBusy(true); try { await addDualFlow(delta); setEdit(""); setText(""); } finally { setBusy(false); } };
+  const seg = (left: number, width: number, background: string) => width > 0 ? <div style={{ position: "absolute", top: 0, bottom: 0, left: `${left}%`, width: `${width}%`, background }} /> : null;
+  const link = { color: WATER.cost, fontWeight: 700, background: "none", border: 0, padding: "2px 0", font: "inherit", fontSize: "13px" } as const;
+  const sw = (background: string) => <i style={{ width: "11px", height: "11px", borderRadius: "3px", display: "inline-block", background }} />;
+  const lg = { display: "inline-flex", alignItems: "center", gap: "4px", marginRight: "10px" } as const;
+  const total = w.nav - w.invested;
+  return (
+    <div class="card stack" style={{ marginTop: "12px" }} data-testid="dualreal-water">
+      <div class="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
+        <b>資金水位</b>
+        <span style={{ fontSize: "13px" }}><span class="muted">投入 </span><b class="num">{moneyU(w.invested)}</b>　<button style={link} onClick={() => open("add")} data-testid="dualreal-add">＋增加投入</button></span>
+      </div>
+      <div style={{ position: "relative", height: "24px", margin: "4px 0 2px" }} data-testid="dualreal-bar">
+        <div style={{ position: "absolute", inset: 0, borderRadius: "6px", overflow: "hidden", background: "var(--line)" }}>
+          {seg(0, w.bar.stock, WATER.cost)}
+          {seg(w.bar.stock, w.bar.gain, WATER.gain)}
+          {seg(w.bar.stock, w.bar.loss, WATER.loss)}
+          {seg(w.bar.stock + w.bar.gain + w.bar.loss, w.bar.cash, WATER.cash)}
+        </div>
+        {w.cost > 0 && <div style={{ position: "absolute", top: "-3px", bottom: "-3px", left: `calc(${w.bar.tick}% - 1px)`, width: "2px", background: WATER.tick }} />}
+      </div>
+      <div style={{ fontSize: "13px", lineHeight: 1.7 }}>
+        <div class="row" style={{ justifyContent: "space-between", gap: "8px" }}>
+          <span>股票成本 <b class="num">{moneyU(w.cost)}</b>・市值 <b class="num">{moneyU(w.marketValue)}</b></span>
+          {w.cost > 0 && <span class={cls(w.unrealized)} style={{ whiteSpace: "nowrap" }}>未實現 <b class="num">{signedMoney(w.unrealized)}</b></span>}
+        </div>
+        <div class="row" style={{ justifyContent: "space-between", gap: "8px" }}>
+          <span>現金 <b class="num">{moneyU(w.cash)}</b>　<button style={link} onClick={() => open("cash")} data-testid="dualreal-cash-edit">✎ 改現金</button></span>
+          {w.realized !== 0 && <span class="muted" style={{ whiteSpace: "nowrap" }}>已實現 <span class={`num ${cls(w.realized)}`}>{signedMoney(w.realized)}</span></span>}
+        </div>
+      </div>
+      {edit && (
+        <div class="stack" style={{ gap: "6px" }}>
+          <div class="row" style={{ gap: "8px" }}>
+            <label class="field" style={{ flex: 1, margin: 0 }}>{edit === "add" ? "再投入（元，要提領就填負數）" : "券商帳上實際的現金（元）"}
+              <input inputMode={edit === "add" ? "text" : "numeric"} placeholder={edit === "add" ? "100000" : String(Math.round(w.cash))} value={text} onInput={(e) => setText((e.target as HTMLInputElement).value)} data-testid="dualreal-water-input" /></label>
+            <button class="btn" style={{ alignSelf: "flex-end" }} disabled={!ok || busy} onClick={() => void apply()} data-testid="dualreal-water-ok">{edit === "add" ? "加入" : "更新"}</button>
+          </div>
+          <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
+            {ok ? <>投入 {moneyU(w.invested)} → <b style={{ color: "var(--fg)" }}>{moneyU(w.invested + delta)}</b>，現金 {moneyU(w.cash)} → <b style={{ color: "var(--fg)" }}>{moneyU(w.cash + delta)}</b>；每檔目標金額照新的總值重算，「要下的單」會跟著更新。</>
+              : edit === "add" ? "加進來的錢先放現金，「要下的單」會照新的總值算出要加買哪些、各幾股。提領不能超過現金。" : "填券商 App 上看到的可用現金。和帳上的差額會記成存入或提領，不影響報酬率。"}
+          </div>
+        </div>
+      )}
+      {etf.trades.length > 0 && <>
+        <div class="grid2">
+          <div class="metric"><div class="k">目前總值</div><div class="v num">{fmtMoney(v.nav)}</div><div class={`d num ${cls(total)}`}>比投入 {signedMoney(total)}（{fmtPct(v.ret, 2)}）</div></div>
+          <div class="metric"><div class="k">同樣的錢買 0050</div><div class="v num">{fmtMoney(v.bench)}</div><div class={`d num ${cls(v.benchRet)}`}>{signedMoney(v.bench - w.invested)}（{fmtPct(v.benchRet, 2)}）</div></div>
+        </div>
+        <div style={{ fontSize: "14px" }}>
+          {v.missing.length ? <span class="muted">收盤價更新後再比較輸贏</span> : v.ret >= v.benchRet ? <span class="up">贏過 0050 {fmtPct(v.ret - v.benchRet, 2)}</span> : <span class="down">落後 0050 {fmtPct(v.ret - v.benchRet, 2)}</span>}
+        </div>
+      </>}
+      <div class="muted" style={{ fontSize: "11.5px" }}>
+        <span style={lg}>{sw(WATER.cost)}股票成本</span><span style={lg}>{sw(WATER.gain)}賺</span><span style={lg}>{sw(WATER.loss)}賠</span><span style={lg}>{sw(WATER.cash)}現金</span><span style={lg}><i style={{ width: "2px", height: "12px", background: WATER.tick, display: "inline-block" }} />成本線</span>
+      </div>
+    </div>
+  );
+}
+
 function DualRealScreen() {
   const dr = useStore((s) => s.dualReal), dualG = useStore((s) => s.dualPlus); // 11/15：雙引擎實單改照「雙引擎＋」下單（加外資條件與新聞否決）
   useStore((s) => s.prices);
@@ -685,37 +756,19 @@ function DualRealScreen() {
   const pos = positions(etf.trades).filter((p) => p.shares > 0);
   const orders = d?.targets && twReady ? dualOrders(etf, d.targets, etfPrice, name) : [];
   const pnl = useMemo(() => tradePnls(etf.trades, etfPrice), [etf.trades, twReady]);
-  const [budgetText, setBudgetText] = useState("");
   const [tradesOpen, setTradesOpen] = useState(false);
   const asOf = getState().tw.asOf;
   return (
     <div data-testid="dualreal">
       <div class="card stack" data-testid="dualreal-summary">
-        <div class="row" style={{ justifyContent: "space-between" }}>
-          <b>雙引擎實單（照「雙引擎＋」用真的錢下單）</b>
-          <span class="muted" style={{ fontSize: "12px" }}>本金 {fmtMoney(etf.budget)}</span>
-        </div>
-        {etf.trades.length > 0 ? <>
-          <div class="grid2">
-            <div class="metric"><div class="k">淨值（現金＋股票）</div><div class="v num">{fmtMoney(v.nav)}</div><div class={`d num ${cls(v.ret)}`}>報酬 {fmtPct(v.ret, 2)}<TotalPnl now={v.nav} budget={etf.budget} /></div></div>
-            <div class="metric"><div class="k">同樣的錢買 0050</div><div class="v num">{fmtMoney(v.bench)}</div><div class={`d num ${cls(v.benchRet)}`}>報酬 {fmtPct(v.benchRet, 2)}</div></div>
-          </div>
-          <div style={{ fontSize: "14px" }}>
-            {v.missing.length ? <span class="muted">收盤價更新後再比較輸贏</span> : v.ret >= v.benchRet ? <span class="up">贏過 0050 {fmtPct(v.ret - v.benchRet, 2)}</span> : <span class="down">落後 0050 {fmtPct(v.ret - v.benchRet, 2)}</span>}
-            <span class="muted">・現金 {moneyU(v.cash)}・股票市值 {moneyU(v.marketValue)}</span>
-          </div>
-        </> : (
-          <div class="row" style={{ gap: "8px" }}>
-            <label class="field" style={{ flex: 1, margin: 0 }}>本金（元）<input inputMode="numeric" placeholder={String(etf.budget)} value={budgetText} onInput={(e) => setBudgetText((e.target as HTMLInputElement).value)} data-testid="dualreal-budget" /></label>
-            <button class="btn secondary" style={{ alignSelf: "flex-end" }} disabled={!(Number(budgetText) > 0)} onClick={() => { void setDualBudget(Number(budgetText)); setBudgetText(""); }}>改本金</button>
-          </div>
-        )}
+        <b>雙引擎實單（照「雙引擎＋」用真的錢下單）</b>
         <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
           規則和「雙引擎＋」觀察組合一樣（成長組五成＋低波動組五成、低波動組也看外資，每 5 個交易日收盤後判斷、成長組每 20 個交易日重選；Claude 每天查新聞，被否決的不買、持有的賣出），差距 ≥ 淨值 {(DUAL_REAL.band * 100).toFixed(1)}% 才調整。
           下單清單用這個帳戶自己的淨值與最近收盤價估算股數（零股），建議在判斷日的下一個交易日、收盤前下單，成交後按「記錄勾選的成交」改成實際成交價。
           觀察組合是以收盤價成交、沒有零股折讓，實際成交價不同，報酬會和觀察組合有落差。
         </div>
       </div>
+      <DualWater etf={etf} v={v} />
 
       {etf.nav.length >= 2 && <><div class="section-title"><span>報酬走勢</span><span>{etf.nav.length} 天</span></div><NavChart points={etf.nav} budget={etf.budget} mine="雙引擎實單" /></>}
 

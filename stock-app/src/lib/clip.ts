@@ -8,6 +8,11 @@ interface ClipNative extends Plugin {
 }
 const Clip = registerPlugin<ClipNative>("Clip");
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+/** 原生呼叫偶爾一直不回應（11/15 模擬器卡在「正在讀剪貼簿…」超過 15 秒）：每次最多等 ms，逾時就丟錯，讓下一次切回前景再試 */
+function within<T>(p: Promise<T>, ms: number): Promise<T> {
+  let t: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([p, new Promise<T>((_, rej) => { t = setTimeout(() => rej(new Error("讀剪貼簿逾時")), ms); })]).finally(() => clearTimeout(t));
+}
 
 /**
  * 讀剪貼簿的文字；讀不到會丟出錯誤。
@@ -16,11 +21,13 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
  */
 export async function readClipboard(waitFocus = false): Promise<string> {
   if (Capacitor.isNativePlatform()) {
-    for (let i = 0; i < (waitFocus ? 32 : 1); i++) {
-      if ((await Clip.has()).has) return (await Clip.read()).text;
+    const until = Date.now() + (waitFocus ? 8000 : 0);
+    do {
+      const h = await within(Clip.has(), 2000).catch(() => ({ has: false }));
+      if (h.has) return (await within(Clip.read(), 3000)).text;
       if (waitFocus) await sleep(250);
-    }
-    return (await Clip.read()).text; // 沒等到焦點也試一次（舊版 Android 不需要焦點）
+    } while (Date.now() < until);
+    return (await within(Clip.read(), 3000)).text; // 沒等到也試一次（舊版 Android 不需要焦點）
   }
   return await navigator.clipboard.readText();
 }

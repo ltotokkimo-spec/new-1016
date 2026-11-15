@@ -1189,7 +1189,7 @@ function check(ok, name, detail = "") {
       await page.evaluate(() => document.activeElement && document.activeElement.blur && document.activeElement.blur());
       const wrote = await page.evaluate((t) => window.__srClipWrite(t).then(() => "ok", (e) => "失敗：" + e), reply(j)).catch((e) => "失敗：" + e);
       await page.evaluate(() => { localStorage.setItem("proPending", String(Date.now())); document.dispatchEvent(new Event("visibilitychange")); });
-      const auto = await page.waitForSelector('[data-testid="pro-loaded"]', { timeout: 15000 }).then((h) => h.innerText()).catch(() => "");
+      const auto = await page.waitForSelector('[data-testid="pro-loaded"]', { timeout: 25000 }).then((h) => h.innerText()).catch(() => "");
       const flag = await page.evaluate(() => localStorage.getItem("proPending"));
       const st1 = await page.evaluate(() => document.querySelector('[data-testid="pro-status"]')?.innerText || "（沒有偵測狀態）");
       log("自動載入剪貼簿的回覆", wrote, auto, "proPending=" + flag, st1);

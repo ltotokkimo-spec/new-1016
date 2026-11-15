@@ -244,8 +244,8 @@ describe("雙引擎觀察組合（11/14 使用者同意上線：成長組五成�
   it("每 5 個交易日判斷、成長組每 20 個交易日重選；不買 0050；現金不為負；結果穩定", () => {
     expect(r.plan?.every).toBe(5);
     expect(r.plan?.band).toBe(DUAL.band);
-    expect(r.notes.some((n) => n.text.includes("成長組重新選股"))).toBe(true);
-    expect(r.notes.some((n) => n.text.includes("成長組沿用上次選股"))).toBe(true);
+    expect(r.notes.some((n) => n.text.includes("【成長組】重新選股"))).toBe(true);
+    expect(r.notes.some((n) => n.text.includes("【成長組】沿用上次選股"))).toBe(true);
     expect(r.trades.length).toBeGreaterThan(0);
     expect(r.trades.some((t) => t.code === "0050")).toBe(false);
     expect(valuate(r, (c) => r.last[c]?.close).cash).toBeGreaterThanOrEqual(-1);

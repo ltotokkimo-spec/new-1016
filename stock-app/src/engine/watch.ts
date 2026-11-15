@@ -160,12 +160,14 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
       const vetoed = [...t.keys(), ...hold.keys()].filter((k, i, arr) => arr.indexOf(k) === i && vetoNow.has(k));
       for (const k of vetoed) t.delete(k); // 否決的不買、已持有的賣出；那部分先放現金
       setTarget(t);
-      const gl = growth.map((x) => `${name(x.code, j)}${x.code} ${(x.weight * DUAL.growth * 100).toFixed(1)}%（營收年增 ${pc(x.yoy3, 0)}${x.newHigh ? "、創高" : ""}）`).join("、");
-      const al = [...a].map(([code, w]) => `${name(code, j)}${code} ${(w * DUAL.steady * 100).toFixed(1)}%`).join("、");
-      text += `\n本日判斷：成長組${reGrowth ? "重新選股" : `沿用上次選股（每 ${GROWTH.every} 個交易日重選）`} ${growth.length} 檔：${gl || (c.rev ? "目前沒有符合的，這部分先放現金" : "沒有下載到月營收資料，這部分先放現金")}。`
-        + `\n低波動組（每 ${DUAL.every} 個交易日重選${plus ? "，外資近 60 日沒有賣超才選" : ""}）${a.size} 檔：${al || "目前沒有符合的，這部分先放現金"}。`
-        + (vetoed.length ? `\n新聞否決（Claude 查新聞與重大訊息）：${vetoed.map((k) => `${name(k, j)}${k}（${vetoNow.get(k)!.reason}）`).join("、")}，不買／賣出，那部分先放現金。` : "")
-        + (scheduled ? "" : "\n（今天不是判斷日，只因否決調整，其他持股不動。）") + "下一個交易日收盤價調整。";
+      // 每檔一行、比重大的在前（11/15 使用者：原本擠成一段太亂）
+      const gl = [...growth].sort((a, b) => b.weight - a.weight).map((x) => `・${name(x.code, j)} ${x.code}　${(x.weight * DUAL.growth * 100).toFixed(1)}%　營收年增 ${pc(x.yoy3, 0)}${x.newHigh ? "・創高" : ""}`).join("\n");
+      const al = [...a].sort((x, y) => y[1] - x[1]).map(([code, w]) => `・${name(code, j)} ${code}　${(w * DUAL.steady * 100).toFixed(1)}%`).join("\n");
+      text += `\n\n【成長組】${reGrowth ? "重新選股" : `沿用上次選股（每 ${GROWTH.every} 個交易日重選）`}，${growth.length} 檔：\n${gl || (c.rev ? "目前沒有符合的，這部分先放現金" : "沒有下載到月營收資料，這部分先放現金")}`
+        + `\n\n【低波動組】每 ${DUAL.every} 個交易日重選${plus ? "，外資近 60 日沒有賣超才選" : ""}，${a.size} 檔：\n${al || "目前沒有符合的，這部分先放現金"}`
+        + (vetoed.length ? `\n\n【新聞否決】不買／賣出，那部分先放現金：\n${vetoed.map((k) => `・${name(k, j)} ${k}：${vetoNow.get(k)!.reason}`).join("\n")}` : "")
+        + "\n\n"
+        + (scheduled ? "" : "（今天不是判斷日，只因否決調整，其他持股不動。）\n") + "下一個交易日收盤價調整。";
     } else if (decide) {
       const a = aPicks(c, j);
       const t = new Map<string, number>([[BENCH, WATCH.core]]);

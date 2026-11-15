@@ -21,7 +21,7 @@ import { appendPicks, applyFinal, assertAppendOnly, assertFinalAppendOnly, BOOK_
 import { UsLoader } from "../src/data/usLoader";
 import type { KV } from "../src/lib/kv";
 
-const [cacheDir = ".bt-cache", outFile = "backtest.json", factorsFile = "factors.json", compareFile = "scorecompare.json", steadyFile = "steady.json", watchFile = "n5.json", wideFile = "wide.json", regimeFile = "regime.json", leadFile = "lead.json", aiFile = "ai.json", realFile = "real.json", turnFile = "turn.json", dualFile = "dual.json", quadFile = "quad.json"] = process.argv.slice(2);
+const [cacheDir = ".bt-cache", outFile = "backtest.json", factorsFile = "factors.json", compareFile = "scorecompare.json", steadyFile = "steady.json", watchFile = "n5.json", wideFile = "wide.json", regimeFile = "regime.json", leadFile = "lead.json", aiFile = "ai.json", realFile = "real.json", turnFile = "turn.json", dualFile = "dual.json", quadFile = "quad.json", dualPlusFile = "dualplus.json"] = process.argv.slice(2);
 fs.mkdirSync(cacheDir, { recursive: true });
 
 const fileKV = (dir: string): KV => {
@@ -291,6 +291,16 @@ try {
   log(`剛轉強觀察組合：${w.start} 起，資料日 ${w.asOf || "（尚未開始）"}，成交 ${w.trades.length} 筆，淨值 ${w.nav.at(-1)?.nav ?? WATCH.budget}（0050 對照 ${w.nav.at(-1)?.bench ?? WATCH.budget}）`);
   log("剛轉強最後說明：", w.notes.at(-1)?.text);
 } catch (e) { log("剛轉強觀察組合失敗（不影響回測）：", e); }
+// 雙引擎＋（使用者 11/15：雙引擎加法人與新聞）：低波動組也要外資近 60 日沒有賣超；Claude 每天查新聞寫的否決清單在 virtual/dual-veto.json
+try {
+  let vetoes: any[] = [];
+  try { const j = JSON.parse(fs.readFileSync("virtual/dual-veto.json", "utf8")); vetoes = Array.isArray(j?.vetoes) ? j.vetoes.filter((x: any) => /^\d{4,6}[A-Z]?$/.test(String(x?.code ?? "")) && /^\d{8}$/.test(String(x?.from ?? "")) && x?.reason) : []; }
+  catch (e) { log("雙引擎＋否決清單讀取失敗（當作沒有否決）：", e); }
+  const w = runWatch(days, companies, { mode: "dualplus", rev, vetoes });
+  fs.writeFileSync(dualPlusFile, JSON.stringify(w));
+  log(`雙引擎＋觀察組合：${w.start} 起，資料日 ${w.asOf || "（尚未開始）"}，成交 ${w.trades.length} 筆，淨值 ${w.nav.at(-1)?.nav ?? WATCH.budget}，否決清單 ${vetoes.length} 筆（有效 ${w.vetoes?.length ?? 0}），明天委託 ${w.pending.length} 筆`);
+  log("雙引擎＋最後說明：", w.notes.at(-1)?.text);
+} catch (e) { log("雙引擎＋觀察組合失敗（不影響回測）：", e); }
 // 四因子選股名單（使用者 11/15：和現有「買入」並列顯示、一起追蹤）：需要歷史月營收；沒有營收就不產生名單（App 會顯示沒有資料）
 try {
   const q = runQuad(days, companies, rev);

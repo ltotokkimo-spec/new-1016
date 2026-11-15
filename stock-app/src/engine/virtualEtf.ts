@@ -26,7 +26,14 @@ export interface VirtualEtf extends AiEtf {
   // 規則組合最近一次判斷的目標權重（代號 → 佔淨值比例）與判斷日：給「雙引擎實單」算自己的帳戶要買賣什麼（11/15）
   targets?: Record<string, number>;
   targetsDate?: string;
+  vetoes?: DualVeto[]; // 雙引擎＋：最後一個資料日仍有效的新聞否決
 }
+
+/**
+ * 雙引擎＋的新聞否決（11/15 使用者）：每個交易日 16:40 的排程由 Claude 查新聞、法人與重大訊息後寫進 stock-app/virtual/dual-veto.json。
+ * from 起（含）到 until（含，沒有就一直有效）這檔不買；已持有的在 from 那天收盤後排賣出。
+ */
+export interface DualVeto { code: string; name?: string; from: string; until?: string; reason: string; source?: string }
 
 /** 規則組合怎麼排調整：每 every 個交易日在收盤後判斷一次，lastDecision 是最近一次判斷日，差距小於淨值 band 不動 */
 export interface SchedulePlan { every: number; lastDecision?: string; nextStock?: number; band: number }

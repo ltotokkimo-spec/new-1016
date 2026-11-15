@@ -984,6 +984,19 @@ function check(ok, name, detail = "") {
   check(!!buyChip0 && buyChip0 === buyChip1, "現有「買入」評等的檔數不受四因子影響", `${buyChip0}｜${buyChip1}`);
   await page.click("nav.tabs button:nth-child(4)");
   await page.waitForSelector('[data-testid="mode-compare"]', { timeout: 10000 });
+  // 雙引擎＋（11/15）：雙引擎加外資條件與 Claude 新聞否決；dualplus.json 由同一次推送的回測產生，還沒發布就每 30 秒重進一次（最多 8 分鐘）
+  let plusTxt = "";
+  for (let i = 0; i < 16; i++) {
+    await page.click('[data-testid="mode-dualplus"]');
+    await page.waitForTimeout(3000);
+    plusTxt = await page.$eval('[data-testid="virtual-view"], body', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
+    if (/雙引擎＋觀察組合（/.test(plusTxt) && /虛擬資金 50\.0 萬/.test(plusTxt)) break;
+    await page.waitForTimeout(27000);
+    await page.click('[data-testid="mode-compare"]');
+  }
+  log("雙引擎＋", plusTxt.slice(0, 500));
+  check(/雙引擎＋觀察組合（/.test(plusTxt) && /虛擬資金 50\.0 萬/.test(plusTxt) && /新聞否決/.test(plusTxt) && /目前的新聞否決（\d+ 檔）/.test(plusTxt), "雙引擎＋觀察組合顯示（虛擬 50 萬、外資條件與新聞否決說明、目前否決清單）", plusTxt.slice(0, 200));
+  await shot("05d5b-雙引擎＋");
   // 雙引擎實單（11/15）：本金 50 萬、和我的實單分開記帳；有目標配置就列出要下的單（或今天不用下單），雲端還沒算出目標時說明原因
   await page.click('[data-testid="mode-dualreal"]');
   await page.waitForSelector('[data-testid="dualreal-summary"]', { timeout: 10000 });
@@ -991,11 +1004,11 @@ function check(ok, name, detail = "") {
   const drTxt = await page.$eval('[data-testid="dualreal"]', (e) => e.innerText.replace(/\s+/g, " "));
   const drOrders = await page.$$eval('[data-testid="dualreal-order"]', (rs) => rs.length);
   log("雙引擎實單", drTxt.slice(0, 600), "下單筆數", drOrders);
-  check(/雙引擎實單/.test(drTxt) && /本金 50\.0 萬/.test(drTxt) && (drOrders > 0 || /今天不用下單|還沒有目標配置/.test(drTxt)), "自組ETF 有「雙引擎實單」：本金 50 萬，依雙引擎目標配置列出要下的單", drTxt.slice(0, 200));
+  check(/雙引擎實單（照「雙引擎＋」/.test(drTxt) && /本金 50\.0 萬/.test(drTxt) && (drOrders > 0 || /今天不用下單|還沒有目標配置/.test(drTxt)), "自組ETF 有「雙引擎實單」：本金 50 萬，依雙引擎目標配置列出要下的單", drTxt.slice(0, 200));
   await shot("05d6-雙引擎實單");
   // 模式按鈕排成三列（每列 4 個），文字不能被擠成直排
   const segRows = await page.$$eval('[data-testid^="mode-"]', (bs) => ({ tops: [...new Set(bs.map((b) => Math.round(b.getBoundingClientRect().top)))].length, maxH: Math.max(...bs.map((b) => b.getBoundingClientRect().height)) }));
-  check(segRows.tops === 3 && segRows.maxH < 60, "自組ETF 模式按鈕排成三列、文字不擠成直排", JSON.stringify(segRows));
+  check(segRows.tops === 4 && segRows.maxH < 60, "自組ETF 模式按鈕排成四列（13 個）、文字不擠成直排", JSON.stringify(segRows));
   // 總評比：第一組（Claude 虛擬）和三個規則組合放在一起
   await page.click('[data-testid="mode-compare"]');
   await page.waitForSelector('[data-testid="compare-all"]', { timeout: 30000 });

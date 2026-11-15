@@ -279,3 +279,36 @@ describe("雙引擎觀察組合（11/14 使用者同意上線：成長組五成�
     expect(runWatch(days, companies, { now: 0, mode: "dual", rev }).start).toBe(DUAL.start);
   });
 });
+
+describe("雙引擎＋（11/15：低波動組也看外資、Claude 新聞否決）", () => {
+  const months: { ym: string; rows: RevEntry[] }[] = [];
+  for (let k = 0; k < 26; k++) months.push({ ym: prevYm("202610", k), rows: companies.map((c, i) => [c.code, 1000 + (26 - k) * (40 - i), 500 + i * 20] as RevEntry) });
+  const rev = revTable(months);
+  const base = runWatch(days, companies, { start: startAt, now: 0, mode: "dualplus", rev });
+  const held = (v: typeof base) => { const m = new Map<string, number>(); for (const t of v.trades) m.set(t.code, (m.get(t.code) ?? 0) + (t.side === "buy" ? t.shares : -t.shares)); return new Set([...m].filter(([, n]) => n > 0).map(([c]) => c)); };
+  it("沒有否決時：和雙引擎一樣每 5 個交易日判斷、結果穩定、不輸出否決", () => {
+    expect(base.plan?.every).toBe(5);
+    expect(base.trades.length).toBeGreaterThan(0);
+    expect(base.vetoes).toEqual([]);
+    expect(runWatch(days, companies, { start: startAt, now: 0, mode: "dualplus", rev }).trades).toEqual(base.trades);
+  });
+  it("否決：從 from 那天起不買，已持有的那天收盤後排賣出（非判斷日也會）；until 後失效", () => {
+    const code = [...held(base)][0];
+    expect(code).toBeTruthy();
+    const from = days[10].date; // 新到舊：倒數第 11 個交易日
+    const v = runWatch(days, companies, { start: startAt, now: 0, mode: "dualplus", rev, vetoes: [{ code, from, reason: "測試：重大利空" }] });
+    expect(held(v).has(code)).toBe(false);
+    expect(v.trades.some((t) => t.code === code && t.side === "sell" && t.date > from)).toBe(true);
+    expect(v.trades.some((t) => t.code === code && t.side === "buy" && t.date > from)).toBe(false);
+    expect(v.vetoes?.map((x) => x.code)).toEqual([code]);
+    expect(v.notes.some((n) => n.text.includes("新聞否決") && n.text.includes("測試：重大利空"))).toBe(true);
+    expect(v.targets?.[code]).toBeUndefined();
+    const ended = runWatch(days, companies, { start: startAt, now: 0, mode: "dualplus", rev, vetoes: [{ code, from: days[40].date, until: days[30].date, reason: "已過期" }] });
+    expect(ended.vetoes).toEqual([]); // 最後一天已經過了 until
+  });
+  it("原版雙引擎不受否決清單影響", () => {
+    const d = runWatch(days, companies, { start: startAt, now: 0, mode: "dual", rev, vetoes: [{ code: "2001", from: days[50].date, reason: "x" }] });
+    expect(d.trades).toEqual(runWatch(days, companies, { start: startAt, now: 0, mode: "dual", rev }).trades);
+    expect(d.vetoes).toBeUndefined();
+  });
+});

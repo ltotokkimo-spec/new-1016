@@ -205,7 +205,8 @@ export function buildCtx(days: BtDay[], companies: Company[], rev?: RevTable): C
  * 方案 A（低波動為主、趨勢為輔）：波動最低的一半裡，站上且上彎 60 日線、年化趨勢 0～100% 的，
  * 依「趨勢 × R²」排序取前 10 檔（每產業最多 2 檔），依波動配置（單檔上限 12%）。回傳代號 → 權重（合計 ≤ 1）。
  */
-export function aPicks(c: Ctx, j: number): Map<string, number> {
+/** foreignOk：雙引擎＋（11/15）多一個條件：外資近 60 日買賣超佔成交量 ≥ 0（外資沒有在倒貨） */
+export function aPicks(c: Ctx, j: number, opts: { foreignOk?: boolean } = {}): Map<string, number> {
   const vol60 = (code: string) => { const r60 = rets(c.series.get(code), j, 60); return r60 ? std(r60) : NaN; };
   const pool: { code: string; vol: number }[] = [];
   for (const [code, row] of c.rows[j]) {
@@ -224,6 +225,7 @@ export function aPicks(c: Ctx, j: number): Map<string, number> {
     const { slope, r2 } = trendFit(prices);
     const annual = Math.exp(slope * 250) - 1;
     if (!(annual > 0) || annual > STEADY.trendCap) continue;
+    if (opts.foreignOk && !(foreign60(c, code, j) >= 0)) continue;
     cands.push({ code, vol, sector: c.sector.get(code) ?? "其他", score: annual * r2 });
   }
   cands.sort((a, b) => b.score - a.score || a.vol - b.vol);
@@ -338,14 +340,20 @@ export function growthPicks(c: Ctx, j: number, held: ReadonlySet<string> = new S
   return chosen.map((x, k) => ({ code: x.code, weight: w[k], score: x.score, yoy3: rf[x.i]!.yoy3, newHigh: rf[x.i]!.newHigh === 1, flow: flow[x.i] }));
 }
 /** 回測用：雙引擎（成長 wG＋低波動 wA＋0050 wCore）。每 5 個交易日呼叫一次；成長組每 4 次（20 個交易日）才重選 */
-export function dualPicker(c: Ctx, wG: number, wA: number, wCore = 0): Picker {
+/** 外資近 60 日買賣超佔成交量（股數比；沒有成交量回傳 NaN） */
+export function foreign60(c: Ctx, code: string, j: number): number {
+  let f = 0, v = 0;
+  for (let k = j - 59; k <= j; k++) { f += c.flows[k]?.get(code)?.[1] ?? 0; v += c.rows[k]?.get(code)?.[5] ?? 0; }
+  return v > 0 ? f / v : NaN;
+}
+export function dualPicker(c: Ctx, wG: number, wA: number, wCore = 0, opts: { foreignOk?: boolean } = {}): Picker {
   let last: GrowthPick[] | null = null, n = 0;
   return (j) => {
     if (!last || n % (GROWTH.every / DUAL.every) === 0) last = growthPicks(c, j, new Set((last ?? []).map((x) => x.code)));
     n++;
     const m = new Map<string, number>();
     for (const x of last) m.set(x.code, (m.get(x.code) ?? 0) + x.weight * wG);
-    if (wA) for (const [k, v] of aPicks(c, j)) m.set(k, (m.get(k) ?? 0) + v * wA);
+    if (wA) for (const [k, v] of aPicks(c, j, opts)) m.set(k, (m.get(k) ?? 0) + v * wA);
     if (wCore) m.set(BENCH, (m.get(BENCH) ?? 0) + wCore);
     return m;
   };
@@ -866,6 +874,7 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
     add("D1_dual", "D1 雙引擎（成長組五成＋低波動方案 A 五成）", dualPicker(c, DUAL.growth, DUAL.steady), dOpt);
     add("D2_dual37", "D2 雙引擎偏穩（成長三成＋低波動七成）", dualPicker(c, 0.3, 0.7), dOpt);
     add("D3_third", "D3 三分（0050、成長、低波動各三分之一）", dualPicker(c, 1 / 3, 1 / 3, 1 / 3), dOpt);
+    add("D4_dualPlus", "D4 雙引擎＋的法人部分（低波動組也要外資近 60 日沒有賣超；新聞否決無法回測）", dualPicker(c, DUAL.growth, DUAL.steady, 0, { foreignOk: true }), dOpt);
   }
   out.push(stats("0050", "買進持有 0050", c, j0, benchSim, benchSim.eq));
 

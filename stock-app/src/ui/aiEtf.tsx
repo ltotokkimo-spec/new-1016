@@ -842,19 +842,19 @@ function DualFill({ orders, groups }: { orders: DualOrder[]; groups?: DualGroups
   const buys = rows.filter((r) => r.side === "buy").length, sells = rows.length - buys;
   return (
     <div class="card stack" data-testid="dualreal-orders">
-      <div style={{ fontSize: "13.5px" }}>共 {rows.length} 筆：賣出 {sells} 筆、買進 {buys} 筆（先賣後買）。股數用最近收盤價估算，可改成實際成交的股數與價格；沒成交的取消勾選。</div>
+      <div style={{ fontSize: "13.5px" }}>共 {rows.length} 筆：賣出 {sells} 筆、買進 {buys} 筆（先賣後買）。右邊兩格是「股數」和「股價」，用最近收盤價估算，可改成實際成交的股數與價格；沒成交的取消勾選。</div>
       {rows.map((r, i) => (
         <div class="row" style={{ gap: "6px", alignItems: "center", borderBottom: "1px solid var(--line)", paddingBottom: "6px" }} data-testid="dualreal-order">
           <input type="checkbox" checked={r.keep} onChange={(e) => upd(i, { keep: (e.target as HTMLInputElement).checked })} aria-label={`記錄 ${r.name}`} />
           <div style={{ flex: 1, minWidth: 0, fontSize: "13px" }}>
             <b class={r.side === "buy" ? "up" : "down"}>{r.side === "buy" ? "買" : "賣"}</b> {r.name} <span class="muted num">{r.code}</span><GroupTag groups={groups} code={r.code} />
             <div class="muted" style={{ fontSize: "11.5px" }}>{r.reason}</div>
+            {Number(r.sharesText) > 0 && Number(r.priceText) > 0 && <div class="muted num" style={{ fontSize: "11.5px" }}>約 {moneyU(Number(r.sharesText) * Number(r.priceText))}</div>}
           </div>
-          <input class="num" style={{ width: "62px" }} inputMode="numeric" value={r.sharesText} onInput={(e) => upd(i, { sharesText: (e.target as HTMLInputElement).value })} aria-label="股數" />
-          <input class="num" style={{ width: "62px" }} inputMode="decimal" value={r.priceText} onInput={(e) => upd(i, { priceText: (e.target as HTMLInputElement).value })} aria-label="成交價" />
+          <label style={{ width: "64px", fontSize: "11px", color: "var(--muted)" }}>股數（股）<input class="num" style={{ width: "100%", boxSizing: "border-box" }} inputMode="numeric" value={r.sharesText} onInput={(e) => upd(i, { sharesText: (e.target as HTMLInputElement).value })} aria-label="股數" /></label>
+          <label style={{ width: "64px", fontSize: "11px", color: "var(--muted)" }}>股價（元）<input class="num" style={{ width: "100%", boxSizing: "border-box" }} inputMode="decimal" value={r.priceText} onInput={(e) => upd(i, { priceText: (e.target as HTMLInputElement).value })} aria-label="成交價" /></label>
         </div>
       ))}
-      <div class="muted" style={{ fontSize: "11.5px", textAlign: "right" }}>右邊兩欄：股數、成交價</div>
       {err && <div class="error">{err}</div>}
       {done && <div class="notice" style={{ fontSize: "13px" }}>{done}</div>}
       <button class="btn block" onClick={save} data-testid="dualreal-save">記錄勾選的成交</button>

@@ -1,5 +1,5 @@
 // 「自組ETF」分頁：請 Claude 建議要買什麼、買幾股，照著實際下單後填入成交，追蹤淨值並和 0050 比較。
-import { useEffect, useMemo, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import {
   addDualTrades, addDualFlow, hideDualTrade, resetDualReal, snapshotDualNav,
   LIVE_MS, findScored, getFetcher, getKv, addEtfFlow, removeEtfFlow, addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshTurn, refreshDual, refreshDualPlus, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
@@ -673,17 +673,35 @@ function ReplyDetails({ replies, held, name }: { replies: ReplyInfo[]; held: Set
  * 用這個帳戶自己的淨值算出要買賣哪些、幾股；成交後記進來，和「我的實單」分開記帳，各自和 0050 比。
  */
 // 資金水位（使用者 11/15）：一條橫條看股票成本、賺賠、現金；可以改成實際現金、增加投入資金，「要下的單」跟著目前總值重算
-const WATER = { cost: "#2f4b6e", cash: "#c9d8ea", tick: "#12263a", gain: "#d7263d", loss: "repeating-linear-gradient(135deg,#13834a 0 3px,#cdebd9 3px 6px)" };
+/** 數字滾動：值改變時用 0.9 秒滾到新值（第一次顯示不動畫；系統設定「減少動畫」時直接換） */
+function Roll({ value, fmt }: { value: number; fmt: (x: number) => string }) {
+  const [v, setV] = useState(value);
+  const from = useRef(value);
+  useEffect(() => {
+    const still = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (still || !Number.isFinite(value) || !Number.isFinite(from.current)) { from.current = value; setV(value); return; }
+    const f = from.current, t0 = performance.now();
+    let raf = 0;
+    const step = (t: number) => { const p = Math.min(1, (t - t0) / 900), x = f + (value - f) * (1 - Math.pow(1 - p, 3)); from.current = x; setV(x); if (p < 1) raf = requestAnimationFrame(step); };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [value]);
+  return <>{fmt(v)}</>;
+}
+const WATER = { cost: "#2f4b6e", cash: "#c9d8ea", tick: "#12263a", gain: "#d7263d", loss: "#00e676" };
 function DualWater({ etf, v }: { etf: AiEtf; v: Valuation }) {
   const w = waterLevel(etf, etfPrice);
   const [edit, setEdit] = useState<"" | "add" | "cash">("");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [grown, setGrown] = useState(false); // 第一次顯示時橫條從 0 長出來
+  const [coin, setCoin] = useState(0);
+  useEffect(() => { const id = requestAnimationFrame(() => requestAnimationFrame(() => setGrown(true))); return () => cancelAnimationFrame(id); }, []);
   const num = Number(text.replace(/[,\s]/g, ""));
   const delta = edit === "add" ? num : num - w.cash; // 改現金：和帳上現金的差額記成存入／提領
   const ok = text.trim() !== "" && Number.isFinite(num) && (edit === "add" ? num !== 0 && w.cash + num >= 0 && w.invested + num > 0 : num >= 0 && Math.round(delta) !== 0 && w.invested + delta > 0);
   const open = (m: "add" | "cash") => { setEdit(edit === m ? "" : m); setText(""); };
-  const apply = async () => { if (!ok || busy) return; setBusy(true); try { await addDualFlow(delta); setEdit(""); setText(""); } finally { setBusy(false); } };
+  const apply = async () => { if (!ok || busy) return; setBusy(true); try { await addDualFlow(delta); if (edit === "add" && delta > 0) setCoin((c) => c + 1); setEdit(""); setText(""); } finally { setBusy(false); } };
   const seg = (left: number, width: number, background: string) => width > 0 ? <div style={{ position: "absolute", top: 0, bottom: 0, left: `${left}%`, width: `${width}%`, background }} /> : null;
   const link = { color: WATER.cost, fontWeight: 700, background: "none", border: 0, padding: "2px 0", font: "inherit", fontSize: "13px" } as const;
   const sw = (background: string) => <i style={{ width: "11px", height: "11px", borderRadius: "3px", display: "inline-block", background }} />;
@@ -693,24 +711,26 @@ function DualWater({ etf, v }: { etf: AiEtf; v: Valuation }) {
     <div class="card stack" style={{ marginTop: "12px" }} data-testid="dualreal-water">
       <div class="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
         <b>資金水位</b>
-        <span style={{ fontSize: "13px" }}><span class="muted">投入 </span><b class="num">{moneyU(w.invested)}</b></span>
+        <span style={{ fontSize: "13px" }}><span class="muted">投入 </span><b class="num"><Roll value={w.invested} fmt={moneyU} /></b></span>
       </div>
-      <div style={{ position: "relative", height: "24px", margin: "4px 0 2px" }} data-testid="dualreal-bar">
-        <div style={{ position: "absolute", inset: 0, borderRadius: "6px", overflow: "hidden", background: "var(--line)" }}>
-          {seg(0, w.bar.stock, WATER.cost)}
-          {seg(w.bar.stock, w.bar.gain, WATER.gain)}
-          {seg(w.bar.stock, w.bar.loss, WATER.loss)}
-          {seg(w.bar.stock + w.bar.gain + w.bar.loss, w.bar.cash, WATER.cash)}
+      <div class="wb" data-testid="dualreal-bar">
+        <div class="wb-track">
+          <div class="wb-seg wb-cost" style={{ left: 0, width: `${grown ? w.bar.stock : 0}%` }} />
+          <div class="wb-seg" style={{ left: `${w.bar.stock}%`, width: `${grown ? w.bar.gain : 0}%`, background: WATER.gain }} />
+          <div class="wb-seg" style={{ left: `${w.bar.stock}%`, width: `${grown ? w.bar.loss : 0}%`, background: WATER.loss }} />
+          <div class="wb-seg wb-cash" style={{ left: `${w.bar.stock + w.bar.gain + w.bar.loss}%`, width: `${grown ? w.bar.cash : 0}%` }} />
         </div>
-        {w.cost > 0 && <div style={{ position: "absolute", top: "-3px", bottom: "-3px", left: `calc(${w.bar.tick}% - 1px)`, width: "2px", background: WATER.tick }} />}
+        {(w.bar.gain > 0 || w.bar.loss > 0) && <div class={`wb-halo ${w.bar.gain > 0 ? "g" : "l"}`} style={{ left: `${w.bar.stock}%`, width: `${Math.max(w.bar.gain, w.bar.loss)}%` }} />}
+        {w.cost > 0 && <div class="wb-tick" style={{ left: `calc(${w.bar.tick}% - 1px)` }} />}
+        {coin > 0 && <span key={coin} class="wb-coin" style={{ left: "85%" }}>＋💰</span>}
       </div>
       <div style={{ fontSize: "13px", lineHeight: 1.7 }}>
         <div class="row" style={{ justifyContent: "space-between", gap: "8px" }}>
-          <span>股票成本 <b class="num">{moneyU(w.cost)}</b>・市值 <b class="num">{moneyU(w.marketValue)}</b></span>
-          {w.cost > 0 && <span class={cls(w.unrealized)} style={{ whiteSpace: "nowrap" }}>未實現 <b class="num">{signedMoney(w.unrealized)}</b></span>}
+          <span>股票成本 <b class="num"><Roll value={w.cost} fmt={moneyU} /></b>・市值 <b class="num"><Roll value={w.marketValue} fmt={moneyU} /></b></span>
+          {w.cost > 0 && <span class={cls(w.unrealized)} style={{ whiteSpace: "nowrap" }}>未實現 <b class="num"><Roll value={w.unrealized} fmt={signedMoney} /></b></span>}
         </div>
         <div class="row" style={{ justifyContent: "space-between", gap: "8px" }}>
-          <span>現金 <b class="num">{moneyU(w.cash)}</b>　<button style={{ ...link, ...(edit === "cash" ? { textDecoration: "underline" } : {}) }} onClick={() => open("cash")} data-testid="dualreal-cash-edit">✎ 改現金</button>　<button style={{ ...link, ...(edit === "add" ? { textDecoration: "underline" } : {}) }} onClick={() => open("add")} data-testid="dualreal-add">＋再投入</button></span>
+          <span>現金 <b class="num"><Roll value={w.cash} fmt={moneyU} /></b>　<button style={{ ...link, ...(edit === "cash" ? { textDecoration: "underline" } : {}) }} onClick={() => open("cash")} data-testid="dualreal-cash-edit">✎ 改現金</button>　<button style={{ ...link, ...(edit === "add" ? { textDecoration: "underline" } : {}) }} onClick={() => open("add")} data-testid="dualreal-add">＋再投入</button></span>
           {w.realized !== 0 && <span class="muted" style={{ whiteSpace: "nowrap" }}>已實現 <span class={`num ${cls(w.realized)}`}>{signedMoney(w.realized)}</span></span>}
         </div>
       </div>

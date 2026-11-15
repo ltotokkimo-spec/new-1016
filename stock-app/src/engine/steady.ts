@@ -501,7 +501,7 @@ export function regimeStep(c: Ctx, j: number, prevOn: boolean | undefined): { on
   return { on, targets };
 }
 
-type Picker = (j: number) => Map<string, number>;
+export type Picker = (j: number) => Map<string, number>;
 
 /**
  * 「剛轉強」虛擬 ETF 候選規則（使用者 11/04 要求，先回測再決定是否新增）：
@@ -582,10 +582,10 @@ export function turnPicker(c: Ctx, o: { strict: boolean; regime: boolean; exit?:
   };
 }
  // 目標權重（合計 ≤ 1，其餘現金）
-interface SimOpts { stops?: boolean; every?: number; band?: number; costStop?: number } // costStop：收盤跌破買進價這個比例就賣（實單規則用 0.1）
+export interface SimOpts { stops?: boolean; every?: number; band?: number; costStop?: number } // costStop：收盤跌破買進價這個比例就賣（實單規則用 0.1）
 
 /** 逐日模擬：第 j 天收盤決定，第 j+1 天收盤成交（從 j+2 起承擔漲跌），含手續費與證交稅 */
-function simulate(c: Ctx, j0: number, pick: Picker, opts: SimOpts = {}) {
+export function simulate(c: Ctx, j0: number, pick: Picker, opts: SimOpts = {}) {
   const hold = new Map<string, { v: number; peak: number; atr: number; entry?: number }>();
   let cash = 1, traded = 0, holdN = 0, expo = 0;
   let pending: Map<string, number> | null = null; // 明天收盤要換成的目標
@@ -646,7 +646,7 @@ function simulate(c: Ctx, j0: number, pick: Picker, opts: SimOpts = {}) {
   return { eq, traded, avgHold: holdN / eq.length, exposure: expo / eq.length };
 }
 
-function stats(key: string, label: string, c: Ctx, j0: number, sim: ReturnType<typeof simulate>, bench: number[]): StrategyStats {
+export function stats(key: string, label: string, c: Ctx, j0: number, sim: ReturnType<typeof simulate>, bench: number[]): StrategyStats {
   const eq = sim.eq, n = eq.length;
   const r = eq.map((v, i) => (i ? v / eq[i - 1] - 1 : v - 1));
   const dd = (xs: number[]) => { let pk = xs[0], m = 0; for (const x of xs) { pk = Math.max(pk, x); m = Math.min(m, x / pk - 1); } return m; };

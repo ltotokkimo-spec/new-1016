@@ -1410,7 +1410,7 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
           {isWatch && <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }} data-testid="pending-note">{prettyW(v.asOf)} 收盤後判斷、{nextDay ? `${prettyW(nextDay)} ` : "下一個交易日"}收盤價成交（遇國定假日順延）；股數依 {prettyW(v.asOf)} 收盤價估算，實際以成交日收盤價為準。</div>}
           {v.pending.map((o) => (
             <div style={{ fontSize: "14px", lineHeight: 1.6 }}>
-              <span class={o.side === "buy" ? "up" : "down"}>{o.side === "buy" ? "買進" : "賣出"}</span> <b>{o.name}</b> <span class="muted num">{o.code}</span> {o.shares.toLocaleString()} 股{o.limit ? `・限價 ${o.limit}` : "・開盤價"}
+              <span class={o.side === "buy" ? "up" : "down"}>{o.side === "buy" ? "買進" : "賣出"}</span> <b>{o.name}</b> <span class="muted num">{o.code}</span> {o.shares.toLocaleString()} 股{o.limit ? `・限價 ${o.limit}` : isWatch ? "・收盤價" : "・開盤價"}
               <div class="muted" style={{ fontSize: "12px" }}>{o.reason}</div>
             </div>
           ))}

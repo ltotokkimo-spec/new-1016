@@ -693,7 +693,7 @@ function DualWater({ etf, v }: { etf: AiEtf; v: Valuation }) {
     <div class="card stack" style={{ marginTop: "12px" }} data-testid="dualreal-water">
       <div class="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
         <b>資金水位</b>
-        <span style={{ fontSize: "13px" }}><span class="muted">投入 </span><b class="num">{moneyU(w.invested)}</b>　<button style={link} onClick={() => open("add")} data-testid="dualreal-add">＋增加投入</button></span>
+        <span style={{ fontSize: "13px" }}><span class="muted">投入 </span><b class="num">{moneyU(w.invested)}</b></span>
       </div>
       <div style={{ position: "relative", height: "24px", margin: "4px 0 2px" }} data-testid="dualreal-bar">
         <div style={{ position: "absolute", inset: 0, borderRadius: "6px", overflow: "hidden", background: "var(--line)" }}>
@@ -710,12 +710,13 @@ function DualWater({ etf, v }: { etf: AiEtf; v: Valuation }) {
           {w.cost > 0 && <span class={cls(w.unrealized)} style={{ whiteSpace: "nowrap" }}>未實現 <b class="num">{signedMoney(w.unrealized)}</b></span>}
         </div>
         <div class="row" style={{ justifyContent: "space-between", gap: "8px" }}>
-          <span>現金 <b class="num">{moneyU(w.cash)}</b>　<button style={link} onClick={() => open("cash")} data-testid="dualreal-cash-edit">✎ 改現金</button></span>
+          <span>現金 <b class="num">{moneyU(w.cash)}</b>　<button style={{ ...link, ...(edit === "cash" ? { textDecoration: "underline" } : {}) }} onClick={() => open("cash")} data-testid="dualreal-cash-edit">✎ 改現金</button>　<button style={{ ...link, ...(edit === "add" ? { textDecoration: "underline" } : {}) }} onClick={() => open("add")} data-testid="dualreal-add">＋再投入</button></span>
           {w.realized !== 0 && <span class="muted" style={{ whiteSpace: "nowrap" }}>已實現 <span class={`num ${cls(w.realized)}`}>{signedMoney(w.realized)}</span></span>}
         </div>
       </div>
       {edit && (
         <div class="stack" style={{ gap: "6px" }}>
+          <div class="seg" role="group"><button aria-pressed={edit === "cash"} onClick={() => { setEdit("cash"); setText(""); }}>改現金</button><button aria-pressed={edit === "add"} onClick={() => { setEdit("add"); setText(""); }}>再投入</button></div>
           <div class="row" style={{ gap: "8px" }}>
             <label class="field" style={{ flex: 1, margin: 0 }}>{edit === "add" ? "再投入（元，要提領就填負數）" : "券商帳上實際的現金（元）"}
               <input inputMode={edit === "add" ? "text" : "numeric"} placeholder={edit === "add" ? "100000" : String(Math.round(w.cash))} value={text} onInput={(e) => setText((e.target as HTMLInputElement).value)} data-testid="dualreal-water-input" /></label>

@@ -1434,6 +1434,20 @@ function check(ok, name, detail = "") {
     check(paidGone && /claude\.ai/.test(promptHref) && impRows.includes("2317|3000|198.5") && impRows.includes("2603|2000|210"), "持股截圖匯入改用 Claude App（免費）：沒有付費按鈕，貼回回覆後列出股數與成本待確認", JSON.stringify({ paidGone, impRows }));
     await page.click('.sheet button[aria-label="返回"]').catch(() => {}); // 不加入，關掉確認畫面
     await page.waitForTimeout(500);
+    // 從 Claude App 回來自動載入（11/15）：回覆放進手機的系統剪貼簿、按過按鈕的旗標記在元大，按 HOME 再切回來 → 不按任何按鈕就跳出確認畫面
+    await page.waitForTimeout(9000); // 前一次偵測（剪貼簿還是空的）最多等 8 秒
+    await page.evaluate((t) => window.__srClipWrite(t), '以下是辨識結果：\n```json\n{"holdings":[{"code":"2330","name":"台積電","market":"TW","shares":2000,"cost":1050}],"note":""}\n```');
+    await page.evaluate(() => localStorage.setItem("holdImportPending", JSON.stringify({ at: Date.now(), broker: "yuanta" })));
+    await device.shell("input keyevent 3");
+    await sleep(2500);
+    await device.shell(`am start -n ${PKG}/.MainActivity`);
+    await page.waitForSelector(".import-row", { timeout: 20000 }).catch(() => {});
+    const autoImp = await page.evaluate(() => ({ rows: [...document.querySelectorAll(".import-row")].map((r) => [...r.querySelectorAll("input:not([type=checkbox])")].map((i) => i.value).join("|")), flag: localStorage.getItem("holdImportPending"), status: document.querySelector('[data-testid="app-import-status"]')?.innerText || "" }));
+    log("持股截圖匯入：切回來自動載入", JSON.stringify(autoImp));
+    check(autoImp.rows.includes("2330|2000|1050") && !autoImp.flag, "持股截圖匯入：從 Claude App 複製回覆後切回金雷達，自動跳出確認畫面（不用貼上）", JSON.stringify(autoImp));
+    await shot("06c2-持股匯入自動載入");
+    await page.click('.sheet button[aria-label="返回"]').catch(() => {}); // 不加入
+    await page.waitForTimeout(500);
     // 手機內建辨識（ML Kit，離線免費，11/12）：畫一張券商庫存截圖送進同一套流程，辨識出代號、股數、均價
     const ocrB64 = await page.evaluate(() => {
       const c = document.createElement("canvas"); c.width = 1080; c.height = 900;

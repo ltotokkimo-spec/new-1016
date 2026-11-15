@@ -3,6 +3,8 @@ import { DayTradeRank } from "./dayTrade";
 import { ProfilePanel } from "./profile";
 import { nameLookup, parseOcrHoldings, soldByOmission, type OcrLine } from "../engine/ocrHoldings";
 import { fileToBase64, recognizeText } from "../lib/ocr";
+import { onAppResume, readClipboard } from "../lib/clip";
+import { replySig } from "../engine/aiEtf";
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
   LIVE_MS,
@@ -833,6 +835,34 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
   const [appText, setAppText] = useState("");
   const [appCopied, setAppCopied] = useState<"" | "ok" | "fail">("");
   const appPrompt = holdingsAppPrompt(brokerLabel);
+  // 從 Claude App 回來自動載入（11/15 使用者）：按過「複製提問並打開 Claude App」後切回金雷達，剪貼簿是持股 JSON 就直接跳出確認畫面
+  // （不直接套用：截圖上沒有的持股會被當作已賣出，一定要使用者確認）；同一份回覆不重複載入
+  const [appStatus, setAppStatus] = useState("");
+  useEffect(() => {
+    const check = async () => {
+      const p = holdImport.get();
+      if (!p || holdImport.busy) return;
+      holdImport.busy = true;
+      try {
+        const text = await readClipboard(true);
+        const r = parseHoldingsReply(text);
+        if (!r) { setAppStatus(/我附上一張.*庫存/.test(text) ? "剪貼簿裡還是金雷達的提問。請在 Claude 按「回覆」下方的「複製」再切回來。" : "剪貼簿裡還不是 Claude 的持股回覆（沒有找到持股 JSON）。請在 Claude 按回覆下方的「複製」再切回來。"); return; }
+        if (holdImport.seen().includes(replySig(text))) { setAppStatus("剪貼簿裡是已經載入過的那份回覆，沒有重複載入。"); return; }
+        holdImport.markSeen(text); holdImport.clear();
+        if (p.broker !== tab) setTab(p.broker);
+        setErr(""); setAppText(""); setAppOpen(false);
+        setAppStatus(`已自動載入 Claude 的回覆（${r.holdings.length} 檔），請在確認畫面檢查後加入。`);
+        setImporting({ rows: r.holdings, note: r.note });
+      } catch (e) { setAppStatus(`讀不到剪貼簿（${String((e as Error)?.message ?? e).slice(0, 60)}），請把回覆貼到下面。`); }
+      finally { holdImport.busy = false; }
+    };
+    check();
+    const on = () => { if (document.visibilityState === "visible") void check(); };
+    document.addEventListener("visibilitychange", on);
+    window.addEventListener("focus", on);
+    const offResume = onAppResume(() => { void check(); });
+    return () => { document.removeEventListener("visibilitychange", on); window.removeEventListener("focus", on); offResume(); };
+  }, [tab]);
   const loadAppReply = () => {
     const r = parseHoldingsReply(appText);
     if (!r) return setErr("回覆裡沒有找到持股 JSON：請在 Claude App 按回覆下方的「複製」，把整段貼上來");
@@ -867,12 +897,13 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
             <li>先在{brokerLabel}證券 App 截好「庫存」畫面。</li>
             <li>按下面的按鈕：會複製提問並打開 Claude App。</li>
             <li>在 Claude App <b>附上截圖</b>（迴紋針或＋），輸入框長按<b>貼上</b>提問後送出。</li>
-            <li>Claude 回答完，按回覆下方的<b>「複製」</b>，回來貼在下面，按「整理成持股」，確認後加入。</li>
+            <li>Claude 回答完，按回覆下方的<b>「複製」</b>，切回金雷達會<b>自動載入</b>並跳出確認畫面，檢查後加入。沒有自動載入時，貼在下面按「整理成持股」。</li>
           </ol>
           <a class="btn secondary block" href={claudeAppUrl(appPrompt)} target="_blank" rel="noreferrer"
-            onClick={() => copyText(appPrompt, (ok) => setAppCopied(ok ? "ok" : "fail"))} data-testid="app-import-open">複製提問並打開 Claude App</a>
+            onClick={() => { holdImport.set(broker); setAppStatus("已按下按鈕，等你從 Claude 複製回覆後切回來。"); copyText(appPrompt, (ok) => setAppCopied(ok ? "ok" : "fail")); }} data-testid="app-import-open">複製提問並打開 Claude App</a>
           {appCopied === "ok" && <div class="muted" style={{ fontSize: "12px" }}>已複製提問。記得在 Claude App 附上截圖再送出。</div>}
           {appCopied === "fail" && <div class="muted" style={{ fontSize: "12px" }}>沒辦法自動複製，請再按一次。</div>}
+          {appStatus && <div class="notice" style={{ fontSize: "12.5px" }} data-testid="app-import-status">自動偵測：{appStatus}</div>}
           <label class="field">貼上 Claude 的回覆
             <textarea rows={4} value={appText} onInput={(e) => setAppText((e.target as HTMLTextAreaElement).value)} placeholder="在 Claude App 按回覆下方的「複製」，再貼到這裡" data-testid="app-import-text" />
           </label>
@@ -906,6 +937,16 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
     </div>
   );
 }
+
+/** 持股截圖匯入：按過「複製提問並打開 Claude App」的旗標（24 小時內有效，記住是哪家券商）與已載入過的回覆指紋 */
+const holdImport = {
+  busy: false,
+  get: (): { at: number; broker: Broker } | undefined => { try { const v = JSON.parse(localStorage.getItem("holdImportPending") ?? "null"); return v && Date.now() - v.at < 24 * 3600_000 && (v.broker === "pocket" || v.broker === "yuanta") ? v : undefined; } catch { return undefined; } },
+  set: (broker: Broker) => { try { localStorage.setItem("holdImportPending", JSON.stringify({ at: Date.now(), broker })); } catch { /* 不重要 */ } },
+  clear: () => { try { localStorage.removeItem("holdImportPending"); } catch { /* 不重要 */ } },
+  seen: (): string[] => { try { const v = JSON.parse(localStorage.getItem("holdImportSeen") ?? "[]"); return Array.isArray(v) ? v : []; } catch { return []; } },
+  markSeen: (text: string) => { try { localStorage.setItem("holdImportSeen", JSON.stringify([...holdImport.seen(), replySig(text)].slice(-10))); } catch { /* 不重要 */ } },
+};
 
 /** 用 Claude Pro 解析持股（11/15 使用者）：帶著這個分頁的全部持股打開 Claude App，在 Claude 看解析、繼續追問（用你的訂閱，不扣 API 額度） */
 function HoldingsProReview({ views, label }: { views: any[]; label: string }) {

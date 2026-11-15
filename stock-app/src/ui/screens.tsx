@@ -11,7 +11,7 @@ import {
   addUsSymbol, removeUsSymbol, refreshLive, refreshUsLive, refreshTwIndex, refreshFutures, refreshTurnover, refreshTurnoverLive, refreshEtfNav, refreshQuad, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
 } from "../store";
 import { BROKERS, brokerOf, mergeHoldings, type Broker, type Holding, type Rating, type Scored, type SectorStat } from "../engine/score";
-import { type AiReport, analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, parseUrls, holdingsAppPrompt, parseHoldingsReply, marketBrief, MODEL, type ImportedHolding } from "../ai/claude";
+import { type AiReport, analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, parseUrls, holdingsAppPrompt, holdingsReviewPrompt, parseHoldingsReply, marketBrief, MODEL, type ImportedHolding } from "../ai/claude";
 import { twHistory } from "../data/history";
 import { esbHistory } from "../data/esb";
 import { indexHistory, isCryptoSymbol, isUsIndexSymbol, type IndexHist } from "../data/indexHistory";
@@ -898,10 +898,28 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
           {views.map((v) => <HoldingRow v={v} brokers={tab === "stats" ? (v as any).brokers : undefined} open={(s) => open(s, views.map((x) => x.scored).filter((x): x is Scored => !!x))} onEsb={setEsbOpen} fx={fx} />)}
         </div>
       )}
+      {views.length > 0 && <HoldingsProReview views={views} label={tab === "stats" ? "口袋＋元大合併" : `${brokerLabel}證券`} />}
       {views.length > 0 && tab !== "stats" && <HoldingsEditor broker={broker} />}
       {adding && <HoldingForm broker={broker} onDone={() => setAdding(false)} />}
       {esbOpen && <EsbDetail h={esbOpen} onClose={() => setEsbOpen(null)} />}
       {importing && <ImportReview broker={broker} data={importing} onDone={() => setImporting(null)} />}
+    </div>
+  );
+}
+
+/** 用 Claude Pro 解析持股（11/15 使用者）：帶著這個分頁的全部持股打開 Claude App，在 Claude 看解析、繼續追問（用你的訂閱，不扣 API 額度） */
+function HoldingsProReview({ views, label }: { views: any[]; label: string }) {
+  const [copied, setCopied] = useState<"" | "ok" | "fail">("");
+  const prompt = holdingsReviewPrompt(views.map((v) => ({ code: v.code, name: v.name, market: v.market === "US" ? "US" : "TW", shares: v.shares, cost: v.cost, price: v.price, pnlPct: v.pnlPct, chg: v.chg, scored: v.scored })), taipeiToday(), label);
+  return (
+    <div class="card stack" style={{ marginTop: "12px" }} data-testid="hold-pro">
+      <b>用 Claude Pro 解析持股（免費，用你的訂閱）</b>
+      <div class="muted" style={{ fontSize: "12.5px", lineHeight: 1.6 }}>
+        按下去會複製提問並打開 Claude App，帶入這個分頁的 {views.length} 檔持股（股數、成本、現價、損益、App 評等、外資）。Claude 會查新聞與法人資料，逐檔給續抱／減碼／加碼／停損建議；看完可以直接在 Claude 追問，不用貼回來。單一檔要細看，點持股進個股頁，按「在 Claude App 解析」。
+      </div>
+      <a class="btn secondary block" href={claudeAppUrl(prompt)} target="_blank" rel="noreferrer" onClick={() => copyText(prompt, (ok) => setCopied(ok ? "ok" : "fail"))} data-testid="hold-pro-open">在 Claude App 解析持股</a>
+      {copied === "ok" && <div class="muted" style={{ fontSize: "12.5px" }} data-testid="hold-pro-copied">已複製提問。Claude 沒有自動帶入的話（持股多時網址放不下），在輸入框長按「貼上」再送出。</div>}
+      {copied === "fail" && <div class="muted" style={{ fontSize: "12.5px" }}>沒辦法自動複製，請再按一次。</div>}
     </div>
   );
 }

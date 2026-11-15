@@ -1500,6 +1500,9 @@ function check(ok, name, detail = "") {
     await shot("06c-元大持股");
     await page.click('[data-testid="hold-tab-stats"]');
     await page.waitForSelector('[data-testid="broker-stats"]', { timeout: 5000 }).catch(() => {});
+    // 用 Claude Pro 解析持股（11/15）：統計分頁也有，連結指向 Claude，說明寫出持股檔數（不實際點，免得打開瀏覽器）
+    const hp = await page.evaluate(() => ({ txt: document.querySelector('[data-testid="hold-pro"]')?.innerText.replace(/\s+/g, " ") || "", href: document.querySelector('[data-testid="hold-pro-open"]')?.getAttribute("href") || "", n: document.querySelectorAll(".list .item").length }));
+    check(/用 Claude Pro 解析持股/.test(hp.txt) && new RegExp(`帶入這個分頁的 ${hp.n} 檔持股`).test(hp.txt) && /^https:\/\/claude\.ai\/new/.test(hp.href), "持股分頁有「用 Claude Pro 解析持股」，帶入這個分頁的全部持股並打開 Claude", JSON.stringify(hp).slice(0, 200));
     const st = await page.evaluate(() => ({
       card: document.querySelector('[data-testid="broker-stats"]')?.innerText.replace(/\s+/g, " ") || "",
       pocket: document.querySelector('[data-testid="broker-row-pocket"]')?.innerText.replace(/\s+/g, " ") || "",

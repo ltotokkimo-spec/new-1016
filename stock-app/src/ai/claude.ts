@@ -367,6 +367,35 @@ ${tools}
 最後加上：以上為研究參考，非投資建議。`;
 }
 
+/** 持股分頁「用 Claude Pro 解析持股」（11/15 使用者）：帶著全部持股與 App 數據打開 Claude App，使用者在 Claude 看解析、直接追問，不用貼回 App */
+export interface HoldBrief { code: string; name: string; market: "TW" | "US"; shares: number; cost: number; price: number; pnlPct: number; chg?: number; scored?: Scored }
+export function holdingsReviewPrompt(rows: HoldBrief[], today: string, label: string): string {
+  const d = /^\d{8}$/.test(today) ? `${today.slice(0, 4)}/${today.slice(4, 6)}/${today.slice(6)}` : today;
+  const p1 = (x?: number) => (x === undefined || !Number.isFinite(x) ? "—" : `${x >= 0 ? "+" : ""}${(x * 100).toFixed(1)}%`);
+  const lots = (x?: number) => (x === undefined || !Number.isFinite(x) ? "—" : `${x >= 0 ? "+" : ""}${Math.round(x / 1000).toLocaleString("en-US")}張`);
+  const head = "| 代號 | 名稱 | 市場 | 股數 | 成本 | 現價 | 損益 | 今日 | 近1月 | App評等/分數 | 外資5日 | 族群 |";
+  const line = (r: HoldBrief) => {
+    const s = r.scored;
+    const rate = !s ? "無評分" : s.refOnly ? `參考/${s.score}` : `${s.rating}/${s.score}`;
+    return `| ${r.code} | ${r.name} | ${r.market === "US" ? "美股" : "台股"} | ${r.shares} | ${r.cost} | ${Number.isFinite(r.price) ? r.price : "—"} | ${p1(r.pnlPct)} | ${p1(r.chg)} | ${p1(s?.ret1m)} | ${rate} | ${r.market === "US" ? "—" : lots(s?.foreign5)} | ${s?.sector ?? "—"} |`;
+  };
+  return `今天是 ${d}。這是我「${label}」的全部持股（從「金雷達」App 帶過來的數據），請用繁體中文、台灣用語幫我做持股健檢。
+
+${head}
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+${rows.map(line).join("\n")}
+
+如果你有連接台股資料工具（MCP，例如證交所／櫃買資料），請用它查這些股票最近的三大法人、每月營收與重大訊息；並用網路搜尋查最近 7 天的新聞。數據有缺就說查不到，不要猜。
+
+請依序回答（條列、具體、寫出日期與來源）：
+1. 整體：產業與個股的集中度、風險最大的地方、和大盤比的位置
+2. 逐檔：續抱／減碼／加碼／停損 四選一，一句理由，加上停損價或觀察價位
+3. 最需要先處理的 1～3 檔，為什麼
+4. 接下來一週要注意的事件（法說會、營收公布、除權息、國內外數據）
+
+最後加上：以上為研究參考，非投資建議。之後我會在這個對話繼續追問。`;
+}
+
 // 網址太長時手機瀏覽器可能打不開，改成只開新對話、靠剪貼簿貼上
 export const claudeAppUrl = (prompt: string) => {
   const q = encodeURIComponent(prompt);

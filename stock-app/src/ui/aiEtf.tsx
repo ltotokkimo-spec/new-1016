@@ -1,6 +1,7 @@
 // 「自組ETF」分頁：請 Claude 建議要買什麼、買幾股，照著實際下單後填入成交，追蹤淨值並和 0050 比較。
 import { useEffect, useMemo, useState } from "preact/hooks";
 import {
+  addDualTrades, hideDualTrade, setDualBudget, resetDualReal, snapshotDualNav,
   LIVE_MS, findScored, getFetcher, getKv, addEtfFlow, removeEtfFlow, addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshTurn, refreshDual, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError } from "../ai/claude";
@@ -11,6 +12,8 @@ import type { VirtualEtf } from "../engine/virtualEtf";
 import { twHistory } from "../data/history";
 import { buyConds, sellConds, holdConds, dailyHoldingCheck, takeProfitSignal, TAKE_PROFIT, type HoldCheck, type EtfTrade, type EtfFlow, agreePlans, comparePlans, DEFAULT_STOP, planReadable, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, proClipboardAction, replySig, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { onAppResume, readClipboard } from "../lib/clip";
+import { DUAL_REAL, dualOrders, type DualOrder } from "../engine/dualReal";
+import { emptyEtf } from "../engine/aiEtf";
 import { addWeekdays, orderDay, pretty, prettyW, taipeiClock, taipeiHour, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
 import { livePolling, type LiveQuote } from "../data/twLive";
@@ -665,6 +668,165 @@ function ReplyDetails({ replies, held, name }: { replies: ReplyInfo[]; held: Set
   );
 }
 
+/**
+ * 雙引擎實單（11/15 使用者）：用真的錢照「雙引擎」觀察組合下單。App 依觀察組合最近一次判斷的目標權重，
+ * 用這個帳戶自己的淨值算出要買賣哪些、幾股；成交後記進來，和「我的實單」分開記帳，各自和 0050 比。
+ */
+function DualRealScreen() {
+  const dr = useStore((s) => s.dualReal), dualG = useStore((s) => s.dual);
+  useStore((s) => s.prices);
+  const twReady = useStore((s) => s.tw.status === "ready");
+  const etf = dr ?? emptyEtf(DUAL_REAL.budget);
+  useEffect(() => { if (!dualG || Date.now() - dualG.fetchedAt > 10 * 60_000) void refreshDual(); }, []);
+  useEffect(() => { if (twReady) void snapshotDualNav(); }, [twReady]);
+  const d = dualG?.data;
+  const name = (code: string) => getState().prices[code]?.name ?? d?.last?.[code]?.name ?? code;
+  const v = valuate(etf, etfPrice);
+  const pos = positions(etf.trades).filter((p) => p.shares > 0);
+  const orders = d?.targets && twReady ? dualOrders(etf, d.targets, etfPrice, name) : [];
+  const pnl = useMemo(() => tradePnls(etf.trades, etfPrice), [etf.trades, twReady]);
+  const [budgetText, setBudgetText] = useState("");
+  const [tradesOpen, setTradesOpen] = useState(false);
+  const asOf = getState().tw.asOf;
+  return (
+    <div data-testid="dualreal">
+      <div class="card stack" data-testid="dualreal-summary">
+        <div class="row" style={{ justifyContent: "space-between" }}>
+          <b>雙引擎實單（照雙引擎觀察組合用真的錢下單）</b>
+          <span class="muted" style={{ fontSize: "12px" }}>本金 {fmtMoney(etf.budget)}</span>
+        </div>
+        {etf.trades.length > 0 ? <>
+          <div class="grid2">
+            <div class="metric"><div class="k">淨值（現金＋股票）</div><div class="v num">{fmtMoney(v.nav)}</div><div class={`d num ${cls(v.ret)}`}>報酬 {fmtPct(v.ret, 2)}<TotalPnl now={v.nav} budget={etf.budget} /></div></div>
+            <div class="metric"><div class="k">同樣的錢買 0050</div><div class="v num">{fmtMoney(v.bench)}</div><div class={`d num ${cls(v.benchRet)}`}>報酬 {fmtPct(v.benchRet, 2)}</div></div>
+          </div>
+          <div style={{ fontSize: "14px" }}>
+            {v.missing.length ? <span class="muted">收盤價更新後再比較輸贏</span> : v.ret >= v.benchRet ? <span class="up">贏過 0050 {fmtPct(v.ret - v.benchRet, 2)}</span> : <span class="down">落後 0050 {fmtPct(v.ret - v.benchRet, 2)}</span>}
+            <span class="muted">・現金 {moneyU(v.cash)}・股票市值 {moneyU(v.marketValue)}</span>
+          </div>
+        </> : (
+          <div class="row" style={{ gap: "8px" }}>
+            <label class="field" style={{ flex: 1, margin: 0 }}>本金（元）<input inputMode="numeric" placeholder={String(etf.budget)} value={budgetText} onInput={(e) => setBudgetText((e.target as HTMLInputElement).value)} data-testid="dualreal-budget" /></label>
+            <button class="btn secondary" style={{ alignSelf: "flex-end" }} disabled={!(Number(budgetText) > 0)} onClick={() => { void setDualBudget(Number(budgetText)); setBudgetText(""); }}>改本金</button>
+          </div>
+        )}
+        <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
+          規則和「雙引擎」觀察組合一樣（成長組五成＋低波動組五成，每 5 個交易日收盤後判斷、成長組每 20 個交易日重選），差距 ≥ 淨值 {(DUAL_REAL.band * 100).toFixed(1)}% 才調整。
+          下單清單用這個帳戶自己的淨值與最近收盤價估算股數（零股），建議在判斷日的下一個交易日、收盤前下單，成交後按「記錄勾選的成交」改成實際成交價。
+          觀察組合是以收盤價成交、沒有零股折讓，實際成交價不同，報酬會和觀察組合有落差。
+        </div>
+      </div>
+
+      {etf.nav.length >= 2 && <><div class="section-title"><span>報酬走勢</span><span>{etf.nav.length} 天</span></div><NavChart points={etf.nav} budget={etf.budget} mine="雙引擎實單" /></>}
+
+      <div class="section-title"><span>要下的單</span><span>{d?.targetsDate ? `依 ${prettyW(d.targetsDate)} 收盤的判斷` : ""}</span></div>
+      {!d ? <div class="card muted" style={{ fontSize: "13px" }}>還沒有下載到雙引擎觀察組合的資料，請確認網路後到「雙引擎」分頁按重新下載。</div>
+        : !d.targets ? <div class="card muted" style={{ fontSize: "13px" }}>雙引擎觀察組合還沒有目標配置（雲端每天傍晚更新），明天再來看。</div>
+        : !twReady ? <div class="card muted" style={{ fontSize: "13px" }}>等台股收盤價下載完才能估算股數…</div>
+        : orders.length === 0 ? <div class="card" style={{ fontSize: "13.5px" }} data-testid="dualreal-noorder">今天不用下單：持股和雙引擎的目標配置差距都小於淨值 {(DUAL_REAL.band * 100).toFixed(1)}%。下次判斷約在 {d.plan?.lastDecision ? prettyW(addWeekdays(d.plan.lastDecision, d.plan.every)) : "幾天後"} 收盤後。</div>
+        : <DualFill key={orders.map((o) => `${o.side}${o.code}${o.shares}`).join(",")} orders={orders} />}
+
+      {pos.length > 0 && <>
+        <div class="section-title"><span>目前持股</span><span>{pos.length} 檔</span></div>
+        <div class="card" style={{ padding: "6px 10px" }} data-testid="dualreal-pos">
+          {pos.sort((a, b) => (etfPrice(b.code) ?? 0) * b.shares - (etfPrice(a.code) ?? 0) * a.shares).map((p) => {
+            const px = etfPrice(p.code), val = (px ?? 0) * p.shares, w = v.nav > 0 ? val / v.nav : 0, tw = d?.targets?.[p.code] ?? 0;
+            const r = px ? px / p.avgCost - 1 : NaN;
+            return (
+              <div class="row" style={{ justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: "13px" }}>
+                <span>{p.name} <span class="muted num">{p.code}</span><br /><span class="muted num" style={{ fontSize: "12px" }}>{p.shares.toLocaleString()} 股・成本 {fmtPrice(p.avgCost)}・佔 {(w * 100).toFixed(1)}%（目標 {(tw * 100).toFixed(1)}%）</span></span>
+                <span class={`num ${cls(r)}`} style={{ textAlign: "right" }}>{Number.isFinite(r) ? fmtPct(r, 1) : "—"}<br /><span style={{ fontSize: "12px" }}>{px ? signedMoney((px - p.avgCost) * p.shares) : ""}</span></span>
+              </div>
+            );
+          })}
+        </div>
+      </>}
+
+      <DualManual />
+
+      {etf.trades.length > 0 && <>
+        <details open={tradesOpen} onToggle={(e) => setTradesOpen((e.currentTarget as HTMLDetailsElement).open)} data-testid="dualreal-trades-box">
+          <summary class="section-title" style={{ cursor: "pointer", listStyle: "none" }}><span>{tradesOpen ? "▾" : "▸"} 成交紀錄</span><span>{etf.trades.filter((t) => !t.hidden).length} 筆・{tradesOpen ? "點一下收合" : "點一下展開"}</span></summary>
+          <div class="card" style={{ padding: "6px 10px" }} data-testid="dualreal-trades">
+            {[...etf.trades].reverse().filter((t) => !t.hidden).map((t) => (
+              <div class="row" style={{ justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: "13px", flexWrap: "nowrap" }}>
+                <TradeLine t={t} pnl={pnl[t.id]} />
+                <button class="iconbtn" style={{ width: "28px", height: "28px" }} aria-label="刪除這筆" onClick={() => window.confirm("把這一列從成交紀錄移除？\n\n只是不再顯示在列表，持股、現金和損益不會變。") && hideDualTrade(t.id)}>✕</button>
+              </div>
+            ))}
+          </div>
+        </details>
+        <button class="btn danger block" style={{ marginTop: "12px" }} onClick={() => window.confirm("清空雙引擎實單（成交紀錄與走勢）重新開始？") && resetDualReal()}>清空重新開始</button>
+      </>}
+      <p class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>{asOf ? `股數與損益用 ${prettyW(asOf)} 的收盤價估算。` : ""}雙引擎的回測偏樂觀（規則是看過資料後才組的），請以實際成交結果為準。以上為研究參考，非投資建議。</p>
+    </div>
+  );
+}
+
+/** 雙引擎實單的下單清單：勾選、改成實際的股數與成交價，一次記錄 */
+function DualFill({ orders }: { orders: DualOrder[] }) {
+  const [rows, setRows] = useState(() => orders.map((o) => ({ ...o, keep: true, sharesText: String(o.shares), priceText: String(o.price) })));
+  const [err, setErr] = useState("");
+  const [done, setDone] = useState("");
+  const upd = (i: number, p: Partial<(typeof rows)[number]>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...p } : r)));
+  const save = async () => {
+    const ok = rows.filter((r) => r.keep);
+    if (!ok.length) return setErr("請至少勾選一筆");
+    if (ok.some((r) => !(Number(r.sharesText) > 0) || !(Number(r.priceText) > 0))) return setErr("股數和成交價都要大於 0");
+    setErr("");
+    await addDualTrades(ok.map((r) => ({ date: taipeiToday(), code: r.code, name: r.name, side: r.side, shares: Math.round(Number(r.sharesText)), price: Number(r.priceText) })));
+    setDone(`已記錄 ${ok.length} 筆成交。`);
+  };
+  const buys = rows.filter((r) => r.side === "buy").length, sells = rows.length - buys;
+  return (
+    <div class="card stack" data-testid="dualreal-orders">
+      <div style={{ fontSize: "13.5px" }}>共 {rows.length} 筆：賣出 {sells} 筆、買進 {buys} 筆（先賣後買）。股數用最近收盤價估算，可改成實際成交的股數與價格；沒成交的取消勾選。</div>
+      {rows.map((r, i) => (
+        <div class="row" style={{ gap: "6px", alignItems: "center", borderBottom: "1px solid var(--line)", paddingBottom: "6px" }} data-testid="dualreal-order">
+          <input type="checkbox" checked={r.keep} onChange={(e) => upd(i, { keep: (e.target as HTMLInputElement).checked })} aria-label={`記錄 ${r.name}`} />
+          <div style={{ flex: 1, minWidth: 0, fontSize: "13px" }}>
+            <b class={r.side === "buy" ? "up" : "down"}>{r.side === "buy" ? "買" : "賣"}</b> {r.name} <span class="muted num">{r.code}</span>
+            <div class="muted" style={{ fontSize: "11.5px" }}>{r.reason}</div>
+          </div>
+          <input class="num" style={{ width: "62px" }} inputMode="numeric" value={r.sharesText} onInput={(e) => upd(i, { sharesText: (e.target as HTMLInputElement).value })} aria-label="股數" />
+          <input class="num" style={{ width: "62px" }} inputMode="decimal" value={r.priceText} onInput={(e) => upd(i, { priceText: (e.target as HTMLInputElement).value })} aria-label="成交價" />
+        </div>
+      ))}
+      <div class="muted" style={{ fontSize: "11.5px", textAlign: "right" }}>右邊兩欄：股數、成交價</div>
+      {err && <div class="error">{err}</div>}
+      {done && <div class="notice" style={{ fontSize: "13px" }}>{done}</div>}
+      <button class="btn block" onClick={save} data-testid="dualreal-save">記錄勾選的成交</button>
+    </div>
+  );
+}
+
+/** 雙引擎實單：手動補記一筆成交（清單以外的買賣、或股數不同時） */
+function DualManual() {
+  const [open, setOpen] = useState(false);
+  const [side, setSide] = useState<"buy" | "sell">("buy");
+  const [code, setCode] = useState(""), [shares, setShares] = useState(""), [price, setPrice] = useState(""), [err, setErr] = useState("");
+  if (!open) return <button class="btn secondary block" style={{ marginTop: "12px" }} onClick={() => setOpen(true)} data-testid="dualreal-manual">手動新增一筆成交</button>;
+  const save = async () => {
+    const c = code.trim().toUpperCase(), nm = getState().prices[c]?.name;
+    if (!c || !(Number(shares) > 0) || !(Number(price) > 0)) return setErr("請填代號、股數與成交價");
+    if (!nm) return setErr("找不到這個代號（只支援上市櫃股票與 ETF）");
+    await addDualTrades([{ date: taipeiToday(), code: c, name: nm, side, shares: Math.round(Number(shares)), price: Number(price) }]);
+    setOpen(false); setCode(""); setShares(""); setPrice(""); setErr("");
+  };
+  return (
+    <div class="card stack" style={{ marginTop: "12px" }}>
+      <div class="seg" role="group"><button aria-pressed={side === "buy"} onClick={() => setSide("buy")}>買進</button><button aria-pressed={side === "sell"} onClick={() => setSide("sell")}>賣出</button></div>
+      <label class="field">代號<input value={code} onInput={(e) => setCode((e.target as HTMLInputElement).value)} placeholder="例如 2330" /></label>
+      <div class="row" style={{ gap: "8px" }}>
+        <label class="field" style={{ flex: 1 }}>股數<input inputMode="numeric" value={shares} onInput={(e) => setShares((e.target as HTMLInputElement).value)} /></label>
+        <label class="field" style={{ flex: 1 }}>成交價<input inputMode="decimal" value={price} onInput={(e) => setPrice((e.target as HTMLInputElement).value)} /></label>
+      </div>
+      {err && <div class="error">{err}</div>}
+      <div class="row" style={{ gap: "8px" }}><button class="btn" style={{ flex: 1 }} onClick={save}>記錄</button><button class="btn secondary" style={{ flex: 1 }} onClick={() => setOpen(false)}>取消</button></div>
+    </div>
+  );
+}
+
 /** 照 Claude 的清單填入實際成交 */
 function PlanFill({ items, planKey, cash, stops, source, asOf }: { items: PlanItem[]; planKey: string; cash: number; stops: Record<string, number>; source: string; asOf?: string }) {
   const fitted = useMemo(() => fitBudget(items, etfPrice, cash), [items]);
@@ -829,8 +991,8 @@ function openPos(code: string, codes: string[], e?: any) {
 
 export function AiEtfScreen({ open }: { open?: (s: Scored, list?: Scored[]) => void } = {}) {
   openStock = open;
-  type Mode = "compare" | "virtual" | "watch" | "wide" | "regime" | "lead" | "ai" | "rule" | "turn" | "dual" | "real";
-  const [mode, setMode] = useState<Mode>(() => { try { const m = localStorage.getItem("aietfMode"); return m === "real" || m === "rule" || m === "turn" || m === "dual" || m === "watch" || m === "wide" || m === "regime" || m === "lead" || m === "ai" || m === "compare" ? m : "virtual"; } catch { return "virtual"; } });
+  type Mode = "compare" | "virtual" | "watch" | "wide" | "regime" | "lead" | "ai" | "rule" | "turn" | "dual" | "dualReal" | "real";
+  const [mode, setMode] = useState<Mode>(() => { try { const m = localStorage.getItem("aietfMode"); return m === "real" || m === "dualReal" || m === "rule" || m === "turn" || m === "dual" || m === "watch" || m === "wide" || m === "regime" || m === "lead" || m === "ai" || m === "compare" ? m : "virtual"; } catch { return "virtual"; } });
   const pick = (m: Mode) => { setMode(m); try { localStorage.setItem("aietfMode", m); } catch { /* 不重要 */ } };
   return (
     <div>
@@ -846,8 +1008,9 @@ export function AiEtfScreen({ open }: { open?: (s: Scored, list?: Scored[]) => v
         <button aria-pressed={mode === "turn"} onClick={() => pick("turn")} data-testid="mode-turn">剛轉強</button>
         <button aria-pressed={mode === "dual"} onClick={() => pick("dual")} data-testid="mode-dual">雙引擎</button>
         <button aria-pressed={mode === "real"} onClick={() => pick("real")} data-testid="mode-real">我的實單</button>
+        <button aria-pressed={mode === "dualReal"} onClick={() => pick("dualReal")} data-testid="mode-dualreal">雙引擎實單</button>
       </div>
-      {mode === "real" ? <RealEtfScreen /> : mode === "compare" ? <CompareView /> : <VirtualView key={mode} kind={mode} />}
+      {mode === "real" ? <RealEtfScreen /> : mode === "dualReal" ? <DualRealScreen /> : mode === "compare" ? <CompareView /> : <VirtualView key={mode} kind={mode} />}
     </div>
   );
 }

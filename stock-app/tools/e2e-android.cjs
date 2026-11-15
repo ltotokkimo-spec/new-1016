@@ -984,6 +984,15 @@ function check(ok, name, detail = "") {
   check(!!buyChip0 && buyChip0 === buyChip1, "現有「買入」評等的檔數不受四因子影響", `${buyChip0}｜${buyChip1}`);
   await page.click("nav.tabs button:nth-child(4)");
   await page.waitForSelector('[data-testid="mode-compare"]', { timeout: 10000 });
+  // 雙引擎實單（11/15）：本金 50 萬、和我的實單分開記帳；有目標配置就列出要下的單（或今天不用下單），雲端還沒算出目標時說明原因
+  await page.click('[data-testid="mode-dualreal"]');
+  await page.waitForSelector('[data-testid="dualreal-summary"]', { timeout: 10000 });
+  await page.waitForFunction(() => /要下的單/.test(document.querySelector('[data-testid="dualreal"]')?.innerText || "") && !/等台股收盤價下載完/.test(document.querySelector('[data-testid="dualreal"]')?.innerText || ""), null, { timeout: 30000 }).catch(() => {});
+  const drTxt = await page.$eval('[data-testid="dualreal"]', (e) => e.innerText.replace(/\s+/g, " "));
+  const drOrders = await page.$$eval('[data-testid="dualreal-order"]', (rs) => rs.length);
+  log("雙引擎實單", drTxt.slice(0, 600), "下單筆數", drOrders);
+  check(/雙引擎實單/.test(drTxt) && /本金 50\.0 萬/.test(drTxt) && (drOrders > 0 || /今天不用下單|還沒有目標配置/.test(drTxt)), "自組ETF 有「雙引擎實單」：本金 50 萬，依雙引擎目標配置列出要下的單", drTxt.slice(0, 200));
+  await shot("05d6-雙引擎實單");
   // 模式按鈕排成三列（每列 4 個），文字不能被擠成直排
   const segRows = await page.$$eval('[data-testid^="mode-"]', (bs) => ({ tops: [...new Set(bs.map((b) => Math.round(b.getBoundingClientRect().top)))].length, maxH: Math.max(...bs.map((b) => b.getBoundingClientRect().height)) }));
   check(segRows.tops === 3 && segRows.maxH < 60, "自組ETF 模式按鈕排成三列、文字不擠成直排", JSON.stringify(segRows));

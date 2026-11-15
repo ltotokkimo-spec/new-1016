@@ -23,6 +23,9 @@ export interface VirtualEtf extends AiEtf {
   // 核心股（11/14 使用者選 A）：收盤跌破停損先記下（stopWatch＝第一次跌破的日期），隔天收盤仍在停損價之下才排第三天開盤賣出
   core?: string[];
   stopWatch?: Record<string, string>;
+  // 規則組合最近一次判斷的目標權重（代號 → 佔淨值比例）與判斷日：給「雙引擎實單」算自己的帳戶要買賣什麼（11/15）
+  targets?: Record<string, number>;
+  targetsDate?: string;
 }
 
 /** 規則組合怎麼排調整：每 every 個交易日在收盤後判斷一次，lastDecision 是最近一次判斷日，差距小於淨值 band 不動 */

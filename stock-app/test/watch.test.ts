@@ -250,6 +250,10 @@ describe("雙引擎觀察組合（11/14 使用者同意上線：成長組五成�
     expect(r.trades.some((t) => t.code === "0050")).toBe(false);
     expect(valuate(r, (c) => r.last[c]?.close).cash).toBeGreaterThanOrEqual(-1);
     expect(runWatch(days, companies, { start: startAt, now: 0, mode: "dual", rev }).trades).toEqual(r.trades);
+    // 雙引擎實單用：最近一次判斷的目標權重與判斷日（11/15）
+    expect(r.targets && Object.keys(r.targets).length).toBeGreaterThan(0);
+    expect(Object.values(r.targets!).reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(1.0001);
+    expect(r.targetsDate).toBe(r.plan?.lastDecision);
   });
   it("成長組最多 20 檔、每個產業最多 6 檔，合計約五成", () => {
     const g = growthPicks(buildCtx(days, companies, rev), days.length - 1);

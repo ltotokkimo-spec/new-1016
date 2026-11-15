@@ -27,6 +27,7 @@ import { liveUrl, parseLive, type LiveQuote } from "./data/twLive";
 import { esbLiveUrl, parseEsbLive } from "./data/esb";
 import { twHistory } from "./data/history";
 import { parseRevenue, revenueUrls, type Revenue } from "./data/revenue";
+import { DUAL_REAL } from "./engine/dualReal";
 import { emptyEtf, etfAlerts, isOffList, liquidityCut, pickCandidates, positions as etfPositions, recordNav, stopOf, valuate, type AiEtf, type EtfTrade } from "./engine/aiEtf";
 
 // Claude 每個交易日收盤後更新的虛擬自組 ETF（存在 GitHub 分支上，App 只讀取顯示）
@@ -131,6 +132,7 @@ export interface State {
   usNotFound: string[]; // Nasdaq 查不到的代號
   aiJobs: Record<string, AiJob>; // 背景執行中／剛完成的 Claude 解析（key 同 reports）
   aiEtf: AiEtf; // 自組 ETF（照 Claude 建議實際買進）
+  dualReal?: AiEtf; // 雙引擎實單（11/15：照雙引擎觀察組合的目標配置用真的錢下單，和我的實單分開記帳）
   usLookup?: { symbol: string; status: "loading" | "notfound" | "error"; error?: string };
   loaded: boolean;
 }
@@ -220,6 +222,8 @@ async function initInner() {
   if (turn0) set({ turn: turn0 });
   const quad0 = await kv.get<State["quad"]>("quad");
   if (quad0) set({ quad: quad0 });
+  const dr0 = await kv.get<AiEtf>("dualReal");
+  if (dr0) set({ dualReal: dr0 });
   const dual0 = await kv.get<State["dual"]>("dual");
   if (dual0) set({ dual: dual0 });
   for (const b of ["TW", "ETF", "US"] as PickBook[]) {
@@ -1028,6 +1032,27 @@ export function dismissAiJob(key: string) {
 
 // ---------- 自組 ETF ----------
 export const etfPrice = (code: string) => state.prices[code]?.close;
+
+// ---------- 雙引擎實單（11/15）：和我的實單同樣的記帳方式，另存一份 ----------
+const dualRealOf = () => state.dualReal ?? emptyEtf(DUAL_REAL.budget);
+async function saveDualReal(etf: AiEtf) { set({ dualReal: etf }); await kv.set("dualReal", etf); }
+/** 用最新收盤價記下雙引擎實單今天的淨值（每天一筆，畫走勢用） */
+export async function snapshotDualNav(date = state.tw.asOf ?? taipeiToday()) {
+  const etf = state.dualReal;
+  if (!etf?.trades.length) return;
+  const v = valuate(etf, etfPrice);
+  if (v.missing.length) return;
+  await saveDualReal(recordNav(etf, date, v));
+}
+export async function addDualTrades(trades: Omit<EtfTrade, "id" | "benchPrice">[]) {
+  const bench = etfPrice("0050") ?? NaN;
+  const etf = dualRealOf();
+  await saveDualReal({ ...etf, trades: [...etf.trades, ...trades.map((t, i) => ({ ...t, id: `${Date.now()}-${i}-${t.code}`, benchPrice: bench }))] });
+  await snapshotDualNav();
+}
+export async function hideDualTrade(id: string) { const etf = dualRealOf(); await saveDualReal({ ...etf, trades: etf.trades.map((t) => (t.id === id ? { ...t, hidden: true } : t)) }); }
+export async function setDualBudget(budget: number) { if (budget > 0) await saveDualReal({ ...dualRealOf(), budget }); }
+export async function resetDualReal() { set({ dualReal: undefined }); await kv.del("dualReal"); }
 
 async function saveAiEtf(etf: AiEtf) {
   set({ aiEtf: etf });

@@ -1079,7 +1079,7 @@ function PhotoImport({ suggested, planKey }: { suggested: Set<string>; planKey?:
   );
 }
 
-export interface SellDraft { code: string; shares: number; price?: number; n: number }
+export interface SellDraft { code: string; shares: number; price?: number; n: number; side?: "buy" | "sell" }
 
 function ManualTrade({ draft }: { draft?: SellDraft }) {
   const [open, setOpen] = useState(false);
@@ -1088,7 +1088,7 @@ function ManualTrade({ draft }: { draft?: SellDraft }) {
   // 按持股列的「賣出」：打開表單，帶入代號、全部股數與現價，捲到表單
   useEffect(() => {
     if (!draft) return;
-    setOpen(true); setSide("sell"); setCode(draft.code); setShares(String(draft.shares)); setPrice(draft.price ? String(draft.price) : ""); setErr("");
+    setOpen(true); setSide(draft.side ?? "sell"); setCode(draft.code); setShares(draft.side === "buy" ? "" : String(draft.shares)); setPrice(draft.price ? String(draft.price) : ""); setErr("");
     setTimeout(() => document.querySelector('[data-testid="etf-trade-form"]')?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
   }, [draft?.n]);
   if (!open) return <button class="btn secondary block" onClick={() => { setSide("buy"); setCode(""); setShares(""); setPrice(""); setErr(""); setOpen(true); }}>手動新增一筆成交</button>;
@@ -1899,7 +1899,7 @@ function RealEtfScreen() {
                     <div class="name">{p.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{p.code}</span> <span class="muted" style={{ fontWeight: 400 }}>›</span></div>
                     <div class="sub num" style={{ whiteSpace: "normal" }}>{p.shares.toLocaleString()} 股・均價 {fmtPrice(p.avgCost)}・<TwdPnl shares={p.shares} avgCost={p.avgCost} price={px} /><span style={{ whiteSpace: "nowrap" }}>佔 {Number.isFinite(mv) ? `${((mv / v.nav) * 100).toFixed(1)}%` : "—"}</span></div>
                     <CostValue shares={p.shares} avgCost={p.avgCost} price={px} />
-                    <div class="sub row" style={{ gap: "8px" }}><StopEdit p={p} stops={etf.stops} /><button class="btn secondary mini" onClick={() => setSellDraft({ code: p.code, shares: p.shares, price: px, n: Date.now() })} data-testid={`sell-btn-${p.code}`}>賣出</button>{rating && <span class={`pill ${rating === "買入" ? "buy" : rating === "離場" ? "exit" : "hold"}`} style={{ fontSize: "11px" }}>App {rating}</span>}{(() => {
+                    <div class="sub row" style={{ gap: "8px" }}><StopEdit p={p} stops={etf.stops} /><button class="btn secondary mini" onClick={() => setSellDraft({ code: p.code, shares: p.shares, price: px, n: Date.now() })} data-testid={`sell-btn-${p.code}`}>賣出</button><button class="btn secondary mini" onClick={(e) => { e.stopPropagation(); setSellDraft({ code: p.code, shares: 0, price: px, n: Date.now(), side: "buy" }); }} data-testid={`buy-btn-${p.code}`}>加買</button>{rating && <span class={`pill ${rating === "買入" ? "buy" : rating === "離場" ? "exit" : "hold"}`} style={{ fontSize: "11px" }} onClick={(e) => { e.stopPropagation(); window.alert(`App 評等：${rating}。這是金雷達依規則給這檔的評等（買入＝動能籌碼仍強、觀望＝中性、離場＝轉弱），只是標示，不是下單按鈕。要加買請按「加買」，要賣請按「賣出」。`); }}>評等 {rating}</span>}{(() => {
                       const tp = takeProfitSignal(p.avgCost, px, closesBy[p.code] ?? [], taipeiToday());
                       // 停損價高於均價（跌到那裡還是賺）＝停利價：跌破時也算「達標離場」，和 5 日線條件併成一顆紅燈（11/16 使用者選）
                       const { stop } = stopOf(p, etf.stops);

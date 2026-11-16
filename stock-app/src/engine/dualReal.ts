@@ -12,7 +12,7 @@ export interface DualOrder { code: string; name: string; side: "buy" | "sell"; s
  * 和目標差距小於淨值 band 的不動；買進受現金限制（先算完賣出回收的錢），股數無條件捨去（零股）。
  * price：估算用的價格（收盤價）；沒有價格的股票跳過。
  */
-export function dualOrders(etf: AiEtf, targets: Record<string, number>, price: (code: string) => number | undefined, name: (code: string) => string, band: number = DUAL_REAL.band): DualOrder[] {
+export function dualOrders(etf: AiEtf, targets: Record<string, number>, price: (code: string) => number | undefined, name: (code: string) => string, band: number = DUAL_REAL.band, skip?: ReadonlySet<string>): DualOrder[] {
   const v = valuate(etf, price);
   const nav = v.nav;
   if (!(nav > 0)) return [];
@@ -32,6 +32,7 @@ export function dualOrders(etf: AiEtf, targets: Record<string, number>, price: (
   }
   const buys = Object.entries(targets).filter(([, w]) => w > 0).sort((a, b) => b[1] - a[1]); // 權重大的先買（現金不夠時，小的先放棄）
   for (const [code, w] of buys) {
+    if (skip?.has(code)) continue; // 使用者設定這次先不買（例如盤中看到利空）：不買、空出來的現金也不轉去買別檔
     const px = price(code);
     if (!(px && px > 0)) continue;
     const have = (held.get(code)?.shares ?? 0) * px, gap = w * nav - have;

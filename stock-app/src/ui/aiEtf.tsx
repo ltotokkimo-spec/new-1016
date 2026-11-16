@@ -1,7 +1,7 @@
 // 「自組ETF」分頁：請 Claude 建議要買什麼、買幾股，照著實際下單後填入成交，追蹤淨值並和 0050 比較。
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import {
-  addDualTrades, addDualFlow, setDualReserve, hideDualTrade, resetDualReal, snapshotDualNav,
+  addDualTrades, addDualFlow, setDualReserve, setDualSkip, hideDualTrade, resetDualReal, snapshotDualNav,
   LIVE_MS, findScored, getFetcher, getKv, addEtfFlow, removeEtfFlow, addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshTurn, refreshDual, refreshDualPlus, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError } from "../ai/claude";
@@ -786,7 +786,8 @@ function DualRealScreen() {
   const asOfDay = getState().tw.asOf ?? "";
   const liveQ = (c: string): LiveQuote | undefined => { const q = live[c]; return liveOn && q && q.date && q.date >= asOfDay ? q : undefined; };
   const orderPx = (c: string) => liveQ(c)?.price ?? etfPrice(c);
-  const orders = d?.targets && twReady ? dualOrders(etf, d.targets, orderPx, name) : [];
+  const skipCodes = d?.targetsDate && etf.skipBuy?.asOf === d.targetsDate ? etf.skipBuy.codes : [];
+  const orders = d?.targets && twReady ? dualOrders(etf, d.targets, orderPx, name, DUAL_REAL.band, new Set(skipCodes)) : [];
   const flags: Record<string, string> = {};
   for (const o of orders) { // 價格提醒：漲停（買不到）、跌停（賣不掉）、買進的比昨收漲 5% 以上、賣出的比昨收跌 5% 以上
     const q = liveQ(o.code);
@@ -830,11 +831,12 @@ function DualRealScreen() {
         <button class="btn secondary block" disabled={refreshing} onClick={() => void refresh()} data-testid="dualreal-refresh">{refreshing ? "重新整理中…" : "🔄 重新整理清單（用即時價）"}</button>
         <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }} data-testid="dualreal-refresh-note">{stamp || "要下單前按一下：重抓最新的目標與新聞否決，股數改用現在的價格重算；漲停、大漲的會標出來。選股本身仍是收盤後的判斷，不會盤中重選。"}</div>
       </div>}
+      {skipCodes.length > 0 && <div class="notice" style={{ fontSize: "12.5px", marginBottom: "8px" }} data-testid="dualreal-skipped">你設定這次先不買：{skipCodes.map((c) => <span key={c} style={{ marginRight: "8px", whiteSpace: "nowrap" }}>{name(c)} <button class="linkbtn" onClick={() => void setDualSkip(c, false, d?.targetsDate ?? "")}>✕ 取消</button></span>)}。空出來的現金不會轉去買別檔，下次判斷（新的目標配置）自動失效。</div>}
       {!d ? <div class="card muted" style={{ fontSize: "13px" }}>還沒有下載到雙引擎＋的資料，請確認網路後到「雙引擎＋」分頁按重新下載。</div>
         : !d.targets ? <div class="card muted" style={{ fontSize: "13px" }}>雙引擎＋還沒有目標配置（雲端每天傍晚更新），晚一點再來看。</div>
         : !twReady ? <div class="card muted" style={{ fontSize: "13px" }}>等台股收盤價下載完才能估算股數…</div>
         : orders.length === 0 ? <div class="card" style={{ fontSize: "13.5px" }} data-testid="dualreal-noorder">今天不用下單：持股和雙引擎的目標配置差距都小於淨值 {(DUAL_REAL.band * 100).toFixed(1)}%。下次判斷約在 {d.plan?.lastDecision ? prettyW(addWeekdays(d.plan.lastDecision, d.plan.every)) : "幾天後"} 收盤後。</div>
-        : <>{d.vetoes && d.vetoes.length > 0 && <div class="notice" style={{ fontSize: "12.5px", marginBottom: "8px" }} data-testid="dualreal-vetoes">新聞否決中：{d.vetoes.map((x) => `${x.name ?? x.code}（${x.reason}）`).join("、")}。這些不在下單清單裡，持有的會列在賣出。</div>}<DualFill orders={orders} groups={d.groups} flags={flags} /></>}
+        : <>{d.vetoes && d.vetoes.length > 0 && <div class="notice" style={{ fontSize: "12.5px", marginBottom: "8px" }} data-testid="dualreal-vetoes">新聞否決中：{d.vetoes.map((x) => `${x.name ?? x.code}（${x.reason}）`).join("、")}。這些不在下單清單裡，持有的會列在賣出。</div>}<DualFill orders={orders} groups={d.groups} flags={flags} onSkip={d.targetsDate ? (c) => void setDualSkip(c, true, d.targetsDate!) : undefined} /></>}
 
       {pos.length > 0 && <>
         <div class="section-title"><span>目前持股</span><span>{pos.length} 檔</span></div>
@@ -883,7 +885,7 @@ function GroupTag({ groups, code }: { groups: DualGroups; code: string }) {
 }
 
 /** 雙引擎實單的下單清單：勾選、改成實際的股數與成交價，一次記錄 */
-function DualFill({ orders, groups, flags = {} }: { orders: DualOrder[]; groups?: DualGroups; flags?: Record<string, string> }) {
+function DualFill({ orders, groups, flags = {}, onSkip }: { orders: DualOrder[]; groups?: DualGroups; flags?: Record<string, string>; onSkip?: (code: string) => void }) {
   const fresh = (o: DualOrder) => ({ ...o, keep: true, sharesText: String(o.shares), priceText: String(o.price) });
   const [rows, setRows] = useState(() => orders.map(fresh));
   // 清單重算（改本金、保留現金、重新整理）時：你手動改過股數、價格或取消勾選的那幾檔保留原樣，其餘照新的算
@@ -917,6 +919,7 @@ function DualFill({ orders, groups, flags = {} }: { orders: DualOrder[]; groups?
           <div style={{ flex: 1, minWidth: 0, fontSize: "13px" }}>
             <b class={r.side === "buy" ? "up" : "down"}>{r.side === "buy" ? "買" : "賣"}</b> {r.name} <span class="muted num">{r.code}</span><GroupTag groups={groups} code={r.code} />
             <div class="muted" style={{ fontSize: "11.5px" }}>{r.reason}</div>
+            {r.side === "buy" && onSkip && <button class="linkbtn" style={{ fontSize: "11.5px", padding: 0 }} onClick={() => onSkip(r.code)} data-testid="dualreal-skip">✕ 這次先不買</button>}
             {flags[r.code] && <div style={{ fontSize: "11.5px", color: "#b25e00", fontWeight: 700 }} data-testid="dualreal-flag">⚠ {flags[r.code]}</div>}
             {Number(r.sharesText) > 0 && Number(r.priceText) > 0 && <div class="muted num" style={{ fontSize: "11.5px" }}>約 {moneyU(Number(r.sharesText) * Number(r.priceText))}</div>}
           </div>

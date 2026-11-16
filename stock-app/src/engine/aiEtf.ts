@@ -23,6 +23,7 @@ export interface EtfFlow {
 }
 export interface AiEtf {
   budget: number; // 起始資金
+  skipBuy?: { asOf: string; codes: string[] }; // 雙引擎實單「先不買」：這次判斷（asOf＝目標配置日）不買的代號，下次判斷自動失效
   cashReserve?: number; // 雙引擎實單「保留現金」：要下的單買進時不動用這筆現金（元）
   flows?: EtfFlow[]; // 中途存入／提領資金（選用：沒有就和以前完全一樣）
   trades: EtfTrade[];

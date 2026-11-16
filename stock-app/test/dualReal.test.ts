@@ -87,3 +87,14 @@ describe("保留現金：買進不動用保留的那筆（11/15）", () => {
     expect(waterLevel(emptyEtf(500_000), price).bar.reserve).toBe(0);
   });
 });
+
+describe("先不買：指定的代號這次不買，空出的現金不轉去買別檔（11/16）", () => {
+  it("略過 2412 後只剩 2330，股數不變", () => {
+    const t = { "2412": 0.3, "2330": 0.1 };
+    const all = dualOrders(emptyEtf(500_000), t, price, name);
+    const skipped = dualOrders(emptyEtf(500_000), t, price, name, DUAL_REAL.band, new Set(["2412"]));
+    expect(all.map((x) => x.code)).toEqual(["2412", "2330"]);
+    expect(skipped.map((x) => x.code)).toEqual(["2330"]);
+    expect(skipped[0].shares).toBe(all[1].shares);
+  });
+});

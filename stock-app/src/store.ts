@@ -1085,6 +1085,13 @@ export async function addDualFlow(amount: number) {
 }
 /** 雙引擎實單「保留現金」：要下的單買進時不動用這筆（0＝不保留） */
 export async function setDualReserve(amount: number) { if (Number.isFinite(amount) && amount >= 0) await saveDualReal({ ...dualRealOf(), cashReserve: Math.round(amount) || undefined }); }
+/** 雙引擎實單「先不買」：這次判斷不買某檔（例如盤中看到利空，傍晚的新聞否決還沒更新）；asOf＝目標配置日，下次判斷自動失效 */
+export async function setDualSkip(code: string, on: boolean, asOf: string) {
+  const etf = dualRealOf();
+  const cur = etf.skipBuy?.asOf === asOf ? etf.skipBuy.codes : [];
+  const codes = on ? [...new Set([...cur, code])] : cur.filter((c) => c !== code);
+  await saveDualReal({ ...etf, skipBuy: codes.length ? { asOf, codes } : undefined });
+}
 export async function resetDualReal() { set({ dualReal: undefined }); await kv.del("dualReal"); }
 
 async function saveAiEtf(etf: AiEtf) {

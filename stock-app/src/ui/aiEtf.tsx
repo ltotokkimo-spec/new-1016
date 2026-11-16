@@ -13,6 +13,8 @@ import { twHistory } from "../data/history";
 import { buyConds, sellConds, holdConds, dailyHoldingCheck, takeProfitSignal, TAKE_PROFIT, type HoldCheck, type EtfTrade, type EtfFlow, agreePlans, comparePlans, DEFAULT_STOP, planReadable, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, proClipboardAction, replySig, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { onAppResume, readClipboard } from "../lib/clip";
 import { DUAL_REAL, dualOrders, waterLevel, type DualOrder } from "../engine/dualReal";
+import { limitFromChg } from "../lib/limit";
+import { isEtf } from "../data/tw";
 import { emptyEtf, type AiEtf, type Valuation } from "../engine/aiEtf";
 import { addWeekdays, orderDay, pretty, prettyW, taipeiClock, taipeiHour, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
@@ -771,6 +773,18 @@ function DualWater({ etf, v, price }: { etf: AiEtf; v: Valuation; price: (code: 
   );
 }
 
+/** 持股價格膠囊（11/16 使用者選 B）：收盤／盤中／試搓＋價格＋漲跌；漲淺紅、跌淺綠，漲停跌停實心發光 */
+function PxPill({ code, q, close }: { code: string; q?: LiveQuote; close?: number }) {
+  const traded = q && (q.trial || (q.volume ?? 0) > 0) && q.prevClose > 0 && q.price > 0;
+  let price: number | undefined, chg: number | undefined, label: string, limit: "up" | "down" | undefined;
+  if (traded) { price = q!.price; chg = q!.price / q!.prevClose - 1; label = q!.trial ? "試搓" : !q!.final && livePolling() ? "盤中" : "收盤"; limit = q!.limit; }
+  else { price = close; const c = findScored(code)?.chg1d; chg = Number.isFinite(c) ? c : undefined; label = "收盤"; limit = price && chg !== undefined ? limitFromChg(price, chg, isEtf(code)) : undefined; }
+  if (!(price && price > 0)) return null;
+  const k = limit ? `lim-${limit}` : chg === undefined || Math.abs(chg) < 5e-5 ? "" : chg > 0 ? "up" : "down";
+  const move = limit === "up" ? "▲漲停" : limit === "down" ? "▼跌停" : chg === undefined ? "" : `${chg > 5e-5 ? "▲" : chg < -5e-5 ? "▼" : "－"}${Math.abs(chg * 100).toFixed(1)}%`;
+  return <span class={`pxpill ${k} num`} data-testid="dualreal-pxpill" data-k={k || "flat"}>{label} {fmtPrice(price)} {move}</span>;
+}
+
 function DualRealScreen() {
   const dr = useStore((s) => s.dualReal), dualG = useStore((s) => s.dualPlus); // 11/15：雙引擎實單改照「雙引擎＋」下單（加外資條件與新聞否決）
   useStore((s) => s.prices);
@@ -862,7 +876,7 @@ function DualRealScreen() {
             const r = px ? px / p.avgCost - 1 : NaN;
             return (
               <div class="row" style={{ justifyContent: "space-between", alignItems: "center", flexWrap: "nowrap", gap: "8px", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: "13px" }}>
-                <span style={{ flex: 1, minWidth: 0 }}>{p.name} <span class="muted num">{p.code}</span><GroupTag groups={d?.groups} code={p.code} /><br /><span class="muted num" style={{ fontSize: "12px" }}>{p.shares.toLocaleString()} 股・均價 {fmtPrice(p.avgCost)} 元・佔 {(w * 100).toFixed(1)}%（目標 {(tw * 100).toFixed(1)}%）</span></span>
+                <span style={{ flex: 1, minWidth: 0 }}>{p.name} <span class="muted num">{p.code}</span><GroupTag groups={d?.groups} code={p.code} /><PxPill code={p.code} q={live[p.code]?.date && live[p.code].date >= asOfDay ? live[p.code] : undefined} close={etfPrice(p.code)} /><br /><span class="muted num" style={{ fontSize: "12px" }}>{p.shares.toLocaleString()} 股・均價 {fmtPrice(p.avgCost)} 元・佔 {(w * 100).toFixed(1)}%（目標 {(tw * 100).toFixed(1)}%）</span></span>
                 <span class={`num ${cls(r)}`} style={{ textAlign: "right", whiteSpace: "nowrap", flex: "none" }}>{Number.isFinite(r) ? <>報酬 {fmtPct(r, 1)}</> : "—"}<br /><span style={{ fontSize: "12px" }}>{px ? <>損益 {signedMoney((px - p.avgCost) * p.shares)} 元</> : ""}</span></span>
               </div>
             );

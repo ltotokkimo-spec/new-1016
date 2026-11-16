@@ -7,7 +7,7 @@ import { fetchJson, fetchText, postJson, type Fetcher, type TextFetcher } from "
 import { TwLoader, TW_SNAPSHOT_VERSION, type TwSnapshot } from "./data/twLoader";
 import { isEtf, parseEsbLatest, twUrls, type EsbQuote } from "./data/tw";
 import { UsLoader, type UsSnapshot } from "./data/usLoader";
-import { FNG_URL, parseFng, type Fng } from "./data/fng";
+import { FNG_URL, parseFng, cnnFngUrl, parseCnnFng, type Fng } from "./data/fng";
 import { loadNews } from "./data/news";
 import type { NewsItem } from "./engine/news";
 import { cnbcUrl, isUsSymbol, MACRO_SYMBOLS, parseCnbcQuotes, US_UNIVERSE, type MacroQuote, type UsExtra } from "./data/us";
@@ -94,6 +94,7 @@ export interface State {
   usSectorEtfs: UsSnapshot["sectorEtfs"];
   macro: { status: "idle" | "loading" | "ready" | "error"; quotes: MacroQuote[]; error?: string; at?: number };
   fng?: Fng; // 虛擬幣恐懼貪婪指數
+  fngUs?: Fng; // 美股恐懼貪婪指數（CNN）
   news: { items: NewsItem[]; at?: number; loading?: boolean; status?: { name: string; n: number; error?: string }[] }; // 數據頁「新聞」（每次打開 App 重抓）
   twIndexLive: Record<string, IndexLive>; // 台股指數盤中即時（證交所 MIS）
   etfNav: Record<string, EtfNav>; // ETF 即時預估淨值與折溢價（證交所，詳情頁用）
@@ -201,7 +202,7 @@ async function initInner() {
     kv.get<TwSnapshot>("snap:tw"), kv.get<UsSnapshot>("snap:us"), kv.get<State["spend"]>("spend"),
     kv.get<EsbSnapshot>("snap:esb"),
   ]);
-  set({ usExtra: (await kv.get<UsExtra[]>("usExtra")) ?? [], aiEtf: (await kv.get<AiEtf>("aiEtf")) ?? emptyEtf(), fng: (await kv.get<Fng>("fng")) ?? undefined });
+  set({ usExtra: (await kv.get<UsExtra[]>("usExtra")) ?? [], aiEtf: (await kv.get<AiEtf>("aiEtf")) ?? emptyEtf(), fng: (await kv.get<Fng>("fng")) ?? undefined, fngUs: (await kv.get<Fng>("fngUs")) ?? undefined });
   const nc = await kv.get<State["news"]>("news");
   if (nc?.items?.length) set({ news: { items: nc.items, at: nc.at } });
   const vt = await kv.get<State["virtual"]>("virtual");
@@ -478,6 +479,14 @@ async function refreshFng() {
   } catch { /* 留著上次的 */ }
 }
 
+/** 美股恐懼貪婪指數（CNN）：失敗就沿用上次的 */
+async function refreshFngUs() {
+  try {
+    const f = parseCnnFng(await fetcher(cnnFngUrl()));
+    if (f) { set({ fngUs: f }); await kv.set("fngUs", f); }
+  } catch { /* 留著上次的 */ }
+}
+
 /** 新聞：所有來源同時抓，和上次的合併（保留 36 小時內），抓不到的來源略過 */
 let newsBusy: Promise<void> | undefined;
 export function refreshNews(): Promise<void> {
@@ -503,6 +512,7 @@ export function refreshNews(): Promise<void> {
 
 export async function refreshMacro() {
   void refreshFng();
+  void refreshFngUs();
   set({ macro: { ...state.macro, status: state.macro.quotes.length ? "ready" : "loading", error: undefined } });
   try {
     const quotes = parseCnbcQuotes(await fetcher(cnbcUrl(MACRO_SYMBOLS.map((m) => m.symbol))));

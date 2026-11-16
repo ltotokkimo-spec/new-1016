@@ -619,6 +619,10 @@ function check(ok, name, detail = "") {
     await page.waitForFunction(() => !document.querySelector(".sheet"), null, { timeout: 5000 });
   }
   // 虛擬幣恐懼貪婪指數（alternative.me）：分數 0～100 與中文分級
+  // 美股恐懼貪婪指數（CNN，11/16）：CNN 擋掉時不算失敗（沿用上次的、或不顯示），有顯示就要格式正確
+  const fngUsTxt = await page.waitForSelector('[data-testid="fngus-card"]', { timeout: 15000 }).then(() => page.$eval('[data-testid="fngus-card"]', (e) => e.innerText.replace(/\s+/g, " "))).catch(() => "");
+  log("美股恐懼貪婪指數", fngUsTxt || "（沒有顯示：CNN 沒回應或擋掉）");
+  if (fngUsTxt) check(/美股恐懼貪婪指數（CNN） \d{1,3} (極度恐懼|恐懼|中立|貪婪|極度貪婪)/.test(fngUsTxt) && /前一交易日 \d{1,3}/.test(fngUsTxt), "數據頁美股區顯示 CNN 恐懼貪婪指數（分數、分級、前一交易日）", fngUsTxt);
   const fngTxt = await page.$eval('[data-testid="fng-card"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   log("恐懼貪婪指數", fngTxt);
   check(/恐懼貪婪指數 \d{1,3} (極度恐懼|恐懼|中立|貪婪|極度貪婪)/.test(fngTxt) && /昨天 \d{1,3}/.test(fngTxt), "數據頁虛擬幣區顯示恐懼貪婪指數（分數、分級、昨天）", fngTxt);

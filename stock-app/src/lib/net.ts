@@ -48,7 +48,8 @@ function withTimeout<T>(p: Promise<T>, url: string): Promise<T> {
 
 export const fetchJson: Fetcher = async (url) => {
   const host = new URL(url).host;
-  const headers = { Accept: "application/json, text/plain, */*", "User-Agent": UA };
+  const headers: Record<string, string> = { Accept: "application/json, text/plain, */*", "User-Agent": UA };
+  if (host === "production.dataviz.cnn.io") { headers.Referer = "https://edition.cnn.com/"; headers.Origin = "https://edition.cnn.com"; } // CNN 不像瀏覽器的請求會回 418
   for (let attempt = 0; ; attempt++) {
     await throttle(host);
     try {

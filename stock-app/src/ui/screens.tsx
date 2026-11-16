@@ -1232,37 +1232,37 @@ function ImportReview({ data, onDone, broker }: { data: { rows: ImportedHolding[
 }
 
 // ---------------- 虛擬幣恐懼貪婪指數 ----------------
-function FngCard({ f, onOpen }: { f: Fng; onOpen: () => void }) {
+function FngCard({ f, onOpen, us = false }: { f: Fng; onOpen: () => void; us?: boolean }) {
   // 恐懼偏綠（跌）、貪婪偏紅（漲），和台股紅漲綠跌的配色一致；整排寬，左邊文字、右邊儀表板
   const c = f.value <= 44 ? "down" : f.value >= 56 ? "up" : "";
   const diff = (x?: number) => (x === undefined ? "" : `${f.value - x >= 0 ? "+" : ""}${f.value - x}`);
   return (
-    <div class="metric" data-testid="fng-card" style={{ cursor: "pointer", gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: "10px" }} onClick={onOpen}>
+    <div class="metric" data-testid={us ? "fngus-card" : "fng-card"} style={{ cursor: "pointer", gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: "10px" }} onClick={onOpen}>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div class="k">恐懼貪婪指數</div>
+        <div class="k">{us ? "美股恐懼貪婪指數（CNN）" : "虛擬幣恐懼貪婪指數"}</div>
         <div class={`v num ${c}`}>{f.value}　<span style={{ fontSize: "14px" }}>{f.label}</span></div>
         <div class="d muted" style={{ fontSize: "11.5px", lineHeight: 1.5 }}>
-          {[f.prev !== undefined ? `昨天 ${f.prev}（${diff(f.prev)}）` : "", f.weekAgo !== undefined ? `一週前 ${f.weekAgo}` : "", f.monthAgo !== undefined ? `一個月前 ${f.monthAgo}` : ""].filter(Boolean).join("・")}
+          {[f.prev !== undefined ? `${us ? "前一交易日" : "昨天"} ${f.prev}（${diff(f.prev)}）` : "", f.weekAgo !== undefined ? `一週前 ${f.weekAgo}` : "", f.monthAgo !== undefined ? `一個月前 ${f.monthAgo}` : ""].filter(Boolean).join("・")}
           <div>點進去看近一年走勢</div>
         </div>
       </div>
-      <FngGauge v={f.value} />
+      <FngGauge v={f.value} tid={us ? "fngus" : "fng"} />
     </div>
   );
 }
 
 /** 半圓儀表板：左 0（極度恐懼）到右 100（極度貪婪），指針指到目前分數 */
 const GAUGE_SEGS = [[0, 25, "#13834a"], [25, 45, "#7cc49a"], [45, 56, "#b9b4a8"], [56, 76, "#ec8f97"], [76, 100, "#d7263d"]] as const;
-function FngGauge({ v }: { v: number }) {
+function FngGauge({ v, tid = "fng" }: { v: number; tid?: string }) {
   const cx = 70, cy = 66, r = 54, w = 14;
   const pt = (val: number, rad: number) => { const a = Math.PI * (1 - val / 100); return [cx + rad * Math.cos(a), cy - rad * Math.sin(a)]; };
   const arc = (a: number, b: number) => { const [x1, y1] = pt(a, r), [x2, y2] = pt(b, r); return `M${x1.toFixed(1)},${y1.toFixed(1)} A${r},${r} 0 0 1 ${x2.toFixed(1)},${y2.toFixed(1)}`; };
   const vv = Math.max(0, Math.min(100, v));
   const [nx, ny] = pt(vv, r - 8);
   return (
-    <svg viewBox="0 0 140 82" width="140" height="82" role="img" aria-label={`恐懼貪婪指數 ${v}`} data-testid="fng-gauge" data-value={v} style={{ flex: "none" }}>
+    <svg viewBox="0 0 140 82" width="140" height="82" role="img" aria-label={`恐懼貪婪指數 ${v}`} data-testid={`${tid}-gauge`} data-value={v} style={{ flex: "none" }}>
       {GAUGE_SEGS.map(([a, b, col]) => <path d={arc(a + 0.6, b - 0.6)} fill="none" stroke={col} stroke-width={w} />)}
-      <line x1={cx} y1={cy} x2={nx.toFixed(1)} y2={ny.toFixed(1)} stroke="var(--fg)" stroke-width="3" stroke-linecap="round" data-testid="fng-needle" />
+      <line x1={cx} y1={cy} x2={nx.toFixed(1)} y2={ny.toFixed(1)} stroke="var(--fg)" stroke-width="3" stroke-linecap="round" data-testid={`${tid}-needle`} />
       <circle cx={cx} cy={cy} r="5" fill="var(--fg)" />
       <text x={cx - r} y={cy + 14} font-size="9" fill="var(--muted)" text-anchor="middle">0</text>
       <text x={cx + r} y={cy + 14} font-size="9" fill="var(--muted)" text-anchor="middle">100</text>
@@ -1480,13 +1480,15 @@ function UsOvernight({ code, close }: { code: string; close: number }) {
 // ---------------- 恐懼貪婪指數詳情：近一年走勢（疊比特幣）、摘要、算法說明 ----------------
 const FNG_BANDS = [[0, 25, "極度恐懼"], [25, 45, "恐懼"], [45, 56, "中立"], [56, 76, "貪婪"], [76, 101, "極度貪婪"]] as const;
 const FNG_RANGES = [["3 個月", 90], ["6 個月", 182], ["1 年", 400]] as const;
-function FngDetail({ f, onClose }: { f: Fng; onClose: () => void }) {
+function FngDetail({ f, onClose, us = false }: { f: Fng; onClose: () => void; us?: boolean }) {
+  const ref = us ? { sym: ".SPX", name: "S&P 500", unit: "點", money: (v: number) => Math.round(v).toLocaleString("en-US") } : { sym: "BTC.CM=", name: "比特幣", unit: "美元", money: (v: number) => `$${Math.round(v).toLocaleString("en-US")}` };
   const [btc, setBtc] = useState<{ date: string; close: number }[]>([]);
-  const [range, setRange] = useState<number>(90);
+  const ranges = us ? ([["3 個月", 63], ["6 個月", 126], ["1 年", 270]] as const) : FNG_RANGES; // 美股只有交易日：3 個月約 63 個交易日
+  const [range, setRange] = useState<number>(us ? 63 : 90);
   const [pick, setPick] = useState<number | null>(null); // 點選的那一天（在 view 裡的位置）
   useEffect(() => {
     let alive = true;
-    indexHistory(getFetcher(), getKv(), "BTC.CM=", 12, Date.now(), (h) => { if (alive) setBtc(h.bars); }).then((h) => { if (alive) setBtc(h.bars); }).catch(() => {});
+    indexHistory(getFetcher(), getKv(), ref.sym, 12, Date.now(), (h) => { if (alive) setBtc(h.bars); }).then((h) => { if (alive) setBtc(h.bars); }).catch(() => {});
     return () => { alive = false; };
   }, []);
   const all = f.hist ?? [];
@@ -1530,36 +1532,36 @@ function FngDetail({ f, onClose }: { f: Fng; onClose: () => void }) {
   const onMove = (e: PointerEvent) => { if (e.buttons || e.pointerType !== "mouse") onPoint(e); };
   const cross = (h: number) => <line x1={x(selI)} x2={x(selI)} y1={0} y2={h} stroke="var(--fg)" stroke-opacity="0.35" stroke-dasharray="3 3" />;
   return (
-    <Sheet title="虛擬幣恐懼貪婪指數" onClose={onClose}>
+    <Sheet title={us ? "美股恐懼貪婪指數（CNN）" : "虛擬幣恐懼貪婪指數"} onClose={onClose}>
       <div class="row" style={{ justifyContent: "space-between", alignItems: "center" }} data-testid="fng-detail">
         <div>
           <div class={`big num ${c(f.value)}`} data-testid="fng-value">{f.value}</div>
-          <div class={c(f.value)}><b>{f.label}</b>{f.streak ? <span class="muted">・已連續 {f.streak} 天</span> : null}</div>
-          <div class="muted" style={{ fontSize: "12px" }}>{fmtY(f.date)}（UTC）・alternative.me</div>
+          <div class={c(f.value)}><b>{f.label}</b>{f.streak ? <span class="muted">・已連續 {f.streak} {us ? "個交易日" : "天"}</span> : null}</div>
+          <div class="muted" style={{ fontSize: "12px" }}>{us ? `${fmtY(f.date)}・CNN Business` : `${fmtY(f.date)}（UTC）・alternative.me`}</div>
         </div>
-        <FngGauge v={f.value} />
+        <FngGauge v={f.value} tid={us ? "fngus" : "fng"} />
       </div>
 
-      <div class="section-title"><span>近一年走勢</span><span>{all.length} 天</span></div>
+      <div class="section-title"><span>近一年走勢</span><span>{all.length} {us ? "個交易日" : "天"}</span></div>
       {n >= 2 ? (
         <div class="card stack" style={{ padding: "10px" }} data-testid="fng-chart">
           <div class="row" style={{ gap: "6px" }} role="group" aria-label="期間" data-testid="fng-range">
-            {FNG_RANGES.map(([lb, d]) => <button class="chip" aria-pressed={range === d} onClick={() => { setRange(d); setPick(null); }} data-testid={`fng-range-${d}`}>{lb}</button>)}
+            {ranges.map(([lb, d]) => <button class="chip" aria-pressed={range === d} onClick={() => { setRange(d); setPick(null); }} data-testid={`fng-range-${d}`}>{lb}</button>)}
           </div>
           <div class="row" style={{ justifyContent: "space-between", fontSize: "13px", alignItems: "baseline" }} data-testid="fng-pick">
             <b>{fmtY(sel?.date)}</b>
             <span>指數 <b class={`num ${c(sel?.value ?? 50)}`}>{sel?.value}</b> {sel ? fngLabel(sel.value) : ""}<span class="muted">・7 日平均 {sel ? Math.round(sel.ma) : ""}</span></span>
           </div>
-          <div class="muted" style={{ fontSize: "12px", marginTop: "-4px" }}>比特幣 <b class="num" style={{ color: "#c98a0b" }}>{selBtc !== undefined ? `$${Math.round(selBtc).toLocaleString("en-US")}` : bpts.length ? "（那天沒有價格）" : "下載中…"}</b></div>
+          <div class="muted" style={{ fontSize: "12px", marginTop: "-4px" }}>{ref.name} <b class="num" style={{ color: "#c98a0b" }}>{selBtc !== undefined ? ref.money(selBtc) : bpts.length ? "（那天沒有價格）" : "下載中…"}</b></div>
 
-          <div class="muted" style={{ fontSize: "12px" }}>比特幣價格（美元）</div>
-          <svg viewBox={`0 0 ${W} ${bH}`} width="100%" role="img" aria-label="比特幣價格" style={{ touchAction: "none" }} onPointerDown={onPoint} onPointerMove={onMove} data-testid="fng-btc-svg">
+          <div class="muted" style={{ fontSize: "12px" }}>{ref.name}（{ref.unit}）</div>
+          <svg viewBox={`0 0 ${W} ${bH}`} width="100%" role="img" aria-label={`${ref.name}價格`} style={{ touchAction: "none" }} onPointerDown={onPoint} onPointerMove={onMove} data-testid="fng-btc-svg">
             {bpts.length >= 2 ? <>
               {bTicks.map((t) => <g><line x1={padL} x2={W - padR} y1={by(t)} y2={by(t)} stroke="var(--line)" /><text x={padL - 4} y={by(t) + 3} font-size="9.5" fill="var(--muted)" text-anchor="end">{t >= 10000 ? `${Math.round(t / 1000)}k` : Math.round(t)}</text></g>)}
               <path d={bline} fill="none" stroke="#e8a317" stroke-width="1.8" data-testid="fng-btc-line" />
               {cross(bH - bB)}
               {selBtc !== undefined && <circle cx={x(selI)} cy={by(selBtc)} r="3.5" fill="#e8a317" />}
-            </> : <text x={W / 2} y={bH / 2} font-size="11" fill="var(--muted)" text-anchor="middle">比特幣價格下載中…</text>}
+            </> : <text x={W / 2} y={bH / 2} font-size="11" fill="var(--muted)" text-anchor="middle">{ref.name}下載中…</text>}
           </svg>
 
           <div class="muted" style={{ fontSize: "12px" }}>恐懼貪婪指數（細線＝每天、粗線＝7 日平均）</div>
@@ -1581,13 +1583,24 @@ function FngDetail({ f, onClose }: { f: Fng; onClose: () => void }) {
 
       <div class="section-title"><span>摘要</span></div>
       <div class="grid2" data-testid="fng-summary">
-        <Metric k="昨天" v={f.prev !== undefined ? String(f.prev) : "—"} c={f.prev !== undefined ? c(f.prev) : ""} d={f.prev !== undefined ? `今天比昨天 ${f.value - f.prev >= 0 ? "+" : ""}${f.value - f.prev}` : ""} />
+        <Metric k={us ? "前一交易日" : "昨天"} v={f.prev !== undefined ? String(f.prev) : "—"} c={f.prev !== undefined ? c(f.prev) : ""} d={f.prev !== undefined ? `今天比${us ? "前一交易日" : "昨天"} ${f.value - f.prev >= 0 ? "+" : ""}${f.value - f.prev}` : ""} />
         <Metric k="一週前" v={f.weekAgo !== undefined ? String(f.weekAgo) : "—"} c={f.weekAgo !== undefined ? c(f.weekAgo) : ""} d={f.weekAgo !== undefined ? fngLabel(f.weekAgo) : ""} />
         <Metric k="一個月前" v={f.monthAgo !== undefined ? String(f.monthAgo) : "—"} c={f.monthAgo !== undefined ? c(f.monthAgo) : ""} d={f.monthAgo !== undefined ? fngLabel(f.monthAgo) : ""} />
+        {us && <Metric k="一年前" v={f.yearAgo !== undefined ? String(f.yearAgo) : "—"} c={f.yearAgo !== undefined ? c(f.yearAgo) : ""} d={f.yearAgo !== undefined ? fngLabel(f.yearAgo) : ""} />}
         <Metric k="一年內最高／最低" v={f.high && f.low ? `${f.high.value}／${f.low.value}` : "—"} d={f.high && f.low ? `最高 ${fmtY(f.high.date)}・最低 ${fmtY(f.low.date)}` : ""} />
       </div>
 
       <div class="section-title"><span>這個指數怎麼算</span></div>
+      {us ? (
+        <div class="card" style={{ fontSize: "13px", lineHeight: 1.7 }} data-testid="fngus-about">
+          CNN Business 用 7 項美股指標各自算 0～100 分，平均成為總分（每個交易日更新）。目前各項：
+          <div style={{ margin: "6px 0" }}>
+            {(f.parts ?? []).map((p) => <div class="row" style={{ justifyContent: "space-between", gap: "8px", borderBottom: "1px solid var(--line)", padding: "3px 0" }}><span>{p.label}</span><span class={`num ${c(p.score)}`} style={{ whiteSpace: "nowrap" }}>{p.score} {p.rating}</span></div>)}
+            {!(f.parts ?? []).length && <div class="muted">（這次沒有取得各項分數）</div>}
+          </div>
+          <div class="muted">怎麼看：這是美股市場的情緒，和虛擬幣的恐懼貪婪指數是不同的指數。常見的用法是「別人恐懼時留意機會、別人貪婪時小心過熱」，但情緒可以極端很久，只當參考，不是買賣訊號。</div>
+        </div>
+      ) : (
       <div class="card" style={{ fontSize: "13px", lineHeight: 1.7 }} data-testid="fng-about">
         alternative.me 每天用以下資料算出 0～100 分（比重是官方公布的大約比例）：
         <ul style={{ margin: "6px 0 6px 18px", padding: 0 }}>
@@ -1600,6 +1613,7 @@ function FngDetail({ f, onClose }: { f: Fng; onClose: () => void }) {
         </ul>
         <div class="muted">怎麼看：這是虛擬幣市場的情緒，不是台股或美股的。常見的用法是「別人恐懼時留意機會、別人貪婪時小心過熱」，但情緒可以極端很久，只當參考，不是買賣訊號。</div>
       </div>
+      )}
     </Sheet>
   );
 }
@@ -1727,8 +1741,8 @@ export function MacroScreen() {
 // ---------------- 數據（國內外指標＋AI 解讀） ----------------
 function DataPane() {
   const [idxOpen, setIdxOpen] = useState<string | null>(null);
-  const [fngOpen, setFngOpen] = useState(false);
-  const st = useStore((s) => ({ macro: s.macro, fng: s.fng, tw: s.tw, us: s.us, idx: s.twIndices, breadth: s.twBreadth, idxLive: s.twIndexLive, fut: s.futures, turnover: s.twTurnover, turnoverLive: s.twTurnoverLive, etfs: s.usSectorEtfs, apiKey: s.settings.apiKey, reports: s.reports }));
+  const [fngOpen, setFngOpen] = useState<"" | "crypto" | "us">("");
+  const st = useStore((s) => ({ macro: s.macro, fng: s.fng, fngUs: s.fngUs, tw: s.tw, us: s.us, idx: s.twIndices, breadth: s.twBreadth, idxLive: s.twIndexLive, fut: s.futures, turnover: s.twTurnover, turnoverLive: s.twTurnoverLive, etfs: s.usSectorEtfs, apiKey: s.settings.apiKey, reports: s.reports }));
   // 台股指數盤中每 30 秒更新（收盤後 MIS 回傳收盤價，仍會顯示）
   useEffect(() => {
     refreshTwIndex(); refreshFutures(); refreshTurnover(); refreshTurnoverLive();
@@ -1758,7 +1772,8 @@ function DataPane() {
 
   return (
     <div>
-      {fngOpen && st.fng && <FngDetail f={st.fng} onClose={() => setFngOpen(false)} />}
+      {fngOpen === "crypto" && st.fng && <FngDetail f={st.fng} onClose={() => setFngOpen("")} />}
+      {fngOpen === "us" && st.fngUs && <FngDetail us f={st.fngUs} onClose={() => setFngOpen("")} />}
       {idxOpen && <IndexDetail name={idxOpen.split("|")[0]} label={idxOpen.split("|")[1]} onClose={() => setIdxOpen(null)} />}
       {liveIdx.length > 0 ? (
         <>
@@ -1826,7 +1841,8 @@ function DataPane() {
       {groups.map((g) => {
         const items = MACRO_SYMBOLS.filter((m) => m.group === g && bySymbol.has(m.symbol));
         const fng = g === "虛擬幣" ? st.fng : undefined;
-        if (!items.length && !fng) return null;
+        const fngUs = g === "美股" ? st.fngUs : undefined;
+        if (!items.length && !fng && !fngUs) return null;
         return (
           <>
             <div class="section-title"><span>{g}</span></div>
@@ -1837,7 +1853,8 @@ function DataPane() {
                 if (!CHART_SYMBOLS.has(m.symbol)) return card;
                 return <div data-testid={`idx-card-${m.symbol}`} style={{ cursor: "pointer" }} onClick={() => setIdxOpen(`${m.symbol}|${m.label}`)}>{card}</div>;
               })}
-              {fng && <FngCard f={fng} onOpen={() => setFngOpen(true)} />}
+              {fngUs && <FngCard us f={fngUs} onOpen={() => setFngOpen("us")} />}
+              {fng && <FngCard f={fng} onOpen={() => setFngOpen("crypto")} />}
             </div>
           </>
         );

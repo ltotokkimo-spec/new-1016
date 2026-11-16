@@ -203,6 +203,9 @@ async function initInner() {
     kv.get<EsbSnapshot>("snap:esb"),
   ]);
   set({ usExtra: (await kv.get<UsExtra[]>("usExtra")) ?? [], aiEtf: (await kv.get<AiEtf>("aiEtf")) ?? emptyEtf(), fng: (await kv.get<Fng>("fng")) ?? undefined, fngUs: (await kv.get<Fng>("fngUs")) ?? undefined });
+  // 今天的台股即時報價（11/16 使用者：重開 App 都先看到前一個交易日，要等一陣子才變今天）：官方收盤資料傍晚才有，這段時間今天的價格只靠即時報價
+  const lv = await kv.get<{ date: string; q: Record<string, LiveQuote> }>("liveToday");
+  if (lv?.date === taipeiToday() && lv.q && !Object.keys(state.live).length) set({ live: lv.q, liveAt: Date.now() });
   const nc = await kv.get<State["news"]>("news");
   if (nc?.items?.length) set({ news: { items: nc.items, at: nc.at } });
   const vt = await kv.get<State["virtual"]>("virtual");
@@ -650,6 +653,17 @@ const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T> => {
 // 前一個還有幾批沒抓時也會先停下來處理持股。以前是直接略過：開 App 時選股頁正在抓 60 檔，切到持股頁的要求被丟掉，要等 30 秒才有即時價。
 let liveQueue: { codes: Set<string>; esb: Set<string>; hi: Set<string> } | null = null;
 let liveWait: ReturnType<typeof setInterval> | undefined;
+let liveSaveT: ReturnType<typeof setTimeout> | undefined;
+/** 即時報價存起來（只留今天的台股，最多 5 秒存一次），重開 App 不用等重抓 */
+function saveLiveSoon() {
+  if (liveSaveT) return;
+  liveSaveT = setTimeout(() => {
+    liveSaveT = undefined;
+    const today = taipeiToday();
+    const q = Object.fromEntries(Object.entries(state.live).filter(([, x]) => x.date === today && !x.session));
+    kv.set("liveToday", { date: today, q }).catch(() => {});
+  }, 5000);
+}
 export async function refreshLive(codes: string[], esbHint: string[] = [], priority = false, retry = 0) {
   const list = [...new Set(codes.filter((c) => /^[0-9A-Z]{4,6}$/.test(c)))];
   if (!list.length) return;
@@ -682,6 +696,7 @@ export async function refreshLive(codes: string[], esbHint: string[] = [], prior
       try {
         Object.assign(got, parseLive(await withTimeout(fetcher(liveUrl(list.slice(i, i + 20))), LIVE_FETCH_MS)));
         set({ live: { ...state.live, ...got }, liveAt: Date.now(), liveError: undefined }); // 每一批抓到就先存，不要等全部批次
+        saveLiveSoon();
       } catch (e: any) {
         failed = true;
         set({ liveError: String(e?.message ?? e).slice(0, 60) });

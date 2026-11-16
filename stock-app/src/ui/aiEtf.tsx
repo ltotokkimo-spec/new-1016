@@ -859,9 +859,9 @@ function DualRealScreen() {
             const px = nowPx(p.code), val = (px ?? 0) * p.shares, w = v.nav > 0 ? val / v.nav : 0, tw = d?.targets?.[p.code] ?? 0;
             const r = px ? px / p.avgCost - 1 : NaN;
             return (
-              <div class="row" style={{ justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: "13px" }}>
-                <span>{p.name} <span class="muted num">{p.code}</span><GroupTag groups={d?.groups} code={p.code} /><br /><span class="muted num" style={{ fontSize: "12px" }}>{p.shares.toLocaleString()} 股・均價 {fmtPrice(p.avgCost)} 元・佔 {(w * 100).toFixed(1)}%（目標 {(tw * 100).toFixed(1)}%）</span></span>
-                <span class={`num ${cls(r)}`} style={{ textAlign: "right", whiteSpace: "nowrap" }}>{Number.isFinite(r) ? <>報酬 {fmtPct(r, 1)}</> : "—"}<br /><span style={{ fontSize: "12px" }}>{px ? <>損益 {signedMoney((px - p.avgCost) * p.shares)} 元</> : ""}</span></span>
+              <div class="row" style={{ justifyContent: "space-between", alignItems: "center", flexWrap: "nowrap", gap: "8px", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: "13px" }}>
+                <span style={{ flex: 1, minWidth: 0 }}>{p.name} <span class="muted num">{p.code}</span><GroupTag groups={d?.groups} code={p.code} /><br /><span class="muted num" style={{ fontSize: "12px" }}>{p.shares.toLocaleString()} 股・均價 {fmtPrice(p.avgCost)} 元・佔 {(w * 100).toFixed(1)}%（目標 {(tw * 100).toFixed(1)}%）</span></span>
+                <span class={`num ${cls(r)}`} style={{ textAlign: "right", whiteSpace: "nowrap", flex: "none" }}>{Number.isFinite(r) ? <>報酬 {fmtPct(r, 1)}</> : "—"}<br /><span style={{ fontSize: "12px" }}>{px ? <>損益 {signedMoney((px - p.avgCost) * p.shares)} 元</> : ""}</span></span>
               </div>
             );
           })}

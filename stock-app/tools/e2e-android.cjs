@@ -1343,7 +1343,8 @@ function check(ok, name, detail = "") {
   const alertText = await page.$eval('[data-testid="etf-alerts"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "（沒有提醒卡）");
   log("停損提醒", alertText);
   if (!/台積電/.test(alertText)) log("停損提醒診斷", JSON.stringify(await page.evaluate(() => ({ tp: (window.__srTp || {})["2330"], row: [...document.querySelectorAll('[data-testid="real-pos-item"]')].find((x) => /2330/.test(x.querySelector(".name")?.textContent || ""))?.innerText.replace(/\s+/g, " ").slice(0, 200), stopInput: !!document.querySelector('[data-testid="stop-input"]') }))));
-  check(/台積電/.test(alertText) && /跌破你設的停利價/.test(alertText), "自組ETF 跌破停損價會提醒（停損價高於均價時寫「跌破你設的停利價」）", alertText.slice(0, 160));
+  // 停損價設在現價 +5%：高於均價寫「停利價」，低於均價（今天大跌）寫「停損價」；提醒用的是和持股列一樣的即時價
+  check(/台積電/.test(alertText) && /跌破(停損價|你設的停利價)/.test(alertText), "自組ETF 跌破停損價會提醒（和持股列同一個即時價；停損價高於均價時寫「跌破你設的停利價」）", alertText.slice(0, 160));
   check(!!(await page.$('[data-testid="etf-dot"]')), "自組ETF 分頁出現紅點");
   await page.evaluate(() => document.querySelector("main").scrollTo(0, 0));
   await shot("05c-停損提醒");

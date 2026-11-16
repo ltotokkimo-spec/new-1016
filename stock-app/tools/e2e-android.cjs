@@ -982,8 +982,9 @@ function check(ok, name, detail = "") {
   check(quadUi.n > 0 && quadUi.list === Math.min(150, quadUi.n), "四因子名單列出的檔數和標籤一致", JSON.stringify({ n: quadUi.n, list: quadUi.list }));
   // 每一列要顯示四因子名次、分數和四項原始數字，而且名次由 1 開始依序排列（11/15 使用者：排列看起來不是分數）
   const quadRows = await page.$$eval(".list .item", (rs) => rs.slice(0, 40).map((r) => ({ rank: Number((r.querySelector('[data-testid="quad-rank"]')?.textContent.match(/第 (\d+) 名/) || [0, 0])[1]), info: r.querySelector('[data-testid="quad-info"]')?.textContent || "" })));
-  const ranksOk = quadRows.length > 0 && quadRows.every((r, i) => r.rank === i + 1) && quadRows.every((r) => /外資60日.*成交.*波動.*營收年增/.test(r.info));
-  check(ranksOk, "四因子每一列顯示名次（1、2、3…依序）與四項原始數字", JSON.stringify(quadRows.slice(0, 3)));
+  // 名次由小到大（可能跳號：四因子名單比評分資料新一天時，名單裡有的股票不在評分清單，11/16）
+  const ranksOk = quadRows.length > 0 && quadRows[0].rank >= 1 && quadRows[0].rank <= 3 && quadRows.every((r, i) => r.rank > 0 && (i === 0 || r.rank > quadRows[i - 1].rank)) && quadRows.every((r) => /外資60日.*成交.*波動.*營收年增/.test(r.info));
+  check(ranksOk, "四因子每一列顯示名次（由小到大）與四項原始數字", JSON.stringify(quadRows.map((r) => r.rank)) + " " + JSON.stringify(quadRows.find((r) => !/外資60日.*成交.*波動.*營收年增/.test(r.info)) ?? ""));
   await shot("02q-四因子名單");
   const buyChip1 = await page.$$eval(".chips .chip", (cs) => cs.map((c) => c.textContent).find((t) => /^買入/.test(t)) || "");
   check(!!buyChip0 && buyChip0 === buyChip1, "現有「買入」評等的檔數不受四因子影響", `${buyChip0}｜${buyChip1}`);

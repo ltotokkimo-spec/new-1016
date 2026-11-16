@@ -1031,8 +1031,12 @@ function check(ok, name, detail = "") {
   // 有下單清單時記錄第一筆（只留第一筆勾選），之後檢查總評比出現「雙引擎實單」（11/15）
   let drRecorded = false;
   if (drOrders > 0) {
+    const alive = async (tag) => { const t0 = Date.now(); const ok = await Promise.race([page.evaluate(() => 1).then(() => true), new Promise((r) => setTimeout(() => r(false), 4000))]).catch(() => false); log("心跳", tag, ok ? "正常" : "沒回應", `${Date.now() - t0}ms`); };
+    await alive("勾選前");
     await page.$$eval('[data-testid="dualreal-order"] input[type=checkbox]', (cs) => cs.forEach((c, i) => { if (i > 0 && c.checked) c.click(); }));
+    await alive("取消勾選後");
     await page.click('[data-testid="dualreal-save"]');
+    await alive("按記錄後");
     drRecorded = await page.waitForSelector('[data-testid="dualreal-trades-box"]', { timeout: 10000 }).then(() => true).catch(() => false);
     const drDiag = drRecorded ? "" : await page.$eval('[data-testid="dualreal"]', (e) => ({ err: e.querySelector(".error")?.textContent, done: e.querySelector(".notice")?.textContent?.slice(0, 80), checked: [...e.querySelectorAll('[data-testid="dualreal-order"] input[type=checkbox]')].filter((c) => c.checked).length, rows: e.querySelectorAll('[data-testid="dualreal-order"]').length, hasSave: !!e.querySelector('[data-testid="dualreal-save"]'), head: e.innerText.replace(/\s+/g, " ").slice(-260) })).then((x) => JSON.stringify(x)).catch((x) => "diag失敗 " + x.message);
     check(drRecorded, "雙引擎實單：勾選一筆按「記錄勾選的成交」後出現成交紀錄", drDiag);

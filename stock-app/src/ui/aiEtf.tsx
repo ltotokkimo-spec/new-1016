@@ -836,7 +836,7 @@ function DualRealScreen() {
         : !d.targets ? <div class="card muted" style={{ fontSize: "13px" }}>雙引擎＋還沒有目標配置（雲端每天傍晚更新），晚一點再來看。</div>
         : !twReady ? <div class="card muted" style={{ fontSize: "13px" }}>等台股收盤價下載完才能估算股數…</div>
         : orders.length === 0 ? <div class="card" style={{ fontSize: "13.5px" }} data-testid="dualreal-noorder">今天不用下單：持股和雙引擎的目標配置差距都小於淨值 {(DUAL_REAL.band * 100).toFixed(1)}%。下次判斷約在 {d.plan?.lastDecision ? prettyW(addWeekdays(d.plan.lastDecision, d.plan.every)) : "幾天後"} 收盤後。</div>
-        : <>{d.vetoes && d.vetoes.length > 0 && <div class="notice" style={{ fontSize: "12.5px", marginBottom: "8px" }} data-testid="dualreal-vetoes">新聞否決中：{d.vetoes.map((x) => `${x.name ?? x.code}（${x.reason}）`).join("、")}。這些不在下單清單裡，持有的會列在賣出。</div>}<DualFill orders={orders} groups={d.groups} flags={flags} onSkip={d.targetsDate ? (c) => void setDualSkip(c, true, d.targetsDate!) : undefined} /></>}
+        : <>{d.vetoes && d.vetoes.length > 0 && <div class="notice" style={{ fontSize: "12.5px", marginBottom: "8px" }} data-testid="dualreal-vetoes">新聞否決中：{d.vetoes.map((x) => `${x.name ?? x.code}（${x.reason}）`).join("、")}。這些不在下單清單裡，持有的會列在賣出。</div>}<DualFill key={orders.map((o) => `${o.side}${o.code}${o.shares}`).join(",")} orders={orders} groups={d.groups} flags={flags} onSkip={d.targetsDate ? (c) => void setDualSkip(c, true, d.targetsDate!) : undefined} /></>}
 
       {pos.length > 0 && <>
         <div class="section-title"><span>目前持股</span><span>{pos.length} 檔</span></div>
@@ -888,19 +888,9 @@ function GroupTag({ groups, code }: { groups: DualGroups; code: string }) {
 function DualFill({ orders, groups, flags = {}, onSkip }: { orders: DualOrder[]; groups?: DualGroups; flags?: Record<string, string>; onSkip?: (code: string) => void }) {
   const fresh = (o: DualOrder) => ({ ...o, keep: true, sharesText: String(o.shares), priceText: String(o.price) });
   const [rows, setRows] = useState(() => orders.map(fresh));
-  // 清單重算（改本金、保留現金、重新整理）時：你手動改過股數、價格或取消勾選的那幾檔保留原樣，其餘照新的算
-  const sig = orders.map((o) => `${o.side}${o.code}${o.shares}@${o.price}`).join(",");
-  useEffect(() => {
-    setRows((prev) => orders.map((o) => {
-      const old = prev.find((r) => r.code === o.code && r.side === o.side);
-      if (!old) return fresh(o);
-      const edited = old.sharesText !== String(old.shares) || old.priceText !== String(old.price) || !old.keep;
-      return edited ? { ...o, keep: old.keep, sharesText: old.sharesText, priceText: old.priceText } : fresh(o);
-    }));
-  }, [sig]);
   const [err, setErr] = useState("");
   const [done, setDone] = useState("");
-  const upd = (i: number, p: Partial<(typeof rows)[number]>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...p } : r)));
+  const upd = (i: number, p: Partial<(typeof rows)[number]>) => setRows((prev) => prev.map((r, j) => (j === i ? { ...r, ...p } : r)));
   const save = async () => {
     const ok = rows.filter((r) => r.keep);
     if (!ok.length) return setErr("請至少勾選一筆");
@@ -966,7 +956,7 @@ function PlanFill({ items, planKey, cash, stops, source, asOf }: { items: PlanIt
   const fitted = useMemo(() => fitBudget(items, etfPrice, cash), [items]);
   const [rows, setRows] = useState(() => fitted.map((it) => ({ ...it, keep: !!etfPrice(it.code), price: String(etfPrice(it.code) ?? ""), shares: String(it.shares), stopText: it.stop ? String(it.stop) : "" })));
   const [err, setErr] = useState("");
-  const upd = (i: number, p: Partial<(typeof rows)[number]>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...p } : r)));
+  const upd = (i: number, p: Partial<(typeof rows)[number]>) => setRows((prev) => prev.map((r, j) => (j === i ? { ...r, ...p } : r)));
   const total = rows.filter((r) => r.keep).reduce((a, r) => a + (r.side === "buy" ? 1 : -1) * Number(r.shares) * Number(r.price), 0);
   const save = async () => {
     const ok = rows.filter((r) => r.keep);

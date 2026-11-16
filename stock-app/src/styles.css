@@ -286,7 +286,7 @@ table.calc tr.sel td { background: var(--hold-bg); font-weight: 700; }
 .pxpill.up { background: #fff1f1; border-color: #f3c3c8; color: #c01f33; }
 .pxpill.down { background: #effaf3; border-color: #bfe6cf; color: #0f7a43; }
 .pxpill.lim-up { background: #d7263d; border-color: #d7263d; color: #fff; animation: pxp-u 1.2s ease-in-out infinite; }
-.pxpill.lim-down { background: #13834a; border-color: #13834a; color: #fff; animation: pxp-d 1.2s ease-in-out infinite; }
+.pxpill.lim-down { background: #00c853; border-color: #00c853; color: #fff; animation: pxp-d 1.2s ease-in-out infinite; }
 @keyframes pxp-u { 50% { box-shadow: 0 0 10px 2px rgba(215, 38, 61, .6); } }
-@keyframes pxp-d { 50% { box-shadow: 0 0 10px 2px rgba(19, 131, 74, .6); } }
+@keyframes pxp-d { 50% { box-shadow: 0 0 11px 3px rgba(0, 200, 83, .8); } } /* 11/16 使用者選 3 鮮豔綠 */
 @media (prefers-reduced-motion: reduce) { .pxpill.lim-up, .pxpill.lim-down { animation: none; } }

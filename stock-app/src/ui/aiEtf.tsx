@@ -774,7 +774,7 @@ function DualWater({ etf, v, price }: { etf: AiEtf; v: Valuation; price: (code: 
 }
 
 /** 持股價格膠囊（11/16 使用者選 B）：收盤／盤中／試搓＋價格＋漲跌；漲淺紅、跌淺綠，漲停跌停實心發光 */
-function PxPill({ code, q, close }: { code: string; q?: LiveQuote; close?: number }) {
+function PxPill({ code, q, close, tid = "dualreal-pxpill" }: { code: string; q?: LiveQuote; close?: number; tid?: string }) {
   const traded = q && (q.trial || (q.volume ?? 0) > 0) && q.prevClose > 0 && q.price > 0;
   let price: number | undefined, chg: number | undefined, label: string, limit: "up" | "down" | undefined;
   if (traded) { price = q!.price; chg = q!.price / q!.prevClose - 1; label = q!.trial ? "試搓" : !q!.final && livePolling() ? "盤中" : "收盤"; limit = q!.limit; }
@@ -782,7 +782,7 @@ function PxPill({ code, q, close }: { code: string; q?: LiveQuote; close?: numbe
   if (!(price && price > 0)) return null;
   const k = limit ? `lim-${limit}` : chg === undefined || Math.abs(chg) < 5e-5 ? "" : chg > 0 ? "up" : "down";
   const move = limit === "up" ? "▲漲停" : limit === "down" ? "▼跌停" : chg === undefined ? "" : `${chg > 5e-5 ? "▲" : chg < -5e-5 ? "▼" : "－"}${Math.abs(chg * 100).toFixed(1)}%`;
-  return <span class={`pxpill ${k} num`} data-testid="dualreal-pxpill" data-k={k || "flat"}>{label} {fmtPrice(price)} {move}</span>;
+  return <span class={`pxpill ${k} num`} data-testid={tid} data-k={k || "flat"}>{label} {fmtPrice(price)} {move}</span>;
 }
 
 function DualRealScreen() {
@@ -1912,7 +1912,7 @@ function RealEtfScreen() {
               return (
                 <div class="item" style={{ cursor: "pointer" }} onClick={(e) => openPos(p.code, pos.map((x) => x.code), e)} data-testid="real-pos-item">
                   <div style={{ minWidth: 0 }}>
-                    <div class="name">{p.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{p.code}</span> <span class="muted" style={{ fontWeight: 400 }}>›</span></div>
+                    <div class="name" style={{ whiteSpace: "normal" }}>{p.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{p.code}</span> <span class="muted" style={{ fontWeight: 400 }}>›</span><PxPill code={p.code} q={live[p.code]?.date && live[p.code].date >= (st.asOf ?? "") ? live[p.code] : undefined} close={etfPrice(p.code)} tid="real-pxpill" /></div>
                     <div class="sub num" style={{ whiteSpace: "normal" }}>{p.shares.toLocaleString()} 股・均價 {fmtPrice(p.avgCost)}・<TwdPnl shares={p.shares} avgCost={p.avgCost} price={px} /><span style={{ whiteSpace: "nowrap" }}>佔 {Number.isFinite(mv) ? `${((mv / v.nav) * 100).toFixed(1)}%` : "—"}</span></div>
                     <CostValue shares={p.shares} avgCost={p.avgCost} price={px} />
                     <div class="sub row" style={{ gap: "8px" }}><StopEdit p={p} stops={etf.stops} /><span class="row" style={{ gap: "6px", flexWrap: "nowrap" }} data-testid={`pos-actions-${p.code}`}><button class="btn secondary mini" onClick={() => setSellDraft({ code: p.code, shares: p.shares, price: px, n: Date.now() })} data-testid={`sell-btn-${p.code}`}>賣出</button><button class="btn secondary mini" onClick={(e) => { e.stopPropagation(); setSellDraft({ code: p.code, shares: 0, price: px, n: Date.now(), side: "buy" }); }} data-testid={`buy-btn-${p.code}`}>加買</button>{rating && <span class={`pill ${rating === "買入" ? "buy" : rating === "離場" ? "exit" : "hold"}`} style={{ fontSize: "11px" }} onClick={(e) => { e.stopPropagation(); window.alert(`App 評等：${rating}。這是金雷達依規則給這檔的評等（買入＝動能籌碼仍強、觀望＝中性、離場＝轉弱），只是標示，不是下單按鈕。要加買請按「加買」，要賣請按「賣出」。`); }}>評等 {rating}</span>}</span>{(() => {

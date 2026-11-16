@@ -1331,10 +1331,11 @@ function check(ok, name, detail = "") {
   await page.click('[data-testid="stop-edit"]');
   await page.fill('[data-testid="stop-input"]', String(Math.ceil(Number(px2330) * 1.05)));
   await page.click('[data-testid="stop-save"]');
-  await page.waitForFunction(() => /跌破停損價/.test(document.querySelector('[data-testid="etf-alerts"]')?.innerText || ""), null, { timeout: 15000 }).catch(() => {});
+  // 停損價設在現價之上＝高於均價，照 11/16 的規則寫「跌破你設的停利價」（仍是同一張提醒卡）
+  await page.waitForFunction(() => /跌破(停損價|你設的停利價)/.test(document.querySelector('[data-testid="etf-alerts"]')?.innerText || ""), null, { timeout: 15000 }).catch(() => {});
   const alertText = await page.$eval('[data-testid="etf-alerts"]', (e) => e.innerText.replace(/\s+/g, " "));
   log("停損提醒", alertText);
-  check(/台積電/.test(alertText) && /跌破停損價/.test(alertText), "自組ETF 跌破停損價會提醒");
+  check(/台積電/.test(alertText) && /跌破你設的停利價/.test(alertText), "自組ETF 跌破停損價會提醒（停損價高於均價時寫「跌破你設的停利價」）", alertText.slice(0, 160));
   check(!!(await page.$('[data-testid="etf-dot"]')), "自組ETF 分頁出現紅點");
   await page.evaluate(() => document.querySelector("main").scrollTo(0, 0));
   await shot("05c-停損提醒");

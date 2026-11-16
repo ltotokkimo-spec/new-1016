@@ -1025,12 +1025,16 @@ function check(ok, name, detail = "") {
   await page.click('[data-testid="dualreal-add"]');
   await page.fill('[data-testid="dualreal-water-input"]', "100000");
   await page.click('[data-testid="dualreal-water-ok"]');
-  const wTxt = await page.waitForFunction(() => /投入 60\.0 萬/.test(document.querySelector('[data-testid="dualreal-water"]')?.innerText || ""), null, { timeout: 10000 }).then(() => page.$eval('[data-testid="dualreal-water"]', (e) => e.innerText.replace(/\s+/g, " "))).catch(() => "");
-  check(/投入 60\.0 萬/.test(wTxt) && /改現金/.test(wTxt), "雙引擎實單資金水位：增加投入 10 萬後，投入與現金變 60 萬", wTxt.slice(0, 200));
+  // 讀實際數值（data-v），不讀滾動動畫中的數字：模擬器有時會暫停畫面的動畫與計時器，畫面停在 59.9 萬（11/16）
+  const wv = () => page.evaluate(() => ({ inv: Number(document.querySelector('[data-testid="dualreal-invested"]')?.getAttribute("data-v")), cash: Number(document.querySelector('[data-testid="dualreal-cash"]')?.getAttribute("data-v")) }));
+  await page.waitForFunction(() => document.querySelector('[data-testid="dualreal-invested"]')?.getAttribute("data-v") === "600000", null, { timeout: 10000 }).catch(() => {});
+  const w1 = await wv();
+  const wTxt = await page.$eval('[data-testid="dualreal-water"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
+  check(w1.inv === 600000 && w1.cash === 600000 && /改現金/.test(wTxt), "雙引擎實單資金水位：增加投入 10 萬後，投入與現金變 60 萬", JSON.stringify(w1) + " " + wTxt.slice(0, 160));
   await page.click('[data-testid="dualreal-add"]');
   await page.fill('[data-testid="dualreal-water-input"]', "-100000");
   await page.click('[data-testid="dualreal-water-ok"]');
-  await page.waitForFunction(() => /投入 50\.0 萬/.test(document.querySelector('[data-testid="dualreal-water"]')?.innerText || ""), null, { timeout: 10000 }).catch(() => {});
+  await page.waitForFunction(() => document.querySelector('[data-testid="dualreal-invested"]')?.getAttribute("data-v") === "500000", null, { timeout: 10000 }).catch(() => {});
   await shot("05d7-資金水位");
   // 有下單清單時記錄第一筆（只留第一筆勾選），之後檢查總評比出現「雙引擎實單」（11/15）
   let drRecorded = false;

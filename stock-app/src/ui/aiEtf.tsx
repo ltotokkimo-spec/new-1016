@@ -715,7 +715,7 @@ function DualWater({ etf, v, price }: { etf: AiEtf; v: Valuation; price: (code: 
     <div class="card stack" style={{ marginTop: "12px" }} data-testid="dualreal-water">
       <div class="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
         <b>資金水位</b>
-        <span style={{ fontSize: "13px" }}><span class="muted">投入 </span><b class="num"><Roll value={w.invested} fmt={moneyU} /></b></span>
+        <span style={{ fontSize: "13px" }}><span class="muted">投入 </span><b class="num" data-testid="dualreal-invested" data-v={Math.round(w.invested)}><Roll value={w.invested} fmt={moneyU} /></b></span>
       </div>
       <div class="wb" data-testid="dualreal-bar">
         <div class="wb-track">
@@ -735,7 +735,7 @@ function DualWater({ etf, v, price }: { etf: AiEtf; v: Valuation; price: (code: 
           {w.cost > 0 && <span class={cls(w.unrealized)} style={{ whiteSpace: "nowrap" }}>未實現 <b class="num"><Roll value={w.unrealized} fmt={signedMoney} /></b></span>}
         </div>
         <div class="row" style={{ justifyContent: "space-between", gap: "8px" }}>
-          <span>現金 <b class="num"><Roll value={w.cash} fmt={moneyU} /></b>{w.reserve > 0 && <span class="muted" data-testid="dualreal-keep-note">（保留 {moneyU(w.reserve)}）</span>}　<button style={{ ...link, ...(edit === "cash" ? { textDecoration: "underline" } : {}) }} onClick={() => open("cash")} data-testid="dualreal-cash-edit">✎ 改現金</button>　<button style={{ ...link, ...(edit === "add" ? { textDecoration: "underline" } : {}) }} onClick={() => open("add")} data-testid="dualreal-add">＋再投入</button>　<button style={{ ...link, ...(edit === "keep" ? { textDecoration: "underline" } : {}) }} onClick={() => open("keep")} data-testid="dualreal-keep">🛡 保留現金</button></span>
+          <span>現金 <b class="num" data-testid="dualreal-cash" data-v={Math.round(w.cash)}><Roll value={w.cash} fmt={moneyU} /></b>{w.reserve > 0 && <span class="muted" data-testid="dualreal-keep-note">（保留 {moneyU(w.reserve)}）</span>}　<button style={{ ...link, ...(edit === "cash" ? { textDecoration: "underline" } : {}) }} onClick={() => open("cash")} data-testid="dualreal-cash-edit">✎ 改現金</button>　<button style={{ ...link, ...(edit === "add" ? { textDecoration: "underline" } : {}) }} onClick={() => open("add")} data-testid="dualreal-add">＋再投入</button>　<button style={{ ...link, ...(edit === "keep" ? { textDecoration: "underline" } : {}) }} onClick={() => open("keep")} data-testid="dualreal-keep">🛡 保留現金</button></span>
           {w.realized !== 0 && <span class="muted" style={{ whiteSpace: "nowrap" }}>已實現 <span class={`num ${cls(w.realized)}`}>{signedMoney(w.realized)}</span></span>}
         </div>
       </div>

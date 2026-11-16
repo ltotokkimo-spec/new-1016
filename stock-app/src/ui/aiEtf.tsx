@@ -689,8 +689,8 @@ function Roll({ value, fmt }: { value: number; fmt: (x: number) => string }) {
   return <>{fmt(v)}</>;
 }
 const WATER = { cost: "#2f4b6e", cash: "#c9d8ea", tick: "#12263a", gain: "#d7263d", loss: "#00e676" };
-function DualWater({ etf, v }: { etf: AiEtf; v: Valuation }) {
-  const w = waterLevel(etf, etfPrice);
+function DualWater({ etf, v, price }: { etf: AiEtf; v: Valuation; price: (code: string) => number | undefined }) {
+  const w = waterLevel(etf, price);
   const [edit, setEdit] = useState<"" | "add" | "cash" | "keep">("");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -776,14 +776,17 @@ function DualRealScreen() {
   useEffect(() => { if (twReady) void snapshotDualNav(); }, [twReady]);
   const d = dualG?.data;
   const name = (code: string) => getState().prices[code]?.name ?? d?.last?.[code]?.name ?? code;
-  const v = valuate(etf, etfPrice);
+  // 持股、資金水位用「現價」：盤中有今天的即時報價就用即時價（每 30 秒更新），否則用最近收盤價（11/16 使用者：按了重新整理看不出變化）
+  const live = useStore((s) => s.live);
+  const asOfDay = getState().tw.asOf ?? "";
+  const nowQ = (c: string): LiveQuote | undefined => { const q = live[c]; return q && q.date && q.date === taipeiToday() && q.date > asOfDay ? q : undefined; };
+  const nowPx = (c: string) => nowQ(c)?.price ?? etfPrice(c);
+  const v = valuate(etf, nowPx);
   const pos = positions(etf.trades).filter((p) => p.shares > 0);
   // 「重新整理清單」（11/16）：重抓最新目標與新聞否決，並改用即時報價重算股數（盤中＝現價，收盤後＝收盤價）；沒按之前完全照收盤價
-  const live = useStore((s) => s.live);
   const [liveOn, setLiveOn] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [stamp, setStamp] = useState("");
-  const asOfDay = getState().tw.asOf ?? "";
   const liveQ = (c: string): LiveQuote | undefined => { const q = live[c]; return liveOn && q && q.date && q.date >= asOfDay ? q : undefined; };
   const orderPx = (c: string) => liveQ(c)?.price ?? etfPrice(c);
   const skipCodes = d?.targetsDate && etf.skipBuy?.asOf === d.targetsDate ? etf.skipBuy.codes : [];
@@ -798,6 +801,14 @@ function DualRealScreen() {
     else if (o.side === "buy" && chg >= 0.05) flags[o.code] = `比昨收漲 ${fmtPct(chg, 1)}，要不要追自己決定`;
     else if (o.side === "sell" && chg <= -0.05) flags[o.code] = `比昨收跌 ${fmtPct(chg, 1)}，要不要先等自己決定`;
   }
+  const posKey = pos.map((p) => p.code).join(",");
+  useEffect(() => {
+    if (!pos.length) return;
+    const codes = [...pos.map((p) => p.code), "0050"];
+    void refreshLive(codes);
+    const t = setInterval(() => { if (livePolling()) void refreshLive(codes); }, LIVE_MS);
+    return () => clearInterval(t);
+  }, [posKey]);
   const liveCodes = [...new Set([...Object.keys(d?.targets ?? {}), ...pos.map((p) => p.code), "0050"])];
   const refresh = async () => {
     if (refreshing) return;
@@ -822,7 +833,7 @@ function DualRealScreen() {
           觀察組合是以收盤價成交、沒有零股折讓，實際成交價不同，報酬會和觀察組合有落差。
         </div>
       </div>
-      <DualWater etf={etf} v={v} />
+      <DualWater etf={etf} v={v} price={nowPx} />
 
       {etf.nav.length >= 2 && <><div class="section-title"><span>報酬走勢</span><span>{etf.nav.length} 天</span></div><NavChart points={etf.nav} budget={etf.budget} mine="雙引擎實單" /></>}
 
@@ -839,11 +850,11 @@ function DualRealScreen() {
         : <>{d.vetoes && d.vetoes.length > 0 && <div class="notice" style={{ fontSize: "12.5px", marginBottom: "8px" }} data-testid="dualreal-vetoes">新聞否決中：{d.vetoes.map((x) => `${x.name ?? x.code}（${x.reason}）`).join("、")}。這些不在下單清單裡，持有的會列在賣出。</div>}<DualFill key={orders.map((o) => `${o.side}${o.code}${o.shares}`).join(",")} orders={orders} groups={d.groups} flags={flags} onSkip={d.targetsDate ? (c) => void setDualSkip(c, true, d.targetsDate!) : undefined} /></>}
 
       {pos.length > 0 && <>
-        <div class="section-title"><span>目前持股</span><span>{pos.length} 檔</span></div>
+        <div class="section-title"><span>目前持股</span><span>{pos.length} 檔・{(() => { const q = pos.map((p) => nowQ(p.code)).find(Boolean); return q ? `即時價 ${q.time.slice(0, 5)}` : asOfDay ? `${pretty(asOfDay)} 收盤價` : "收盤價"; })()}</span></div>
         <div class="card" style={{ padding: "6px 10px" }} data-testid="dualreal-pos">
           <div class="muted" style={{ fontSize: "11.5px", padding: "2px 0 4px", borderBottom: "1px solid var(--line)", lineHeight: 1.6 }}>左：股數・均價（含手續費的買進平均價）・佔總值比重（目標比重）。右：報酬＝現價比均價漲跌；損益＝現價減均價乘股數，單位元。</div>
-          {pos.sort((a, b) => (etfPrice(b.code) ?? 0) * b.shares - (etfPrice(a.code) ?? 0) * a.shares).map((p) => {
-            const px = etfPrice(p.code), val = (px ?? 0) * p.shares, w = v.nav > 0 ? val / v.nav : 0, tw = d?.targets?.[p.code] ?? 0;
+          {pos.sort((a, b) => (nowPx(b.code) ?? 0) * b.shares - (nowPx(a.code) ?? 0) * a.shares).map((p) => {
+            const px = nowPx(p.code), val = (px ?? 0) * p.shares, w = v.nav > 0 ? val / v.nav : 0, tw = d?.targets?.[p.code] ?? 0;
             const r = px ? px / p.avgCost - 1 : NaN;
             return (
               <div class="row" style={{ justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: "13px" }}>

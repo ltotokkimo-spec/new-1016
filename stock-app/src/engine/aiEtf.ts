@@ -471,7 +471,7 @@ export function stopOf(p: Pick<Position, "code" | "avgCost">, stops: Record<stri
   return s > 0 ? { stop: s, isDefault: false } : { stop: Math.round(p.avgCost * (1 - DEFAULT_STOP) * 100) / 100, isDefault: true };
 }
 
-export interface EtfAlert { code: string; name: string; kind: "stop" | "exit"; price?: number; stop?: number; isDefault?: boolean }
+export interface EtfAlert { code: string; name: string; kind: "stop" | "exit"; price?: number; stop?: number; isDefault?: boolean; avgCost?: number }
 
 /** 目前持股中：跌破停損價、或被 App 評為「離場」的 */
 export function etfAlerts(etf: AiEtf, price: (code: string) => number | undefined, rating: (code: string) => string | undefined): EtfAlert[] {
@@ -480,7 +480,7 @@ export function etfAlerts(etf: AiEtf, price: (code: string) => number | undefine
     if (p.shares <= 0) continue;
     const px = price(p.code);
     const { stop, isDefault } = stopOf(p, etf.stops);
-    if (px !== undefined && Number.isFinite(px) && px <= stop) out.push({ code: p.code, name: p.name, kind: "stop", price: px, stop, isDefault });
+    if (px !== undefined && Number.isFinite(px) && px <= stop) out.push({ code: p.code, name: p.name, kind: "stop", price: px, stop, isDefault, avgCost: p.avgCost });
     if (rating(p.code) === "離場") out.push({ code: p.code, name: p.name, kind: "exit", price: px });
   }
   return out;

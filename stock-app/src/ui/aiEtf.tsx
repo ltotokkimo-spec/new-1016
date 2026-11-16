@@ -261,7 +261,9 @@ function AlertCard({ alerts, onAsk, canAsk, asOf }: { alerts: EtfAlert[]; onAsk:
         return (
           <div style={{ fontSize: "14px", lineHeight: 1.6 }}>
             <b>{as[0].name}</b> <span class="muted num" style={{ marginRight: "8px" }}>{code}</span>
-            {stop && <>現價 <span class="num down">{fmtPrice(stop.price!)}</span> 跌破停損價 <span class="num">{fmtPrice(stop.stop!)}</span>{stop.isDefault ? `（預設成本 −${DEFAULT_STOP * 100}%）` : ""}</>}
+            {stop && (stop.avgCost !== undefined && stop.stop! > stop.avgCost
+              ? <>現價 <span class="num">{fmtPrice(stop.price!)}</span> 跌破你設的<span class="up">停利價</span> <span class="num">{fmtPrice(stop.stop!)}</span>（累計仍 <span class="num up">{fmtPct(stop.price! / stop.avgCost - 1)}</span>，可以考慮獲利了結）</>
+              : <>現價 <span class="num down">{fmtPrice(stop.price!)}</span> 跌破停損價 <span class="num">{fmtPrice(stop.stop!)}</span>{stop.isDefault ? `（預設成本 −${DEFAULT_STOP * 100}%）` : ""}</>)}
             {stop && exit && "；"}
             {exit && <>App 今天評為<span class="down">「離場」</span>（動能或籌碼轉弱）</>}
           </div>
@@ -1775,7 +1777,7 @@ function RealEtfScreen() {
     })();
     return () => { alive = false; };
   }, [posKey]);
-  (window as any).__srTp = Object.fromEntries(pos.map((p) => { const px = livePx(p.code); const t = takeProfitSignal(p.avgCost, px, closesBy[p.code] ?? [], taipeiToday()); return [p.code, { ...t, price: px, bars: closesBy[p.code]?.length ?? 0, stop: stopOf(p, etf.stops).stop }]; })); // 自動測試核對綠燈
+  (window as any).__srTp = Object.fromEntries(pos.map((p) => { const px = livePx(p.code); const t = takeProfitSignal(p.avgCost, px, closesBy[p.code] ?? [], taipeiToday()); return [p.code, { ...t, price: px, bars: closesBy[p.code]?.length ?? 0, stop: stopOf(p, etf.stops).stop, avgCost: p.avgCost }]; })); // 自動測試核對綠燈
   const job = etf.planKey ? st.jobs[etf.planKey] : undefined;
   const busy = job?.status === "running";
   const plan = etf.planKey ? st.reports[etf.planKey] : undefined;
@@ -1899,13 +1901,20 @@ function RealEtfScreen() {
                     <CostValue shares={p.shares} avgCost={p.avgCost} price={px} />
                     <div class="sub row" style={{ gap: "8px" }}><StopEdit p={p} stops={etf.stops} /><button class="btn secondary mini" onClick={() => setSellDraft({ code: p.code, shares: p.shares, price: px, n: Date.now() })} data-testid={`sell-btn-${p.code}`}>賣出</button>{rating && <span class={`pill ${rating === "買入" ? "buy" : rating === "離場" ? "exit" : "hold"}`} style={{ fontSize: "11px" }}>App {rating}</span>}{(() => {
                       const tp = takeProfitSignal(p.avgCost, px, closesBy[p.code] ?? [], taipeiToday());
-                      if (!tp.hit) return null;
-                      const why = `達標離場：累計報酬 ${fmtPct(tp.gain)}（已過停利 +${Math.round(TAKE_PROFIT * 100)}%），而且現價 ${fmtPrice(px!)} 跌破 5 日線 ${fmtPrice(tp.ma5!)}，開始回落，可以考慮先賣、把獲利放進口袋。這只是提醒，不是投資建議。`;
+                      // 停損價高於均價（跌到那裡還是賺）＝停利價：跌破時也算「達標離場」，和 5 日線條件併成一顆紅燈（11/16 使用者選）
+                      const { stop } = stopOf(p, etf.stops);
+                      const lockHit = stop > p.avgCost && px !== undefined && Number.isFinite(px) && px <= stop;
+                      if (!tp.hit && !lockHit) return null;
+                      const reasons = [
+                        tp.hit ? `累計報酬 ${fmtPct(tp.gain)}（已過停利 +${Math.round(TAKE_PROFIT * 100)}%），現價 ${fmtPrice(px!)} 跌破 5 日線 ${fmtPrice(tp.ma5!)}，開始回落` : "",
+                        lockHit ? `現價 ${fmtPrice(px!)} 跌破你設的停利價 ${fmtPrice(stop)}（高於均價 ${fmtPrice(p.avgCost)}，累計仍 ${fmtPct(px! / p.avgCost - 1)}）` : "",
+                      ].filter(Boolean);
+                      const why = `達標離場：${reasons.join("；")}。可以考慮先賣、把獲利放進口袋。這只是提醒，不是投資建議。`;
                       return <button class="tp-light" title={why} onClick={(e) => { e.stopPropagation(); window.alert(why); }} data-testid={`tp-${p.code}`}><span class="light" />達標離場</button>;
                     })()}{(() => {
                       // 跌破停損（11/13 使用者：也要亮燈）：現價 ≤ 停損價亮紅燈
                       const { stop, isDefault } = stopOf(p, etf.stops);
-                      if (px === undefined || !Number.isFinite(px) || px > stop) return null;
+                      if (px === undefined || !Number.isFinite(px) || px > stop || stop > p.avgCost) return null; // 停損價高於均價的已併入「達標離場」
                       const why = `跌破停損：現價 ${fmtPrice(px)} 已低於${isDefault ? "預設（均價 −10%）" : "你設的"}停損價 ${fmtPrice(stop)}，累計 ${fmtPct(px / p.avgCost - 1)}。照紀律應該賣出、控制虧損；若要續抱，請重新設停損價。這只是提醒，不是投資建議。`;
                       return <button class="tp-light sl" title={why} onClick={(e) => { e.stopPropagation(); window.alert(why); }} data-testid={`sl-${p.code}`}><span class="light" />跌破停損</button>;
                     })()}</div>

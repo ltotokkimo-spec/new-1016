@@ -841,13 +841,14 @@ function DualRealScreen() {
       {pos.length > 0 && <>
         <div class="section-title"><span>目前持股</span><span>{pos.length} 檔</span></div>
         <div class="card" style={{ padding: "6px 10px" }} data-testid="dualreal-pos">
+          <div class="muted" style={{ fontSize: "11.5px", padding: "2px 0 4px", borderBottom: "1px solid var(--line)", lineHeight: 1.6 }}>左：股數・均價（含手續費的買進平均價）・佔總值比重（目標比重）。右：報酬＝現價比均價漲跌；損益＝現價減均價乘股數，單位元。</div>
           {pos.sort((a, b) => (etfPrice(b.code) ?? 0) * b.shares - (etfPrice(a.code) ?? 0) * a.shares).map((p) => {
             const px = etfPrice(p.code), val = (px ?? 0) * p.shares, w = v.nav > 0 ? val / v.nav : 0, tw = d?.targets?.[p.code] ?? 0;
             const r = px ? px / p.avgCost - 1 : NaN;
             return (
               <div class="row" style={{ justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: "13px" }}>
-                <span>{p.name} <span class="muted num">{p.code}</span><GroupTag groups={d?.groups} code={p.code} /><br /><span class="muted num" style={{ fontSize: "12px" }}>{p.shares.toLocaleString()} 股・成本 {fmtPrice(p.avgCost)}・佔 {(w * 100).toFixed(1)}%（目標 {(tw * 100).toFixed(1)}%）</span></span>
-                <span class={`num ${cls(r)}`} style={{ textAlign: "right" }}>{Number.isFinite(r) ? fmtPct(r, 1) : "—"}<br /><span style={{ fontSize: "12px" }}>{px ? signedMoney((px - p.avgCost) * p.shares) : ""}</span></span>
+                <span>{p.name} <span class="muted num">{p.code}</span><GroupTag groups={d?.groups} code={p.code} /><br /><span class="muted num" style={{ fontSize: "12px" }}>{p.shares.toLocaleString()} 股・均價 {fmtPrice(p.avgCost)} 元・佔 {(w * 100).toFixed(1)}%（目標 {(tw * 100).toFixed(1)}%）</span></span>
+                <span class={`num ${cls(r)}`} style={{ textAlign: "right", whiteSpace: "nowrap" }}>{Number.isFinite(r) ? <>報酬 {fmtPct(r, 1)}</> : "—"}<br /><span style={{ fontSize: "12px" }}>{px ? <>損益 {signedMoney((px - p.avgCost) * p.shares)} 元</> : ""}</span></span>
               </div>
             );
           })}

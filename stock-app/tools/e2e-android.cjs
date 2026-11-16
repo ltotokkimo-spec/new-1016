@@ -1034,7 +1034,8 @@ function check(ok, name, detail = "") {
     await page.$$eval('[data-testid="dualreal-order"] input[type=checkbox]', (cs) => cs.forEach((c, i) => { if (i > 0 && c.checked) c.click(); }));
     await page.click('[data-testid="dualreal-save"]');
     drRecorded = await page.waitForSelector('[data-testid="dualreal-trades-box"]', { timeout: 10000 }).then(() => true).catch(() => false);
-    check(drRecorded, "雙引擎實單：勾選一筆按「記錄勾選的成交」後出現成交紀錄");
+    const drDiag = drRecorded ? "" : await page.$eval('[data-testid="dualreal"]', (e) => ({ err: e.querySelector(".error")?.textContent, done: e.querySelector(".notice")?.textContent?.slice(0, 80), checked: [...e.querySelectorAll('[data-testid="dualreal-order"] input[type=checkbox]')].filter((c) => c.checked).length, rows: e.querySelectorAll('[data-testid="dualreal-order"]').length, hasSave: !!e.querySelector('[data-testid="dualreal-save"]'), head: e.innerText.replace(/\s+/g, " ").slice(-260) })).then((x) => JSON.stringify(x)).catch((x) => "diag失敗 " + x.message);
+    check(drRecorded, "雙引擎實單：勾選一筆按「記錄勾選的成交」後出現成交紀錄", drDiag);
   }
   // 模式按鈕排成三列（每列 4 個），文字不能被擠成直排
   const segRows = await page.$$eval('[data-testid^="mode-"]', (bs) => ({ tops: [...new Set(bs.map((b) => Math.round(b.getBoundingClientRect().top)))].length, maxH: Math.max(...bs.map((b) => b.getBoundingClientRect().height)) }));

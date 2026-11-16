@@ -957,7 +957,8 @@ function check(ok, name, detail = "") {
   }
   log("雙引擎觀察組合", String(dualTxt).slice(0, 400));
   check(/雙引擎觀察組合/.test(dualTxt) && /虛擬資金 50\.0 萬/.test(dualTxt) && /成長組（五成）/.test(dualTxt) && /低波動組（五成）/.test(dualTxt) && /回測偏樂觀/.test(dualTxt), "雙引擎觀察組合顯示（虛擬 50 萬、兩組規則說明、回測偏樂觀的提醒）", String(dualTxt).slice(0, 200));
-  check(/【成長組】(重新選股|沿用上次選股)/.test(dualTxt) && !/沒有下載到月營收資料/.test(dualTxt), "雙引擎的每日說明列出成長組選股（月營收資料有下載到）", String(dualTxt).slice(-300));
+  // 只有判斷日（每 5 個交易日）的說明才列兩組選股；非判斷日只寫當天表現（11/16 e2e 在非判斷日失敗）
+  check((/【成長組】(重新選股|沿用上次選股)/.test(dualTxt) || !/【低波動組】/.test(dualTxt)) && !/沒有下載到月營收資料/.test(dualTxt), "雙引擎的每日說明：判斷日列出成長組選股，月營收資料有下載到", String(dualTxt).slice(-300));
   await shot("05d5-雙引擎觀察組合");
   // 四因子選股名單（11/15 新增）：選股頁多一個「四因子」，現有評等不變；quad.json 由同一次推送的回測產生，還沒發布就每 30 秒重進一次選股頁（最多 8 分鐘）
   await page.click("nav.tabs button:nth-child(1)");

@@ -686,7 +686,9 @@ function Roll({ value, fmt }: { value: number; fmt: (x: number) => string }) {
     let raf = 0;
     const step = (t: number) => { const p = Math.min(1, (t - t0) / 900), x = f + (value - f) * (1 - Math.pow(1 - p, 3)); from.current = x; setV(x); if (p < 1) raf = requestAnimationFrame(step); };
     raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
+    // 畫面暫停（切到背景、螢幕關閉）時 requestAnimationFrame 不會跑：1 秒後一定顯示正確的數字，不會停在半途
+    const done = setTimeout(() => { cancelAnimationFrame(raf); from.current = value; setV(value); }, 1000);
+    return () => { cancelAnimationFrame(raf); clearTimeout(done); };
   }, [value]);
   return <>{fmt(v)}</>;
 }

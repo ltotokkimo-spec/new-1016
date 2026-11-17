@@ -2,7 +2,7 @@
 // 現行成長組（growthPicks）完全沒有價格條件；這裡複製同一套排名，只在候選池多一條：站上且上彎 60 日線（和低波動組 A 同一個濾網）。
 import { isCommonStock } from "../data/tw";
 import { revFactors } from "./revHist";
-import { GROWTH, aPicks, type Ctx, type Picker } from "./steady";
+import { GROWTH, STEADY, foreign60, inverseVolWeights, trendFit, type Ctx, type Picker } from "./steady";
 
 const px = (c: Ctx, code: string, j: number) => { const s = c.series.get(code); return s && j >= s.start && j - s.start < s.adj.length ? s.adj[j - s.start] : NaN; };
 const ma = (c: Ctx, code: string, j: number, n: number) => { let t = 0; for (let k = j - n + 1; k <= j; k++) { const p = px(c, code, k); if (!(p > 0)) return NaN; t += p; } return t / n; };
@@ -25,11 +25,12 @@ function capWeights(w: number[], maxW: number): number[] {
 }
 
 /** 和 steady.ts 的 growthPicks 相同；trend＝true 時候選池只留「站上且上彎 60 日線」的（已持有的也要通過，等於跌破就換掉） */
-export function growthPicksLB(c: Ctx, j: number, held: ReadonlySet<string>, trend: boolean): { code: string; weight: number }[] {
+export function growthPicksLB(c: Ctx, j: number, held: ReadonlySet<string>, trend: boolean, allow?: ReadonlySet<string>): { code: string; weight: number }[] {
   if (!c.rev || j < GROWTH.minHistory) return [];
   const uni: string[] = [];
   for (const [code, row] of c.rows[j]) {
     if (!isCommonStock(code) || !(row[2] > 0)) continue;
+    if (allow && !allow.has(code)) continue; // 候選池限定（選股頁「買入」或四因子名單）
     let t = 0, ok = true;
     for (let k = j - 19; k <= j; k++) { const r = c.rows[k]?.get(code); if (!r) { ok = false; break; } t += r[4]; }
     if (!ok || !(t / 20 >= GROWTH.minValue)) continue;
@@ -65,15 +66,58 @@ export function growthPicksLB(c: Ctx, j: number, held: ReadonlySet<string>, tren
   return chosen.map((x, k) => ({ code: x.code, weight: w[k] }));
 }
 
-/** 成長 wG＋低波動 A wA；每 5 個交易日呼叫一次，成長組每 reselectEvery 次重選（4＝每 20 個交易日、1＝每週） */
-export function growthLbPicker(c: Ctx, wG: number, wA: number, trend: boolean, reselectEvery: number): Picker {
+const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
+const std = (xs: number[]) => { const m = mean(xs); return xs.length > 1 ? Math.sqrt(xs.reduce((a, x) => a + (x - m) ** 2, 0) / (xs.length - 1)) : NaN; };
+function rets(c: Ctx, code: string, j: number, n: number): number[] | null {
+  const out: number[] = [];
+  for (let k = j - n + 1; k <= j; k++) { const a = px(c, code, k), b = px(c, code, k - 1), r = a > 0 && b > 0 ? a / b - 1 : NaN; if (!Number.isFinite(r)) return null; out.push(r); }
+  return out;
+}
+
+/** 和 steady.ts 的 aPicks 相同（低波動方案 A）；allow 有值時候選池限定在該名單內（在取「波動最低的一半」之前就限定） */
+export function aPicksLB(c: Ctx, j: number, allow?: ReadonlySet<string>): Map<string, number> {
+  const vol60 = (code: string) => { const r60 = rets(c, code, j, 60); return r60 ? std(r60) : NaN; };
+  const pool: { code: string; vol: number }[] = [];
+  for (const [code, row] of c.rows[j]) {
+    if (!isCommonStock(code) || !(row[4] >= STEADY.minValue)) continue;
+    if (allow && !allow.has(code)) continue;
+    const v = vol60(code);
+    if (Number.isFinite(v)) pool.push({ code, vol: v });
+  }
+  pool.sort((a, b) => a.vol - b.vol);
+  const cands: { code: string; vol: number; sector: string; score: number }[] = [];
+  for (const { code, vol } of pool.slice(0, Math.ceil(pool.length * STEADY.lowVolHalf))) {
+    const p = px(c, code, j), m60 = ma(c, code, j, 60), m60b = ma(c, code, j - 20, 60);
+    if (!(p > m60) || !(m60 > m60b)) continue;
+    const prices: number[] = [];
+    for (let k = j - STEADY.lookback + 1; k <= j; k++) prices.push(px(c, code, k));
+    const { slope, r2 } = trendFit(prices);
+    const annual = Math.exp(slope * 250) - 1;
+    if (!(annual > 0) || annual > STEADY.trendCap) continue;
+    cands.push({ code, vol, sector: c.sector.get(code) ?? "其他", score: annual * r2 });
+  }
+  cands.sort((a, b) => b.score - a.score || a.vol - b.vol);
+  const per = new Map<string, number>(), chosen: typeof cands = [];
+  for (const x of cands) {
+    if (chosen.length >= STEADY.top) break;
+    if ((per.get(x.sector) ?? 0) >= STEADY.maxPerSector) continue;
+    per.set(x.sector, (per.get(x.sector) ?? 0) + 1); chosen.push(x);
+  }
+  const w = inverseVolWeights(chosen.map((x) => x.vol), STEADY.maxWeight);
+  return new Map(chosen.map((x, i) => [x.code, w[i]]));
+}
+void foreign60;
+
+/** 成長 wG＋低波動 A wA；每 5 個交易日呼叫一次，成長組每 reselectEvery 次重選（4＝每 20 個交易日、1＝每週）。allowAt：每個判斷日的候選名單（沒給＝不限） */
+export function growthLbPicker(c: Ctx, wG: number, wA: number, trend: boolean, reselectEvery: number, allowAt?: (j: number) => ReadonlySet<string>): Picker {
   let last: { code: string; weight: number }[] | null = null, n = 0;
   return (j) => {
-    if (!last || n % reselectEvery === 0) last = growthPicksLB(c, j, new Set((last ?? []).map((x) => x.code)), trend);
+    const allow = allowAt?.(j);
+    if (!last || n % reselectEvery === 0) last = growthPicksLB(c, j, new Set((last ?? []).map((x) => x.code)), trend, allow);
     n++;
     const m = new Map<string, number>();
     for (const x of last) m.set(x.code, (m.get(x.code) ?? 0) + x.weight * wG);
-    if (wA) for (const [k, v] of aPicks(c, j)) m.set(k, (m.get(k) ?? 0) + v * wA);
+    if (wA) for (const [k, v] of aPicksLB(c, j, allow)) m.set(k, (m.get(k) ?? 0) + v * wA);
     return m;
   };
 }

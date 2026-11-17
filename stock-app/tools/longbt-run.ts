@@ -24,6 +24,7 @@ const B_END = process.env.LBT_B_END ?? "20250131";
 const REV_FROM = process.env.LBT_REV_FROM ?? "20190102"; // 營收類組合的起算日
 const DRAWS = Number(process.env.LBT_DRAWS ?? 1000);
 const openB = process.env.LBT_OPEN_B === "1";
+const exp2 = process.env.LBT_EXP2 === "1"; // 雙引擎候選限定在選股頁名單（PREREG 第 10 節）
 const exp = process.env.LBT_EXP === "1"; // 成長組走勢濾網實驗（PREREG 第 9 節）
 const diag = process.env.LBT_DIAG === "1"; // 成本對照診斷：同一批組合分別用零成本、低滑價（0.05%）再跑一次，只印出來比較，不改判定
 const BENCH = "0050";
@@ -158,6 +159,25 @@ async function main() {
     );
   }
 
+  if (exp2) {
+    const o = { every: DUAL.every, band: DUAL.band };
+    const cache = new Map<number, { buy: ReadonlySet<string>; quad: ReadonlySet<string> }>();
+    const lists = (j: number) => {
+      let x = cache.get(j);
+      if (!x) {
+        const base = scoredAt(j), buys = base.filter((v) => v.rating === "買入");
+        x = { buy: new Set(buys.map((v) => v.code)), quad: new Set(quadPicks(c, j, base, buys.length).map((v) => v.code)) };
+        cache.set(j, x);
+      }
+      return x;
+    };
+    defs.push(
+      { key: "DG0", label: "DG0 驗證：複製版雙引擎（無限定，應與 D1 完全一樣）", start: "rev", opts: o, make: () => growthLbPicker(c, 0.5, 0.5, false, 4) },
+      { key: "DB", label: "DB 雙引擎，候選限定當天選股頁「買入」", start: "rev", opts: o, make: () => growthLbPicker(c, 0.5, 0.5, false, 4, (j) => lists(j).buy) },
+      { key: "DQ", label: "DQ 雙引擎，候選限定當天四因子名單", start: "rev", opts: o, make: () => growthLbPicker(c, 0.5, 0.5, false, 4, (j) => lists(j).quad) },
+    );
+  }
+
   // ---- 對照組 ----
   const eligCache = new Map<number, string[]>();
   const eligible = (j: number) => {
@@ -217,6 +237,18 @@ async function main() {
       const g = simulateLB(c, r.start, d.make(), { ...d.opts, costs: false });
       const better = r.s.cagr > b.s.cagr && r.s.maxDd > b.s.maxDd; // maxDd 為負數，越大（越接近 0）越淺
       console.log(`LBT_EXP ${k.padEnd(3)} vs ${base}：成本後年化 ${pc(r.s.cagr)}（${base} ${pc(b.s.cagr)}）｜最大回撤 ${pc(r.s.maxDd)}（${pc(b.s.maxDd)}）｜零成本年化 ${pc(cagr(g.eq))}｜換手 ${r.s.turnover.toFixed(1)}x（${b.s.turnover.toFixed(1)}x）｜平均持股 ${r.sim.avgHold.toFixed(1)}（${b.sim.avgHold.toFixed(1)}）｜事前登記判定（年化較高且回撤較淺）：${better ? "改善" : "沒有改善"}`);
+    }
+  }
+
+  if (exp2) {
+    const by = new Map(rows.map((r) => [r.key, r]));
+    const g0 = by.get("DG0"), d1 = by.get("D1");
+    console.log(`LBT_EXP2 驗證：DG0 年化 ${pc(g0!.s.cagr)} 回撤 ${pc(g0!.s.maxDd)}｜D1 年化 ${pc(d1!.s.cagr)} 回撤 ${pc(d1!.s.maxDd)}｜${Math.abs(g0!.s.cagr - d1!.s.cagr) < 1e-9 ? "一致" : "⚠不一致，複製版有差異"}`);
+    for (const k of ["DB", "DQ"] as const) {
+      const r = by.get(k)!, b = by.get("D1")!, d = defs.find((x) => x.key === k)!;
+      const g = simulateLB(c, r.start, d.make(), { ...d.opts, costs: false });
+      const better = r.s.cagr > b.s.cagr && r.s.maxDd > b.s.maxDd;
+      console.log(`LBT_EXP2 ${k} vs D1：成本後年化 ${pc(r.s.cagr)}（D1 ${pc(b.s.cagr)}）｜最大回撤 ${pc(r.s.maxDd)}（${pc(b.s.maxDd)}）｜零成本年化 ${pc(cagr(g.eq))}｜換手 ${r.s.turnover.toFixed(1)}x（${b.s.turnover.toFixed(1)}x）｜平均持股 ${r.sim.avgHold.toFixed(1)}（${b.sim.avgHold.toFixed(1)}）｜曝險 ${pc(r.sim.exposure, 0)}（${pc(b.sim.exposure, 0)}）｜事前登記判定（年化較高且回撤較淺）：${better ? "改善" : "沒有改善"}`);
     }
   }
 

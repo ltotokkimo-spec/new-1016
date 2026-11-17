@@ -1,0 +1,27 @@
+name: LongBT Probe
+
+# 長期回測第一段（可行性）：抽樣約 28 個歷史交易日，實測老資料格式與耗時。
+# 只能手動觸發，不寫快取、不影響每日回測，預估 5～8 分鐘（公開 repo 的 Actions 不計費）。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: stock-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: stock-app/package-lock.json
+      - run: npm ci
+      - run: npx vite build --ssr tools/longbt-probe.ts --outDir .probe-build
+      - run: node .probe-build/longbt-probe.js

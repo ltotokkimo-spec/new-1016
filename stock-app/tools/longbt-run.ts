@@ -21,6 +21,7 @@ const cacheDir = process.argv[2] ?? ".lbt-cache";
 const START = process.env.LBT_START ?? "20180102";
 const A_END = process.env.LBT_A_END ?? "20211231";
 const B_END = process.env.LBT_B_END ?? "20250131";
+const B_START = process.env.LBT_B_START ?? "20220103"; // 預設為事前登記的 B 起點；只在本機合成資料測試時才覆寫
 const REV_FROM = process.env.LBT_REV_FROM ?? "20190102"; // 營收類組合的起算日
 const DRAWS = Number(process.env.LBT_DRAWS ?? 1000);
 const openB = process.env.LBT_OPEN_B === "1";
@@ -288,9 +289,23 @@ async function main() {
     const winB: [string, string][] = [["20220103", "20221031"]];
     for (const r of rows) {
       if (r.key === "0050") continue;
-      const b = judge(r, "20220103", B_END, winB), cc = judge(r, "20250203", "99999999", [["20260901", "20261116"]]);
+      const b = judge(r, B_START, B_END, winB), cc = judge(r, "20250203", "99999999", [["20260901", "20261116"]]);
       lines.length = 0;
       console.log(`LBT_RUN_B ${r.key.padEnd(7)} B：${b ? `年化 ${pc(b.cg)} (0050 ${pc(b.bcg)}) 超額 ${pc(b.ex)} 回撤 ${pc(b.dd)} (${pc(b.bdd)}) 滾動勝率 ${pc(b.roll.win, 0)} ${b.passes.map((p) => (p ? "✓" : "✗")).join("")}` : "—"}｜C（參考）：${cc ? `年化 ${pc(cc.cg)} (0050 ${pc(cc.bcg)}) 回撤 ${pc(cc.dd)} (${pc(cc.bdd)})` : "—"}`);
+    }
+  }
+  if (openB && (exp || exp2)) {
+    console.log("LBT_B 實驗變體在階段 B（2022/1/3～2025/1/31）對各自基準（事前登記：成本後年化較高且最大回撤較淺，兩項同時成立；只有 G2、DB 有資格）");
+    const by = new Map(rows.map((r) => [r.key, r]));
+    for (const [k, base, eligible] of [["G2", "G1", true], ["DB", "D1", true], ["G3", "G1", false], ["DG2", "D1", false], ["DG3", "D1", false], ["DQ", "D1", false]] as const) {
+      const r = by.get(k), b = by.get(base);
+      if (!r || !b) continue;
+      const x = slice(r, B_START, B_END), y = slice(b, B_START, B_END);
+      const cv = cagr(x.eq), cb = cagr(y.eq), dv = maxDd(x.eq), dbb = maxDd(y.eq);
+      const ok = cv > cb && dv > dbb;
+      const bear = ddBetween(x.eq, x.dates, "20220103", "20221031"), bearB = ddBetween(x.bench, x.dates, "20220103", "20221031");
+      const ab = slice(r, c.dates[r.start], B_END), r3 = rollingWin(ab.eq, ab.bench, 750);
+      console.log(`LBT_B ${k} vs ${base}${eligible ? "" : "（階段 A 已淘汰，僅供完整報告）"}｜B 成本後年化 ${pc(cv)}（${base} ${pc(cb)}）｜B 最大回撤 ${pc(dv)}（${pc(dbb)}）｜對基準：${ok ? "驗證通過" : "沒有改善"}｜對 0050：B 年化 ${pc(cagr(x.bench))}、2022 空頭回撤 ${pc(bear)}（0050 ${pc(bearB)}）、A+B 滾動 3 年勝率 ${pc(r3.win, 0)}（${r3.n} 個區間）`);
     }
   }
   fs.writeFileSync("longbt-result.json", JSON.stringify({ stage: openB ? "A+B+C" : "A", rows: rows.map((r) => ({ key: r.key, label: r.label, stats: r.s })) }));

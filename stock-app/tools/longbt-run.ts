@@ -12,6 +12,7 @@ import { quadPicks } from "../src/engine/quad";
 import { revTable, type RevEntry } from "../src/engine/revHist";
 import { AI_GROUPS, DUAL, GROWTH, LEAD, REAL, STEADY, aPicks, aiTargets, buildCtx, dualPicker, leadTargets, realTargets, regimeStep, stats, turnPicker, wideTargets, type Ctx, type Picker, type StrategyStats } from "../src/engine/steady";
 import { WATCH } from "../src/engine/watch";
+import { growthLbPicker } from "../src/engine/longbtGrowth";
 import { LB, cagr, ddBetween, maxDd, mulberry32, percentileOf, randomPicker, rollingWin, simulateLB, type LbSim } from "../src/engine/longbt";
 import { addDays, taipeiToday, weekdaysBack } from "../src/lib/dates";
 import type { KV } from "../src/lib/kv";
@@ -23,6 +24,7 @@ const B_END = process.env.LBT_B_END ?? "20250131";
 const REV_FROM = process.env.LBT_REV_FROM ?? "20190102"; // 營收類組合的起算日
 const DRAWS = Number(process.env.LBT_DRAWS ?? 1000);
 const openB = process.env.LBT_OPEN_B === "1";
+const exp = process.env.LBT_EXP === "1"; // 成長組走勢濾網實驗（PREREG 第 9 節）
 const diag = process.env.LBT_DIAG === "1"; // 成本對照診斷：同一批組合分別用零成本、低滑價（0.05%）再跑一次，只印出來比較，不改判定
 const BENCH = "0050";
 const fileKV = (dir: string): KV => {
@@ -145,6 +147,17 @@ async function main() {
     { key: "D4", label: "D4 雙引擎＋外資條件", start: "rev", opts: { every: DUAL.every, band: DUAL.band }, make: () => dualPicker(c, DUAL.growth, DUAL.steady, 0, { foreignOk: true }) },
   ];
 
+  if (exp) {
+    const o = { every: DUAL.every, band: DUAL.band };
+    defs.push(
+      { key: "G0", label: "G0 驗證：複製版成長組（無濾網，應與 G1 完全一樣）", start: "rev", opts: o, make: () => growthLbPicker(c, 1, 0, false, 4) },
+      { key: "G2", label: "G2 成長組＋站上且上彎 60 日線（20 日重選）", start: "rev", opts: o, make: () => growthLbPicker(c, 1, 0, true, 4) },
+      { key: "G3", label: "G3 成長組＋走勢濾網，每週重選（跌破 60 日線就換）", start: "rev", opts: o, make: () => growthLbPicker(c, 1, 0, true, 1) },
+      { key: "DG2", label: "DG2 雙引擎（成長用 G2）", start: "rev", opts: o, make: () => growthLbPicker(c, 0.5, 0.5, true, 4) },
+      { key: "DG3", label: "DG3 雙引擎（成長用 G3）", start: "rev", opts: o, make: () => growthLbPicker(c, 0.5, 0.5, true, 1) },
+    );
+  }
+
   // ---- 對照組 ----
   const eligCache = new Map<number, string[]>();
   const eligible = (j: number) => {
@@ -194,6 +207,18 @@ async function main() {
     cagrs.sort((a, b) => a - b); dds.sort((a, b) => a - b);
     return { k, p, cagrs, dds };
   };
+
+  if (exp) {
+    const by = new Map(rows.map((r) => [r.key, r]));
+    const g0 = by.get("G0"), g1 = by.get("G1");
+    console.log(`LBT_EXP 驗證：G0 年化 ${pc(g0!.s.cagr)} 回撤 ${pc(g0!.s.maxDd)}｜G1 年化 ${pc(g1!.s.cagr)} 回撤 ${pc(g1!.s.maxDd)}｜${Math.abs(g0!.s.cagr - g1!.s.cagr) < 1e-9 ? "一致" : "⚠不一致，複製版有差異"}`);
+    for (const [k, base] of [["G2", "G1"], ["G3", "G1"], ["DG2", "D1"], ["DG3", "D1"]] as const) {
+      const r = by.get(k)!, b = by.get(base)!, d = defs.find((x) => x.key === k)!;
+      const g = simulateLB(c, r.start, d.make(), { ...d.opts, costs: false });
+      const better = r.s.cagr > b.s.cagr && r.s.maxDd > b.s.maxDd; // maxDd 為負數，越大（越接近 0）越淺
+      console.log(`LBT_EXP ${k.padEnd(3)} vs ${base}：成本後年化 ${pc(r.s.cagr)}（${base} ${pc(b.s.cagr)}）｜最大回撤 ${pc(r.s.maxDd)}（${pc(b.s.maxDd)}）｜零成本年化 ${pc(cagr(g.eq))}｜換手 ${r.s.turnover.toFixed(1)}x（${b.s.turnover.toFixed(1)}x）｜平均持股 ${r.sim.avgHold.toFixed(1)}（${b.sim.avgHold.toFixed(1)}）｜事前登記判定（年化較高且回撤較淺）：${better ? "改善" : "沒有改善"}`);
+    }
+  }
 
   // ---- 判定 ----
   const slice = (r: Row, from: string, to: string) => {

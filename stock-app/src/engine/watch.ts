@@ -32,7 +32,6 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
   // 雙引擎＋：當天有效的新聞否決（代號 → 否決）
   const vetoAt = (d: string) => new Map((plus ? opts.vetoes ?? [] : []).filter((x) => x.from <= d && (!x.until || d <= x.until)).map((x) => [x.code, x]));
   let lastA: Map<string, number> | undefined;
-  let rankOn = false; // 雙引擎＋：新規則（候選限定選股頁「買入」）是否已經開始
   const rankFrom = opts.rankFrom ?? DUALPLUS.rankFrom;
   let curGroups: Record<string, "growth" | "steady" | "both"> | undefined; // 雙引擎：最近一次判斷的分類 // 雙引擎＋：非判斷日因否決臨時調整時，沿用上次的低波動組
   let regimeOn: boolean | undefined; // 攻守輪動目前的狀態
@@ -41,6 +40,7 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
   const c = buildCtx(days, companies, opts.rev);
   let growth: GrowthPick[] = []; // 雙引擎：成長組目前的選股（每 20 個交易日重選）
   const j0 = c.dates.findIndex((d) => d >= start);
+  const jRank = plus ? c.dates.findIndex((d) => d >= rankFrom) : -1; // 雙引擎＋：新規則（候選限定選股頁「買入」）從這天起算：這天做第一次判斷（成長組也重選），之後每 5 個交易日判斷、成長組每 20 個交易日重選
   if (j0 < 0 || j0 < STEADY.lookback + 25) return v; // 還沒到開始日（或資料不夠）
   const close = (code: string, j: number) => { const r = c.rows[j].get(code); return r && r[2] > 0 ? r[2] : undefined; };
   const name = (code: string, j: number) => c.rows[j].get(code)?.[1] ?? code;
@@ -95,7 +95,7 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
     const val = valuate(v, (code) => close(code, j) ?? last[code]?.close);
     if (!val.missing.length) v = { ...v, ...recordNav(v, date, val) };
     // 3. 收盤後重新選股：全個股、N5、權值強化每天；攻守輪動每 5 個交易日；AI 供應鏈每 20 個交易日
-    const scheduled = wide || lead || turn || !(regime || ai || real || dual) || (j - j0) % (ai ? WATCH.aiEvery : real ? REAL.every : dual ? DUAL.every : WATCH.every) === 0;
+    const scheduled = wide || lead || turn || !(regime || ai || real || dual) || (j - (jRank >= 0 && j >= jRank ? jRank : j0)) % (ai ? WATCH.aiEvery : real ? REAL.every : dual ? DUAL.every : WATCH.every) === 0;
     const vetoNow = vetoAt(date);
     // 雙引擎＋：持股當天被否決，就算不是判斷日也要在收盤後排賣出
     const decide = scheduled || (plus && [...hold.keys()].some((k) => vetoNow.has(k)));
@@ -153,14 +153,13 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
       const list = sat.map(([code, w]) => `${name(code, j)}${code} ${(w * 100).toFixed(1)}%`).join("、");
       text += `\n市場狀態：${r.on ? "進攻（0050 站上 60 日線）" : "防守（0050 跌破 60 日線）"}；目標 0050 ${Math.round((r.targets.get(BENCH) ?? 0) * 100)}%，方案 A ${sat.length} 檔：${list || "目前沒有符合的，先放現金"}。下一個交易日收盤價調整。`;
     } else if (decide && dual) {
-      // 雙引擎＋（11/17）：從 rankFrom 起的判斷日，兩組候選都限定在當天選股頁「買入」；開始那天成長組多重選一次，兩組同一天換完
-      const useList = plus && date >= rankFrom;
-      const allow = useList && scheduled ? (opts.buyAt ? opts.buyAt(j) : buyCodesAt(days, companies, c, j)) : undefined;
-      const firstNew = !!allow && !rankOn;
-      if (allow) rankOn = true;
-      const reGrowth = (j - j0) % GROWTH.every === 0 || firstNew;
-      if (reGrowth) growth = growthPicks(c, j, new Set(growth.map((x) => x.code)), reGrowth && useList ? (allow ?? (opts.buyAt ? opts.buyAt(j) : buyCodesAt(days, companies, c, j))) : undefined);
-      const a = scheduled || !lastA ? aPicks(c, j, { foreignOk: plus, allow: useList ? (allow ?? (opts.buyAt ? opts.buyAt(j) : buyCodesAt(days, companies, c, j))) : undefined }) : lastA;
+      // 雙引擎＋（11/17）：從 rankFrom 起，兩組候選都限定在當天選股頁「買入」；rankFrom 那天做第一次判斷（成長組也重選），之後的節奏從那天重新算
+      const onNew = plus && jRank >= 0 && j >= jRank;
+      const useList = onNew;
+      const reGrowth = (j - (onNew ? jRank : j0)) % GROWTH.every === 0;
+      const allow = useList && (reGrowth || scheduled || !lastA) ? (opts.buyAt ? opts.buyAt(j) : buyCodesAt(days, companies, c, j)) : undefined;
+      if (reGrowth) growth = growthPicks(c, j, new Set(growth.map((x) => x.code)), allow);
+      const a = scheduled || !lastA ? aPicks(c, j, { foreignOk: plus, allow }) : lastA;
       lastA = a;
       const t = new Map<string, number>();
       for (const x of growth) t.set(x.code, (t.get(x.code) ?? 0) + x.weight * DUAL.growth);

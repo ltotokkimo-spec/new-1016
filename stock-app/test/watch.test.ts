@@ -327,8 +327,8 @@ describe("雙引擎＋ 11/17：候選限定選股頁「買入」（從 rankFrom 
   const allowSet = new Set(["2001", "2002", "2003", "2004", "2005", "2006"]);
   const switchDate = days[20].date; // 新到舊：倒數第 21 個交易日起用新規則
   const run = (extra: object = {}) => runWatch(days, companies, { start: startAt, now: 0, mode: "dualplus", rev, rankFrom: switchDate, buyAt: () => allowSet, ...extra });
-  it("預設的生效日（11/20）還沒到：結果和舊規則完全一樣", () => {
-    expect(DUALPLUS.rankFrom).toBe("20261120");
+  it("預設的生效日（11/17）還沒到（合成資料只到 10/23）：結果和舊規則完全一樣", () => {
+    expect(DUALPLUS.rankFrom).toBe("20261117");
     expect(runWatch(days, companies, { start: startAt, now: 0, mode: "dualplus", rev, rankFrom: DUALPLUS.rankFrom }).trades).toEqual(base.trades);
   });
   it("生效日之前的成交和舊規則一樣，之後買進的都在名單內", () => {
@@ -345,6 +345,18 @@ describe("雙引擎＋ 11/17：候選限定選股頁「買入」（從 rankFrom 
     const n = v.notes.find((x) => x.date === switchDate)!;
     expect(n.text).toContain("候選限定當天選股頁「買入」");
     expect(n.text).toMatch(/【成長組】重新選股（候選限定/);
+  });
+  it("新規則從生效日重新算節奏：生效日做第一次判斷，之後每 5 個交易日判斷（原本的節奏只用到生效日之前）", () => {
+    const v = run();
+    const dates = [...days].reverse().map((d) => d.date), i0 = dates.indexOf(switchDate);
+    const decisionNotes = v.notes.filter((n) => n.date >= switchDate && n.text.includes("【成長組】")).map((n) => n.date);
+    expect(decisionNotes[0]).toBe(switchDate);
+    expect(decisionNotes.every((d) => (dates.indexOf(d) - i0) % DUAL.every === 0)).toBe(true);
+    expect(decisionNotes.length).toBeGreaterThan(2);
+    // 成長組從生效日起每 20 個交易日重選
+    const reselect = v.notes.filter((n) => n.date >= switchDate && /【成長組】重新選股/.test(n.text)).map((n) => n.date);
+    expect(reselect.every((d) => (dates.indexOf(d) - i0) % GROWTH.every === 0)).toBe(true);
+    expect(reselect[0]).toBe(switchDate);
   });
   it("名單是空的：新規則下目標全部放現金（舊持股在生效日後被賣出）", () => {
     const v = run({ buyAt: () => new Set<string>() });

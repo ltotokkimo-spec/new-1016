@@ -1,8 +1,11 @@
 name: LongBT Probe
 
 # 長期回測第一段（可行性）：抽樣約 28 個歷史交易日，實測老資料格式與耗時。
-# 只能手動觸發，不寫快取、不影響每日回測，預估 5～8 分鐘（公開 repo 的 Actions 不計費）。
+# 只在這個檔案被推送時（或手動）執行，不寫快取、不影響每日回測，預估 5～8 分鐘（公開 repo 的 Actions 不計費）。
 on:
+  push:
+    branches: [ 'claude/ui-calculator-interface-t3x9kh' ]
+    paths: [ '.github/workflows/longbt-probe.yml' ]
   workflow_dispatch:
 
 permissions:

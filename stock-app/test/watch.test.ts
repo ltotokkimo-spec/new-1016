@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { BtDay } from "../src/engine/backtest";
 import { runWatch, WATCH } from "../src/engine/watch";
-import { buildCtx, DUAL, GROWTH, growthPicks } from "../src/engine/steady";
+import { aPicks, buildCtx, DUAL, DUALPLUS, GROWTH, growthPicks } from "../src/engine/steady";
+import { aPicksLB, growthPicksLB } from "../src/engine/longbtGrowth";
 import { prevYm, revTable, type RevEntry } from "../src/engine/revHist";
 import { valuate } from "../src/engine/aiEtf";
 import { weekdaysBack } from "../src/lib/dates";
@@ -315,5 +316,56 @@ describe("雙引擎＋（11/15：低波動組也看外資、Claude 新聞否決�
     const d = runWatch(days, companies, { start: startAt, now: 0, mode: "dual", rev, vetoes: [{ code: "2001", from: days[50].date, reason: "x" }] });
     expect(d.trades).toEqual(runWatch(days, companies, { start: startAt, now: 0, mode: "dual", rev }).trades);
     expect(d.vetoes).toBeUndefined();
+  });
+});
+
+describe("雙引擎＋ 11/17：候選限定選股頁「買入」（從 rankFrom 起）", () => {
+  const months: { ym: string; rows: RevEntry[] }[] = [];
+  for (let k = 0; k < 26; k++) months.push({ ym: prevYm("202610", k), rows: companies.map((c, i) => [c.code, 1000 + (26 - k) * (40 - i), 500 + i * 20] as RevEntry) });
+  const rev = revTable(months);
+  const base = runWatch(days, companies, { start: startAt, now: 0, mode: "dualplus", rev });
+  const allowSet = new Set(["2001", "2002", "2003", "2004", "2005", "2006"]);
+  const switchDate = days[20].date; // 新到舊：倒數第 21 個交易日起用新規則
+  const run = (extra: object = {}) => runWatch(days, companies, { start: startAt, now: 0, mode: "dualplus", rev, rankFrom: switchDate, buyAt: () => allowSet, ...extra });
+  it("預設的生效日（11/20）還沒到：結果和舊規則完全一樣", () => {
+    expect(DUALPLUS.rankFrom).toBe("20261120");
+    expect(runWatch(days, companies, { start: startAt, now: 0, mode: "dualplus", rev, rankFrom: DUALPLUS.rankFrom }).trades).toEqual(base.trades);
+  });
+  it("生效日之前的成交和舊規則一樣，之後買進的都在名單內", () => {
+    const v = run();
+    const before = (t: { date: string }) => t.date <= switchDate; // 生效日當天收盤後才決定，隔天成交，所以 ≤ 生效日的成交都來自舊規則
+    expect(v.trades.filter(before)).toEqual(base.trades.filter(before));
+    const after = v.trades.filter((t) => !before(t));
+    expect(after.some((t) => t.side === "buy")).toBe(true);
+    for (const t of after.filter((x) => x.side === "buy")) expect(allowSet.has(t.code)).toBe(true);
+    expect(Object.keys(v.targets ?? {}).every((code) => allowSet.has(code))).toBe(true);
+  });
+  it("生效日當天成長組多重選一次（兩組同一天換完），說明寫出候選限定", () => {
+    const v = run();
+    const n = v.notes.find((x) => x.date === switchDate)!;
+    expect(n.text).toContain("候選限定當天選股頁「買入」");
+    expect(n.text).toMatch(/【成長組】重新選股（候選限定/);
+  });
+  it("名單是空的：新規則下目標全部放現金（舊持股在生效日後被賣出）", () => {
+    const v = run({ buyAt: () => new Set<string>() });
+    expect(Object.keys(v.targets ?? {})).toEqual([]);
+    const m = new Map<string, number>();
+    for (const t of v.trades) m.set(t.code, (m.get(t.code) ?? 0) + (t.side === "buy" ? t.shares : -t.shares));
+    expect([...m.values()].every((n) => n <= 0)).toBe(true);
+  });
+  it("原版雙引擎不受影響（沒有新規則）", () => {
+    const a = runWatch(days, companies, { start: startAt, now: 0, mode: "dual", rev, rankFrom: switchDate, buyAt: () => allowSet });
+    expect(a.trades).toEqual(runWatch(days, companies, { start: startAt, now: 0, mode: "dual", rev }).trades);
+  });
+  it("選股函式：allow 限定候選；和長期回測（DB）用的複製版結果完全一致", () => {
+    const c = buildCtx(days, companies, rev), j = c.N - 1;
+    const g = growthPicks(c, j, new Set(), allowSet), a = aPicks(c, j, { allow: allowSet });
+    expect(g.every((x) => allowSet.has(x.code))).toBe(true);
+    expect([...a.keys()].every((code) => allowSet.has(code))).toBe(true);
+    const gl = growthPicksLB(c, j, new Set(), false, allowSet), al = aPicksLB(c, j, allowSet);
+    expect(gl.map((x) => [x.code, +x.weight.toFixed(9)])).toEqual(g.map((x) => [x.code, +x.weight.toFixed(9)]));
+    expect([...al].map(([k, w]) => [k, +w.toFixed(9)])).toEqual([...a].map(([k, w]) => [k, +w.toFixed(9)]));
+    // 不限定時和原本一樣
+    expect(growthPicks(c, j).map((x) => x.code)).toEqual(growthPicksLB(c, j, new Set(), false).map((x) => x.code));
   });
 });

@@ -3,7 +3,7 @@
 // 成交規則和 2 年回測一致：第 j 天收盤後決定，第 j+1 天收盤價成交，已計手續費與證交稅。
 import { cashFlow, positions, recordNav, valuate, type EtfTrade } from "./aiEtf";
 import type { BtDay } from "./backtest";
-import { aiTargets, aPicks, buildCtx, DUAL, GROWTH, growthPicks, type GrowthPick, LEAD, leadTargets, REAL, realTargets, regimeStep, STEADY, TURN2, turnPicker, wideTargets } from "./steady";
+import { DUALPLUS, buyCodesAt, aiTargets, aPicks, buildCtx, DUAL, GROWTH, growthPicks, type GrowthPick, LEAD, leadTargets, REAL, realTargets, regimeStep, STEADY, TURN2, turnPicker, wideTargets } from "./steady";
 import type { RevTable } from "./revHist";
 import type { DualVeto } from "./virtualEtf";
 import { addNote, newVirtual, type PendingOrder, type VirtualEtf } from "./virtualEtf";
@@ -27,11 +27,13 @@ const pc = (x: number, d = 1) => `${x >= 0 ? "+" : ""}${(x * 100).toFixed(d)}%`;
  * mode "dual"：雙引擎（使用者 11/14 同意上線）：成長組五成（每 20 個交易日重選，需要 opts.rev 歷史月營收）＋方案 A 五成（每 5 個交易日重選）。
  *   起始日是 DUAL.start（規則定案前最後一個資料日 11/13），不是其他組的 10/23：規則是看過 11/13 以前的資料才訂的，從定案日起算才是真正的事後觀察。
  */
-export function runWatch(days: BtDay[], companies: Company[], opts: { start?: string; budget?: number; now?: number; mode?: "n5" | "wide" | "regime" | "lead" | "ai" | "real" | "turn" | "dual" | "dualplus"; rev?: RevTable; vetoes?: DualVeto[] } = {}): VirtualEtf {
+export function runWatch(days: BtDay[], companies: Company[], opts: { start?: string; budget?: number; now?: number; mode?: "n5" | "wide" | "regime" | "lead" | "ai" | "real" | "turn" | "dual" | "dualplus"; rev?: RevTable; vetoes?: DualVeto[]; rankFrom?: string; buyAt?: (j: number) => ReadonlySet<string> } = {}): VirtualEtf {
   const wide = opts.mode === "wide", regime = opts.mode === "regime", lead = opts.mode === "lead", ai = opts.mode === "ai", real = opts.mode === "real", turn = opts.mode === "turn", plus = opts.mode === "dualplus", dual = opts.mode === "dual" || plus;
   // 雙引擎＋：當天有效的新聞否決（代號 → 否決）
   const vetoAt = (d: string) => new Map((plus ? opts.vetoes ?? [] : []).filter((x) => x.from <= d && (!x.until || d <= x.until)).map((x) => [x.code, x]));
   let lastA: Map<string, number> | undefined;
+  let rankOn = false; // 雙引擎＋：新規則（候選限定選股頁「買入」）是否已經開始
+  const rankFrom = opts.rankFrom ?? DUALPLUS.rankFrom;
   let curGroups: Record<string, "growth" | "steady" | "both"> | undefined; // 雙引擎：最近一次判斷的分類 // 雙引擎＋：非判斷日因否決臨時調整時，沿用上次的低波動組
   let regimeOn: boolean | undefined; // 攻守輪動目前的狀態
   const start = opts.start ?? (dual ? DUAL.start : WATCH.start), budget = opts.budget ?? WATCH.budget;
@@ -151,9 +153,14 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
       const list = sat.map(([code, w]) => `${name(code, j)}${code} ${(w * 100).toFixed(1)}%`).join("、");
       text += `\n市場狀態：${r.on ? "進攻（0050 站上 60 日線）" : "防守（0050 跌破 60 日線）"}；目標 0050 ${Math.round((r.targets.get(BENCH) ?? 0) * 100)}%，方案 A ${sat.length} 檔：${list || "目前沒有符合的，先放現金"}。下一個交易日收盤價調整。`;
     } else if (decide && dual) {
-      const reGrowth = (j - j0) % GROWTH.every === 0;
-      if (reGrowth) growth = growthPicks(c, j, new Set(growth.map((x) => x.code)));
-      const a = scheduled || !lastA ? aPicks(c, j, { foreignOk: plus }) : lastA;
+      // 雙引擎＋（11/17）：從 rankFrom 起的判斷日，兩組候選都限定在當天選股頁「買入」；開始那天成長組多重選一次，兩組同一天換完
+      const useList = plus && date >= rankFrom;
+      const allow = useList && scheduled ? (opts.buyAt ? opts.buyAt(j) : buyCodesAt(days, companies, c, j)) : undefined;
+      const firstNew = !!allow && !rankOn;
+      if (allow) rankOn = true;
+      const reGrowth = (j - j0) % GROWTH.every === 0 || firstNew;
+      if (reGrowth) growth = growthPicks(c, j, new Set(growth.map((x) => x.code)), reGrowth && useList ? (allow ?? (opts.buyAt ? opts.buyAt(j) : buyCodesAt(days, companies, c, j))) : undefined);
+      const a = scheduled || !lastA ? aPicks(c, j, { foreignOk: plus, allow: useList ? (allow ?? (opts.buyAt ? opts.buyAt(j) : buyCodesAt(days, companies, c, j))) : undefined }) : lastA;
       lastA = a;
       const t = new Map<string, number>();
       for (const x of growth) t.set(x.code, (t.get(x.code) ?? 0) + x.weight * DUAL.growth);
@@ -166,8 +173,8 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
       // 每檔一行、比重大的在前（11/15 使用者：原本擠成一段太亂）
       const gl = [...growth].sort((a, b) => b.weight - a.weight).map((x) => `・${name(x.code, j)} ${x.code}　${(x.weight * DUAL.growth * 100).toFixed(1)}%　營收年增 ${pc(x.yoy3, 0)}${x.newHigh ? "・創高" : ""}`).join("\n");
       const al = [...a].sort((x, y) => y[1] - x[1]).map(([code, w]) => `・${name(code, j)} ${code}　${(w * DUAL.steady * 100).toFixed(1)}%`).join("\n");
-      text += `\n\n【成長組】${reGrowth ? "重新選股" : `沿用上次選股（每 ${GROWTH.every} 個交易日重選）`}，${growth.length} 檔：\n${gl || (c.rev ? "目前沒有符合的，這部分先放現金" : "沒有下載到月營收資料，這部分先放現金")}`
-        + `\n\n【低波動組】每 ${DUAL.every} 個交易日重選${plus ? "，外資近 60 日沒有賣超才選" : ""}，${a.size} 檔：\n${al || "目前沒有符合的，這部分先放現金"}`
+      text += `\n\n【成長組】${reGrowth ? "重新選股" : `沿用上次選股（每 ${GROWTH.every} 個交易日重選）`}${reGrowth && useList ? "（候選限定當天選股頁「買入」）" : ""}，${growth.length} 檔：\n${gl || (c.rev ? "目前沒有符合的，這部分先放現金" : "沒有下載到月營收資料，這部分先放現金")}`
+        + `\n\n【低波動組】每 ${DUAL.every} 個交易日重選${plus ? "，外資近 60 日沒有賣超才選" : ""}${useList ? "，候選限定當天選股頁「買入」" : ""}，${a.size} 檔：\n${al || "目前沒有符合的，這部分先放現金"}`
         + (vetoed.length ? `\n\n【新聞否決】不買／賣出，那部分先放現金：\n${vetoed.map((k) => `・${name(k, j)} ${k}：${vetoNow.get(k)!.reason}`).join("\n")}` : "")
         + "\n\n"
         + (scheduled ? "" : "（今天不是判斷日，只因否決調整，其他持股不動。）\n") + "下一個交易日收盤價調整。";

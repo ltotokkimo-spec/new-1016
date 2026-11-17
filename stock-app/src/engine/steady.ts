@@ -39,6 +39,22 @@ export function realTargets(days: BtDay[], companies: Company[], c: Ctx, j: numb
   return new Map(cands.map((x) => [x.code, w]));
 }
 
+/** 第 j 天（Ctx 索引，舊到新）選股頁評為「買入」的個股代號（和 realTargets、四因子同一份評分，ETF 不算） */
+export function buyCodesAt(days: BtDay[], companies: Company[], c: Ctx, j: number): Set<string> {
+  const N = c.N, i = N - 1 - j; // days 是新到舊
+  const dateIdx = new Map(days.map((d, k) => [d.date, k]));
+  const onOrBefore = (ymd: string) => { for (let k = 0; k < 10; k++) { const x = dateIdx.get(addDays(ymd, -k)); if (x !== undefined) return x; } return undefined; };
+  const s = days[i]?.date;
+  if (!s) return new Set();
+  const m1 = onOrBefore(addDays(s, -28)), m3 = onOrBefore(addDays(s, -88));
+  if (i + 5 >= N || m1 === undefined || m3 === undefined) return new Set();
+  const inputs = buildTwInputs({
+    latest: days[i].quotes, week: days[i + 5].quotes, month: days[m1].quotes, quarter: days[m3].quotes,
+    flows: days.slice(i, i + 10).map((d) => d.flows), companies, tpexCodes: days[i].tpexCodes,
+  });
+  return new Set(scoreStocks(inputs.filter((x) => !isEtf(x.code))).scored.filter((x) => x.rating === "買入").map((x) => x.code));
+}
+
 /** 規則參數（改這裡就等於換一套規則，結果要重新看） */
 export const STEADY = {
   lookback: 90, // 趨勢回歸的天數
@@ -206,11 +222,12 @@ export function buildCtx(days: BtDay[], companies: Company[], rev?: RevTable): C
  * 依「趨勢 × R²」排序取前 10 檔（每產業最多 2 檔），依波動配置（單檔上限 12%）。回傳代號 → 權重（合計 ≤ 1）。
  */
 /** foreignOk：雙引擎＋（11/15）多一個條件：外資近 60 日買賣超佔成交量 ≥ 0（外資沒有在倒貨） */
-export function aPicks(c: Ctx, j: number, opts: { foreignOk?: boolean } = {}): Map<string, number> {
+export function aPicks(c: Ctx, j: number, opts: { foreignOk?: boolean; allow?: ReadonlySet<string> } = {}): Map<string, number> {
   const vol60 = (code: string) => { const r60 = rets(c.series.get(code), j, 60); return r60 ? std(r60) : NaN; };
   const pool: { code: string; vol: number }[] = [];
   for (const [code, row] of c.rows[j]) {
     if (!isCommonStock(code) || !(row[4] >= STEADY.minValue)) continue;
+    if (opts.allow && !opts.allow.has(code)) continue; // 11/17：候選限定在名單內（雙引擎＋用當天選股頁「買入」），在取「波動最低的一半」之前就限定
     const v = vol60(code);
     if (Number.isFinite(v)) pool.push({ code, vol: v });
   }
@@ -291,6 +308,12 @@ export function wideTargets(c: Ctx, j: number, held: ReadonlySet<string>): Map<s
  */
 export const GROWTH = { minValue: 5e8, top: 20, keep: 40, perSector: 6, maxWeight: 0.25, flowDays: 60, minHistory: 125, every: 20 } as const;
 export const DUAL = { growth: 0.5, steady: 0.5, every: 5, band: 0.005, start: "20261113" } as const;
+/**
+ * 雙引擎＋（11/17 使用者決定）：從這天起，成長組與低波動組的候選都限定在「當天選股頁評為買入」的個股。
+ * 11/17 長期回測（2019～2021 與封存的 2022/1～2025/1）顯示：這樣比原版雙引擎年化較高、最大回撤較淺，但仍落後 0050、持股變少現金變多。
+ * 起算日不變（仍照 DUAL.start 的判斷日節奏），只有這天起的判斷改用新規則；成長組在這天會多重選一次，讓兩組同一天換完。
+ */
+export const DUALPLUS = { rankFrom: "20261120" } as const;
 
 /** 橫斷面排名百分位（0～1，越大越好）；不是數字的不給 */
 function pctRank(codes: string[], vals: number[]): Map<string, number> {
@@ -301,11 +324,12 @@ function pctRank(codes: string[], vals: number[]): Map<string, number> {
 }
 export interface GrowthPick { code: string; weight: number; score: number; yoy3: number; newHigh: boolean; flow: number }
 /** 成長組在第 j 天收盤後的選股（權重合計 1；沒有營收資料就回傳空的）。held：成長組目前持有的代號（續抱緩衝用） */
-export function growthPicks(c: Ctx, j: number, held: ReadonlySet<string> = new Set()): GrowthPick[] {
+export function growthPicks(c: Ctx, j: number, held: ReadonlySet<string> = new Set(), allow?: ReadonlySet<string>): GrowthPick[] {
   if (!c.rev || j < GROWTH.minHistory) return [];
   const uni: string[] = [];
   for (const [code, row] of c.rows[j]) {
     if (!isCommonStock(code) || !(row[2] > 0)) continue;
+    if (allow && !allow.has(code)) continue; // 11/17：候選限定在名單內（雙引擎＋用當天選股頁「買入」）
     let t = 0, ok = true;
     for (let k = j - 19; k <= j; k++) { const r = c.rows[k]?.get(code); if (!r) { ok = false; break; } t += r[4]; }
     if (!ok || !(t / 20 >= GROWTH.minValue)) continue;

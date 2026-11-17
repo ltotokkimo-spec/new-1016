@@ -23,6 +23,7 @@ const B_END = process.env.LBT_B_END ?? "20250131";
 const REV_FROM = process.env.LBT_REV_FROM ?? "20190102"; // 營收類組合的起算日
 const DRAWS = Number(process.env.LBT_DRAWS ?? 1000);
 const openB = process.env.LBT_OPEN_B === "1";
+const diag = process.env.LBT_DIAG === "1"; // 成本對照診斷：同一批組合分別用零成本、低滑價（0.05%）再跑一次，只印出來比較，不改判定
 const BENCH = "0050";
 const fileKV = (dir: string): KV => {
   const f = (k: string) => path.join(dir, encodeURIComponent(k) + ".json");
@@ -171,6 +172,19 @@ async function main() {
     }
   }
   rows.push({ key: "0050", label: "0050 買進持有", s: stats("0050", "0050", c, j0, benchBy.get(j0)!, benchBy.get(j0)!.eq), sim: benchBy.get(j0)!, bench: benchBy.get(j0)!, start: j0 });
+
+  if (diag) {
+    console.log("LBT_DIAG 階段 A 成本對照（年化；括號為對 0050 超額）：零成本＝毛報酬（只扣不了的：無）／低滑價＝手續費＋稅＋單邊 0.05%／基準＝事前登記的單邊 0.15%");
+    for (const r of rows) {
+      if (r.key === "0050" || r.key.startsWith("EW")) continue;
+      const d = defs.find((x) => x.key === r.key)!;
+      const cut = (e: number[]) => { const idx: number[] = []; for (let i = 0; i < e.length; i++) if (c.dates[r.start + i] <= A_END) idx.push(i); return idx.map((i) => e[i]); };
+      const b0 = cagr(cut(r.bench.eq));
+      const g = simulateLB(c, r.start, d.make(), { ...d.opts, costs: false }), l = simulateLB(c, r.start, d.make(), { ...d.opts, slip: 0.0005 });
+      const [cg, cl, cb] = [cagr(cut(g.eq)), cagr(cut(l.eq)), cagr(cut(r.sim.eq))];
+      console.log(`LBT_DIAG ${r.key.padEnd(5)} 零成本 ${pc(cg)} (${pc(cg - b0)})｜低滑價 ${pc(cl)} (${pc(cl - b0)})｜基準 ${pc(cb)} (${pc(cb - b0)})｜0050 ${pc(b0)}｜換手 ${r.s.turnover.toFixed(1)}x｜零成本最大回撤 ${pc(maxDd(cut(g.eq)))} (0050 ${pc(maxDd(cut(r.bench.eq)))})`);
+    }
+  }
 
   // ---- 隨機選股（每個組合各抽一組：檔數＝該組合平均持股、換股頻率與換手率都配合該組合，才不會因為換手率不同而不公平）----
   const randomFor = (r: Row, every: number) => {

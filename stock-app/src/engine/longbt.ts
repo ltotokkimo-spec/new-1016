@@ -24,10 +24,11 @@ const ma = (c: Ctx, code: string, j: number, n: number) => {
 export interface LbSim { eq: number[]; traded: number; costPaid: number; blockedBuys: number; blockedSells: number; avgHold: number; exposure: number }
 
 /** 逐日模擬：第 j 天收盤決定，第 j+1 天收盤成交（從 j+2 起承擔漲跌）。含手續費、證交稅、滑價；漲停買不到、跌停賣不掉 */
-export function simulateLB(c: Ctx, j0: number, pick: Picker, opts: SimOpts & { costs?: boolean } = {}): LbSim {
+export function simulateLB(c: Ctx, j0: number, pick: Picker, opts: SimOpts & { costs?: boolean; slip?: number } = {}): LbSim {
   const costs = opts.costs !== false;
-  const buyCost = (code: string) => (costs ? LB.fee + (isEtf(code) ? LB.slipEtf : LB.slipStock) : 0);
-  const sellCost = (code: string) => (costs ? LB.fee + (isEtf(code) ? LB.taxEtf + LB.slipEtf : LB.taxStock + LB.slipStock) : 0);
+  const slipS = opts.slip ?? LB.slipStock, slipE = opts.slip === undefined ? LB.slipEtf : opts.slip / 3; // slip：對照診斷用的股票單邊滑價（ETF 取三分之一）
+  const buyCost = (code: string) => (costs ? LB.fee + (isEtf(code) ? slipE : slipS) : 0);
+  const sellCost = (code: string) => (costs ? LB.fee + (isEtf(code) ? LB.taxEtf + slipE : LB.taxStock + slipS) : 0);
   const hold = new Map<string, { v: number; peak: number; atr: number; entry?: number }>();
   let cash = 1, traded = 0, costPaid = 0, holdN = 0, expo = 0, blockedBuys = 0, blockedSells = 0;
   let pending: Map<string, number> | null = null;

@@ -11,6 +11,7 @@ import { DEFAULT_WEIGHTS, scoreStocks, type Scored } from "../src/engine/score";
 import { quadPicks } from "../src/engine/quad";
 import { revTable, type RevEntry } from "../src/engine/revHist";
 import { AI_GROUPS, DUAL, GROWTH, LEAD, REAL, STEADY, aPicks, aiTargets, buildCtx, dualPicker, leadTargets, realTargets, regimeStep, stats, turnPicker, wideTargets, type Ctx, type Picker, type StrategyStats } from "../src/engine/steady";
+import { WATCH } from "../src/engine/watch";
 import { LB, cagr, ddBetween, maxDd, mulberry32, percentileOf, randomPicker, rollingWin, simulateLB, type LbSim } from "../src/engine/longbt";
 import { addDays, taipeiToday, weekdaysBack } from "../src/lib/dates";
 import type { KV } from "../src/lib/kv";
@@ -127,14 +128,14 @@ async function main() {
   };
   type Def = { key: string; label: string; start: "base" | "rev"; opts?: Parameters<typeof simulateLB>[3]; make: () => Picker; bias?: string };
   const defs: Def[] = [
-    { key: "N5", label: "N5 觀察（0050 五成＋低波動 A 五成）", start: "base", make: () => mixP(hold0050, 0.5, (j) => aPicks(c, j)) },
+    { key: "N5", label: "N5 觀察（0050 五成＋低波動 A 五成）", start: "base", opts: { every: 1, band: WATCH.minTrade }, make: () => mixP(hold0050, 0.5, (j) => aPicks(c, j)) },
     { key: "A", label: "A 低波動為主＋趨勢為輔", start: "base", make: () => (j) => aPicks(c, j) },
     { key: "W1", label: "W1 全個股（每天局部修正）", start: "base", opts: { every: 1, band: STEADY.wideBand }, make: () => { let held = new Set<string>(); return (j) => { const t = wideTargets(c, j, held); held = new Set(t.keys()); return t; }; } },
     { key: "W2", label: "W2 全個股（每週修正）", start: "base", opts: { every: 5, band: STEADY.wideBand }, make: () => { let held = new Set<string>(); return (j) => { const t = wideTargets(c, j, held); held = new Set(t.keys()); return t; }; } },
-    { key: "R1", label: "R1 攻守輪動", start: "base", make: () => { let on: boolean | undefined; return (j) => { const r = regimeStep(c, j, on); on = r.on; return r.targets; }; } },
-    { key: "Q5", label: "Q5 權值強化（市值前 50）", start: "base", opts: { band: LEAD.band }, make: () => (j) => leadTargets(c, j).targets, bias: "資本額為現值" },
+    { key: "R1", label: "R1 攻守輪動", start: "base", opts: { every: WATCH.every, band: WATCH.minTrade }, make: () => { let on: boolean | undefined; return (j) => { const r = regimeStep(c, j, on); on = r.on; return r.targets; }; } },
+    { key: "Q5", label: "Q5 權值強化（市值前 50）", start: "base", opts: { every: 1, band: LEAD.band }, make: () => (j) => leadTargets(c, j).targets, bias: "資本額為現值" },
     { key: "AI2", label: "AI2 AI 供應鏈依市值（月調）", start: "base", opts: { every: 20, band: LEAD.band }, make: () => (j) => aiTargets(c, j, { weight: "cap" }), bias: "名單事後挑、資本額為現值" },
-    { key: "U1", label: "U1 實單規則（買入前 8 檔、成本 -10% 停損）", start: "base", opts: { every: REAL.every, costStop: REAL.stop }, make: () => (j) => realTargets(use, companies, c, j) },
+    { key: "U1", label: "U1 實單規則（買入前 8 檔、成本 -10% 停損）", start: "base", opts: { every: REAL.every, band: WATCH.minTrade, costStop: REAL.stop }, make: () => (j) => realTargets(use, companies, c, j) },
     { key: "BUY", label: "BUY 現行 App「買入」前 10 檔等權", start: "base", make: () => (j) => { const b = scoredAt(j).filter((x) => x.rating === "買入").sort((x, y) => y.score - x.score).slice(0, STEADY.top); return new Map(b.map((x) => [x.code, 1 / STEADY.top])); } },
     { key: "T2", label: "T2 轉強精選", start: "base", opts: { every: 1, band: 0.03 }, make: () => turnPicker(c, { strict: true, regime: true }) },
     { key: "QUAD", label: "QUAD 四因子（等權，最多 20 檔）", start: "rev", make: () => (j) => { const base = scoredAt(j); const k = Math.min(20, base.filter((x) => x.rating === "買入").length); const p = quadPicks(c, j, base, k); return new Map(p.map((x) => [x.code, 1 / Math.max(1, p.length)])); } },

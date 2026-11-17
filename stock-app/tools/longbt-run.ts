@@ -27,8 +27,8 @@ const fileKV = (dir: string): KV => {
   const f = (k: string) => path.join(dir, encodeURIComponent(k) + ".json");
   return {
     async get(k) { try { return JSON.parse(fs.readFileSync(f(k), "utf8")); } catch { return undefined; } },
-    async set() { throw new Error("longbt-run 不寫快取"); },
-    async del() { throw new Error("longbt-run 不寫快取"); },
+    async set() { /* 唯讀：不寫回快取（TwLoader.companies 會想存公司資料，丟掉即可） */ },
+    async del() { /* 唯讀 */ },
     async keys() { return fs.readdirSync(dir).map((x) => decodeURIComponent(x.replace(/\.json$/, ""))); },
   };
 };

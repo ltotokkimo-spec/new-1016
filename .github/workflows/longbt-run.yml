@@ -39,6 +39,7 @@ jobs:
           restore-keys: longbt-cache-
       - name: 回測
         run: |
+          set -eo pipefail
           set -a; . tools/probe/longbt-run.env; set +a
           npx vite build --ssr tools/longbt-run.ts --outDir .lbt-build
           NODE_OPTIONS=--max-old-space-size=6144 node .lbt-build/longbt-run.js .lbt-cache 2>&1 | tee lbt-run.log

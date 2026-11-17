@@ -6,3 +6,5 @@ dist/
 .lbt-build/
 .probe-build/
 lbt.log
+lbt-run.log
+longbt-result.json

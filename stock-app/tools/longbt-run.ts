@@ -1,0 +1,227 @@
+// 長期回測第三段：用 longbt-fetch 存好的快取，把各組合包成統一介面跑 2018 起的歷史（成本全扣、漲跌停限制），
+// 含對照組（0050、等權重、隨機選股）。規則與判定標準見 stock-app/longbt/PREREG.md（事先寫死）。
+// 階段 B、C 預設封存：沒設 LBT_OPEN_B=1 時連資料都不載入。
+// 執行：npx vite build --ssr tools/longbt-run.ts --outDir .lbt-build && node .lbt-build/longbt-run.js .lbt-cache
+import fs from "node:fs";
+import path from "node:path";
+import { TwLoader, buildTwInputs } from "../src/data/twLoader";
+import { isCommonStock, isEtf } from "../src/data/tw";
+import type { BtDay } from "../src/engine/backtest";
+import { DEFAULT_WEIGHTS, scoreStocks, type Scored } from "../src/engine/score";
+import { quadPicks } from "../src/engine/quad";
+import { revTable, type RevEntry } from "../src/engine/revHist";
+import { AI_GROUPS, DUAL, GROWTH, LEAD, REAL, STEADY, aPicks, aiTargets, buildCtx, dualPicker, leadTargets, realTargets, regimeStep, stats, turnPicker, wideTargets, type Ctx, type Picker, type StrategyStats } from "../src/engine/steady";
+import { LB, cagr, ddBetween, maxDd, mulberry32, percentileOf, randomPicker, rollingWin, simulateLB, type LbSim } from "../src/engine/longbt";
+import { addDays, taipeiToday, weekdaysBack } from "../src/lib/dates";
+import type { KV } from "../src/lib/kv";
+
+const cacheDir = process.argv[2] ?? ".lbt-cache";
+const START = process.env.LBT_START ?? "20180102";
+const A_END = process.env.LBT_A_END ?? "20211231";
+const B_END = process.env.LBT_B_END ?? "20250131";
+const REV_FROM = process.env.LBT_REV_FROM ?? "20190102"; // 營收類組合的起算日
+const DRAWS = Number(process.env.LBT_DRAWS ?? 1000);
+const openB = process.env.LBT_OPEN_B === "1";
+const BENCH = "0050";
+const fileKV = (dir: string): KV => {
+  const f = (k: string) => path.join(dir, encodeURIComponent(k) + ".json");
+  return {
+    async get(k) { try { return JSON.parse(fs.readFileSync(f(k), "utf8")); } catch { return undefined; } },
+    async set() { throw new Error("longbt-run 不寫快取"); },
+    async del() { throw new Error("longbt-run 不寫快取"); },
+    async keys() { return fs.readdirSync(dir).map((x) => decodeURIComponent(x.replace(/\.json$/, ""))); },
+  };
+};
+const t0 = Date.now();
+const log = (...a: unknown[]) => console.log(`[${Math.round((Date.now() - t0) / 1000)}s]`, ...a);
+const pc = (x: number, d = 1) => (Number.isFinite(x) ? `${x >= 0 ? "+" : ""}${(x * 100).toFixed(d)}%` : "—");
+
+async function main() {
+  const kv = fileKV(cacheDir);
+  const end = openB ? B_END : A_END;
+  const weekdays = weekdaysBack(taipeiToday(), 3000).filter((d) => d >= START).reverse();
+
+  // ---- 載入快取（診斷用的完整資料只在 openB 時才讀超過 A_END 的部分）----
+  const loadEnd = openB ? "99999999" : A_END;
+  const days: BtDay[] = []; // 舊到新，之後反轉
+  const miss = { twseF: [] as string[], tpexQ: [] as string[], tpexF: [] as string[], no50: [] as string[] };
+  for (const d of weekdays) {
+    if (d > loadEnd) break;
+    const qa = await kv.get<any>(`tw2:q:twse:${d}`);
+    if (!qa || qa.holiday) continue;
+    const [qb, fa, fb] = await Promise.all([kv.get<any>(`tw2:q:tpex:${d}`), kv.get<any>(`tw2:f:twse:${d}`), kv.get<any>(`tw2:f:tpex:${d}`)]);
+    if (!fa) miss.twseF.push(d);
+    if (!qb) miss.tpexQ.push(d);
+    if (!fb) miss.tpexF.push(d);
+    const quotes = [...qa.rows, ...(qb?.rows ?? [])];
+    if (!quotes.some((r: any) => r[0] === BENCH)) miss.no50.push(d);
+    days.push({ date: d, quotes, tpexCodes: new Set((qb?.rows ?? []).map((r: any) => r[0])), flows: [...(fa ?? []), ...(fb ?? [])] });
+  }
+  log(`載入 ${days.length} 個交易日（${days[0]?.date}～${days.at(-1)?.date}）｜${openB ? "已開封 B、C" : "B、C 封存，未載入"}`);
+  if (days.length < 200) throw new Error("交易日太少，快取是不是沒還原？");
+
+  // ---- 診斷：缺口與無法解釋的跳動（只用已載入的日期，不涉及績效）----
+  log(`缺口：上市法人缺 ${miss.twseF.length} 天 ${miss.twseF.slice(0, 6).join(",")}｜上櫃行情缺 ${miss.tpexQ.length}｜上櫃法人缺 ${miss.tpexF.length} 天 ${miss.tpexF.slice(0, 3).join(",")}…${miss.tpexF.slice(-1)}｜0050 缺 ${miss.no50.length} 天 ${miss.no50.join(",")}`);
+  {
+    const first = new Map<string, number>();
+    const closes: Map<string, number>[] = days.map((d) => new Map(d.quotes.map((r) => [r[0], r[2]])));
+    const kinds: Record<string, number> = { 新上市五日內: 0, 停牌後復牌: 0, 隔天反轉過半: 0, 其他: 0 };
+    const sample: string[] = [];
+    days.forEach((d, i) => { for (const r of d.quotes) if (!first.has(r[0])) first.set(r[0], i); });
+    let total = 0;
+    for (let i = 1; i < days.length; i++) {
+      for (const [code, p1] of closes[i]) {
+        const p0 = closes[i - 1].get(code);
+        if (!p0) continue;
+        const ch = p1 / p0 - 1;
+        if (Math.abs(ch) <= 0.11) continue;
+        // 若漲跌欄的參考價解釋得通（收盤−漲跌 ≈ 前收×(1±0.1)以內），表示是交易所已公布的調整，不算異常
+        const row = days[i].quotes.find((r) => r[0] === code)!;
+        const ref = row[2] - row[3];
+        if (Number.isFinite(ref) && ref > 0 && Math.abs(row[2] / ref - 1) <= 0.1001) continue;
+        total++;
+        let k = "其他";
+        if (i - (first.get(code) ?? 0) <= 5) k = "新上市五日內";
+        else if (i >= 3 && !closes[i - 2].has(code)) k = "停牌後復牌";
+        else { const p2 = closes[i + 1]?.get(code); if (p2 && Math.abs(p2 - p1) >= 0.5 * Math.abs(p1 - p0)) k = "隔天反轉過半"; }
+        kinds[k]++;
+        if (k === "其他" && sample.length < 5) sample.push(`${days[i].date} ${code} ${p0}→${p1}`);
+      }
+    }
+    log(`跳動分類（漲跌欄參考價也解釋不了的 ${total} 次）：${Object.entries(kinds).map(([k, v]) => `${k} ${v}`).join("、")}｜其他例：${sample.join("；")}`);
+  }
+
+  // ---- 準備 Ctx（只用到 end 為止；B 封存時 end = A_END）----
+  const use = days.filter((d) => d.date <= end).reverse(); // 新到舊
+  const loader = new TwLoader(async (u: string) => { const r = await fetch(u, { headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(60_000) }); if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }, kv);
+  const companies = await loader.companies();
+  const months = new Map<string, RevEntry[]>();
+  for (const f of fs.readdirSync(cacheDir)) {
+    const m = /^rev-(sii|otc)-(\d{6})\.json$/.exec(f);
+    if (m) months.set(m[2], [...(months.get(m[2]) ?? []), ...(JSON.parse(fs.readFileSync(path.join(cacheDir, f), "utf8")) as RevEntry[])]);
+  }
+  const rev = revTable([...months].map(([ym, rows]) => ({ ym, rows })));
+  log(`公司 ${companies.length}、月營收 ${months.size} 個月（含上市＋上櫃）`);
+  const c = buildCtx(use, companies, rev), N = c.N;
+  const j0 = Math.max(STEADY.lookback + 25, 100);
+  const jRev = Math.max(j0, c.dates.findIndex((d) => d >= REV_FROM));
+  log(`Ctx ${N} 天，模擬起點 ${c.dates[j0]}（營收類 ${c.dates[jRev]}）終點 ${c.dates[N - 1]}`);
+  const px = (code: string, j: number) => { const s = c.series.get(code); return s && j >= s.start && j - s.start < s.adj.length ? s.adj[j - s.start] : NaN; };
+  const aboveMa60 = (j: number) => { let t = 0; for (let k = j - 59; k <= j; k++) { const p = px(BENCH, k); if (!(p > 0)) return true; t += p; } return !(px(BENCH, j) < t / 60); };
+
+  // ---- 各組合（照 11/16 的 App 規則，每個 run 重新建立有狀態的選股器）----
+  const dateIdx = new Map(use.map((d, i) => [d.date, i]));
+  const onOrBefore = (ymd: string) => { for (let k = 0; k < 10; k++) { const i = dateIdx.get(addDays(ymd, -k)); if (i !== undefined) return i; } return undefined; };
+  const scoredAt = (j: number): Scored[] => {
+    const i = N - 1 - j, s = use[i].date, m1 = onOrBefore(addDays(s, -28)), m3 = onOrBefore(addDays(s, -88));
+    if (i + 5 >= N || m1 === undefined || m3 === undefined) return [];
+    const inputs = buildTwInputs({ latest: use[i].quotes, week: use[i + 5].quotes, month: use[m1].quotes, quarter: use[m3].quotes, flows: use.slice(i, i + 10).map((d) => d.flows), companies, tpexCodes: use[i].tpexCodes });
+    return scoreStocks(inputs.filter((x) => !isEtf(x.code))).scored;
+  };
+  const hold0050: Picker = () => new Map([[BENCH, 1]]);
+  const mixP = (a: Picker, wa: number, b: Picker): Picker => (j) => {
+    const m = new Map<string, number>();
+    for (const [code, w] of a(j)) m.set(code, (m.get(code) ?? 0) + w * wa);
+    for (const [code, w] of b(j)) m.set(code, (m.get(code) ?? 0) + w * (1 - wa));
+    return m;
+  };
+  type Def = { key: string; label: string; start: "base" | "rev"; opts?: Parameters<typeof simulateLB>[3]; make: () => Picker; bias?: string };
+  const defs: Def[] = [
+    { key: "N5", label: "N5 觀察（0050 五成＋低波動 A 五成）", start: "base", make: () => mixP(hold0050, 0.5, (j) => aPicks(c, j)) },
+    { key: "A", label: "A 低波動為主＋趨勢為輔", start: "base", make: () => (j) => aPicks(c, j) },
+    { key: "W1", label: "W1 全個股（每天局部修正）", start: "base", opts: { every: 1, band: STEADY.wideBand }, make: () => { let held = new Set<string>(); return (j) => { const t = wideTargets(c, j, held); held = new Set(t.keys()); return t; }; } },
+    { key: "W2", label: "W2 全個股（每週修正）", start: "base", opts: { every: 5, band: STEADY.wideBand }, make: () => { let held = new Set<string>(); return (j) => { const t = wideTargets(c, j, held); held = new Set(t.keys()); return t; }; } },
+    { key: "R1", label: "R1 攻守輪動", start: "base", make: () => { let on: boolean | undefined; return (j) => { const r = regimeStep(c, j, on); on = r.on; return r.targets; }; } },
+    { key: "Q5", label: "Q5 權值強化（市值前 50）", start: "base", opts: { band: LEAD.band }, make: () => (j) => leadTargets(c, j).targets, bias: "資本額為現值" },
+    { key: "AI2", label: "AI2 AI 供應鏈依市值（月調）", start: "base", opts: { every: 20, band: LEAD.band }, make: () => (j) => aiTargets(c, j, { weight: "cap" }), bias: "名單事後挑、資本額為現值" },
+    { key: "U1", label: "U1 實單規則（買入前 8 檔、成本 -10% 停損）", start: "base", opts: { every: REAL.every, costStop: REAL.stop }, make: () => (j) => realTargets(use, companies, c, j) },
+    { key: "BUY", label: "BUY 現行 App「買入」前 10 檔等權", start: "base", make: () => (j) => { const b = scoredAt(j).filter((x) => x.rating === "買入").sort((x, y) => y.score - x.score).slice(0, STEADY.top); return new Map(b.map((x) => [x.code, 1 / STEADY.top])); } },
+    { key: "T2", label: "T2 轉強精選", start: "base", opts: { every: 1, band: 0.03 }, make: () => turnPicker(c, { strict: true, regime: true }) },
+    { key: "QUAD", label: "QUAD 四因子（等權，最多 20 檔）", start: "rev", make: () => (j) => { const base = scoredAt(j); const k = Math.min(20, base.filter((x) => x.rating === "買入").length); const p = quadPicks(c, j, base, k); return new Map(p.map((x) => [x.code, 1 / Math.max(1, p.length)])); } },
+    { key: "G1", label: "G1 成長組單獨", start: "rev", opts: { every: DUAL.every, band: DUAL.band }, make: () => dualPicker(c, 1, 0) },
+    { key: "D1", label: "D1 雙引擎（成長五成＋低波動五成）", start: "rev", opts: { every: DUAL.every, band: DUAL.band }, make: () => dualPicker(c, DUAL.growth, DUAL.steady) },
+    { key: "D4", label: "D4 雙引擎＋外資條件", start: "rev", opts: { every: DUAL.every, band: DUAL.band }, make: () => dualPicker(c, DUAL.growth, DUAL.steady, 0, { foreignOk: true }) },
+  ];
+
+  // ---- 對照組 ----
+  const eligCache = new Map<number, string[]>();
+  const eligible = (j: number) => {
+    let x = eligCache.get(j);
+    if (!x) { x = [...c.rows[j]].filter(([code, r]) => isCommonStock(code) && r[4] >= 5e8 && (c.series.get(code)?.start ?? 1e9) <= j - 60).map(([code]) => code); eligCache.set(j, x); }
+    return x;
+  };
+  const sims = (start: number) => ({ bench: simulateLB(c, start, hold0050) });
+  const benchBy = new Map<number, LbSim>([[j0, sims(j0).bench], [jRev, sims(jRev).bench]]);
+
+  type Row = { key: string; label: string; s: StrategyStats; sim: LbSim; bench: LbSim; start: number; bias?: string };
+  const rows: Row[] = [];
+  for (const d of defs) {
+    const start = d.start === "rev" ? jRev : j0, bench = benchBy.get(start)!;
+    const sim = simulateLB(c, start, d.make(), d.opts);
+    rows.push({ key: d.key, label: d.label, s: stats(d.key, d.label, c, start, sim, bench.eq), sim, bench, start, bias: d.bias });
+    log(`${d.key} 完成`);
+  }
+  // 等權重（成交金額 ≥5 億普通股，每月調整）
+  {
+    const eqW: Picker = (j) => { const p = eligible(j); return new Map(p.map((x) => [x, 1 / p.length])); };
+    for (const [start, tag] of [[j0, "base"], [jRev, "rev"]] as const) {
+      const sim = simulateLB(c, start, eqW, { every: 20, band: 0.002 });
+      rows.push({ key: `EW_${tag}`, label: `對照 等權重（成交金額≥5億普通股，月調）起點 ${c.dates[start]}`, s: stats("EW", "EW", c, start, sim, benchBy.get(start)!.eq), sim, bench: benchBy.get(start)!, start });
+    }
+  }
+  rows.push({ key: "0050", label: "0050 買進持有", s: stats("0050", "0050", c, j0, benchBy.get(j0)!, benchBy.get(j0)!.eq), sim: benchBy.get(j0)!, bench: benchBy.get(j0)!, start: j0 });
+
+  // ---- 隨機選股（每個組合各抽一組：檔數＝該組合平均持股、換股頻率與換手率都配合該組合，才不會因為換手率不同而不公平）----
+  const randomFor = (r: Row, every: number) => {
+    const k = Math.max(3, Math.min(60, Math.round(r.sim.avgHold))), p = Math.max(0.02, Math.min(1, r.s.turnover / (250 / every)));
+    const cagrs: number[] = [], dds: number[] = [];
+    for (let s = 0; s < DRAWS; s++) { const e = simulateLB(c, r.start, randomPicker(eligible, k, mulberry32(1000 + s), p), { every }).eq; cagrs.push(cagr(e)); dds.push(maxDd(e)); }
+    cagrs.sort((a, b) => a - b); dds.sort((a, b) => a - b);
+    return { k, p, cagrs, dds };
+  };
+
+  // ---- 判定 ----
+  const slice = (r: Row, from: string, to: string) => {
+    const idx: number[] = [];
+    for (let i = 0; i < r.sim.eq.length; i++) { const d = c.dates[r.start + i]; if (d >= from && d <= to) idx.push(i); }
+    return { eq: idx.map((i) => r.sim.eq[i]), bench: idx.map((i) => r.bench.eq[i]), dates: idx.map((i) => c.dates[r.start + i]) };
+  };
+  const judge = (r: Row, from: string, to: string, windows: [string, string][]) => {
+    const x = slice(r, from, to);
+    if (x.eq.length < 120) return null;
+    const ex = cagr(x.eq) - cagr(x.bench), roll = rollingWin(x.eq, x.bench, 250);
+    const ddOk = maxDd(x.eq) >= maxDd(x.bench) - 1e-9;
+    const winOk = windows.every(([a, b]) => { const s = ddBetween(x.eq, x.dates, a, b), t = ddBetween(x.bench, x.dates, a, b); return !Number.isFinite(s) || s >= t - 1e-9; });
+    const passes = [ex >= 0.03, ddOk, roll.win >= 0.7, winOk];
+    return { ex, cg: cagr(x.eq), bcg: cagr(x.bench), dd: maxDd(x.eq), bdd: maxDd(x.bench), roll, passes, ok: passes.every(Boolean) };
+  };
+  const winA: [string, string][] = [["20181001", "20190104"], ["20200120", "20200331"]];
+  const lines: string[] = [];
+  for (const r of rows) {
+    if (r.key === "0050") continue;
+    const j = judge(r, c.dates[r.start], A_END, winA);
+    if (!j) { lines.push(`${r.key} 期間太短`); continue; }
+    const every = Math.max(5, defs.find((d) => d.key === r.key)?.opts?.every ?? 5);
+    const rr = r.key.startsWith("EW") ? null : randomFor(r, every);
+    const pct = rr ? percentileOf(rr.cagrs, j.cg) : NaN;
+    const rq = (a: number[], q: number) => a[Math.floor(q * (a.length - 1))];
+    const cost = r.sim.costPaid / (r.sim.eq.length / 250);
+    lines.push(`${r.key.padEnd(7)} 年化 ${pc(j.cg)} (0050 ${pc(j.bcg)}) 超額 ${pc(j.ex)}｜回撤 ${pc(j.dd)} (0050 ${pc(j.bdd)})｜12月滾動勝率 ${pc(j.roll.win, 0)} (${j.roll.n})｜判定 ${j.passes.map((p) => (p ? "✓" : "✗")).join("")} ${j.ok ? "候選" : "淘汰"}｜隨機（${rr ? `${rr.k}檔 換${(rr.p * 100).toFixed(0)}%` : "—"}）中位 ${rr ? pc(rq(rr.cagrs, 0.5)) : "—"} p95 ${rr ? pc(rq(rr.cagrs, 0.95)) : "—"} 策略百分位 ${pc(pct, 0)}｜換手 ${r.s.turnover.toFixed(1)}x/年 成本 ${pc(cost, 2)}/年 漲停買不到 ${r.sim.blockedBuys} 跌停賣不掉 ${r.sim.blockedSells}${r.bias ? "｜⚠" + r.bias : ""}`);
+  }
+  console.log(`LBT_RUN_SUMMARY 階段 A（${c.dates[j0]}～${A_END}）判定欄依序：超額≥3%／回撤不深於0050／12月滾動≥70%／2018Q4與2020疫情不深於0050`);
+  for (const l of lines) console.log(`LBT_RUN ${l}`);
+
+  if (openB) {
+    console.log("LBT_RUN_B 階段 B（開封）：只看階段 A 判定為候選者的後續；以下為全部組合的 B 與 C 數字，供完整報告（非候選者已淘汰，不因 B 好看而復活）");
+    const winB: [string, string][] = [["20220103", "20221031"]];
+    for (const r of rows) {
+      if (r.key === "0050") continue;
+      const b = judge(r, "20220103", B_END, winB), cc = judge(r, "20250203", "99999999", [["20260901", "20261116"]]);
+      lines.length = 0;
+      console.log(`LBT_RUN_B ${r.key.padEnd(7)} B：${b ? `年化 ${pc(b.cg)} (0050 ${pc(b.bcg)}) 超額 ${pc(b.ex)} 回撤 ${pc(b.dd)} (${pc(b.bdd)}) 滾動勝率 ${pc(b.roll.win, 0)} ${b.passes.map((p) => (p ? "✓" : "✗")).join("")}` : "—"}｜C（參考）：${cc ? `年化 ${pc(cc.cg)} (0050 ${pc(cc.bcg)}) 回撤 ${pc(cc.dd)} (${pc(cc.bdd)})` : "—"}`);
+    }
+  }
+  fs.writeFileSync("longbt-result.json", JSON.stringify({ stage: openB ? "A+B+C" : "A", rows: rows.map((r) => ({ key: r.key, label: r.label, stats: r.s })) }));
+  log("完成");
+}
+main().catch((e) => { console.error("LBT_FATAL", e); process.exit(1); });

@@ -78,3 +78,12 @@
 1. 讀 `HANDOFF.md` §10 的接手檢查清單，`git remote set-url …`、pull。
 2. 確認使用者想要的起點：**直接做第 4 節的第一段（可行性）**。
 3. 做完第一段先回報，不要自己接著做第二段。
+
+
+---
+## 進度（2026-11-17 更新）
+- 第一段（可行性）✅、第二段（資料管線，2018/1/2～2026/11/16 全下載）✅、第三段（引擎＋階段 A）✅、第四段（報告）✅ → 見 `longbt/REPORT_A.md`。
+- **結論：階段 A 沒有可信候選；B、C 封存、未開。** 規則與判定標準在 `longbt/PREREG.md`（含兩處更正紀錄）。
+- 程式：`src/engine/longbt.ts`（引擎）、`tools/longbt-fetch.ts`（下載）、`tools/longbt-run.ts`（回測）；workflow：`longbt-fetch.yml`（推送 `stock-app/longbt/RUN`）、`longbt-run.yml`（推送 `stock-app/tools/probe/longbt-run.env`）。
+- **坑**：`stock-app/**` 底下除了 `tools/probe/`、`virtual/` 的任何推送都會觸發 App 打包（stock-app.yml）；觸發檔要放 `tools/probe/`，程式碼提交加 `[skip ci]`。workflow_dispatch 對只在非預設分支的 workflow 會 404，所以用推送檔案觸發、用 REST `rerun_workflow_run` 續跑。
+- 待使用者決定（都是新規則，需先經同意）：低換手版「買入」訊號；用實際手續費折扣重跑；是否放棄追 +3% 的目標、改以「回撤較小」為目標。

@@ -25,7 +25,7 @@ const pc = (x: number, d = 1) => `${x >= 0 ? "+" : ""}${(x * 100).toFixed(d)}%`;
  * mode "n5"：0050 五成＋方案 A 五成，每天重新判斷（10/29 使用者從每 5 個交易日改成每天），差距小於淨值 0.2% 就不動。
  * mode "wide"：全個股（不放 0050）、不限檔數，條件同 A（見 wideTargets），每天重新判斷，只做局部修正。
  * mode "dual"：雙引擎（使用者 11/14 同意上線）：成長組五成（每 20 個交易日重選，需要 opts.rev 歷史月營收）＋方案 A 五成（每 5 個交易日重選）。
- *   起始日是 DUAL.start（規則定案前最後一個資料日 11/13），不是其他組的 10/23：規則是看過 11/13 以前的資料才訂的，從定案日起算才是真正的事後觀察。
+ *   雙引擎＋（11/18 使用者要求乾淨重新開始）起始日是 DUALPLUS.rankFrom（11/17）：新規則從 11/17 收盤的判斷起算，歷史不含舊規則；原版雙引擎起始日是 DUAL.start（規則定案前最後一個資料日 11/13），不是其他組的 10/23：規則是看過 11/13 以前的資料才訂的，從定案日起算才是真正的事後觀察。
  */
 export function runWatch(days: BtDay[], companies: Company[], opts: { start?: string; budget?: number; now?: number; mode?: "n5" | "wide" | "regime" | "lead" | "ai" | "real" | "turn" | "dual" | "dualplus"; rev?: RevTable; vetoes?: DualVeto[]; rankFrom?: string; buyAt?: (j: number) => ReadonlySet<string> } = {}): VirtualEtf {
   const wide = opts.mode === "wide", regime = opts.mode === "regime", lead = opts.mode === "lead", ai = opts.mode === "ai", real = opts.mode === "real", turn = opts.mode === "turn", plus = opts.mode === "dualplus", dual = opts.mode === "dual" || plus;
@@ -35,7 +35,7 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
   const rankFrom = opts.rankFrom ?? DUALPLUS.rankFrom;
   let curGroups: Record<string, "growth" | "steady" | "both"> | undefined; // 雙引擎：最近一次判斷的分類 // 雙引擎＋：非判斷日因否決臨時調整時，沿用上次的低波動組
   let regimeOn: boolean | undefined; // 攻守輪動目前的狀態
-  const start = opts.start ?? (dual ? DUAL.start : WATCH.start), budget = opts.budget ?? WATCH.budget;
+  const start = opts.start ?? (plus ? DUALPLUS.rankFrom : dual ? DUAL.start : WATCH.start), budget = opts.budget ?? WATCH.budget;
   let v: VirtualEtf = { ...newVirtual(start, budget), updatedAt: opts.now ?? Date.now(), stops: {} };
   const c = buildCtx(days, companies, opts.rev);
   let growth: GrowthPick[] = []; // 雙引擎：成長組目前的選股（每 20 個交易日重選）

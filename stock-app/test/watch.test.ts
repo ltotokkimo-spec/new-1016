@@ -331,6 +331,11 @@ describe("雙引擎＋ 11/17：候選限定選股頁「買入」（從 rankFrom 
     expect(DUALPLUS.rankFrom).toBe("20261117");
     expect(runWatch(days, companies, { start: startAt, now: 0, mode: "dualplus", rev, rankFrom: DUALPLUS.rankFrom }).trades).toEqual(base.trades);
   });
+  it("雙引擎＋預設從 DUALPLUS.rankFrom 起算（乾淨重新開始）；原版雙引擎仍從 DUAL.start", () => {
+    expect(runWatch(days, companies, { now: 0, mode: "dualplus", rev }).start).toBe(DUALPLUS.rankFrom);
+    expect(runWatch(days, companies, { now: 0, mode: "dual", rev }).start).toBe(DUAL.start);
+    expect(DUALPLUS.rankFrom > DUAL.start).toBe(true);
+  });
   it("生效日之前的成交和舊規則一樣，之後買進的都在名單內", () => {
     const v = run();
     const before = (t: { date: string }) => t.date <= switchDate; // 生效日當天收盤後才決定，隔天成交，所以 ≤ 生效日的成交都來自舊規則

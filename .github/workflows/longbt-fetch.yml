@@ -1,0 +1,49 @@
+name: LongBT Fetch
+
+# 長期回測第二段：分批下載 2018 起的全市場日資料（快取獨立，不動每日回測的 .bt-cache）。
+# 只在 stock-app/longbt/RUN 被推送時執行（或用 rerun 續跑）；RUN 的內容決定起始日與時間預算。
+# 每次最多跑 LBT_BUDGET_MIN 分鐘，下載進度存在快取 longbt-cache-*，續跑會接著下載。
+on:
+  push:
+    branches: [ 'claude/ui-calculator-interface-t3x9kh' ]
+    paths: [ 'stock-app/longbt/RUN' ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: longbt-fetch
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    defaults:
+      run:
+        working-directory: stock-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: stock-app/package-lock.json
+      - run: npm ci
+      - name: 還原長期回測快取
+        uses: actions/cache/restore@v4
+        with:
+          path: stock-app/.lbt-cache
+          key: longbt-cache-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: longbt-cache-
+      - name: 下載與驗證
+        run: |
+          set -a; . longbt/RUN; set +a
+          npx vite build --ssr tools/longbt-fetch.ts --outDir .lbt-build
+          node .lbt-build/longbt-fetch.js .lbt-cache 2>&1 | tee lbt.log
+      - name: 存長期回測快取
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: stock-app/.lbt-cache
+          key: longbt-cache-${{ github.run_id }}-${{ github.run_attempt }}

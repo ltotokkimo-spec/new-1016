@@ -2,3 +2,7 @@ node_modules/
 dist/
 .bt-build/
 .bt-cache/
+.lbt-cache/
+.lbt-build/
+.probe-build/
+lbt.log

@@ -75,7 +75,7 @@ function rets(c: Ctx, code: string, j: number, n: number): number[] | null {
 }
 
 /** 和 steady.ts 的 aPicks 相同（低波動方案 A）；allow 有值時候選池限定在該名單內（在取「波動最低的一半」之前就限定） */
-export function aPicksLB(c: Ctx, j: number, allow?: ReadonlySet<string>): Map<string, number> {
+export function aPicksLB(c: Ctx, j: number, allow?: ReadonlySet<string>, foreignOk = false): Map<string, number> {
   const vol60 = (code: string) => { const r60 = rets(c, code, j, 60); return r60 ? std(r60) : NaN; };
   const pool: { code: string; vol: number }[] = [];
   for (const [code, row] of c.rows[j]) {
@@ -94,6 +94,7 @@ export function aPicksLB(c: Ctx, j: number, allow?: ReadonlySet<string>): Map<st
     const { slope, r2 } = trendFit(prices);
     const annual = Math.exp(slope * 250) - 1;
     if (!(annual > 0) || annual > STEADY.trendCap) continue;
+    if (foreignOk && !(foreign60(c, code, j) >= 0)) continue; // 雙引擎＋的外資條件
     cands.push({ code, vol, sector: c.sector.get(code) ?? "其他", score: annual * r2 });
   }
   cands.sort((a, b) => b.score - a.score || a.vol - b.vol);
@@ -106,10 +107,9 @@ export function aPicksLB(c: Ctx, j: number, allow?: ReadonlySet<string>): Map<st
   const w = inverseVolWeights(chosen.map((x) => x.vol), STEADY.maxWeight);
   return new Map(chosen.map((x, i) => [x.code, w[i]]));
 }
-void foreign60;
 
 /** 成長 wG＋低波動 A wA；每 5 個交易日呼叫一次，成長組每 reselectEvery 次重選（4＝每 20 個交易日、1＝每週）。allowAt：每個判斷日的候選名單（沒給＝不限） */
-export function growthLbPicker(c: Ctx, wG: number, wA: number, trend: boolean, reselectEvery: number, allowAt?: (j: number) => ReadonlySet<string>): Picker {
+export function growthLbPicker(c: Ctx, wG: number, wA: number, trend: boolean, reselectEvery: number, allowAt?: (j: number) => ReadonlySet<string>, foreignOk = false): Picker {
   let last: { code: string; weight: number }[] | null = null, n = 0;
   return (j) => {
     const allow = allowAt?.(j);
@@ -117,7 +117,7 @@ export function growthLbPicker(c: Ctx, wG: number, wA: number, trend: boolean, r
     n++;
     const m = new Map<string, number>();
     for (const x of last) m.set(x.code, (m.get(x.code) ?? 0) + x.weight * wG);
-    if (wA) for (const [k, v] of aPicksLB(c, j, allow)) m.set(k, (m.get(k) ?? 0) + v * wA);
+    if (wA) for (const [k, v] of aPicksLB(c, j, allow, foreignOk)) m.set(k, (m.get(k) ?? 0) + v * wA);
     return m;
   };
 }

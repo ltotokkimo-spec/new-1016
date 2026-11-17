@@ -175,6 +175,7 @@ async function main() {
     defs.push(
       { key: "DG0", label: "DG0 驗證：複製版雙引擎（無限定，應與 D1 完全一樣）", start: "rev", opts: o, make: () => growthLbPicker(c, 0.5, 0.5, false, 4) },
       { key: "DB", label: "DB 雙引擎，候選限定當天選股頁「買入」", start: "rev", opts: o, make: () => growthLbPicker(c, 0.5, 0.5, false, 4, (j) => lists(j).buy) },
+      { key: "DB4", label: "DB4 雙引擎＋的外資條件加上候選限定「買入」（實際上線的組合，B 已用掉，只看階段 A）", start: "rev", opts: o, make: () => growthLbPicker(c, 0.5, 0.5, false, 4, (j) => lists(j).buy, true) },
       { key: "DQ", label: "DQ 雙引擎，候選限定當天四因子名單", start: "rev", opts: o, make: () => growthLbPicker(c, 0.5, 0.5, false, 4, (j) => lists(j).quad) },
     );
   }
@@ -245,8 +246,8 @@ async function main() {
     const by = new Map(rows.map((r) => [r.key, r]));
     const g0 = by.get("DG0"), d1 = by.get("D1");
     console.log(`LBT_EXP2 驗證：DG0 年化 ${pc(g0!.s.cagr)} 回撤 ${pc(g0!.s.maxDd)}｜D1 年化 ${pc(d1!.s.cagr)} 回撤 ${pc(d1!.s.maxDd)}｜${Math.abs(g0!.s.cagr - d1!.s.cagr) < 1e-9 ? "一致" : "⚠不一致，複製版有差異"}`);
-    for (const k of ["DB", "DQ"] as const) {
-      const r = by.get(k)!, b = by.get("D1")!, d = defs.find((x) => x.key === k)!;
+    for (const k of ["DB", "DB4", "DQ"] as const) {
+      const r = by.get(k)!, b = by.get(k === "DB4" ? "D4" : "D1")!, d = defs.find((x) => x.key === k)!;
       const g = simulateLB(c, r.start, d.make(), { ...d.opts, costs: false });
       const better = r.s.cagr > b.s.cagr && r.s.maxDd > b.s.maxDd;
       console.log(`LBT_EXP2 ${k} vs D1：成本後年化 ${pc(r.s.cagr)}（D1 ${pc(b.s.cagr)}）｜最大回撤 ${pc(r.s.maxDd)}（${pc(b.s.maxDd)}）｜零成本年化 ${pc(cagr(g.eq))}｜換手 ${r.s.turnover.toFixed(1)}x（${b.s.turnover.toFixed(1)}x）｜平均持股 ${r.sim.avgHold.toFixed(1)}（${b.sim.avgHold.toFixed(1)}）｜曝險 ${pc(r.sim.exposure, 0)}（${pc(b.sim.exposure, 0)}）｜事前登記判定（年化較高且回撤較淺）：${better ? "改善" : "沒有改善"}`);

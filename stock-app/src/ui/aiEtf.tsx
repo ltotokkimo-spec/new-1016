@@ -30,6 +30,8 @@ const signedMoney = (x: number) => `${x < 0 ? "-" : x > 0 ? "+" : ""}${Math.roun
 /** 報酬率下一行的總損益（現在的淨值減起始資金，賺紅賠綠，顏色跟著外層） */
 /** 不到 1 萬的金額 fmtMoney 不帶單位（例如「現金 23」看不懂）：補上「元」 */
 const moneyU = (x: number) => (Number.isFinite(x) && Math.abs(x) < 1e4 ? `${fmtMoney(x)} 元` : fmtMoney(x));
+/** 手動新增成交的「購買／賣出金額」（11/18 使用者）：股數 × 成交價，四捨五入到元；沒填好就空白（不含手續費與證交稅） */
+const tradeAmount = (shares: string, price: string) => { const a = Number(shares) * Number(price); return a > 0 && Number.isFinite(a) ? Math.round(a).toLocaleString("en-US") : ""; };
 
 function TotalPnl({ now, budget }: { now: number; budget: number }) {
   const x = now - budget;
@@ -974,6 +976,7 @@ function DualManual() {
       <div class="row" style={{ gap: "8px" }}>
         <label class="field" style={{ flex: 1 }}>股數<input inputMode="numeric" value={shares} onInput={(e) => setShares((e.target as HTMLInputElement).value)} /></label>
         <label class="field" style={{ flex: 1 }}>成交價<input inputMode="decimal" value={price} onInput={(e) => setPrice((e.target as HTMLInputElement).value)} /></label>
+        <label class="field" style={{ flex: 1 }}>{side === "buy" ? "購買金額" : "賣出金額"}<input data-testid="dualreal-amount" readOnly tabIndex={-1} value={tradeAmount(shares, price)} placeholder="股數×成交價" style={{ color: "var(--muted)" }} /></label>
       </div>
       {err && <div class="error">{err}</div>}
       <div class="row" style={{ gap: "8px" }}><button class="btn" style={{ flex: 1 }} onClick={save}>記錄</button><button class="btn secondary" style={{ flex: 1 }} onClick={() => setOpen(false)}>取消</button></div>
@@ -1124,6 +1127,7 @@ function ManualTrade({ draft }: { draft?: SellDraft }) {
         <label class="field">代號<input id="etf-code" value={code} onInput={(e) => { const v = (e.target as HTMLInputElement).value; setCode(v); const p = etfPrice(v.trim().toUpperCase()); if (p && !price) setPrice(String(p)); }} placeholder="例如 2330" /></label>
         <label class="field">股數<input id="etf-shares" inputMode="numeric" value={shares} onInput={(e) => setShares((e.target as HTMLInputElement).value)} /></label>
         <label class="field">成交價<input id="etf-price" inputMode="decimal" value={price} onInput={(e) => setPrice((e.target as HTMLInputElement).value)} /></label>
+        <label class="field">{side === "buy" ? "購買金額" : "賣出金額"}（元）<input id="etf-amount" data-testid="etf-amount" readOnly tabIndex={-1} value={tradeAmount(shares, price)} placeholder="股數×成交價" style={{ color: "var(--muted)" }} /></label>
       </div>
       {side === "sell" && <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>在券商 App 賣掉之後，把實際成交的股數和價格填在這裡；這裡只是記錄，不會真的下單。</div>}
       {err && <div class="error">{err}</div>}

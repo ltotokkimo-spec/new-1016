@@ -1115,6 +1115,10 @@ function check(ok, name, detail = "") {
   await page.fill("#etf-code", "2330");
   await page.fill("#etf-shares", "10");
   await page.waitForFunction(() => Number(document.querySelector("#etf-price").value) > 0, null, { timeout: 5000 }).catch(() => page.fill("#etf-price", "1000"));
+  { // 11/18：成交價旁邊的「購買金額」＝股數 × 成交價（唯讀）
+    const f = await page.evaluate(() => ({ sh: Number(document.querySelector("#etf-shares").value), px: Number(document.querySelector("#etf-price").value), amt: document.querySelector('[data-testid="etf-amount"]')?.value ?? null, ro: document.querySelector('[data-testid="etf-amount"]')?.readOnly }));
+    check(f.amt === Math.round(f.sh * f.px).toLocaleString("en-US") && f.ro === true, "手動新增成交：成交價旁邊顯示購買金額（股數×成交價，唯讀）", JSON.stringify(f));
+  }
   await page.click('[data-testid="etf-trade-save"]');
   await page.waitForFunction(() => /贏過 0050|落後 0050|和 0050 持平/.test(document.querySelector('[data-testid="etf-summary"]').innerText), null, { timeout: 45000 });
   const etfSum = await page.$eval('[data-testid="etf-summary"]', (e) => e.innerText.replace(/\s+/g, " "));

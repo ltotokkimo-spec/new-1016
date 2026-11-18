@@ -1104,6 +1104,10 @@ function check(ok, name, detail = "") {
     log("更新時間（總評比）", JSON.stringify(us));
     check(us.length > 0 && us.every((t) => /資料日 \d+\/\d+（.）\s?收盤/.test(t) && /更新於 (今天|\d+\/\d+（.）) \d\d:\d\d/.test(t) && /(下次更新：約 (今天|\d+\/\d+（.）) 17:00～17:30|比平常晚)/.test(t)), "總評比頁面顯示資料日、更新時間與下次更新時間", JSON.stringify(us));
   }
+  { // 11/18：底部「自組ETF」紅點亮時，子分頁「我的實單」按鈕也要有紅點（兩邊同一份提醒，反之亦然）
+    const tab = !!(await page.$('[data-testid="etf-dot"]')), sub = !!(await page.$('[data-testid="mode-real-dot"]'));
+    check(tab === sub, "自組ETF 底部紅點與「我的實單」按鈕上的紅點一致（亮的話指到哪一個子分頁）", `底部 ${tab}／子分頁 ${sub}`);
+  }
   await page.click('[data-testid="mode-real"]');
   await page.waitForSelector('[data-testid="etf-summary"]', { timeout: 10000 });
   check(/起始資金 10\.0 萬/.test(await page.$eval('[data-testid="etf-summary"]', (e) => e.innerText)), "自組ETF 起始資金 10 萬");

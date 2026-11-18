@@ -182,6 +182,7 @@ a.btn { text-decoration: none; }
 .mini-input { width: 9.5em; padding: 4px 8px; font-size: 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: inherit; }
 .btn.mini { padding: 4px 10px; font-size: 13px; }
 .tabs button { position: relative; }
+.seg .mode-dot { position: absolute; top: 2px; right: 3px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--up); color: #fff; font-size: 11px; line-height: 16px; font-weight: 700; text-align: center; box-sizing: border-box; }
 .tabs .dot { position: absolute; top: 6px; right: calc(50% - 16px); width: 8px; height: 8px; border-radius: 50%; background: var(--up); }
 table.cmp { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.cmp th { font-weight: 500; color: var(--muted); text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); }

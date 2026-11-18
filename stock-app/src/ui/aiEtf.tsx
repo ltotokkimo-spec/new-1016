@@ -1148,6 +1148,9 @@ export function AiEtfScreen({ open }: { open?: (s: Scored, list?: Scored[]) => v
   type Mode = "compare" | "virtual" | "watch" | "wide" | "regime" | "lead" | "ai" | "rule" | "turn" | "dual" | "dualplus" | "dualReal" | "real";
   const [mode, setMode] = useState<Mode>(() => { try { const m = localStorage.getItem("aietfMode"); return m === "real" || m === "dualReal" || m === "rule" || m === "turn" || m === "dual" || m === "dualplus" || m === "watch" || m === "wide" || m === "regime" || m === "lead" || m === "ai" || m === "compare" ? m : "virtual"; } catch { return "virtual"; } });
   const pick = (m: Mode) => { setMode(m); try { localStorage.setItem("aietfMode", m); } catch { /* 不重要 */ } };
+  // 11/18 使用者：底部「自組ETF」的紅點看不出在指哪裡。紅點是「我的實單」有持股跌破停損／被評離場，所以在子分頁「我的實單」按鈕上也標紅點與檔數
+  useStore((s) => ({ e: s.aiEtf, p: s.prices, l: s.live, a: s.tw.asOf }));
+  const realAlertN = new Set(etfAlertsNow().map((a) => a.code)).size;
   return (
     <div>
       <div class="seg tight" role="group" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gridAutoFlow: "row", marginBottom: "10px" }}>
@@ -1162,7 +1165,7 @@ export function AiEtfScreen({ open }: { open?: (s: Scored, list?: Scored[]) => v
         <button aria-pressed={mode === "turn"} onClick={() => pick("turn")} data-testid="mode-turn">剛轉強</button>
         <button aria-pressed={mode === "dual"} onClick={() => pick("dual")} data-testid="mode-dual">雙引擎</button>
         <button aria-pressed={mode === "dualplus"} onClick={() => pick("dualplus")} data-testid="mode-dualplus">雙引擎＋</button>
-        <button aria-pressed={mode === "real"} onClick={() => pick("real")} data-testid="mode-real">我的實單</button>
+        <button aria-pressed={mode === "real"} onClick={() => pick("real")} data-testid="mode-real" style={{ position: "relative" }}>我的實單{realAlertN > 0 && <span class="mode-dot" data-testid="mode-real-dot" aria-label={`有 ${realAlertN} 檔需要注意`}>{realAlertN}</span>}</button>
         <button aria-pressed={mode === "dualReal"} onClick={() => pick("dualReal")} data-testid="mode-dualreal">雙引擎實單</button>
       </div>
       {mode === "real" ? <RealEtfScreen /> : mode === "dualReal" ? <DualRealScreen /> : mode === "compare" ? <CompareView /> : <VirtualView key={mode} kind={mode} />}

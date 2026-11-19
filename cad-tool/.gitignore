@@ -1,0 +1,8 @@
+__pycache__/
+build/
+dist/
+*.spec
+libredwg/
+selftest*.txt
+selftest_out.*
+example.dwg

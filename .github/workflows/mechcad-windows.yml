@@ -1,0 +1,92 @@
+name: MechCAD Windows 執行檔
+
+# 簡易機械 CAD（cad-tool/）：在 GitHub 的 Windows 電腦上編譯成 .exe，
+# 自動測試後發佈到 Releases，使用者下載 zip 解壓縮就能用。
+on:
+  push:
+    paths:
+      - 'cad-tool/**'
+      - '.github/workflows/mechcad-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安裝套件
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r cad-tool/requirements.txt
+
+      - name: 下載 LibreDWG（沒裝 ODA 時用來讀 DWG）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = gh release view -R LibreDWG/libredwg --json assets -q '.assets[].name'
+          $name = $assets | Where-Object { $_ -match 'win64' -and $_ -match '\.zip$' } | Select-Object -First 1
+          if (-not $name) { throw "找不到 LibreDWG win64 版本：$assets" }
+          Write-Host "LibreDWG: $name"
+          gh release download -R LibreDWG/libredwg -p $name -D ext
+          Expand-Archive "ext/$name" -DestinationPath ext/libredwg
+          $exe = Get-ChildItem -Recurse -Filter dwg2dxf.exe ext/libredwg | Select-Object -First 1
+          New-Item -ItemType Directory -Force cad-tool/libredwg | Out-Null
+          Copy-Item "$($exe.DirectoryName)\*" cad-tool/libredwg -Recurse
+          Get-ChildItem cad-tool/libredwg | Select-Object -First 20 | Format-Table Name, Length
+
+      - name: 編譯 exe
+        working-directory: cad-tool
+        run: |
+          pyinstaller --noconfirm --clean --windowed --name MechCAD `
+            --add-data "libredwg;libredwg" `
+            --collect-submodules ezdxf --collect-data ezdxf `
+            --exclude-module tkinter --exclude-module matplotlib `
+            main.py
+
+      - name: 自動測試 exe
+        working-directory: cad-tool
+        run: |
+          $dwg = ""
+          try {
+            Invoke-WebRequest "https://raw.githubusercontent.com/LibreDWG/libredwg/master/test/test-data/example_2018.dwg" -OutFile example.dwg
+            $dwg = (Resolve-Path example.dwg).Path
+          } catch { Write-Host "測試用 DWG 下載失敗，只測 DXF" }
+          $out = Join-Path $pwd "selftest.txt"
+          $argv = @('--selftest', $out)
+          if ($dwg) { $argv += $dwg }
+          $p = Start-Process -FilePath dist/MechCAD/MechCAD.exe -ArgumentList $argv -Wait -PassThru
+          Get-Content $out
+          if ($p.ExitCode -ne 0) { throw "自動測試失敗" }
+
+      - name: 打包 zip
+        run: |
+          Copy-Item cad-tool/使用說明.txt cad-tool/dist/MechCAD/
+          Compress-Archive -Path cad-tool/dist/MechCAD -DestinationPath MechCAD-windows.zip
+          "{0:N1} MB" -f ((Get-Item MechCAD-windows.zip).Length / 1MB)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MechCAD-windows
+          path: MechCAD-windows.zip
+
+      - name: 發佈到 Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: mechcad-v0.1.${{ github.run_number }}
+          name: 簡易機械 CAD v0.1.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          files: MechCAD-windows.zip
+          body: |
+            Windows 10/11 用。下載 MechCAD-windows.zip → 解壓縮 → 打開 MechCAD 資料夾 → 雙擊 MechCAD.exe。
+            要開啟／儲存 DWG，請另外安裝免費的 ODA File Converter（程式裡「說明」選單有步驟）。

@@ -373,12 +373,16 @@ function ProResume() {
     finally { proChecking = false; }
   };
   useEffect(() => {
+    let tries = 0; // 回到前景後約 1 分鐘內，每 2 秒再讀一次剪貼簿：第 2、3 份回覆時「回到前景」通知有時漏掉，光靠事件不夠（11/19 使用者回報）
     check();
-    const on = () => { if (document.visibilityState === "visible") check(); };
+    const on = () => { tries = 0; if (document.visibilityState === "visible") check(); };
     document.addEventListener("visibilitychange", on);
     window.addEventListener("focus", on);
-    const offResume = onAppResume(() => { void check(); }); // 手機 App：原生的「回到前景」通知
-    return () => { document.removeEventListener("visibilitychange", on); window.removeEventListener("focus", on); offResume(); };
+    const offResume = onAppResume(() => { tries = 0; void check(); }); // 手機 App：原生的「回到前景」通知
+    const armed = () => { tries = 0; };
+    window.addEventListener("pro-armed", armed);
+    const poll = setInterval(() => { if (document.visibilityState === "visible" && proFlag.get() && tries++ < 30) void check(); }, 2000);
+    return () => { document.removeEventListener("visibilitychange", on); window.removeEventListener("focus", on); offResume(); clearInterval(poll); window.removeEventListener("pro-armed", armed); };
   }, []);
   const pasteAndLoad = async () => {
     try {
@@ -451,7 +455,7 @@ function ProReview({ disabled, review }: { disabled: boolean; review: boolean })
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "6px" }}>
         {[1, 2, 3].map((k) => (
           <a class="btn secondary block" key={k} aria-disabled={disabled} href={basePrompt ? claudeAppUrl(promptFor(k)) : undefined} target="_blank" rel="noreferrer"
-            onClick={() => { if (basePrompt) { proFlag.set(); setProStatus(`已開第 ${k} 組新對話（${dayTag}-${k}），等你從 Claude 複製回覆後切回來。`); copyText(promptFor(k), (ok) => setCopied(ok ? "ok" : "fail")); } }} data-testid={k === 1 ? "pro-open" : `pro-open-${k}`}>
+            onClick={() => { if (basePrompt) { proFlag.set(); window.dispatchEvent(new Event("pro-armed")); setProStatus(`已開第 ${k} 組新對話（${dayTag}-${k}），等你從 Claude 複製回覆後切回來。`); copyText(promptFor(k), (ok) => setCopied(ok ? "ok" : "fail")); } }} data-testid={k === 1 ? "pro-open" : `pro-open-${k}`}>
             {review ? "檢視調整" : "建議建倉"} {dayTag}-{k}
           </a>
         ))}

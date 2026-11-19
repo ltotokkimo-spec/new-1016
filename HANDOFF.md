@@ -1,13 +1,13 @@
 # 交接檔：金雷達（stock-app，10/27 由「掃雷專區」改名「掃金雷達」，10/28 再改「金雷達」）與周邊排程
 
-> 初版 2026-10-21，**2026-10-23 更新（使用者換聊天室）**，供新的 Claude Code 對話接手。**先讀這份，再讀 `CLAUDE.md`（工作方式）與 `stock-app/virtual/DAILY.md`（虛擬 ETF 每日程序）。**
+> 初版 2026-10-21，**2026-11-19 更新（長期回測、雙引擎＋新規則、排程轉移；見 §7、§9b、§9c）**，供新的 Claude Code 對話接手。**第一件事：照 `stock-app/virtual/ROUTINES.md` §D 把兩個綁在舊對話的排程轉移過來。****先讀這份，再讀 `CLAUDE.md`（工作方式）與 `stock-app/virtual/DAILY.md`（虛擬 ETF 每日程序）。**
 > 這份是「事實與決定」的整理，數字會變的（持股、淨值）請以檔案為準，不要照抄這裡。
 
 ## 1. 專案概況
 - **金雷達**：個人用 Android 選股 App（Capacitor + Preact，繁體中文）。台股／美股／ETF 選股、族群、持股、自組 ETF、數據。
 - Repo：`ltotokkimo-spec/new-1016`，本機資料夾叫 `-`。**開發分支 `claude/ui-calculator-interface-t3x9kh`**（repo 預設分支是 `claude/conversation-start-guide-ya0q8x`，每日回測的觸發 workflow 放在那邊）。
 - 同一個 repo 還有計算機、小畫家（根目錄的 `calculator.py`、`paint.py`、`tests/`），與選股 App 無關。
-- 已發布版本：**1.0.132**（2026-10-22 深夜，Releases `stock-radar-latest`：`stock-radar.apk` ＋ `version.json`；App 內按「更新」下載）。單元測試 184 項、模擬器 e2e 約 100 項檢查。
+- 已發布版本：**以 Releases `radar-app-d43m21s655` 的 version.json 為準**（11/18 最新為「購買金額」那版；下面 1.0.132 是 10/22 的舊記載，Releases `stock-radar-latest`：Releases `stock-radar-latest`：`stock-radar.apk` ＋ `version.json`；App 內按「更新」下載）。單元測試 184 項、模擬器 e2e 約 100 項檢查。
 - **11/11 停用舊版 App（使用者要求，已用新載點重裝）**：雲端資料 Release 由 `stock-radar-data` 搬到 `radar-data-vug13iw701`（`stock-backtest.yml` 發布時把舊位置缺的檔案搬過來後刪除舊位置；主動式 ETF、指數歷史的累積檔先讀新位置、沒有才讀舊位置）；虛擬 ETF 狀態檔改名 `stock-app/virtual/v-2wy3g7efad1c.json`（舊版讀的 raw 網址 404）。舊版只剩手機端直接抓證交所等的選股與報價。**新版有遠端停用開關**：`stock-app/MIN_VERSION`（寫入 version.json 的 `minVersionCode`），版本號低於它的 App 打開就只顯示「此版本已停用」（記在手機上，離線也維持）。要停用某個分享出去的版本前，使用者自己要先更新到更高版本。
 - **11/11 APK 下載位置改到 Releases `radar-app-d43m21s655`**（使用者要求停用昨天分享出去的舊載點；`stock-radar-latest` 由 stock-app.yml 每次發布時確認刪除，不要再建回）。App 的 `src/lib/update.ts` 讀新位置；1.0.335 以前的 App 找不到更新，使用者要從新載點重新安裝一次。repo 仍是公開，新位置在 Releases 頁看得到，只擋轉傳的舊連結。
 - 使用者用 ROG Phone 6D（Android 14）。想要 iPhone 版，目前**未決**（見 §9）。
@@ -59,12 +59,12 @@
 - **剛轉強**條件：收盤在 20 日線上方 5% 內、不低於 60 日線的 98%、MACD 柱 5 天內由負轉正、RSI<70、不在布林上軌之上、外資＋投信 5 日買超、成交額 ≥ 5 千萬。**過去半年回測：之後 20 天平均只有 +0.1%、上漲機率 48%**，比 App 原本的「買入」（+3.7%）差。App 內有如實顯示。
 - 其他 MCP：「台股官方」（工具前綴 `mcp__1710cc71-…__`，有即時報價、技術指標、法人、財報；上櫃歷史用 `get_otc_stock_history`，上市單日用 `get_stock_daily_trading`）。
 
-## 7. 排程與算力（2026-10-21 盤點）
-- 平日約 13 次排程＋1 個手動觸發，**幾乎都已用 Sonnet**；只有「虛擬 ETF」那個會叫醒**這個對話**。
-- **10/20 台北 14:11–19:40 所有排程都因 `USAGE_LIMIT_REACHED` 失敗**（共 8 次）；備援排程與主排程共用同一份額度，額度用完備援也一起失敗。
-- 最大的消耗：06:10 主分析（27 檔，約 6 分鐘）、10:23 盤中動能、17:55 持股報表，以及長對話本身（每回合重讀整段歷史）。
-- **10/21 已改（使用者同意）**：①06:40／07:40 補漏不再寫 `mcp_avail` 紀錄（檢查保留）②15:00 收盤價收集拿掉興櫃步驟（改名「僅上市櫃」）③貝爾威勒追蹤改每週五 18:30。06:10 主排程裡同樣的紀錄**刻意沒動**（提示詞太長，重寫風險大於省下的一次寫入）。
-- 6990 華鉬已從追蹤清單與興櫃營收移除（歷史預測保留，備份在當時的暫存資料夾，環境重啟後沒了）。
+## 7. 排程與算力（2026-11-19 重盤點；完整表與提示詞原文在 `stock-app/virtual/ROUTINES.md`）
+- **綁在對話上的排程只有兩個，換對話必須轉移**：每日 16:40（`trig_01N2FNVWPGY5BLFzHRPR6rkv`，虛擬ETF＋雙引擎＋新聞否決）、每週六 09:50（`trig_011Nd3V6ANET3xfxvEhqtyR2`，週檢視），目前都綁舊對話 `session_01JrEEmdeMmbdXWNmHqz45Ep`。轉移程序（先建新的、同回合停舊的、不刪舊的）見 ROUTINES.md §D。
+- 不需轉移：貝爾威勒週五 18:30（`trig_01MHAM59HPmLsnWaH6vs6zaX`，不綁對話）；GitHub 定時 `stock-backtest-daily.yml`（預設分支，週一～五 16:40／17:10／17:40／18:40，有「今天已成功就跳過」）。
+- 已停用且不要重啟：`trig_01P8toMCwxC8oqAhFiSS27tp`、`trig_015iTBWsQ3HRo3CfsdP7Djom`、`trig_01GKTYGpLeqWRS2Nrv75CoTv`。
+- 10/20 曾因 `USAGE_LIMIT_REACHED` 所有排程失敗（備援與主排程共用額度）；10/21 已精簡排程（補漏不寫 mcp_avail、15:00 拿掉興櫃、貝爾威勒改每週）。
+- 6990 華鉬已從追蹤清單與興櫃營收移除。
 
 ## 8. 虛擬 ETF（Claude 用虛擬 10 萬操作）
 - 狀態檔 `stock-app/virtual/v-2wy3g7efad1c.json`；App 讀 `https://raw.githubusercontent.com/ltotokkimo-spec/new-1016/claude/ui-calculator-interface-t3x9kh/stock-app/virtual/v-2wy3g7efad1c.json`。程序在 `DAILY.md`，指令 `node --experimental-strip-types tools/virtual-etf.ts <init|fill|close|order|note|show> virtual/v-2wy3g7efad1c.json …`（在 `stock-app/` 執行）。
@@ -173,10 +173,20 @@
 5. **10/20 缺口還沒補**：興櫃收盤價、`closes`（15:00 收盤價）兩份資料；收盤回填已補（只缺 6990，已移除）；收盤後歸因（`post_close_reason`）沒做。持股報表今晚 17:55 會自己更新。
 6. 使用者說接下來要在**一般聊天**聊「投資迷思」，不需要這個專案的檔案；需要時會貼片段過來。
 
-## 9b. 長期回測計畫（2026-11-16 使用者同意開工）
-- 目標「每年多贏 0050 約 3%、回撤不超過 0050」；驗收標準、組合清單、資料計畫、分段與停損點、紅線、省額度做法都寫在 **`stock-app/LONGBT.md`**。新對話請先讀它，**從第一段（可行性）開始，做完先回報**。不要自己開工第二段，下載與回測要先取得使用者同意（會花 CI 時間／可能花費）。
+## 9b. 長期回測（11/16 開工，**11/17 已完成**）
+- 結論：階段 A 沒有任何無偏候選勝過 0050，成本（手續費、稅、滑價）是主因；階段 B 只開封一次（11/17），只驗證 DB 對 D1 的差異，仍低於 0050。**B 不得再開**。細節：`stock-app/LONGBT.md`（進度）、`stock-app/longbt/REPORT_A.md`、`stock-app/longbt/PREREG.md`（§7 修正、§8 成本診斷、§9～10 實驗、§11 開 B 紀錄）。程式：`src/engine/longbt.ts`、`longbtGrowth.ts`、`tools/longbt-*.ts`。
+- 觸發方式：推送 `stock-app/longbt/RUN`（下載）或 `stock-app/tools/probe/longbt-run.env`（回測；放 probe 下才不觸發 App 打包）。快取 7 天沒被存取會被 GitHub 清掉。
+
+## 9c. 2026-11-17～19 這個對話做的事
+- **雙引擎＋新規則（11/17，使用者同意）**：候選限定「同一天選股頁的『買入』」＋外資條件＋新聞否決；`DUALPLUS.rankFrom = 20261117`，從該日乾淨重新起算（虛擬 50 萬），調整週期以該日重新錨定。原「雙引擎」不動當對照。程式：`steady.ts` `buyCodesAt`、`watch.ts`（`plus` 分支）；測試在 `test/watch.test.ts`。
+- **雙引擎實單**：使用者清除舊資料、依新方式 11/17 起買進；頁面底部「清空重新開始」會讓 App 不知道券商現有持股，要小心。
+- **App 小改**：我的實單分頁按鈕紅點（`mode-real-dot`，數字＝待處理提示數）；手動加入表單新增唯讀「購買金額／賣出金額（元）」（`etf-amount`、`dualreal-amount`）；e2e 新增對應檢查。
+- **CI 坑**：①`workflow_dispatch` 對只在非預設分支的 workflow 會 404→推送觸發檔 ②path 篩選看整個推送範圍，`[skip ci]` 中間提交沒用 ③`| tee` 會吃掉失敗，腳本用 `set -eo pipefail` ④e2e「剪貼簿是空的」檢查在模擬器上不穩，失敗就 `rerun_failed_jobs`（曾連 2～3 次；模擬器也曾卡到 27 分鐘逾時）；可考慮加重試，尚未做。
+- 使用者決定「先不動」：不再開 B、不做 G2 選項。
+- 舊對話（…Ip，標題「金雷達工作交接-1117」）沒有任何綁定排程，視為已交接完成、可停用。
 
 ## 10. 接手檢查清單
+0. **排程轉移**：照 `stock-app/virtual/ROUTINES.md` §D（建新、停舊、核對 `list_triggers`、當天 16:40 後確認有跑）。
 1. `git remote set-url …`（見 §4）→ `git pull origin claude/ui-calculator-interface-t3x9kh` → `git log --oneline -5`。
 2. 看 `stock-app/RELEASE_NOTES.txt` 與 Releases 的 `version.json` 確認已發布版本。
 3. 跑 `cd stock-app && npm ci && npm test`（`npx tsc --noEmit -p .` 也要過）。

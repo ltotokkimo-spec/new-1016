@@ -850,10 +850,10 @@ function check(ok, name, detail = "") {
   check(/報酬 [+-]?[\d.]+% 總損益 [+-]?[\d,]+/.test(virt) && (virt.match(/總損益/g) || []).length === 2, "虛擬操作淨值與 0050 兩格都在報酬後面顯示總損益", virt.slice(0, 200));
   check(/虛擬資金 50\.0 萬/.test(virt) && /0050/.test(virt), "自組ETF 顯示 Claude 虛擬操作（虛擬 50 萬、0050 對照）", virt.slice(0, 80));
   check(/起資金由 10\.0 萬 加到 50\.0 萬/.test(virt) && /加碼前 \d+ 天/.test(virt), "虛擬操作顯示加碼說明與加碼前報酬", virt.slice(0, 300));
-  check((await page.$$('[data-testid="virtual-view"] .list .item')).length >= 4, "Claude 虛擬操作列出持股");
+  check((await page.$$('[data-testid="virtual-view"] .list .item')).length >= 1, "Claude 虛擬操作列出持股"); // 11/19：虛擬組合真實資料持股變少（現金多），不再要求 ≥4 檔
   const posLines = await page.$$eval('[data-testid="virtual-pos-line"]', (els) => els.map((e) => e.innerText.replace(/\s+/g, " ")));
   log("持股行", JSON.stringify(posLines));
-  check(posLines.length >= 4 && posLines.every((t) => /均價 [\d.,]+・累計損益 [+-]?[\d,]+・佔/.test(t)), "虛擬操作每檔持股在均價後顯示台幣損益", JSON.stringify(posLines.slice(0, 2)));
+  check(posLines.length >= 1 && posLines.every((t) => /均價 [\d.,]+・累計損益 [+-]?[\d,]+・佔/.test(t)), "虛擬操作每檔持股在均價後顯示台幣損益", JSON.stringify(posLines.slice(0, 2)));
   const gauge = await page.$eval('[data-testid="cash-gauge"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   log("資金水位", gauge.slice(0, 200));
   const noteN = await page.$$eval('[data-testid="virtual-notes"] > div', (d) => d.length).catch(() => -1);

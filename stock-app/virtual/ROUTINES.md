@@ -7,18 +7,21 @@
 
 | # | 排程 | 時間（台北） | 誰在跑 | 綁定對話 | 狀態 |
 |---|---|---|---|---|---|
-| 1 | **Claude 虛擬自組ETF 每日操作＋雙引擎＋新聞否決** `trig_01N2FNVWPGY5BLFzHRPR6rkv` | 週一～五 16:40 | Claude 排程（叫醒綁定的對話） | `session_01JrEEmdeMmbdXWNmHqz45Ep`（**舊對話**） | **啟用中**（最近一次 11/19 16:41 成功） |
-| 2 | **虛擬ETF每週檢視** `trig_011Nd3V6ANET3xfxvEhqtyR2` | 週六 09:50 | Claude 排程 | 同上（**舊對話**） | **啟用中**（下一次 11/21） |
-| 3 | 貝爾威勒（興櫃 7861）轉上市進度追蹤 `trig_01MHAM59HPmLsnWaH6vs6zaX` | 週五 18:30 | Claude 排程（不綁對話，每次新開，Sonnet） | 無（`persist_session=false`） | 啟用中，**不需轉移** |
+| 1 | **Claude 虛擬自組ETF 每日操作＋雙引擎＋新聞否決** `trig_01Vw5Wq5B5YnS863Ho2nx4ip` | 週一～五 16:40 | Claude 排程（叫醒綁定的對話） | `session_01JrEEmaZvY5uHpZ3UCVJ3ip`（**目前對話，11/19 轉入**） | **啟用中** |
+| 2 | **虛擬ETF每週檢視** `trig_011RBJFtAWwRWm5CtJHCpjpi` | 週六 09:50 | Claude 排程 | 同上 | **啟用中**（下一次 11/21） |
+| 3 | 貝爾威勒（興櫃 7861）轉上市進度追蹤 `trig_01MHAM59HPmLsnWaH6vs6zaX` | 週五 18:30 | Claude 排程（不綁對話，Sonnet） | 無 | 啟用中，**不需轉移** |
 | 4 | Stock Backtest Daily（GitHub 定時） | 週一～五 16:40／17:10／17:40／18:40 | GitHub Actions（預設分支 `claude/conversation-start-guide-ya0q8x`） | 無 | 啟用中，**不需轉移**（見 §C） |
-| — | 已停用的舊排程：`trig_01P8toMCwxC8oqAhFiSS27tp`（每日，舊對話 …7hZR）、`trig_015iTBWsQ3HRo3CfsdP7Djom`（每週，舊對話）、`trig_01GKTYGpLeqWRS2Nrv75CoTv`（最早版 17:40） | — | — | — | `enabled=false`，保留當歷史，不要重新啟用 |
+| — | **已停用（11/19 轉出）**：`trig_01N2FNVWPGY5BLFzHRPR6rkv`（每日）、`trig_011Nd3V6ANET3xfxvEhqtyR2`（每週），原綁舊對話 `session_01JrEEmdeMmbdXWNmHqz45Ep` | — | — | — | `enabled=false`，保留當歷史，不要重新啟用 |
+| — | 更早已停用：`trig_01P8toMCwxC8oqAhFiSS27tp`、`trig_015iTBWsQ3HRo3CfsdP7Djom`、`trig_01GKTYGpLeqWRS2Nrv75CoTv` | — | — | — | 同上 |
 
-**重點**：#1、#2 是唯一「綁在對話上」的排程，換對話時**必須轉移**（見 §D）；其他都和對話無關。
-**風險**：#1 每天會更新 `stock-app/virtual/dual-veto.json`（雙引擎＋新聞否決），雙引擎實單的買賣清單會用它；#1 停了，否決名單就不更新（但回測與選股照常）。所以轉移要**先建新的、同一回合停舊的**，不要留空窗。
-**未驗證**：綁定的對話被封存或刪除後，排程會不會自己失敗、是靜默還是有錯誤訊息，我沒測過；寧可轉移後確認 `last_run`。
+**11/19 已完成轉移**：使用者要求「舊對話停用、改用最新對話執行全部功能」，已在同一回合建好 #1、#2（綁本對話）並停用舊的兩個；提示詞與舊的逐字相同（已用 `get_trigger` 比對）。舊對話 `session_01JrEEmdeMmbdXWNmHqz45Ep` 不再有任何啟用排程。
+**下次換對話**：照 §D 再轉一次（新 id 要更新本表與 HANDOFF.md §7）。
+**驗證待辦**：11/20 16:40 之後確認新排程有跑（`list_triggers` 的 `last_run`、`virtual-etf: 20261120 收盤更新` 提交、`dual-veto.json`）；沒跑就 `fire_trigger`。
+**風險**：#1 每天更新 `stock-app/virtual/dual-veto.json`（雙引擎＋新聞否決），雙引擎實單的買賣清單會用它。
+**未驗證**：綁定的對話被封存或刪除後排程會怎樣；本對話上下文已用掉約 86%，若逼近上限會需要再轉移一次，改用 §D 第 8 點（每次新開對話）可根治。
 
 ## B. 本對話（`session_01JrEEmaZvY5uHpZ3UCVJ3ip`，標題「金雷達工作交接-1117」）
-- **沒有任何綁在它身上的持續排程**；它用過的 `send_later` 都是一次性提醒，已全部觸發完畢。所以「停用這個對話」＝沒有排程要關，把它當作已交接完成的舊對話即可（它的上下文快滿了，約 86%）。
+- 11/19 起**承接**每日與每週兩個排程（見 §A）；舊對話 `session_01JrEEmdeMmbdXWNmHqz45Ep` 已停用。
 - 它做的事與結論都寫在 `HANDOFF.md` §9c、`stock-app/LONGBT.md`、`stock-app/longbt/*`。
 
 ## C. GitHub Actions（全部在 `.github/workflows/`；公開 repo，不計費）

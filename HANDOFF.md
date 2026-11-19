@@ -1,6 +1,6 @@
 # 交接檔：金雷達（stock-app，10/27 由「掃雷專區」改名「掃金雷達」，10/28 再改「金雷達」）與周邊排程
 
-> 初版 2026-10-21，**2026-11-19 更新（長期回測、雙引擎＋新規則、排程轉移；見 §7、§9b、§9c）**，供新的 Claude Code 對話接手。**第一件事：照 `stock-app/virtual/ROUTINES.md` §D 把兩個綁在舊對話的排程轉移過來。****先讀這份，再讀 `CLAUDE.md`（工作方式）與 `stock-app/virtual/DAILY.md`（虛擬 ETF 每日程序）。**
+> 初版 2026-10-21，**2026-11-19 更新（長期回測、雙引擎＋新規則、排程轉移；見 §7、§9b、§9c）**，供新的 Claude Code 對話接手。**排程已於 11/19 轉到「金雷達工作交接-1117」對話；若你是更新的對話，第一件事是照 `stock-app/virtual/ROUTINES.md` §D 再轉移一次。****先讀這份，再讀 `CLAUDE.md`（工作方式）與 `stock-app/virtual/DAILY.md`（虛擬 ETF 每日程序）。**
 > 這份是「事實與決定」的整理，數字會變的（持股、淨值）請以檔案為準，不要照抄這裡。
 
 ## 1. 專案概況
@@ -60,7 +60,7 @@
 - 其他 MCP：「台股官方」（工具前綴 `mcp__1710cc71-…__`，有即時報價、技術指標、法人、財報；上櫃歷史用 `get_otc_stock_history`，上市單日用 `get_stock_daily_trading`）。
 
 ## 7. 排程與算力（2026-11-19 重盤點；完整表與提示詞原文在 `stock-app/virtual/ROUTINES.md`）
-- **綁在對話上的排程只有兩個，換對話必須轉移**：每日 16:40（`trig_01N2FNVWPGY5BLFzHRPR6rkv`，虛擬ETF＋雙引擎＋新聞否決）、每週六 09:50（`trig_011Nd3V6ANET3xfxvEhqtyR2`，週檢視），目前都綁舊對話 `session_01JrEEmdeMmbdXWNmHqz45Ep`。轉移程序（先建新的、同回合停舊的、不刪舊的）見 ROUTINES.md §D。
+- **綁在對話上的排程只有兩個，換對話必須轉移**：每日 16:40（`trig_01Vw5Wq5B5YnS863Ho2nx4ip`，虛擬ETF＋雙引擎＋新聞否決）、每週六 09:50（`trig_011RBJFtAWwRWm5CtJHCpjpi`，週檢視）。**11/19 已從舊對話 `session_01JrEEmdeMmbdXWNmHqz45Ep` 轉到本對話 `session_01JrEEmaZvY5uHpZ3UCVJ3ip`，舊的兩個（`trig_01N2FNVWPGY5BLFzHRPR6rkv`、`trig_011Nd3V6ANET3xfxvEhqtyR2`）已停用。**下次換對話照 ROUTINES.md §D 再轉一次。
 - 不需轉移：貝爾威勒週五 18:30（`trig_01MHAM59HPmLsnWaH6vs6zaX`，不綁對話）；GitHub 定時 `stock-backtest-daily.yml`（預設分支，週一～五 16:40／17:10／17:40／18:40，有「今天已成功就跳過」）。
 - 已停用且不要重啟：`trig_01P8toMCwxC8oqAhFiSS27tp`、`trig_015iTBWsQ3HRo3CfsdP7Djom`、`trig_01GKTYGpLeqWRS2Nrv75CoTv`。
 - 10/20 曾因 `USAGE_LIMIT_REACHED` 所有排程失敗（備援與主排程共用額度）；10/21 已精簡排程（補漏不寫 mcp_avail、15:00 拿掉興櫃、貝爾威勒改每週）。
@@ -183,10 +183,10 @@
 - **App 小改**：我的實單分頁按鈕紅點（`mode-real-dot`，數字＝待處理提示數）；手動加入表單新增唯讀「購買金額／賣出金額（元）」（`etf-amount`、`dualreal-amount`）；e2e 新增對應檢查。
 - **CI 坑**：①`workflow_dispatch` 對只在非預設分支的 workflow 會 404→推送觸發檔 ②path 篩選看整個推送範圍，`[skip ci]` 中間提交沒用 ③`| tee` 會吃掉失敗，腳本用 `set -eo pipefail` ④e2e「剪貼簿是空的」檢查在模擬器上不穩，失敗就 `rerun_failed_jobs`（曾連 2～3 次；模擬器也曾卡到 27 分鐘逾時）；可考慮加重試，尚未做。
 - 使用者決定「先不動」：不再開 B、不做 G2 選項。
-- 舊對話（…Ip，標題「金雷達工作交接-1117」）沒有任何綁定排程，視為已交接完成、可停用。
+- 11/19 使用者要求：舊對話（…Ep）停用，由本對話（…Ip）執行全部排程功能，已完成。
 
 ## 10. 接手檢查清單
-0. **排程轉移**：照 `stock-app/virtual/ROUTINES.md` §D（建新、停舊、核對 `list_triggers`、當天 16:40 後確認有跑）。
+0. **排程轉移**（若接手者不是持有排程的那個對話）：照 `stock-app/virtual/ROUTINES.md` §D（建新、停舊、核對 `list_triggers`、當天 16:40 後確認有跑）。
 1. `git remote set-url …`（見 §4）→ `git pull origin claude/ui-calculator-interface-t3x9kh` → `git log --oneline -5`。
 2. 看 `stock-app/RELEASE_NOTES.txt` 與 Releases 的 `version.json` 確認已發布版本。
 3. 跑 `cd stock-app && npm ci && npm test`（`npx tsc --noEmit -p .` 也要過）。

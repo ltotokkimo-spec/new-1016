@@ -411,7 +411,7 @@ export function pickCandidates<T extends { code: string; sector: string; rating:
 /** 是不是 App 自己送給 Claude 的提問（貼錯時要擋下來，不能存成 Claude 的回覆） */
 export function isOwnPrompt(text: string): boolean {
   const t = text.trim();
-  return t.slice(0, 120).includes("我要用新台幣") && /【(候選股|持股)/.test(t);
+  return t.slice(0, 200).includes("我要用新台幣") && /【(候選股|持股)/.test(t);
 }
 
 /** 候選股依產業分組（組內分數高到低，組與組依最高分排序），給畫面顯示用 */

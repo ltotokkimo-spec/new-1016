@@ -421,7 +421,11 @@ function ProReview({ disabled, review }: { disabled: boolean; review: boolean })
   const [err, setErr] = useState("");
   const [status, setStatus] = useState(proStatusText);
   useEffect(() => { const on = () => setStatus(proStatusText); window.addEventListener("pro-status", on); return () => window.removeEventListener("pro-status", on); }, []);
-  const prompt = disabled ? "" : aiEtfPrompt(etfAdviceInput(), true);
+  const basePrompt = disabled ? "" : aiEtfPrompt(etfAdviceInput(), true);
+  const now = new Date();
+  const dayTag = `${now.getMonth() + 1}/${now.getDate()}`;
+  // 每組各開一個新對話；第一行寫上「日期-編號」，Claude 通常會拿它當對話標題（App 無法強制改名）
+  const promptFor = (k: number) => (basePrompt ? `【對話標題：${dayTag}-${k}】\n${basePrompt}` : "");
   const PROMPT_MSG = "⚠ 這是 App 送給 Claude 的提問，不是 Claude 的回覆。按「在 Claude App 檢視調整」時剪貼簿會被換成提問，所以要先到 Claude 那邊（Claude App 或正在對話的視窗）長按「它的回覆」→ 複製，再回來貼上。";
   const onText = (v: string) => { setText(v); setErr(isOwnPrompt(v) ? PROMPT_MSG : ""); };
   const bad = isOwnPrompt(text);
@@ -439,15 +443,19 @@ function ProReview({ disabled, review }: { disabled: boolean; review: boolean })
     <div class="card stack" data-testid="pro-review">
       <b>用 Claude Pro 檢視（免費，用你的訂閱）</b>
       <ol class="steps muted" style={{ fontSize: "12.5px", lineHeight: 1.7, margin: 0, paddingLeft: "18px" }} data-testid="pro-steps">
-        <li>按下面的按鈕，會自動複製提問並打開 Claude App。</li>
+        <li>按下面「-1／-2／-3」其中一個，會複製提問並開一個新對話（第一行寫日期-編號當標題）。要比對 3 份就依序各按一次、各自貼上送出。</li>
         <li>在 Claude App 的輸入框<b>貼上並送出</b>，等它回答完。</li>
         <li>按回覆<b>下方的「複製」圖示</b>（複製整段回覆；不用全選整個對話）。</li>
-        <li>切回這個 App，會<b>自動載入並整理</b>，畫面會自動捲到最上面的整理結果（不用再按、不用貼）。按鈕下方的「自動偵測」會寫出這次讀到什麼；沒有自動載入時再用下面的輸入框手動貼上。</li>
+        <li>每份回覆複製後切回這個 App，會<b>自動載入並整理</b>（3 份會自動比對），畫面會自動捲到最上面的整理結果（不用再按、不用貼）。按鈕下方的「自動偵測」會寫出這次讀到什麼；沒有自動載入時再用下面的輸入框手動貼上。</li>
       </ol>
-      <a class="btn secondary block" aria-disabled={disabled} href={prompt ? claudeAppUrl(prompt) : undefined} target="_blank" rel="noreferrer"
-        onClick={() => { if (prompt) { proFlag.set(); setProStatus("已按下按鈕，等你從 Claude 複製回覆後切回來。"); copyText(prompt, (ok) => setCopied(ok ? "ok" : "fail")); } }} data-testid="pro-open">
-        在 Claude App {review ? "檢視調整" : "建議建倉"}
-      </a>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "6px" }}>
+        {[1, 2, 3].map((k) => (
+          <a class="btn secondary block" key={k} aria-disabled={disabled} href={basePrompt ? claudeAppUrl(promptFor(k)) : undefined} target="_blank" rel="noreferrer"
+            onClick={() => { if (basePrompt) { proFlag.set(); setProStatus(`已開第 ${k} 組新對話（${dayTag}-${k}），等你從 Claude 複製回覆後切回來。`); copyText(promptFor(k), (ok) => setCopied(ok ? "ok" : "fail")); } }} data-testid={k === 1 ? "pro-open" : `pro-open-${k}`}>
+            {review ? "檢視調整" : "建議建倉"} {dayTag}-{k}
+          </a>
+        ))}
+      </div>
       {copied === "ok" && <div class="muted" style={{ fontSize: "12px" }} data-testid="pro-copied">已複製提問。Claude 沒有自動帶入的話，在輸入框長按「貼上」再送出。</div>}
       {copied === "fail" && <div class="muted" style={{ fontSize: "12px" }}>沒辦法自動複製提問，請再按一次。</div>}
       {status && <div class="notice" style={{ fontSize: "12.5px" }} data-testid="pro-status">自動偵測：{status}</div>}

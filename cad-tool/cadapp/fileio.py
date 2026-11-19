@@ -79,6 +79,28 @@ def find_libredwg() -> str:
     return shutil.which("dwg2dxf") or ""
 
 
+def _clean_env() -> dict:
+    """給外部程式用的乾淨環境。
+
+    打包後的 exe 會把自己的 Qt 路徑放進環境變數與 DLL 搜尋路徑，
+    ODA File Converter 也是 Qt 程式，繼承後會載入錯的 Qt 而卡住。"""
+    if sys.platform.startswith("win") and getattr(sys, "frozen", False):
+        try:
+            import ctypes
+            ctypes.windll.kernel32.SetDllDirectoryW(None)
+        except Exception:  # noqa: BLE001
+            pass
+    env = dict(os.environ)
+    for k in list(env):
+        if k.upper().startswith(("QT_", "QML", "PYTHONHOME", "PYTHONPATH", "_PYI", "_MEI")):
+            env.pop(k, None)
+    mei = getattr(sys, "_MEIPASS", None)
+    if mei:
+        parts = env.get("PATH", "").split(os.pathsep)
+        env["PATH"] = os.pathsep.join(p for p in parts if p and not os.path.normcase(p).startswith(os.path.normcase(mei)))
+    return env
+
+
 def _no_window_flags() -> int:
     return getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -95,8 +117,11 @@ def _run_oda(src_dir: str, dst_dir: str, out_ver: str, out_type: str, pattern: s
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startupinfo.wShowWindow = 0
-    proc = subprocess.run(args, capture_output=True, timeout=300,
-                          creationflags=_no_window_flags(), startupinfo=startupinfo)
+    try:
+        proc = subprocess.run(args, capture_output=True, timeout=180, env=_clean_env(),
+                              creationflags=_no_window_flags(), startupinfo=startupinfo)
+    except subprocess.TimeoutExpired:
+        raise ConvertError("ODA 轉檔超過 3 分鐘沒有回應")
     if proc.returncode not in (0, None):
         raise ConvertError(f"ODA 轉檔失敗（代碼 {proc.returncode}）")
 
@@ -140,7 +165,7 @@ def load(path: str) -> tuple[Drawing, str, str]:
         lib = find_libredwg()
         if lib:
             proc = subprocess.run([lib, "-y", "-o", out, os.path.join(src, name)],
-                                  capture_output=True, timeout=300,
+                                  capture_output=True, timeout=300, env=_clean_env(),
                                   creationflags=_no_window_flags())
             if os.path.exists(out) and os.path.getsize(out) > 0:
                 doc, _ = recover.readfile(out)

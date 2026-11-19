@@ -70,14 +70,13 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "自動測試失敗" }
 
       - name: 測試自動安裝 ODA 與 DWG 存檔
-        continue-on-error: true
+        timeout-minutes: 15
         working-directory: cad-tool
         run: |
           $log = Join-Path $pwd "install_oda.txt"
           $p = Start-Process -FilePath dist/MechCAD/MechCAD.exe -ArgumentList @('--install-oda', $log) -Wait -PassThru
           Get-Content $log
           if ($p.ExitCode -ne 0) { throw "ODA 自動安裝失敗" }
-          python tools/oda_diag.py
           $out = Join-Path $pwd "selftest2.txt"
           $argv = @('--selftest', $out)
           if (Test-Path example.dwg) { $argv += (Resolve-Path example.dwg).Path }

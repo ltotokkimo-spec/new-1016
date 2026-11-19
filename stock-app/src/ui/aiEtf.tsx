@@ -425,7 +425,7 @@ function ProReview({ disabled, review }: { disabled: boolean; review: boolean })
   const now = new Date();
   const dayTag = `${now.getMonth() + 1}/${now.getDate()}`;
   // 每組各開一個新對話；第一行寫上「日期-編號」，Claude 通常會拿它當對話標題（App 無法強制改名）
-  const promptFor = (k: number) => (basePrompt ? `【對話標題：${dayTag}-${k}】\n${basePrompt}` : "");
+  const promptFor = (k: number) => (basePrompt ? `${dayTag}-${k} 自組ETF檢視\n（這個對話的標題請直接用「${dayTag}-${k}」，不要改成別的。）\n\n${basePrompt}` : "");
   const PROMPT_MSG = "⚠ 這是 App 送給 Claude 的提問，不是 Claude 的回覆。按「在 Claude App 檢視調整」時剪貼簿會被換成提問，所以要先到 Claude 那邊（Claude App 或正在對話的視窗）長按「它的回覆」→ 複製，再回來貼上。";
   const onText = (v: string) => { setText(v); setErr(isOwnPrompt(v) ? PROMPT_MSG : ""); };
   const bad = isOwnPrompt(text);

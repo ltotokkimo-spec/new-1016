@@ -69,6 +69,21 @@ jobs:
           Get-Content $out
           if ($p.ExitCode -ne 0) { throw "自動測試失敗" }
 
+      - name: 測試自動安裝 ODA 與 DWG 存檔
+        continue-on-error: true
+        working-directory: cad-tool
+        run: |
+          $log = Join-Path $pwd "install_oda.txt"
+          $p = Start-Process -FilePath dist/MechCAD/MechCAD.exe -ArgumentList @('--install-oda', $log) -Wait -PassThru
+          Get-Content $log
+          if ($p.ExitCode -ne 0) { throw "ODA 自動安裝失敗" }
+          $out = Join-Path $pwd "selftest2.txt"
+          $argv = @('--selftest', $out)
+          if (Test-Path example.dwg) { $argv += (Resolve-Path example.dwg).Path }
+          $p = Start-Process -FilePath dist/MechCAD/MechCAD.exe -ArgumentList $argv -Wait -PassThru
+          Get-Content $out
+          if ($p.ExitCode -ne 0) { throw "DWG 存檔測試失敗" }
+
       - name: 打包 zip
         run: |
           Copy-Item cad-tool/使用說明.txt cad-tool/dist/MechCAD/
@@ -89,4 +104,4 @@ jobs:
           files: MechCAD-windows.zip
           body: |
             Windows 10/11 用。下載 MechCAD-windows.zip → 解壓縮 → 打開 MechCAD 資料夾 → 雙擊 MechCAD.exe。
-            要開啟／儲存 DWG，請另外安裝免費的 ODA File Converter（程式裡「說明」選單有步驟）。
+            第一次開啟時，程式會詢問是否自動安裝免費的 ODA File Converter（開啟／儲存 DWG 需要），按「安裝」即可；裝過之後不會再問。

@@ -5,10 +5,12 @@
 1. 雙擊 MechCAD.exe 開啟程式（第一次開啟會整理系統字型，稍等幾秒）。
 2. 可以直接把 DWG / DXF 檔拖進視窗開啟。
 
-【DWG 開檔與存檔：請安裝 ODA File Converter（免費，只要裝一次）】
-1. 到 https://www.opendesign.com/guestfiles/oda_file_converter
-2. 下載 Windows 64-bit 版本（.msi），雙擊安裝，一直按「下一步」。
-3. 裝好後本程式會自動找到。若找不到：檔案 → 設定 ODA File Converter 位置。
+【DWG 開檔與存檔：ODA File Converter（免費，自動安裝，只要一次）】
+1. 第一次開啟程式時會詢問「要現在自動安裝嗎？」，按「安裝」。
+2. 程式會從 ODA 官方網站下載並安裝；Windows 問「是否允許變更」時按「是」。
+3. 裝好後下次開啟會自動跳過。若選了「以後再說」，之後可從「說明 → 自動安裝 ODA File Converter」安裝。
+   自動安裝失敗時（例如沒有網路），可手動到 https://www.opendesign.com/guestfiles/oda_file_converter
+   下載 Windows 64-bit 版本安裝。
 ※ 沒裝 ODA 也能「開啟」DWG（用內建的 LibreDWG），但無法「存成」DWG，只能存 DXF。
 
 【基本操作】

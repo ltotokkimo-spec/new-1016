@@ -271,7 +271,8 @@ class MainWindow(qw.QMainWindow):
 
         m = mb.addMenu("說明(&H)")
         m.addAction(self._act("指令一覽", self.show_help, "F1"))
-        m.addAction(self._act("安裝 ODA File Converter（存 DWG 需要）", self.oda_help))
+        m.addAction(self._act("自動安裝 ODA File Converter（DWG 需要）", lambda: self.auto_install_oda(ask=False)))
+        m.addAction(self._act("ODA File Converter 狀態與說明", self.oda_help))
         m.addAction(self._act("關於", self.about))
 
         # 功能鍵
@@ -732,7 +733,7 @@ class MainWindow(qw.QMainWindow):
 
     def _save_to(self, path, ver) -> bool:
         if path.lower().endswith(".dwg") and not fileio.find_oda():
-            self.oda_help(saving=True)
+            self.auto_install_oda(ask=True, reason="存成 DWG 需要 ODA File Converter。")
             if not fileio.find_oda():
                 return False
         qw.QApplication.setOverrideCursor(qc.Qt.WaitCursor)
@@ -840,6 +841,79 @@ class MainWindow(qw.QMainWindow):
             qg.QDesktopServices.openUrl(qc.QUrl(ODA_URL))
         elif box.clickedButton() is pick:
             self.choose_oda()
+
+    def check_oda_on_startup(self):
+        """啟動時檢查：已安裝就跳過；沒裝且使用者沒選「不要再問」就詢問自動安裝。"""
+        if fileio.find_oda() or self.settings.value("oda_never_ask", False, bool):
+            return
+        self.auto_install_oda(ask=True, reason="第一次使用：開啟和儲存 DWG 需要免費的 ODA File Converter。", startup=True)
+
+    def auto_install_oda(self, ask=True, reason="", startup=False) -> bool:
+        from . import oda_setup
+        if fileio.find_oda():
+            if not ask:
+                qw.QMessageBox.information(self, "ODA File Converter", f"已經安裝：\n{fileio.find_oda()}")
+            return True
+        if ask:
+            box = qw.QMessageBox(self)
+            box.setWindowTitle("安裝 ODA File Converter")
+            box.setTextFormat(qc.Qt.RichText)
+            box.setText(f"{reason}<br><br>要現在自動安裝嗎？<br>"
+                        "程式會從 ODA 官方網站下載（約 30–60 MB）並安裝，只需要做一次。<br>"
+                        "安裝時 Windows 會問「是否允許變更」，請按<b>「是」</b>。<br><br>"
+                        f"<span style='color:gray'>按「安裝」表示同意 ODA File Converter 的使用條款"
+                        f"（<a href='{ODA_URL}'>官方網站</a>）。</span>")
+            yes = box.addButton("安裝", qw.QMessageBox.AcceptRole)
+            box.addButton("以後再說", qw.QMessageBox.RejectRole)
+            never = box.addButton("不要再問", qw.QMessageBox.DestructiveRole) if startup else None
+            box.exec()
+            if never is not None and box.clickedButton() is never:
+                self.settings.setValue("oda_never_ask", True)
+                self.editor.msg("之後不會再詢問。需要時可從「說明 → 自動安裝 ODA File Converter」安裝。")
+                return False
+            if box.clickedButton() is not yes:
+                return False
+        dlg = qw.QProgressDialog("正在從 ODA 官方網站下載…", "取消", 0, 100, self)
+        dlg.setWindowTitle("安裝 ODA File Converter")
+        dlg.setWindowModality(qc.Qt.WindowModal)
+        dlg.setMinimumDuration(0)
+        dlg.setValue(0)
+        qw.QApplication.processEvents()
+
+        def progress(done, total):
+            if total:
+                dlg.setMaximum(100)
+                dlg.setValue(int(done * 100 / total))
+            dlg.setLabelText(f"正在下載… {done / 1048576:.1f} MB" + (f" / {total / 1048576:.1f} MB" if total else ""))
+            qw.QApplication.processEvents()
+            return not dlg.wasCanceled()
+
+        def log(text):
+            self.editor.msg(text)
+            if text.startswith("安裝"):
+                dlg.setLabelText("正在安裝…（Windows 詢問是否允許變更時，請按「是」）")
+                dlg.setCancelButton(None)
+                dlg.setRange(0, 0)
+            qw.QApplication.processEvents()
+
+        try:
+            path = oda_setup.download_and_install(progress=progress, log=log)
+        except Exception as ex:  # noqa: BLE001
+            dlg.close()
+            box = qw.QMessageBox(self)
+            box.setWindowTitle("自動安裝沒有成功")
+            box.setText(f"{ex}\n\n可以改用手動安裝：開啟下載頁面，下載 Windows 64-bit 版本後雙擊安裝。")
+            dl = box.addButton("開啟下載頁面", qw.QMessageBox.ActionRole)
+            box.addButton("關閉", qw.QMessageBox.RejectRole)
+            box.exec()
+            if box.clickedButton() is dl:
+                qg.QDesktopServices.openUrl(qc.QUrl(ODA_URL))
+            return False
+        dlg.close()
+        self.settings.setValue("oda_path", path)
+        fileio.set_oda_path(path)
+        qw.QMessageBox.information(self, "安裝完成", f"ODA File Converter 已安裝，現在可以開啟和儲存 DWG 了。\n{path}")
+        return True
 
     # ------------------------------------------------------------ 其他對話框
     def ask_frame(self):

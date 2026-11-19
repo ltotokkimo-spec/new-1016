@@ -70,6 +70,14 @@ def selftest(args):
         lines.append("pdf/png export ok")
         lines.append(f"libredwg: {fileio.find_libredwg() or '(missing)'}")
         lines.append(f"oda: {fileio.find_oda() or '(not installed)'}")
+        if fileio.find_oda():
+            for ver in ("R2018", "R2013", "R2000"):
+                dwg = tmp[:-4] + f"_{ver}.dwg"
+                fileio.save(ed.doc, dwg, ver)
+                d2, info2, v2 = fileio.load(dwg)
+                good = len(d2.modelspace()) == n and v2 == ver
+                lines.append(f"dwg save {ver}: {os.path.getsize(dwg)} bytes, reload {len(d2.modelspace())} entities, {info2} {'OK' if good else 'MISMATCH'}")
+                ok &= good
         if len(args) > 1:
             doc, info, ver = fileio.load(args[1])
             lines.append(f"dwg read: {len(doc.modelspace())} entities ({info})")
@@ -88,6 +96,20 @@ def selftest(args):
 
 
 def main():
+    if "--install-oda" in sys.argv:  # 自動測試用：無介面安裝
+        from cadapp import oda_setup
+        i = sys.argv.index("--install-oda")
+        out = sys.argv[i + 1] if len(sys.argv) > i + 1 else "install_oda.txt"
+        lines = []
+        try:
+            oda_setup.download_and_install(silent=True, log=lines.append)
+            code = 0
+        except Exception as ex:  # noqa: BLE001
+            lines.append(f"ERROR: {ex}")
+            code = 1
+        with open(out, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+        sys.exit(code)
     if "--selftest" in sys.argv:
         i = sys.argv.index("--selftest")
         sys.exit(selftest(sys.argv[i + 1:]))
@@ -116,8 +138,12 @@ def main():
     win.show()
     splash.finish(win)
     args = [a for a in sys.argv[1:] if os.path.isfile(a)]
-    if args:
-        qc.QTimer.singleShot(100, lambda: win.open_file(args[0]))
+
+    def after_start():
+        win.check_oda_on_startup()
+        if args:
+            win.open_file(args[0])
+    qc.QTimer.singleShot(300, after_start)
     sys.exit(app.exec())
 
 

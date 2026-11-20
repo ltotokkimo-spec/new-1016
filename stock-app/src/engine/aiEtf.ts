@@ -161,10 +161,35 @@ function benchUnitsBefore(trades: EtfTrade[], date: string): number {
   return u;
 }
 
+/**
+ * 賣出股數超過當時持股的部分（沒有對應買進就賣，例如同一筆賣出記了兩次）：這部分不是真的賣掉你手上的股票，
+ * 不能算成現金進帳（2026/11/20 使用者發現：統一超賣出記了兩次，多出約 8.2 萬「憑空現金」，把累積報酬灌高到 +16.59%）。
+ * 回傳每筆成交（依原本順序）實際算進帳的股數：買進＝原股數；賣出＝不超過當時持股。判斷順序和 positions 相同（依日期、同日依記錄順序）。
+ */
+export function effectiveShares(trades: EtfTrade[]): number[] {
+  const held = new Map<string, number>();
+  const out: number[] = new Array(trades.length).fill(0);
+  const order = trades.map((_, i) => i).sort((x, y) => trades[x].date.localeCompare(trades[y].date) || x - y);
+  for (const i of order) {
+    const t = trades[i], h = held.get(t.code) ?? 0;
+    if (t.side === "buy") { held.set(t.code, h + t.shares); out[i] = t.shares; }
+    else { const n = Math.min(t.shares, h); held.set(t.code, h - n); out[i] = n; }
+  }
+  return out;
+}
+/** 每筆超賣的股數（只列有超賣的）：給成交紀錄顯示警示用 */
+export function oversold(trades: EtfTrade[]): Record<string, number> {
+  const eff = effectiveShares(trades), out: Record<string, number> = {};
+  trades.forEach((t, i) => { if (t.side === "sell" && eff[i] < t.shares) out[t.id] = t.shares - eff[i]; });
+  return out;
+}
+
 /** 用目前價格算淨值；0050 對照組：每次買賣都用同樣金額買賣 0050 */
 export function valuate(etf: AiEtf, price: (code: string) => number | undefined): Valuation {
   let cash = etf.budget, bCash = etf.budget, bUnits = 0, lastBench = NaN;
-  for (const t of etf.trades) {
+  const eff = effectiveShares(etf.trades);
+  for (const [i, t0] of etf.trades.entries()) {
+    const t = { ...t0, shares: eff[i] }; // 超賣的部分不算進帳
     const cf = cashFlow(t);
     cash += cf;
     if (t.benchPrice > 0) {

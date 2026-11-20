@@ -10,7 +10,7 @@ import { fileToBase64, recognizeText } from "../lib/ocr";
 import type { Scored } from "../engine/score";
 import type { VirtualEtf } from "../engine/virtualEtf";
 import { twHistory } from "../data/history";
-import { buyConds, sellConds, holdConds, dailyHoldingCheck, takeProfitSignal, TAKE_PROFIT, type HoldCheck, type EtfTrade, type EtfFlow, agreePlans, comparePlans, DEFAULT_STOP, planReadable, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, proClipboardAction, replySig, parsePlan, positions, tradePnls, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
+import { buyConds, sellConds, holdConds, dailyHoldingCheck, takeProfitSignal, TAKE_PROFIT, type HoldCheck, type EtfTrade, type EtfFlow, agreePlans, comparePlans, DEFAULT_STOP, planReadable, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, proClipboardAction, replySig, parsePlan, positions, tradePnls, oversold, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { onAppResume, readClipboard } from "../lib/clip";
 import { DUAL_REAL, dualOrders, waterLevel, type DualOrder } from "../engine/dualReal";
 import { limitFromChg } from "../lib/limit";
@@ -51,11 +51,12 @@ function OffTag() {
 }
 
 /** 成交紀錄一列：日期 買／賣 名稱 股數・成交價・損益（賣出＝已實現，買進＝現價帳面，賺紅賠綠） */
-function TradeLine({ t, pnl }: { t: EtfTrade; pnl?: number }) {
+function TradeLine({ t, pnl, over }: { t: EtfTrade; pnl?: number; over?: number }) {
   return (
     <span class="num" style={{ minWidth: 0 }}>
       {pretty(t.date)} <span class={t.side === "buy" ? "up" : "down"}>{t.side === "buy" ? "買" : "賣"}</span> {t.name}{t.offList && <OffTag />} {t.shares.toLocaleString()} 股・成交價 {fmtPrice(t.price)}
       {pnl !== undefined && Number.isFinite(pnl) && <>・<span class={cls(pnl)} style={{ whiteSpace: "nowrap" }}>損益 {signedMoney(pnl)}</span></>}
+      {over ? <div style={{ fontSize: "11.5px", color: "#b25e00", fontWeight: 700 }} data-testid="trade-over">⚠ 超賣 {over.toLocaleString()} 股：當時沒有這麼多持股，這部分不計入現金與損益（可能同一筆記了兩次，可按 ✕ 隱藏）</div> : null}
     </span>
   );
 }
@@ -853,6 +854,7 @@ function DualRealScreen() {
     } finally { setRefreshing(false); }
   };
   const pnl = useMemo(() => tradePnls(etf.trades, etfPrice), [etf.trades, twReady]);
+  const over = useMemo(() => oversold(etf.trades), [etf.trades]);
   const [tradesOpen, setTradesOpen] = useState(false);
   const asOf = getState().tw.asOf;
   return (
@@ -906,7 +908,7 @@ function DualRealScreen() {
           <div class="card" style={{ padding: "6px 10px" }} data-testid="dualreal-trades">
             {[...etf.trades].reverse().filter((t) => !t.hidden).map((t) => (
               <div class="row" style={{ justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: "13px", flexWrap: "nowrap" }}>
-                <TradeLine t={t} pnl={pnl[t.id]} />
+                <TradeLine t={t} pnl={pnl[t.id]} over={over[t.id]} />
                 <button class="iconbtn" style={{ width: "28px", height: "28px" }} aria-label="刪除這筆" onClick={() => window.confirm("把這一列從成交紀錄移除？\n\n只是不再顯示在列表，持股、現金和損益不會變。") && hideDualTrade(t.id)}>✕</button>
               </div>
             ))}
@@ -956,6 +958,13 @@ function DualFill({ orders, groups, flags = {}, onSkip }: { orders: DualOrder[];
     const ok = rows.filter((r) => r.keep);
     if (!ok.length) return setErr("請至少勾選一筆");
     if (ok.some((r) => !(Number(r.sharesText) > 0) || !(Number(r.priceText) > 0))) return setErr("股數和成交價都要大於 0");
+    const heldNow = new Map(positions((getState().dualReal?.trades) ?? []).map((p) => [p.code, p.shares]));
+    for (const r of ok) { // 賣出不能超過目前持股（超過的部分會被算成憑空多出來的現金）
+      if (r.side !== "sell") continue;
+      const h = heldNow.get(r.code) ?? 0;
+      if (Number(r.sharesText) > h) return setErr(`${r.name} 賣出 ${Number(r.sharesText).toLocaleString()} 股超過目前持股 ${h.toLocaleString()} 股${h ? "，請改小" : "（這檔已經沒有持股，是不是已經記過這筆賣出了？），請取消勾選"}`);
+      heldNow.set(r.code, h - Number(r.sharesText));
+    }
     setErr("");
     await addDualTrades(ok.map((r) => ({ date: taipeiToday(), code: r.code, name: r.name, side: r.side, shares: Math.round(Number(r.sharesText)), price: Number(r.priceText) })));
     setDone(`已記錄 ${ok.length} 筆成交。`);
@@ -998,6 +1007,7 @@ function DualManual() {
     const c = code.trim().toUpperCase(), nm = getState().prices[c]?.name;
     if (!c || !(Number(shares) > 0) || !(Number(price) > 0)) return setErr("請填代號、股數與成交價");
     if (!nm) return setErr("找不到這個代號（只支援上市櫃股票與 ETF）");
+    if (side === "sell") { const held = positions(getState().dualReal?.trades ?? []).find((p) => p.code === c)?.shares ?? 0; if (Number(shares) > held) return setErr(held ? `你只有 ${held.toLocaleString()} 股，賣出股數不能超過` : "目前沒有這檔持股可以賣"); }
     await addDualTrades([{ date: taipeiToday(), code: c, name: nm, side, shares: Math.round(Number(shares)), price: Number(price) }]);
     setOpen(false); setCode(""); setShares(""); setPrice(""); setErr("");
   };
@@ -1040,6 +1050,13 @@ function PlanFill({ items, planKey, cash, stops, source, asOf }: { items: PlanIt
     const ok = rows.filter((r) => r.keep);
     if (!ok.length) return setErr("請至少勾選一筆");
     if (ok.some((r) => !(Number(r.shares) > 0) || !(Number(r.price) > 0))) return setErr("股數和成交價都要大於 0");
+    const heldNow = new Map(positions(getState().aiEtf.trades).map((p) => [p.code, p.shares]));
+    for (const r of ok) { // 賣出不能超過目前持股（超過的部分會被算成憑空多出來的現金）
+      if (r.side !== "sell") continue;
+      const h = heldNow.get(r.code) ?? 0;
+      if (Number(r.shares) > h) return setErr(`${getState().prices[r.code]?.name ?? r.code} 賣出 ${Number(r.shares).toLocaleString()} 股超過目前持股 ${h.toLocaleString()} 股${h ? "，請改小" : "（這檔已經沒有持股，是不是已經記過這筆賣出了？），請取消勾選"}`);
+      heldNow.set(r.code, h - Number(r.shares));
+    }
     const today = taipeiToday();
     // 停損價：Claude 對「不動」持股給的，加上這次每筆買進填的
     const st = { ...stops };
@@ -1546,6 +1563,7 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
   const intraday = Object.values(live).find((q) => q.date === taipeiToday() && !q.final && codes.includes(q.code));
   const val = valuate(v, px);
   const tradePnl = tradePnls(v.trades, px);
+  const overV = oversold(v.trades);
   const pos = positions(v.trades).filter((p) => p.shares > 0);
   const nextDay = v.asOf ? orderDay(v.asOf) : undefined;
   const notes = [...v.notes].reverse();
@@ -1671,7 +1689,7 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
           <div class="card" style={{ padding: "6px 10px" }} data-testid="virtual-trades">
             {[...v.trades].reverse().map((t) => (
               <div class="row" style={{ justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: "13px" }}>
-                <TradeLine t={t} pnl={tradePnl[t.id]} />
+                <TradeLine t={t} pnl={tradePnl[t.id]} over={overV[t.id]} />
               </div>
             ))}
             {(v.cancelled ?? []).slice(-5).reverse().map((c) => (
@@ -1829,6 +1847,7 @@ function RealEtfScreen() {
   const v = valuate(etf, livePx);
   const cashPlanMkt = useStore((s) => s.virtual?.data.cashPlan); // 大盤跌深的資金水位目標（Claude 虛擬組每天收盤後判斷）
   const tradePnl = tradePnls(etf.trades, livePx);
+  const overM = oversold(etf.trades);
   // 每天的持股規則檢查（免費）：評分資料每天收盤後更新，打開就重算
   const checks = dailyHoldingCheck(etf, livePx, (c) => { const s = getState().tw.scored.find((x) => x.code === c) ?? getState().etf.scored.find((x) => x.code === c); return s && { rating: s.refOnly ? undefined : s.rating, score: s.score, ret1w: s.ret1w, ret1m: s.ret1m, foreignStreak: s.foreignStreak, foreign5: s.foreign5, refOnly: s.refOnly }; });
   const pos = positions(etf.trades).filter((p) => p.shares > 0);
@@ -2048,7 +2067,7 @@ function RealEtfScreen() {
           <div class="card" style={{ padding: "6px 10px" }} data-testid="etf-trades">
             {[...etf.trades].reverse().filter((t) => !t.hidden).map((t) => (
               <div class="row" style={{ justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: "13px", flexWrap: "nowrap" }}>
-                <TradeLine t={t} pnl={tradePnl[t.id]} />
+                <TradeLine t={t} pnl={tradePnl[t.id]} over={overM[t.id]} />
                 <button class="iconbtn" style={{ width: "28px", height: "28px" }} aria-label="刪除這筆" onClick={() => window.confirm("把這一列從成交紀錄移除？\n\n只是不再顯示在列表，持股、現金和損益不會變。") && hideEtfTrade(t.id)} data-testid="trade-hide">✕</button>
               </div>
             ))}

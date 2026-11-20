@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buyConds, sellConds, holdConds, cashFlow, comparePlans, reconcilePhoto, emptyEtf, etfAlerts, fitBudget, groupBySector, isOffList, isOwnPrompt, looksLikePlanReply, proClipboardAction, replySig, parsePlan, planReadable, repairJson, liquidityCut, pickCandidates, tradePnls, positions, recordNav, stopOf, valuate, FEE, TAX } from "../src/engine/aiEtf";
+import { buyConds, sellConds, holdConds, cashFlow, comparePlans, reconcilePhoto, emptyEtf, etfAlerts, fitBudget, groupBySector, isOffList, isOwnPrompt, looksLikePlanReply, proClipboardAction, replySig, parsePlan, planReadable, repairJson, liquidityCut, pickCandidates, tradePnls, positions, recordNav, stopOf, valuate, oversold, effectiveShares, FEE, TAX } from "../src/engine/aiEtf";
 
 const t = (code: string, side: "buy" | "sell", shares: number, price: number, benchPrice = 100, date = "20261017") =>
   ({ id: code + side + date, date, code, name: code, side, shares, price, benchPrice });
@@ -403,5 +403,27 @@ describe("從 Claude App 回來自動載入（11/14：少按一步）", () => {
     const r = proClipboardAction(cut, []);
     if (looksLikePlanReply(cut).truncated) expect(r).toMatchObject({ action: "ask", truncated: true });
     else expect(["load", "none"]).toContain(r.action);
+  });
+});
+
+describe("超賣：沒有對應持股的賣出不能變成現金（11/20 統一超賣出記兩次，累積報酬被灌高）", () => {
+  const mk = (id: string, date: string, side: "buy" | "sell", shares: number, price: number) => ({ id, date, code: "2912", name: "統一超", side, shares, price, benchPrice: 100 });
+  const px = (c: string) => (c === "2912" ? 210 : c === "0050" ? 100 : undefined);
+  it("同一筆賣出記兩次：第二筆不算進帳，淨值只比一次賣出多", () => {
+    const e = { ...emptyEtf(500_000), trades: [mk("a", "20261118", "buy", 400, 213), mk("b", "20261120", "sell", 400, 210)] };
+    const dup = { ...e, trades: [...e.trades, mk("c", "20261120", "sell", 400, 206)] };
+    expect(valuate(dup, px).cash).toBeCloseTo(valuate(e, px).cash, 6);
+    expect(valuate(dup, px).nav).toBeCloseTo(valuate(e, px).nav, 6);
+    expect(valuate(dup, px).bench).toBeCloseTo(valuate(e, px).bench, 6);
+  });
+  it("oversold 只標出超賣的那筆與股數；正常賣出、部分超賣", () => {
+    const t = [mk("a", "20261118", "buy", 400, 213), mk("b", "20261120", "sell", 300, 210), mk("c", "20261120", "sell", 400, 206)];
+    expect(oversold(t)).toEqual({ c: 300 });
+    expect(oversold([t[0], t[1]])).toEqual({});
+    expect(effectiveShares(t)).toEqual([400, 300, 100]);
+  });
+  it("先記的賣出日期較晚、買進日期較早：依日期判斷，不誤判超賣", () => {
+    const t = [mk("s", "20261120", "sell", 400, 210), mk("b", "20261118", "buy", 400, 213)];
+    expect(oversold(t)).toEqual({});
   });
 });

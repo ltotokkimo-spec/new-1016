@@ -103,7 +103,9 @@ def main():
         lines = []
         try:
             oda_setup.download_and_install(silent=True, log=lines.append)
-            code = 0
+            left = oda_setup.find_shortcuts()
+            lines.append(f"shortcuts left: {left}")
+            code = 1 if left else 0
         except Exception as ex:  # noqa: BLE001
             lines.append(f"ERROR: {ex}")
             code = 1

@@ -71,16 +71,119 @@ def download(url: str, dest: str, progress: Optional[Callable[[int, int], bool]]
     return dest
 
 
-def install(msi: str, silent: bool = False) -> int:
-    """執行安裝。silent=True 完全不顯示（需要系統管理員權限，例如自動測試）；
-    否則顯示進度條，Windows 會跳出「是否允許變更」請按「是」。"""
+# ODA 安裝程式會在「所有使用者」的桌面與開始選單建立捷徑（安裝檔沒有選項可以不建立），
+# 本程式在背景呼叫 ODA，使用者用不到，所以安裝後順便刪掉。
+def _shortcut_patterns() -> list[str]:
+    pub = os.environ.get("PUBLIC", r"C:\Users\Public")
+    pd = os.environ.get("ProgramData", r"C:\ProgramData")
+    home = os.environ.get("USERPROFILE", "")
+    appdata = os.environ.get("APPDATA", "")
+    return [
+        os.path.join(pub, "Desktop", "ODA File Converter*.lnk"),
+        os.path.join(pd, r"Microsoft\Windows\Start Menu\Programs\ODA", "ODA File Converter*.lnk"),
+        os.path.join(home, "Desktop", "ODA File Converter*.lnk"),
+        os.path.join(appdata, r"Microsoft\Windows\Start Menu\Programs\ODA", "ODA File Converter*.lnk"),
+    ]
+
+
+def find_shortcuts() -> list[str]:
+    import glob
+    out = []
+    for pat in _shortcut_patterns():
+        out.extend(glob.glob(pat))
+    return out
+
+
+def _cleanup_batch_lines() -> list[str]:
+    pub = os.environ.get("PUBLIC", r"C:\Users\Public")
+    pd = os.environ.get("ProgramData", r"C:\ProgramData")
+    menu = os.path.join(pd, r"Microsoft\Windows\Start Menu\Programs\ODA")
+    return [
+        f'del /f /q "{os.path.join(pub, "Desktop", "ODA File Converter*.lnk")}" >nul 2>&1',
+        f'del /f /q "{os.path.join(menu, "ODA File Converter*.lnk")}" >nul 2>&1',
+        f'rmdir "{menu}" >nul 2>&1',
+    ]
+
+
+def remove_shortcuts_user() -> list[str]:
+    """不需要管理員權限就能刪的先刪；回傳還刪不掉的。"""
+    left = []
+    for p in find_shortcuts():
+        try:
+            os.remove(p)
+        except OSError:
+            left.append(p)
+    import glob
+    for pat in _shortcut_patterns():
+        d = os.path.dirname(pat)
+        if os.path.basename(d) == "ODA" and os.path.isdir(d) and not os.listdir(d):
+            try:
+                os.rmdir(d)
+            except OSError:
+                pass
+    return left
+
+
+def run_elevated(lines: list[str], tick=None) -> int:
+    """以系統管理員身分執行批次指令（Windows 會問一次「是否允許變更」）。
+    回傳結束代碼；使用者按「否」時丟出 SetupError。"""
+    import ctypes
+    from ctypes import wintypes
+    tmp = tempfile.mkdtemp(prefix="mechcad_admin_")
+    bat = os.path.join(tmp, "run.bat")
+    with open(bat, "w", encoding="utf-8") as f:
+        f.write("@echo off\r\nchcp 65001 >nul\r\n" + "\r\n".join(lines) + "\r\n")
+
+    class SHELLEXECUTEINFOW(ctypes.Structure):
+        _fields_ = [("cbSize", wintypes.DWORD), ("fMask", ctypes.c_ulong), ("hwnd", wintypes.HWND),
+                    ("lpVerb", wintypes.LPCWSTR), ("lpFile", wintypes.LPCWSTR),
+                    ("lpParameters", wintypes.LPCWSTR), ("lpDirectory", wintypes.LPCWSTR),
+                    ("nShow", ctypes.c_int), ("hInstApp", wintypes.HINSTANCE),
+                    ("lpIDList", ctypes.c_void_p), ("lpClass", wintypes.LPCWSTR),
+                    ("hkeyClass", wintypes.HKEY), ("dwHotKey", wintypes.DWORD),
+                    ("hIcon", wintypes.HANDLE), ("hProcess", wintypes.HANDLE)]
+    info = SHELLEXECUTEINFOW()
+    info.cbSize = ctypes.sizeof(info)
+    info.fMask = 0x00000040  # SEE_MASK_NOCLOSEPROCESS
+    info.lpVerb = "runas"
+    info.lpFile = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "cmd.exe")
+    info.lpParameters = f'/c "{bat}"'
+    info.lpDirectory = tmp
+    info.nShow = 0  # SW_HIDE
+    if not ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(info)):
+        err = ctypes.GetLastError()
+        if err == 1223:
+            raise SetupError("在「是否允許變更」時按了「否」，所以沒有完成。")
+        raise SetupError(f"無法以管理員身分執行（錯誤 {err}）")
+    k32 = ctypes.windll.kernel32
+    while k32.WaitForSingleObject(info.hProcess, 200) == 0x102:  # WAIT_TIMEOUT
+        if tick is not None:
+            tick()
+    code = wintypes.DWORD()
+    k32.GetExitCodeProcess(info.hProcess, ctypes.byref(code))
+    k32.CloseHandle(info.hProcess)
+    return code.value
+
+
+def remove_shortcuts(tick=None) -> bool:
+    """刪除 ODA 捷徑；需要時會請求管理員權限。回傳是否全部刪除。"""
+    if not remove_shortcuts_user():
+        return True
+    run_elevated(_cleanup_batch_lines(), tick)
+    return not find_shortcuts()
+
+
+def install(msi: str, silent: bool = False, tick=None) -> int:
+    """以管理員身分安裝（Windows 會問一次「是否允許變更」），裝完順便刪掉 ODA 的捷徑。"""
     if not sys.platform.startswith("win"):
         raise SetupError("只能在 Windows 上安裝")
-    args = ["msiexec", "/i", msi, "/qn" if silent else "/passive", "/norestart"]
-    return subprocess.run(args).returncode
+    lines = [f'msiexec /i "{msi}" /qn /norestart', "set RC=%ERRORLEVEL%"]
+    lines += _cleanup_batch_lines()
+    lines += ["exit /b %RC%"]
+    return run_elevated(lines, tick)
 
 
-def download_and_install(progress=None, silent=False, log=print) -> str:
+def download_and_install(progress=None, silent=False, log=print, tick=None) -> str:
     """回傳安裝好的 ODAFileConverter.exe 路徑。"""
     from . import fileio
     url = find_installer_url()
@@ -89,7 +192,7 @@ def download_and_install(progress=None, silent=False, log=print) -> str:
     msi = os.path.join(tmp, url.split("filename=")[-1].split("/")[-1].split("?")[0] or "ODAFileConverter.msi")
     download(url, msi, progress)
     log(f"安裝：{msi}（{os.path.getsize(msi) // 1024 // 1024} MB）")
-    code = install(msi, silent=silent)
+    code = install(msi, silent=silent, tick=tick)
     try:
         os.remove(msi)
     except OSError:
@@ -98,5 +201,6 @@ def download_and_install(progress=None, silent=False, log=print) -> str:
     if not found:
         raise SetupError(f"安裝程式結束（代碼 {code}），但找不到 ODAFileConverter.exe。"
                          + ("\n可能是在「是否允許變更」時按了「否」。" if code in (1602, 1625, 1603) else ""))
-    log(f"完成：{found}")
+    left = find_shortcuts()
+    log(f"完成：{found}" + (f"（未刪除的捷徑：{left}）" if left else "（已移除 ODA 捷徑）"))
     return found

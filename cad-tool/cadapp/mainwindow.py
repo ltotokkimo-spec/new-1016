@@ -867,9 +867,38 @@ class MainWindow(qw.QMainWindow):
 
     def check_oda_on_startup(self):
         """啟動時檢查：已安裝就跳過；沒裝且使用者沒選「不要再問」就詢問自動安裝。"""
-        if fileio.find_oda() or self.settings.value("oda_never_ask", False, bool):
+        if fileio.find_oda():
+            self.cleanup_oda_shortcuts()
+            return
+        if self.settings.value("oda_never_ask", False, bool):
             return
         self.auto_install_oda(ask=True, reason="第一次使用：開啟和儲存 DWG 需要免費的 ODA File Converter。", startup=True)
+
+    def cleanup_oda_shortcuts(self):
+        """之前安裝時留下的 ODA 桌面／開始選單捷徑：自動刪掉（需要時請求一次管理員權限）。"""
+        import sys as _sys
+        from . import oda_setup
+        if not _sys.platform.startswith("win") or self.settings.value("oda_shortcut_declined", False, bool):
+            return
+        if not oda_setup.find_shortcuts() or not oda_setup.remove_shortcuts_user():
+            return
+        box = qw.QMessageBox(self)
+        box.setWindowTitle("移除 ODA 捷徑")
+        box.setText("要幫你移除 ODA File Converter 在桌面和開始選單的捷徑（本程式會在背景使用它，你不需要自己打開）。\n\n"
+                    "Windows 會問「是否允許變更」，請按「是」。")
+        ok = box.addButton("移除", qw.QMessageBox.AcceptRole)
+        box.addButton("不用了", qw.QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is not ok:
+            self.settings.setValue("oda_shortcut_declined", True)
+            return
+        try:
+            done = oda_setup.remove_shortcuts(tick=qw.QApplication.processEvents)
+        except Exception as ex:  # noqa: BLE001
+            self.settings.setValue("oda_shortcut_declined", True)
+            self.editor.msg(f"沒有移除 ODA 捷徑：{ex}")
+            return
+        self.editor.msg("已移除 ODA File Converter 的捷徑" if done else "部分 ODA 捷徑無法移除")
 
     def auto_install_oda(self, ask=True, reason="", startup=False) -> bool:
         from . import oda_setup
@@ -920,7 +949,7 @@ class MainWindow(qw.QMainWindow):
             qw.QApplication.processEvents()
 
         try:
-            path = oda_setup.download_and_install(progress=progress, log=log)
+            path = oda_setup.download_and_install(progress=progress, log=log, tick=qw.QApplication.processEvents)
         except Exception as ex:  # noqa: BLE001
             dlg.close()
             box = qw.QMessageBox(self)

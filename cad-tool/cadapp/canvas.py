@@ -20,18 +20,30 @@ PREVIEW = qg.QColor("#f0f0f0")
 SNAP_COLOR = qg.QColor("#ffcc00")
 
 
-# 線條最小寬度（像素）：太細的線經過反鋸齒會變淡變灰
-LINE_WIDTHS = {"細": 1.0, "標準": 1.5, "粗": 2.2}
+# 線條顯示模式：(固定寬度像素或 None=依線寬, 最小寬度, 反鋸齒)
+# 「AutoCAD 標準」：和 AutoCAD 預設一樣，所有線 1 像素、不做反鋸齒，最清楚
+LINE_MODES = {
+    "AutoCAD 標準": (1.0, 1.0, False),
+    "顯示線寬": (None, 1.0, False),
+    "平滑線條": (None, 1.5, True),
+}
+DEFAULT_MODE = "AutoCAD 標準"
+BG_DARK = "#212830"   # AutoCAD 模型空間預設背景色
 
 
 class BrightBackend(PyQtBackend):
-    """和 PyQtBackend 一樣，但線條至少 min_px 像素寬，看起來清楚明亮。"""
-    min_px = 1.5
+    """和 PyQtBackend 一樣，但可固定線寬或設定最小線寬，避免細線變淡。"""
+    fixed_px = 1.0
+    min_px = 1.0
     _filling = False
 
     def _get_pen(self, properties):
         pen = super()._get_pen(properties)
-        if not self._filling and pen.widthF() < self.min_px:
+        if self._filling:
+            return pen
+        if self.fixed_px is not None:
+            pen.setWidthF(self.fixed_px)
+        elif pen.widthF() < self.min_px:
             pen.setWidthF(self.min_px)
         return pen
 
@@ -64,7 +76,7 @@ class CadView(qw.QGraphicsView):
         self.setFocusPolicy(qc.Qt.StrongFocus)
         self.setTransform(qg.QTransform.fromScale(1, -1))
         self.dark = True
-        self.line_px = LINE_WIDTHS["標準"]
+        self.line_mode = DEFAULT_MODE
         self.doc = None
         self.frontend: Optional[Frontend] = None
         self.items_by_handle: dict[str, list] = {}
@@ -78,7 +90,7 @@ class CadView(qw.QGraphicsView):
     def config(self) -> Configuration:
         return Configuration(
             background_policy=BackgroundPolicy.CUSTOM if self.dark else BackgroundPolicy.WHITE,
-            custom_bg_color="#000000",
+            custom_bg_color=BG_DARK,
             color_policy=ColorPolicy.COLOR if self.dark else ColorPolicy.COLOR_NEGATIVE,
             lineweight_policy=LineweightPolicy.RELATIVE,
             lineweight_scaling=1.0,
@@ -92,7 +104,9 @@ class CadView(qw.QGraphicsView):
         scene.clear()
         self.items_by_handle.clear()
         backend = BrightBackend(scene)
-        backend.min_px = self.line_px
+        fixed, minimum, smooth = LINE_MODES.get(self.line_mode, LINE_MODES[DEFAULT_MODE])
+        backend.fixed_px, backend.min_px = fixed, minimum
+        self.setRenderHint(qg.QPainter.Antialiasing, smooth)
         self.frontend = Frontend(RenderContext(doc), backend, config=self.config())
         self.frontend.draw_layout(doc.modelspace(), finalize=True)
         self._index_new_items()

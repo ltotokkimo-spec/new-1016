@@ -192,8 +192,9 @@ class MainWindow(qw.QMainWindow):
         self.editor = Editor(self)
         self.view = CadView(self.editor)
         self.editor.view = self.view
-        from .canvas import LINE_WIDTHS
-        self.view.line_px = LINE_WIDTHS.get(self.settings.value("line_width", "標準", str), 1.5)
+        from .canvas import LINE_MODES, DEFAULT_MODE
+        mode = self.settings.value("line_mode", DEFAULT_MODE, str)
+        self.view.line_mode = mode if mode in LINE_MODES else DEFAULT_MODE
         self.view.dark = self.settings.value("dark", True, bool)
         self.cmdline = CommandLine(self.editor)
         central = qw.QWidget()
@@ -259,16 +260,16 @@ class MainWindow(qw.QMainWindow):
         m = mb.addMenu("檢視(&V)")
         m.addAction(self._act("縮放到全部", self.view.zoom_extents, "Ctrl+Home"))
         m.addAction(self._act("切換黑色／白色背景", self.toggle_background))
-        lw = m.addMenu("線條粗細")
+        lw = m.addMenu("線條顯示")
         group = qg.QActionGroup(self)
-        cur = self.settings.value("line_width", "標準", str)
-        from .canvas import LINE_WIDTHS
-        for name in LINE_WIDTHS:
+        from .canvas import LINE_MODES, DEFAULT_MODE
+        cur = self.view.line_mode
+        for name in LINE_MODES:
             a = lw.addAction(name)
             a.setCheckable(True)
             a.setChecked(name == cur)
             group.addAction(a)
-            a.triggered.connect(lambda _=False, n=name: self.set_line_width(n))
+            a.triggered.connect(lambda _=False, n=name: self.set_line_mode(n))
         m.addAction(self._act("重新產生畫面", self.editor.regen))
         m.addSeparator()
         m.addAction(self.layer_dock.toggleViewAction())
@@ -651,10 +652,9 @@ class MainWindow(qw.QMainWindow):
         self.settings.setValue("dark", self.view.dark)
         self.editor.regen()
 
-    def set_line_width(self, name):
-        from .canvas import LINE_WIDTHS
-        self.view.line_px = LINE_WIDTHS.get(name, 1.5)
-        self.settings.setValue("line_width", name)
+    def set_line_mode(self, name):
+        self.view.line_mode = name
+        self.settings.setValue("line_mode", name)
         self.editor.regen()
 
     def select_all(self):

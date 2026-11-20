@@ -1030,7 +1030,16 @@ function DualManual() {
 /** 照 Claude 的清單填入實際成交 */
 function PlanFill({ items, planKey, cash, stops, source, asOf }: { items: PlanItem[]; planKey: string; cash: number; stops: Record<string, number>; source: string; asOf?: string }) {
   const fitted = useMemo(() => fitBudget(items, etfPrice, cash), [items]);
-  const [rows, setRows] = useState(() => fitted.map((it) => ({ ...it, keep: !!etfPrice(it.code), price: String(etfPrice(it.code) ?? ""), shares: String(it.shares), stopText: it.stop ? String(it.stop) : "" })));
+  // 這份建議是在下單前問的：你可能已經先下了單、記過了（11/20 使用者：「持股買賣搭不上，我已賣過」）。已經記錄過的筆預設取消勾選，並標出原因，免得重複記或賣到沒有的持股
+  const since = asOf ? orderDay(asOf) : taipeiToday();
+  const doneNote = (it: PlanItem): string => {
+    const tr = getState().aiEtf.trades;
+    const sum = tr.filter((t) => t.code === it.code && t.side === it.side && t.date >= since).reduce((a, t) => a + t.shares, 0);
+    if (sum > 0 && sum >= it.shares) return `你 ${prettyW(since)} 起已經記錄過${it.side === "buy" ? "買進" : "賣出"} ${sum.toLocaleString()} 股，已取消勾選`;
+    if (it.side === "sell" && !(positions(tr).find((p) => p.code === it.code)?.shares ?? 0)) return "這檔目前已經沒有持股可賣，已取消勾選";
+    return "";
+  };
+  const [rows, setRows] = useState(() => fitted.map((it) => { const done = doneNote(it); return { ...it, done, keep: !!etfPrice(it.code) && !done, price: String(etfPrice(it.code) ?? ""), shares: String(it.shares), stopText: it.stop ? String(it.stop) : "" }; }));
   const [err, setErr] = useState("");
   const [pxMsg, setPxMsg] = useState("");
   const upd = (i: number, p: Partial<(typeof rows)[number]>) => setRows((prev) => prev.map((r, j) => (j === i ? { ...r, ...p } : r)));
@@ -1067,6 +1076,7 @@ function PlanFill({ items, planKey, cash, stops, source, asOf }: { items: PlanIt
     <div class="card stack" data-testid="plan-fill">
       <b>照 {source} 的建議下單後，在這裡填入實際成交</b>
       {asOf && <div class="muted" style={{ fontSize: "12px" }}>預填的成交價是 {prettyW(asOf)} 收盤價，請改成你 {prettyW(orderDay(asOf))} 實際成交的價格。</div>}
+      {rows.length > 0 && rows.every((r) => r.done) && <div class="notice" style={{ fontSize: "13px" }} data-testid="plan-all-done">這份建議的買賣，你都已經記錄過了，不用再填。</div>}
       <button class="btn secondary block" onClick={() => fillLive(rows.map((_, i) => i))} data-testid="plan-px-all">↻ 全部帶入現價</button>
       {pxMsg && <div class="muted" style={{ fontSize: "12px" }} data-testid="plan-px-msg">{pxMsg}</div>}
       <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>已帶入建議股數與最新收盤價，請改成你實際的成交價與股數；沒買的取消勾選。{fitted.some((x, i) => x.shares !== items[i]?.shares) ? "（建議超過可用現金，股數已等比例調低）" : ""}</div>
@@ -1078,6 +1088,7 @@ function PlanFill({ items, planKey, cash, stops, source, asOf }: { items: PlanIt
           <label class="field">成交價<input inputMode="decimal" value={r.price} onInput={(e) => upd(i, { price: (e.target as HTMLInputElement).value })} /></label>
           <button class="linkbtn" style={{ gridColumn: "1 / -1", justifySelf: "end" }} onClick={() => fillLive([i])} data-testid="plan-px-one">↻ 帶入現價</button>
           {r.side === "buy" && <label class="field" style={{ gridColumn: "1 / -1" }}>停損價（跌破會提醒，空白＝成本 −10%）<input inputMode="decimal" value={r.stopText} onInput={(e) => upd(i, { stopText: (e.target as HTMLInputElement).value })} data-testid="plan-stop" /></label>}
+          {r.done && <div style={{ gridColumn: "1 / -1", fontSize: "12px", color: "#b25e00", fontWeight: 700 }} data-testid="plan-done">✅ {r.done}</div>}
           {r.reason && <div class="muted" style={{ gridColumn: "1 / -1", fontSize: "12px" }}>{r.reason}</div>}
         </div>
       ))}

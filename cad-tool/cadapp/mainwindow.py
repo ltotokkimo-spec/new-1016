@@ -13,7 +13,7 @@ from .canvas import CadView
 from .editor import Editor
 
 APP_NAME = "簡易機械 CAD"
-VERSION = "0.1.0"
+from ._version import VERSION
 ODA_URL = "https://www.opendesign.com/guestfiles/oda_file_converter"
 
 ACI_NAMES = {1: "紅", 2: "黃", 3: "綠", 4: "青", 5: "藍", 6: "洋紅", 7: "白/黑", 8: "深灰", 9: "淺灰"}
@@ -287,6 +287,7 @@ class MainWindow(qw.QMainWindow):
         m.addAction(self._act("指令一覽", self.show_help, "F1"))
         m.addAction(self._act("自動安裝 ODA File Converter（DWG 需要）", lambda: self.auto_install_oda(ask=False)))
         m.addAction(self._act("ODA File Converter 狀態與說明", self.oda_help))
+        m.addAction(self._act("檢查更新…", lambda: self.check_update(manual=True)))
         m.addAction(self._act("關於", self.about))
 
         # 功能鍵
@@ -435,7 +436,7 @@ class MainWindow(qw.QMainWindow):
 
     def update_title(self):
         name = os.path.basename(self.path) if self.path else "未命名"
-        self.setWindowTitle(f"{'*' if self.editor.dirty else ''}{name} - {APP_NAME}")
+        self.setWindowTitle(f"{'*' if self.editor.dirty else ''}{name} - {APP_NAME} v{VERSION}")
 
     def on_doc_changed(self, reset_title=True):
         self.refresh_layers()
@@ -934,6 +935,90 @@ class MainWindow(qw.QMainWindow):
         fileio.set_oda_path(path)
         qw.QMessageBox.information(self, "安裝完成", f"ODA File Converter 已安裝，現在可以開啟和儲存 DWG 了。\n{path}")
         return True
+
+    # ------------------------------------------------------------ 線上更新
+    def check_update(self, manual=False):
+        """manual=False：啟動時在背景檢查，沒網路或沒新版就安靜跳過。"""
+        import threading
+        from . import updater
+
+        class Relay(qc.QObject):
+            done = qc.Signal(object, object)
+
+        self._update_relay = Relay()
+        self._update_relay.done.connect(lambda rel, err: self._on_update_checked(rel, err, manual))
+
+        def work():
+            try:
+                rel = updater.newer_available()
+                self._update_relay.done.emit(rel, None)
+            except Exception as ex:  # noqa: BLE001
+                self._update_relay.done.emit(None, ex)
+        if manual:
+            self.editor.msg("正在檢查更新…")
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_update_checked(self, rel, err, manual):
+        if err is not None:
+            if manual:
+                qw.QMessageBox.warning(self, "檢查更新", f"無法連線到更新伺服器：\n{err}")
+            return
+        if rel is None:
+            if manual:
+                qw.QMessageBox.information(self, "檢查更新", f"目前已是最新版本（v{VERSION}）。")
+            return
+        if not manual and self.settings.value("skip_version", "", str) == rel["version"]:
+            return
+        notes = "\n".join(l for l in rel["notes"].splitlines() if l.strip())[:1500]
+        box = qw.QMessageBox(self)
+        box.setWindowTitle("有新版本")
+        box.setIcon(qw.QMessageBox.Information)
+        box.setText(f"有新版本 v{rel['version']}（目前 v{VERSION}），要現在更新嗎？\n"
+                    f"下載約 {rel['size'] / 1048576:.0f} MB，更新完會自動重新開啟。")
+        box.setDetailedText(notes or "（沒有更新說明）")
+        now = box.addButton("立即更新", qw.QMessageBox.AcceptRole)
+        box.addButton("以後再說", qw.QMessageBox.RejectRole)
+        skip = box.addButton("略過這個版本", qw.QMessageBox.DestructiveRole)
+        box.exec()
+        if box.clickedButton() is skip:
+            self.settings.setValue("skip_version", rel["version"])
+        elif box.clickedButton() is now:
+            self.apply_update(rel)
+
+    def apply_update(self, rel):
+        from . import updater
+        if updater.is_dev():
+            qw.QMessageBox.information(self, "更新", "開發模式不能自動更新，請到 GitHub 下載：\n" + rel["page"])
+            return
+        target = updater.install_dir()
+        if not updater.check_writable(target):
+            qw.QMessageBox.warning(self, "更新", f"程式資料夾無法寫入：\n{target}\n\n"
+                                   "請把 MechCAD 資料夾移到「文件」或「桌面」再更新。")
+            return
+        if not self.maybe_save():
+            return
+        dlg = qw.QProgressDialog("正在下載新版本…", "取消", 0, 100, self)
+        dlg.setWindowTitle("更新")
+        dlg.setWindowModality(qc.Qt.WindowModal)
+        dlg.setMinimumDuration(0)
+
+        def progress(done, total):
+            if total:
+                dlg.setValue(int(done * 100 / total))
+            dlg.setLabelText(f"正在下載新版本… {done / 1048576:.0f} / {total / 1048576:.0f} MB")
+            qw.QApplication.processEvents()
+            return not dlg.wasCanceled()
+        try:
+            new_dir = updater.download_and_extract(rel, progress)
+            updater.launch_replacer(new_dir, target, os.getpid())
+        except Exception as ex:  # noqa: BLE001
+            dlg.close()
+            qw.QMessageBox.warning(self, "更新失敗", str(ex))
+            return
+        dlg.close()
+        self.editor.dirty = False
+        qw.QMessageBox.information(self, "更新", "下載完成，程式將關閉並自動更新，完成後會重新開啟。")
+        qw.QApplication.quit()
 
     # ------------------------------------------------------------ 其他對話框
     def ask_frame(self):

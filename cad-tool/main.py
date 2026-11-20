@@ -110,6 +110,23 @@ def main():
         with open(out, "w", encoding="utf-8") as f:
             f.write("\n".join(lines) + "\n")
         sys.exit(code)
+    if "--update-test" in sys.argv:  # 自動測試：能找到並下載上一版
+        from cadapp import updater
+        out = sys.argv[sys.argv.index("--update-test") + 1]
+        lines = [f"current: {updater.VERSION}"]
+        try:
+            rel = updater.latest_release()
+            lines.append(f"latest release: {rel and rel['version']}")
+            new_dir = updater.download_and_extract(rel)
+            lines.append(f"extracted ok: {os.path.isfile(os.path.join(new_dir, 'MechCAD.exe'))}")
+            lines.append(f"newer than latest: {updater.parse_version(updater.VERSION) > updater.parse_version(rel['version'])}")
+            code = 0
+        except Exception as ex:  # noqa: BLE001
+            lines.append(f"ERROR: {ex}")
+            code = 1
+        with open(out, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+        sys.exit(code)
     if "--selftest" in sys.argv:
         i = sys.argv.index("--selftest")
         sys.exit(selftest(sys.argv[i + 1:]))
@@ -141,6 +158,7 @@ def main():
 
     def after_start():
         win.check_oda_on_startup()
+        win.check_update(manual=False)
         if args:
             win.open_file(args[0])
     qc.QTimer.singleShot(300, after_start)

@@ -1,75 +1,45 @@
-"""CI 診斷：用不同方式呼叫 ODAFileConverter，找出卡住的原因。"""
-import ctypes
+"""CI 診斷：ODA 安裝後建立了哪些捷徑、MSI 的 Shortcut 表與功能。"""
 import glob
 import os
-import subprocess
-import sys
-import tempfile
-import time
-from ctypes import wintypes
 
-import ezdxf
+roots = {
+    "Public Desktop": os.path.join(os.environ.get("PUBLIC", r"C:\Users\Public"), "Desktop"),
+    "User Desktop": os.path.join(os.environ["USERPROFILE"], "Desktop"),
+    "All Users Start Menu": os.path.join(os.environ.get("ProgramData", r"C:\ProgramData"), r"Microsoft\Windows\Start Menu\Programs"),
+    "User Start Menu": os.path.join(os.environ["APPDATA"], r"Microsoft\Windows\Start Menu\Programs"),
+}
+for name, root in roots.items():
+    hits = [p for p in glob.glob(os.path.join(root, "**", "*"), recursive=True) if "oda" in p.lower()]
+    print(f"[{name}] {root}")
+    for h in hits:
+        print("   ", h)
 
-user32 = ctypes.windll.user32
-oda = sorted(glob.glob(r"C:\Program Files\ODA\ODAFileConverter*\ODAFileConverter.exe"))[-1]
-print("ODA:", oda)
-
-
-def windows_of(pid):
-    out = []
-    PROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-
-    def text(h):
-        n = user32.GetWindowTextLengthW(h)
-        b = ctypes.create_unicode_buffer(n + 1)
-        user32.GetWindowTextW(h, b, n + 1)
-        return b.value
-
-    def child(h, _):
-        t = text(h)
-        if t:
-            out.append("    child: " + t[:200])
-        return True
-
-    def top(h, _):
-        p = wintypes.DWORD()
-        user32.GetWindowThreadProcessId(h, ctypes.byref(p))
-        if p.value == pid:
-            out.append(f"  window visible={bool(user32.IsWindowVisible(h))}: {text(h)[:200]}")
-            user32.EnumChildWindows(h, PROC(child), 0)
-        return True
-    user32.EnumWindows(PROC(top), 0)
-    return out
-
-
-def run(label, ver, typ, audit, startup, flags, src_ext):
-    tmp = tempfile.mkdtemp()
-    src, dst = os.path.join(tmp, "in"), os.path.join(tmp, "out")
-    os.makedirs(src); os.makedirs(dst)
-    doc = ezdxf.new("R2018")
-    doc.modelspace().add_line((0, 0), (10, 10))
-    doc.saveas(os.path.join(src, "a.dxf"))
-    si = None
-    if startup:
-        si = subprocess.STARTUPINFO()
-        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        si.wShowWindow = 0
-    args = [oda, src, dst, ver, typ, "0", audit, "*.DXF"]
-    t = time.time()
-    p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, startupinfo=si, creationflags=flags)
-    try:
-        so, se = p.communicate(timeout=60)
-        print(f"[{label}] exit={p.returncode} {time.time()-t:.1f}s out={os.listdir(dst)} stdout={so[-200:]!r} stderr={se[-200:]!r}")
-    except subprocess.TimeoutExpired:
-        print(f"[{label}] HANG after 60s; windows:")
-        print("\n".join(windows_of(p.pid)) or "  (no windows)")
-        p.kill()
-
-
-NOWIN = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-run("A mine audit1 nowin", "ACAD2018", "DWG", "1", True, NOWIN, ".dxf")
-run("B audit0 nowin", "ACAD2018", "DWG", "0", True, NOWIN, ".dxf")
-run("C audit0 plain", "ACAD2018", "DWG", "0", True, 0, ".dxf")
-run("D audit0 visible", "ACAD2018", "DWG", "0", False, 0, ".dxf")
-run("E filter none audit0", "ACAD2018", "DWG", "0", True, 0, ".dxf")
-sys.stdout.flush()
+msi = glob.glob(os.path.join(os.environ["TEMP"], "**", "ODAFileConverter*.msi"), recursive=True)
+if not msi:
+    import urllib.request, re
+    from cadapp import oda_setup
+    url = oda_setup.find_installer_url()
+    path = os.path.join(os.environ["TEMP"], "oda.msi")
+    oda_setup.download(url, path)
+    msi = [path]
+try:
+    import msilib
+    db = msilib.OpenDatabase(msi[0], msilib.MSIDBOPEN_READONLY)
+    for table, q in (("Shortcut", "SELECT Shortcut, Directory_, Name, Component_ FROM Shortcut"),
+                     ("Feature", "SELECT Feature, Title, Level FROM Feature"),
+                     ("FeatureComponents", "SELECT Feature_, Component_ FROM FeatureComponents"),
+                     ("Property", "SELECT Property, Value FROM Property")):
+        print(f"== {table}")
+        try:
+            v = db.OpenView(q)
+            v.Execute(None)
+            while True:
+                r = v.Fetch()
+                if r is None:
+                    break
+                n = r.GetFieldCount()
+                print("   ", " | ".join(str(r.GetString(i + 1)) for i in range(n)))
+        except Exception as ex:  # noqa: BLE001
+            print("    error", ex)
+except ImportError:
+    print("no msilib")

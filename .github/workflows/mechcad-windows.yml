@@ -79,6 +79,7 @@ jobs:
           $p = Start-Process -FilePath dist/MechCAD/MechCAD.exe -ArgumentList @('--install-oda', $log) -Wait -PassThru
           Get-Content $log
           if ($p.ExitCode -ne 0) { throw "ODA 自動安裝失敗" }
+          python tools/oda_diag.py
           $out = Join-Path $pwd "selftest2.txt"
           $argv = @('--selftest', $out)
           if (Test-Path example.dwg) { $argv += (Resolve-Path example.dwg).Path }

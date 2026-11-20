@@ -1165,6 +1165,8 @@ export function etfRating(code: string) {
 
 /** 提醒用的價格和「我的實單」持股列一致：有比收盤資料新的即時價就用即時價（11/16：盤中跌破停損時，持股列亮燈但頂端提醒卡用前一天收盤價、沒出現） */
 const alertPx = (c: string) => { const q = state.live[c]; return q && q.date && q.date >= (state.tw.asOf ?? "") && q.price > 0 ? q.price : etfPrice(c); };
+/** 目前價格：有比收盤資料新的即時價就用即時價，沒有就用收盤價（給「帶入現價」按鈕用） */
+export const livePriceNow = alertPx;
 export const etfAlertsNow = () => etfAlerts(state.aiEtf, alertPx, etfRating);
 
 /** 改起始資金：已記錄的淨值走勢一起平移，報酬率才會連貫 */

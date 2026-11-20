@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import {
   addDualTrades, addDualFlow, setDualReserve, setDualSkip, hideDualTrade, resetDualReal, snapshotDualNav,
-  LIVE_MS, findScored, getFetcher, getKv, addEtfFlow, removeEtfFlow, addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshTurn, refreshDual, refreshDualPlus, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
+  LIVE_MS, findScored, getFetcher, getKv, addEtfFlow, removeEtfFlow, addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshTurn, refreshDual, refreshDualPlus, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, livePriceNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError } from "../ai/claude";
 import { nameLookup, parseOcrHoldings } from "../engine/ocrHoldings";
@@ -1001,7 +1001,19 @@ function PlanFill({ items, planKey, cash, stops, source, asOf }: { items: PlanIt
   const fitted = useMemo(() => fitBudget(items, etfPrice, cash), [items]);
   const [rows, setRows] = useState(() => fitted.map((it) => ({ ...it, keep: !!etfPrice(it.code), price: String(etfPrice(it.code) ?? ""), shares: String(it.shares), stopText: it.stop ? String(it.stop) : "" })));
   const [err, setErr] = useState("");
+  const [pxMsg, setPxMsg] = useState("");
   const upd = (i: number, p: Partial<(typeof rows)[number]>) => setRows((prev) => prev.map((r, j) => (j === i ? { ...r, ...p } : r)));
+  // 「帶入現價」：先重抓這幾檔的即時價，再把目前價格填進成交價（盤中是即時價，收盤後是收盤價；抓不到即時價就用最近的收盤價並說明）
+  const fillLive = async (idx: number[]) => {
+    setPxMsg("更新現價中…");
+    const codes = idx.map((i) => rows[i].code);
+    try { await refreshLive(codes, [], true); } catch { /* 抓不到就用手上最新的價格 */ }
+    const got: Record<number, number> = {};
+    for (const i of idx) { const px = livePriceNow(rows[i].code); if (px && px > 0) got[i] = px; }
+    setRows((prev) => prev.map((r, j) => (got[j] ? { ...r, price: String(got[j]) } : r)));
+    const q = idx.map((i) => getState().live[rows[i].code]).find((x) => x && x.date === taipeiToday());
+    setPxMsg(Object.keys(got).length ? (q ? `已帶入現價（即時價 ${q.time.slice(0, 5)}）。成交價請以你實際成交為準。` : "已帶入最新價格（目前沒有即時價，用的是最近的收盤價）。成交價請以你實際成交為準。") : "抓不到價格，請手動填成交價。");
+  };
   const total = rows.filter((r) => r.keep).reduce((a, r) => a + (r.side === "buy" ? 1 : -1) * Number(r.shares) * Number(r.price), 0);
   const save = async () => {
     const ok = rows.filter((r) => r.keep);
@@ -1017,6 +1029,8 @@ function PlanFill({ items, planKey, cash, stops, source, asOf }: { items: PlanIt
     <div class="card stack" data-testid="plan-fill">
       <b>照 {source} 的建議下單後，在這裡填入實際成交</b>
       {asOf && <div class="muted" style={{ fontSize: "12px" }}>預填的成交價是 {prettyW(asOf)} 收盤價，請改成你 {prettyW(orderDay(asOf))} 實際成交的價格。</div>}
+      <button class="btn secondary block" onClick={() => fillLive(rows.map((_, i) => i))} data-testid="plan-px-all">↻ 全部帶入現價</button>
+      {pxMsg && <div class="muted" style={{ fontSize: "12px" }} data-testid="plan-px-msg">{pxMsg}</div>}
       <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>已帶入建議股數與最新收盤價，請改成你實際的成交價與股數；沒買的取消勾選。{fitted.some((x, i) => x.shares !== items[i]?.shares) ? "（建議超過可用現金，股數已等比例調低）" : ""}</div>
       {rows.map((r, i) => (
         <div class="import-row" style={{ padding: "8px 0" }}>
@@ -1024,6 +1038,7 @@ function PlanFill({ items, planKey, cash, stops, source, asOf }: { items: PlanIt
             <span class={r.side === "buy" ? "up" : "down"}>{r.side === "buy" ? "買進" : "賣出"}</span> {getState().prices[r.code]?.name ?? r.code} <span class="muted num">{r.code}</span>{r.side === "buy" && offListNow(r.code) && <OffTag />}</label>
           <label class="field">股數<input inputMode="numeric" value={r.shares} onInput={(e) => upd(i, { shares: (e.target as HTMLInputElement).value })} /></label>
           <label class="field">成交價<input inputMode="decimal" value={r.price} onInput={(e) => upd(i, { price: (e.target as HTMLInputElement).value })} /></label>
+          <button class="linkbtn" style={{ gridColumn: "1 / -1", justifySelf: "end" }} onClick={() => fillLive([i])} data-testid="plan-px-one">↻ 帶入現價</button>
           {r.side === "buy" && <label class="field" style={{ gridColumn: "1 / -1" }}>停損價（跌破會提醒，空白＝成本 −10%）<input inputMode="decimal" value={r.stopText} onInput={(e) => upd(i, { stopText: (e.target as HTMLInputElement).value })} data-testid="plan-stop" /></label>}
           {r.reason && <div class="muted" style={{ gridColumn: "1 / -1", fontSize: "12px" }}>{r.reason}</div>}
         </div>

@@ -928,13 +928,30 @@ function GroupTag({ groups, code }: { groups: DualGroups; code: string }) {
   return <span style={{ fontSize: "11px", padding: "1px 6px", borderRadius: "8px", background: bg, color: fg, whiteSpace: "nowrap", marginLeft: "4px", verticalAlign: "1px" }} data-testid="group-tag">{txt}</span>;
 }
 
+/** 「帶入現價」：先重抓這幾檔的即時價，回傳目前價格與說明（盤中＝即時價；抓不到或收盤後＝最近收盤價） */
+async function nowPrices(codes: string[]): Promise<{ px: Record<string, number>; note: string }> {
+  try { await refreshLive(codes, [], true); } catch { /* 抓不到就用手上最新的價格 */ }
+  const px: Record<string, number> = {};
+  for (const c of codes) { const v = livePriceNow(c); if (v && v > 0) px[c] = v; }
+  const q = codes.map((c) => getState().live[c]).find((x) => x && x.date === taipeiToday());
+  const note = !Object.keys(px).length ? "抓不到價格，請手動填成交價。" : q ? `已帶入現價（即時價 ${q.time.slice(0, 5)}）。成交價請以你實際成交為準。` : "已帶入最新價格（目前沒有即時價，用的是最近的收盤價）。成交價請以你實際成交為準。";
+  return { px, note };
+}
+
 /** 雙引擎實單的下單清單：勾選、改成實際的股數與成交價，一次記錄 */
 function DualFill({ orders, groups, flags = {}, onSkip }: { orders: DualOrder[]; groups?: DualGroups; flags?: Record<string, string>; onSkip?: (code: string) => void }) {
   const fresh = (o: DualOrder) => ({ ...o, keep: true, sharesText: String(o.shares), priceText: String(o.price) });
   const [rows, setRows] = useState(() => orders.map(fresh));
   const [err, setErr] = useState("");
   const [done, setDone] = useState("");
+  const [pxMsg, setPxMsg] = useState("");
   const upd = (i: number, p: Partial<(typeof rows)[number]>) => setRows((prev) => prev.map((r, j) => (j === i ? { ...r, ...p } : r)));
+  const fillLive = async (idx: number[]) => {
+    setPxMsg("更新現價中…");
+    const { px, note } = await nowPrices(idx.map((i) => rows[i].code));
+    setRows((prev) => prev.map((r, j) => (idx.includes(j) && px[r.code] ? { ...r, priceText: String(px[r.code]) } : r)));
+    setPxMsg(note);
+  };
   const save = async () => {
     const ok = rows.filter((r) => r.keep);
     if (!ok.length) return setErr("請至少勾選一筆");
@@ -947,12 +964,15 @@ function DualFill({ orders, groups, flags = {}, onSkip }: { orders: DualOrder[];
   return (
     <div class="card stack" data-testid="dualreal-orders">
       <div style={{ fontSize: "13.5px" }}>共 {rows.length} 筆：賣出 {sells} 筆、買進 {buys} 筆（先賣後買）。右邊兩格是「股數」和「股價」，用最近收盤價估算，可改成實際成交的股數與價格；沒成交的取消勾選。</div>
+      <button class="btn secondary block" onClick={() => fillLive(rows.map((_, i) => i))} data-testid="dualreal-px-all">↻ 全部帶入現價</button>
+      {pxMsg && <div class="muted" style={{ fontSize: "12px" }} data-testid="dualreal-px-msg">{pxMsg}</div>}
       {rows.map((r, i) => (
         <div class="row" style={{ gap: "6px", alignItems: "center", borderBottom: "1px solid var(--line)", paddingBottom: "6px" }} data-testid="dualreal-order">
           <input type="checkbox" checked={r.keep} onChange={(e) => upd(i, { keep: (e.target as HTMLInputElement).checked })} aria-label={`記錄 ${r.name}`} />
           <div style={{ flex: 1, minWidth: 0, fontSize: "13px" }}>
             <b class={r.side === "buy" ? "up" : "down"}>{r.side === "buy" ? "買" : "賣"}</b> {r.name} <span class="muted num">{r.code}</span><GroupTag groups={groups} code={r.code} />
             <div class="muted" style={{ fontSize: "11.5px" }}>{r.reason}</div>
+            <button class="linkbtn" style={{ fontSize: "11.5px", padding: 0, marginRight: "10px" }} onClick={() => fillLive([i])} data-testid="dualreal-px-one">↻ 帶入現價</button>
             {r.side === "buy" && onSkip && <button class="linkbtn" style={{ fontSize: "11.5px", padding: 0 }} onClick={() => onSkip(r.code)} data-testid="dualreal-skip">✕ 這次先不買</button>}
             {flags[r.code] && <div style={{ fontSize: "11.5px", color: "#b25e00", fontWeight: 700 }} data-testid="dualreal-flag">⚠ {flags[r.code]}</div>}
             {Number(r.sharesText) > 0 && Number(r.priceText) > 0 && <div class="muted num" style={{ fontSize: "11.5px" }}>約 {moneyU(Number(r.sharesText) * Number(r.priceText))}</div>}
@@ -990,6 +1010,7 @@ function DualManual() {
         <label class="field" style={{ flex: 1 }}>成交價<input inputMode="decimal" value={price} onInput={(e) => setPrice((e.target as HTMLInputElement).value)} /></label>
         <label class="field" style={{ flex: 1 }}>{side === "buy" ? "購買金額" : "賣出金額"}<input data-testid="dualreal-amount" readOnly tabIndex={-1} value={tradeAmount(shares, price)} placeholder="股數×成交價" style={{ color: "var(--muted)" }} /></label>
       </div>
+      <button class="linkbtn" style={{ alignSelf: "flex-start" }} onClick={async () => { const c = code.trim().toUpperCase(); if (!c) return setErr("先填代號"); const { px, note } = await nowPrices([c]); if (px[c]) { setPrice(String(px[c])); setErr(""); } else setErr(note); }} data-testid="dualreal-px-manual">↻ 帶入現價</button>
       {err && <div class="error">{err}</div>}
       <div class="row" style={{ gap: "8px" }}><button class="btn" style={{ flex: 1 }} onClick={save}>記錄</button><button class="btn secondary" style={{ flex: 1 }} onClick={() => setOpen(false)}>取消</button></div>
     </div>
@@ -1156,6 +1177,7 @@ function ManualTrade({ draft }: { draft?: SellDraft }) {
         <label class="field">成交價<input id="etf-price" inputMode="decimal" value={price} onInput={(e) => setPrice((e.target as HTMLInputElement).value)} /></label>
         <label class="field">{side === "buy" ? "購買金額" : "賣出金額"}（元）<input id="etf-amount" data-testid="etf-amount" readOnly tabIndex={-1} value={tradeAmount(shares, price)} placeholder="股數×成交價" style={{ color: "var(--muted)" }} /></label>
       </div>
+      <button class="linkbtn" style={{ alignSelf: "flex-start" }} onClick={async () => { const c = code.trim().toUpperCase(); if (!c) return setErr("先填代號"); const { px, note } = await nowPrices([c]); if (px[c]) { setPrice(String(px[c])); setErr(""); } else setErr(note); }} data-testid="etf-px-manual">↻ 帶入現價</button>
       {side === "sell" && <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>在券商 App 賣掉之後，把實際成交的股數和價格填在這裡；這裡只是記錄，不會真的下單。</div>}
       {err && <div class="error">{err}</div>}
       <div class="row"><button class="btn" style={{ flex: 1 }} onClick={save} data-testid="etf-trade-save">儲存</button><button class="btn secondary" onClick={() => setOpen(false)}>取消</button></div>

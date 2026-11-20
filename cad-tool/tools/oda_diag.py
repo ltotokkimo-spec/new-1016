@@ -1,6 +1,9 @@
 """CI 診斷：ODA 安裝後建立了哪些捷徑、MSI 的 Shortcut 表與功能。"""
 import glob
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 roots = {
     "Public Desktop": os.path.join(os.environ.get("PUBLIC", r"C:\Users\Public"), "Desktop"),

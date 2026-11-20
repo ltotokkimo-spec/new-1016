@@ -206,6 +206,8 @@ class MainWindow(qw.QMainWindow):
         self.setCentralWidget(central)
         self.resize(1400, 900)
         self.setAcceptDrops(True)
+        # 拖放檔案：繪圖區、指令列等子元件會先攔截拖放，所以在整個程式層級處理
+        qw.QApplication.instance().installEventFilter(self)
 
         self._build_status()
         self._build_docks()
@@ -1076,16 +1078,35 @@ class MainWindow(qw.QMainWindow):
                              "DWG 存檔透過使用者另外安裝的 ODA File Converter。")
 
     # ------------------------------------------------------------ 拖放與關閉
-    def dragEnterEvent(self, ev):
-        if ev.mimeData().hasUrls():
-            ev.acceptProposedAction()
+    @staticmethod
+    def _cad_files(mime) -> list:
+        if mime is None or not mime.hasUrls():
+            return []
+        return [u.toLocalFile() for u in mime.urls()
+                if u.isLocalFile() and u.toLocalFile().lower().endswith((".dwg", ".dxf"))]
 
-    def dropEvent(self, ev):
-        for url in ev.mimeData().urls():
-            p = url.toLocalFile()
-            if p.lower().endswith((".dwg", ".dxf")):
-                self.open_file(p)
-                break
+    def eventFilter(self, obj, ev):
+        t = ev.type()
+        if t in (qc.QEvent.DragEnter, qc.QEvent.DragMove, qc.QEvent.Drop):
+            files = self._cad_files(ev.mimeData())
+            if files:
+                if t == qc.QEvent.Drop:
+                    ev.setDropAction(qc.Qt.CopyAction)
+                    ev.accept()
+                    self.statusBar().clearMessage()
+                    if len(files) > 1:
+                        self.editor.msg(f"一次只能開一個檔案，開啟第一個：{os.path.basename(files[0])}")
+                    # 等拖放動作結束後再開檔（開檔可能跳出「要先儲存嗎」視窗）
+                    qc.QTimer.singleShot(0, lambda p=files[0]: (self.raise_(), self.activateWindow(), self.open_file(p)))
+                else:
+                    ev.setDropAction(qc.Qt.CopyAction)
+                    ev.accept()
+                    if t == qc.QEvent.DragEnter:
+                        self.statusBar().showMessage(f"放開滑鼠即可開啟：{os.path.basename(files[0])}")
+                return True
+        elif t == qc.QEvent.DragLeave and obj is self:
+            self.statusBar().clearMessage()
+        return super().eventFilter(obj, ev)
 
     def closeEvent(self, ev):
         if self.maybe_save():

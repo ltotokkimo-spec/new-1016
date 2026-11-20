@@ -20,6 +20,30 @@ PREVIEW = qg.QColor("#f0f0f0")
 SNAP_COLOR = qg.QColor("#ffcc00")
 
 
+# 線條最小寬度（像素）：太細的線經過反鋸齒會變淡變灰
+LINE_WIDTHS = {"細": 1.0, "標準": 1.5, "粗": 2.2}
+
+
+class BrightBackend(PyQtBackend):
+    """和 PyQtBackend 一樣，但線條至少 min_px 像素寬，看起來清楚明亮。"""
+    min_px = 1.5
+    _filling = False
+
+    def _get_pen(self, properties):
+        pen = super()._get_pen(properties)
+        if not self._filling and pen.widthF() < self.min_px:
+            pen.setWidthF(self.min_px)
+        return pen
+
+    def draw_filled_paths(self, paths, properties):
+        # 文字和實心填滿的外框維持原本粗細，避免小字糊在一起
+        self._filling = True
+        try:
+            super().draw_filled_paths(paths, properties)
+        finally:
+            self._filling = False
+
+
 def qpt(v) -> qc.QPointF:
     return qc.QPointF(v[0], v[1])
 
@@ -40,6 +64,7 @@ class CadView(qw.QGraphicsView):
         self.setFocusPolicy(qc.Qt.StrongFocus)
         self.setTransform(qg.QTransform.fromScale(1, -1))
         self.dark = True
+        self.line_px = LINE_WIDTHS["標準"]
         self.doc = None
         self.frontend: Optional[Frontend] = None
         self.items_by_handle: dict[str, list] = {}
@@ -53,10 +78,10 @@ class CadView(qw.QGraphicsView):
     def config(self) -> Configuration:
         return Configuration(
             background_policy=BackgroundPolicy.CUSTOM if self.dark else BackgroundPolicy.WHITE,
-            custom_bg_color="#1e2329",
+            custom_bg_color="#000000",
             color_policy=ColorPolicy.COLOR if self.dark else ColorPolicy.COLOR_NEGATIVE,
             lineweight_policy=LineweightPolicy.RELATIVE,
-            lineweight_scaling=0.8,
+            lineweight_scaling=1.0,
         )
 
     def render_all(self, doc, keep_view=True):
@@ -66,7 +91,8 @@ class CadView(qw.QGraphicsView):
         scene = self.scene()
         scene.clear()
         self.items_by_handle.clear()
-        backend = PyQtBackend(scene)
+        backend = BrightBackend(scene)
+        backend.min_px = self.line_px
         self.frontend = Frontend(RenderContext(doc), backend, config=self.config())
         self.frontend.draw_layout(doc.modelspace(), finalize=True)
         self._index_new_items()

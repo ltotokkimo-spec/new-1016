@@ -192,6 +192,9 @@ class MainWindow(qw.QMainWindow):
         self.editor = Editor(self)
         self.view = CadView(self.editor)
         self.editor.view = self.view
+        from .canvas import LINE_WIDTHS
+        self.view.line_px = LINE_WIDTHS.get(self.settings.value("line_width", "標準", str), 1.5)
+        self.view.dark = self.settings.value("dark", True, bool)
         self.cmdline = CommandLine(self.editor)
         central = qw.QWidget()
         v = qw.QVBoxLayout(central)
@@ -256,6 +259,16 @@ class MainWindow(qw.QMainWindow):
         m = mb.addMenu("檢視(&V)")
         m.addAction(self._act("縮放到全部", self.view.zoom_extents, "Ctrl+Home"))
         m.addAction(self._act("切換黑色／白色背景", self.toggle_background))
+        lw = m.addMenu("線條粗細")
+        group = qg.QActionGroup(self)
+        cur = self.settings.value("line_width", "標準", str)
+        from .canvas import LINE_WIDTHS
+        for name in LINE_WIDTHS:
+            a = lw.addAction(name)
+            a.setCheckable(True)
+            a.setChecked(name == cur)
+            group.addAction(a)
+            a.triggered.connect(lambda _=False, n=name: self.set_line_width(n))
         m.addAction(self._act("重新產生畫面", self.editor.regen))
         m.addSeparator()
         m.addAction(self.layer_dock.toggleViewAction())
@@ -635,6 +648,13 @@ class MainWindow(qw.QMainWindow):
 
     def toggle_background(self):
         self.view.dark = not self.view.dark
+        self.settings.setValue("dark", self.view.dark)
+        self.editor.regen()
+
+    def set_line_width(self, name):
+        from .canvas import LINE_WIDTHS
+        self.view.line_px = LINE_WIDTHS.get(name, 1.5)
+        self.settings.setValue("line_width", name)
         self.editor.regen()
 
     def select_all(self):

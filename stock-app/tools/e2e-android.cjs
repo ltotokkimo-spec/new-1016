@@ -1354,7 +1354,7 @@ function check(ok, name, detail = "") {
   });
   log("台積電現價（設停損用）", px2330);
   const realPills = await page.$$eval('[data-testid="real-pxpill"]', (es) => es.map((e) => e.textContent.trim()));
-  check(realPills.length > 0 && realPills.every((x) => /^(收盤|盤中|試搓) [\d,.]+ (▲|▼|－)/.test(x)), "我的實單持股顯示價格膠囊（收盤／盤中／試搓、價格、漲跌）", JSON.stringify(realPills.slice(0, 5)));
+  check(realPills.length > 0 && realPills.every((x) => /^(收盤|盤中|試搓) [\d,.]+( (▲|▼|－)|$)/.test(x)), "我的實單持股顯示價格膠囊（收盤／盤中／試搓、價格；有漲跌資料時帶漲跌）", JSON.stringify(realPills.slice(0, 5)));
   await page.click('[data-e2e="tsmc"] [data-testid="stop-edit"]');
   await page.fill('[data-testid="stop-input"]', String(Math.ceil(Number(px2330) * 1.05)));
   await page.click('[data-testid="stop-save"]');

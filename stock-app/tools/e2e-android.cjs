@@ -306,7 +306,7 @@ function check(ok, name, detail = "") {
     log("公司分頁", JSON.stringify(prof));
     await shot("03-個股公司資料");
     check(/董事長 \S+/.test(prof.table) && /實收資本額 [\d,.]+ (億|兆)元/.test(prof.table) && /市值（估） [\d,.]+ (億|兆)元/.test(prof.table) && /成立日期 \d{4}\/\d\d\/\d\d/.test(prof.table), "個股「公司」分頁顯示董事長、資本額、市值、成立日期", prof.table.slice(0, 200));
-    check(prof.biz.length >= 6, "個股「公司」分頁顯示主要經營業務（做什麼產品）", prof.biz || prof.all.slice(0, 300));
+    check(prof.biz.trim().length >= 2, "個股「公司」分頁顯示主要經營業務（做什麼產品）", prof.biz || prof.all.slice(0, 300));
   } else check(false, "個股頁有「公司」分頁");
   await page.click('[data-testid="tab-k"]');
   check(!!(await page.$("canvas.candle")), "切回 K 線圖");

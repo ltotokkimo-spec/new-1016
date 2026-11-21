@@ -1200,6 +1200,8 @@ function check(ok, name, detail = "") {
   await page.click('[data-testid="flow-row"] button');
   await page.waitForFunction(() => !document.querySelector('[data-testid="flow-row"]'), null, { timeout: 5000 });
   await device.shell("input keyevent 111"); // 測試工具已經替我們按了「確定」，但手機上的確認視窗還留著，會蓋住後面所有截圖：按 ESC 關掉
+  const rw = await page.$eval('[data-testid="real-water"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
+  check(/資金水位/.test(rw) && /投入/.test(rw) && /股票成本/.test(rw) && /現金/.test(rw) && /改現金/.test(rw) && /保留/.test(rw), "我的實單有資金水位橫條（投入、股票成本與市值、現金、改現金／再投入／保留現金）", rw.slice(0, 200));
   const fl2 = await fsum();
   check(!/投入本金/.test(fl2.t) && fl2.cash === fl0.cash, "刪除存提款紀錄後恢復原本的現金與本金", JSON.stringify(fl2));
   // 持股列的「賣出」按鈕：帶入代號、全部股數，表單切到賣出

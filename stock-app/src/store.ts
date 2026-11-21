@@ -1200,6 +1200,9 @@ export async function removeEtfFlow(id: string) {
   await snapshotEtfNav();
 }
 
+/** 我的實單「保留現金」：Claude 建議與下單清單買進時不動用這筆（0＝不保留）；和雙引擎實單的水位標同一套 */
+export async function setEtfReserve(amount: number) { if (Number.isFinite(amount) && amount >= 0) await saveAiEtf({ ...state.aiEtf, cashReserve: Math.round(amount) || undefined }); }
+
 export async function resetAiEtf() {
   await saveAiEtf(emptyEtf(state.aiEtf.budget));
 }
@@ -1218,7 +1221,7 @@ export function etfAdviceInput(): EtfAdviceInput {
   const today = taipeiToday();
   const asOf = state.tw.asOf;
   return {
-    today: `${today.slice(0, 4)}/${today.slice(4, 6)}/${today.slice(6)}`, budget: v.invested, cash: v.cash, nav: v.nav, holdings, candidates, minValue,
+    today: `${today.slice(0, 4)}/${today.slice(4, 6)}/${today.slice(6)}`, budget: v.invested, cash: Math.max(0, v.cash - Math.max(0, etf.cashReserve ?? 0)), nav: v.nav, holdings, candidates, minValue,
     dataDate: asOf ? prettyW(asOf) : undefined, orderDate: asOf ? prettyW(orderDay(asOf)) : undefined,
   };
 }

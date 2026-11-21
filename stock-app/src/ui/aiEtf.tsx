@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import {
   addDualTrades, addDualFlow, setDualReserve, setDualSkip, hideDualTrade, resetDualReal, snapshotDualNav,
-  LIVE_MS, findScored, getFetcher, getKv, addEtfFlow, removeEtfFlow, addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshTurn, refreshDual, refreshDualPlus, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, livePriceNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
+  LIVE_MS, findScored, getFetcher, getKv, addEtfFlow, setEtfReserve, removeEtfFlow, addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshTurn, refreshDual, refreshDualPlus, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, livePriceNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError } from "../ai/claude";
 import { nameLookup, parseOcrHoldings } from "../engine/ocrHoldings";
@@ -710,7 +710,7 @@ function Roll({ value, fmt }: { value: number; fmt: (x: number) => string }) {
   return <>{fmt(v)}</>;
 }
 const WATER = { cost: "#2f4b6e", cash: "#c9d8ea", tick: "#12263a", gain: "#d7263d", loss: "#00e676" };
-function DualWater({ etf, v, price }: { etf: AiEtf; v: Valuation; price: (code: string) => number | undefined }) {
+function DualWater({ etf, v, price, tid = "dualreal", onFlow = addDualFlow, onReserve = setDualReserve, showMetrics = true }: { etf: AiEtf; v: Valuation; price: (code: string) => number | undefined; tid?: string; onFlow?: (delta: number) => Promise<void>; onReserve?: (n: number) => Promise<void>; showMetrics?: boolean }) {
   const w = waterLevel(etf, price);
   const [edit, setEdit] = useState<"" | "add" | "cash" | "keep">("");
   const [text, setText] = useState("");
@@ -722,19 +722,19 @@ function DualWater({ etf, v, price }: { etf: AiEtf; v: Valuation; price: (code: 
   const delta = edit === "add" ? num : edit === "keep" ? 0 : num - w.cash; // 改現金：和帳上現金的差額記成存入／提領
   const ok = text.trim() !== "" && Number.isFinite(num) && (edit === "keep" ? num >= 0 && Math.round(num) !== Math.round(w.reserve) : edit === "add" ? num !== 0 && w.cash + num >= 0 && w.invested + num > 0 : num >= 0 && Math.round(delta) !== 0 && w.invested + delta > 0);
   const open = (m: "add" | "cash" | "keep") => { setEdit(edit === m ? "" : m); setText(""); };
-  const apply = async () => { if (!ok || busy) return; setBusy(true); try { if (edit === "keep") await setDualReserve(num); else { await addDualFlow(delta); if (edit === "add" && delta > 0) setCoin((c) => c + 1); } setEdit(""); setText(""); } finally { setBusy(false); } };
+  const apply = async () => { if (!ok || busy) return; setBusy(true); try { if (edit === "keep") await onReserve(num); else { await onFlow(delta); if (edit === "add" && delta > 0) setCoin((c) => c + 1); } setEdit(""); setText(""); } finally { setBusy(false); } };
   const seg = (left: number, width: number, background: string) => width > 0 ? <div style={{ position: "absolute", top: 0, bottom: 0, left: `${left}%`, width: `${width}%`, background }} /> : null;
   const link = { color: WATER.cost, fontWeight: 700, background: "none", border: 0, padding: "2px 0", font: "inherit", fontSize: "13px" } as const;
   const sw = (background: string) => <i style={{ width: "11px", height: "11px", borderRadius: "3px", display: "inline-block", background }} />;
   const lg = { display: "inline-flex", alignItems: "center", gap: "4px", marginRight: "10px" } as const;
   const total = w.nav - w.invested;
   return (
-    <div class="card stack" style={{ marginTop: "12px" }} data-testid="dualreal-water">
+    <div class="card stack" style={{ marginTop: "12px" }} data-testid={`${tid}-water`}>
       <div class="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
         <b>資金水位</b>
-        <span style={{ fontSize: "13px" }}><span class="muted">投入 </span><b class="num" data-testid="dualreal-invested" data-v={Math.round(w.invested)}><Roll value={w.invested} fmt={moneyU} /></b></span>
+        <span style={{ fontSize: "13px" }}><span class="muted">投入 </span><b class="num" data-testid={`${tid}-invested`} data-v={Math.round(w.invested)}><Roll value={w.invested} fmt={moneyU} /></b></span>
       </div>
-      <div class="wb" data-testid="dualreal-bar">
+      <div class="wb" data-testid={`${tid}-bar`}>
         <div class="wb-track">
           <div class="wb-seg wb-cost" style={{ left: 0, width: `${grown ? w.bar.stock : 0}%` }} />
           <div class="wb-seg" style={{ left: `${w.bar.stock}%`, width: `${grown ? w.bar.gain : 0}%`, background: WATER.gain }} />
@@ -742,7 +742,7 @@ function DualWater({ etf, v, price }: { etf: AiEtf; v: Valuation; price: (code: 
           <div class="wb-seg wb-cash" style={{ left: `${w.bar.stock + w.bar.gain + w.bar.loss}%`, width: `${grown ? w.bar.cash : 0}%` }} />
         </div>
         {(w.bar.gain > 0 || w.bar.loss > 0) && <div class={`wb-halo ${w.bar.gain > 0 ? "g" : "l"}`} style={{ left: `${w.bar.stock}%`, width: `${Math.max(w.bar.gain, w.bar.loss)}%` }} />}
-        {w.reserve > 0 && w.bar.reserve > 0 && <div class="wb-keep" style={{ left: `${100 - w.bar.reserve}%`, width: `${w.bar.reserve}%` }} data-testid="dualreal-keep-mark" />}
+        {w.reserve > 0 && w.bar.reserve > 0 && <div class="wb-keep" style={{ left: `${100 - w.bar.reserve}%`, width: `${w.bar.reserve}%` }} data-testid={`${tid}-keep-mark`} />}
         {w.cost > 0 && <div class="wb-tick" style={{ left: `calc(${w.bar.tick}% - 1px)` }} />}
         {coin > 0 && <span key={coin} class="wb-coin" style={{ left: "85%" }}>＋💰</span>}
       </div>
@@ -752,7 +752,7 @@ function DualWater({ etf, v, price }: { etf: AiEtf; v: Valuation; price: (code: 
           {w.cost > 0 && <span class={cls(w.unrealized)} style={{ whiteSpace: "nowrap" }}>未實現 <b class="num"><Roll value={w.unrealized} fmt={signedMoney} /></b></span>}
         </div>
         <div class="row" style={{ justifyContent: "space-between", gap: "8px" }}>
-          <span>現金 <b class="num" data-testid="dualreal-cash" data-v={Math.round(w.cash)}><Roll value={w.cash} fmt={moneyU} /></b>{w.reserve > 0 && <span class="muted" data-testid="dualreal-keep-note">（保留 {moneyU(w.reserve)}）</span>}　<button style={{ ...link, ...(edit === "cash" ? { textDecoration: "underline" } : {}) }} onClick={() => open("cash")} data-testid="dualreal-cash-edit">✎ 改現金</button>　<button style={{ ...link, ...(edit === "add" ? { textDecoration: "underline" } : {}) }} onClick={() => open("add")} data-testid="dualreal-add">＋再投入</button>　<button style={{ ...link, ...(edit === "keep" ? { textDecoration: "underline" } : {}) }} onClick={() => open("keep")} data-testid="dualreal-keep">🛡 保留現金</button></span>
+          <span>現金 <b class="num" data-testid={`${tid}-cash`} data-v={Math.round(w.cash)}><Roll value={w.cash} fmt={moneyU} /></b>{w.reserve > 0 && <span class="muted" data-testid={`${tid}-keep-note`}>（保留 {moneyU(w.reserve)}）</span>}　<button style={{ ...link, ...(edit === "cash" ? { textDecoration: "underline" } : {}) }} onClick={() => open("cash")} data-testid={`${tid}-cash-edit`}>✎ 改現金</button>　<button style={{ ...link, ...(edit === "add" ? { textDecoration: "underline" } : {}) }} onClick={() => open("add")} data-testid={`${tid}-add`}>＋再投入</button>　<button style={{ ...link, ...(edit === "keep" ? { textDecoration: "underline" } : {}) }} onClick={() => open("keep")} data-testid={`${tid}-keep`}>🛡 保留現金</button></span>
           {w.realized !== 0 && <span class="muted" style={{ whiteSpace: "nowrap" }}>已實現 <span class={`num ${cls(w.realized)}`}>{signedMoney(w.realized)}</span></span>}
         </div>
       </div>
@@ -762,17 +762,17 @@ function DualWater({ etf, v, price }: { etf: AiEtf; v: Valuation; price: (code: 
           {edit === "keep" && <div class="row" style={{ gap: "6px", flexWrap: "wrap" }}>{[0, 5, 10, 20].map((pc) => <button key={pc} class="btn secondary" style={{ padding: "4px 10px", fontSize: "13px" }} onClick={() => setText(String(Math.round((w.nav * pc) / 100 / 1000) * 1000))}>{pc === 0 ? "不保留" : `總值 ${pc}%`}</button>)}</div>}
           <div class="row" style={{ gap: "8px" }}>
             <label class="field" style={{ flex: 1, margin: 0 }}>{edit === "add" ? "再投入（元，要提領就填負數）" : edit === "keep" ? "要保留的現金（元，0＝不保留）" : "券商帳上實際的現金（元）"}
-              <input inputMode={edit === "add" ? "text" : "numeric"} placeholder={edit === "add" ? "100000" : edit === "keep" ? String(Math.round(w.reserve)) : String(Math.round(w.cash))} value={text} onInput={(e) => setText((e.target as HTMLInputElement).value)} data-testid="dualreal-water-input" /></label>
-            <button class="btn" style={{ alignSelf: "flex-end" }} disabled={!ok || busy} onClick={() => void apply()} data-testid="dualreal-water-ok">{edit === "add" ? "加入" : edit === "keep" ? "設定" : "更新"}</button>
+              <input inputMode={edit === "add" ? "text" : "numeric"} placeholder={edit === "add" ? "100000" : edit === "keep" ? String(Math.round(w.reserve)) : String(Math.round(w.cash))} value={text} onInput={(e) => setText((e.target as HTMLInputElement).value)} data-testid={`${tid}-water-input`} /></label>
+            <button class="btn" style={{ alignSelf: "flex-end" }} disabled={!ok || busy} onClick={() => void apply()} data-testid={`${tid}-water-ok`}>{edit === "add" ? "加入" : edit === "keep" ? "設定" : "更新"}</button>
           </div>
           <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
-            {edit === "keep" ? (ok ? <>保留 <b style={{ color: "var(--fg)" }}>{moneyU(num)}</b>，買進最多只動用 <b style={{ color: "var(--fg)" }}>{moneyU(Math.max(0, w.cash - num))}</b> 現金（賣出回收的錢也算在內），「要下的單」會跟著更新。</> : "保留的現金不會被「要下的單」拿去買股票，其餘照雙引擎目標配置。例如保留 10 萬，買進最多只用到現金剩 10 萬為止，比觀察組合少買一點、抗跌一點。")
-              : ok ? <>投入 {moneyU(w.invested)} → <b style={{ color: "var(--fg)" }}>{moneyU(w.invested + delta)}</b>，現金 {moneyU(w.cash)} → <b style={{ color: "var(--fg)" }}>{moneyU(w.cash + delta)}</b>；每檔目標金額照新的總值重算，「要下的單」會跟著更新。</>
-              : edit === "add" ? "加進來的錢先放現金，「要下的單」會照新的總值算出要加買哪些、各幾股。提領不能超過現金。" : "填券商 App 上看到的可用現金。和帳上的差額會記成存入或提領，不影響報酬率。"}
+            {edit === "keep" ? (ok ? <>保留 <b style={{ color: "var(--fg)" }}>{moneyU(num)}</b>，買進最多只動用 <b style={{ color: "var(--fg)" }}>{moneyU(Math.max(0, w.cash - num))}</b> 現金（賣出回收的錢也算在內），{tid === "real" ? "請 Claude 建議和下單清單都會照這個算。" : "「要下的單」會跟著更新。"}</> : tid === "real" ? "保留的現金不會被 Claude 建議與下單清單拿去買股票。例如保留 10 萬，買進最多只用到現金剩 10 萬為止，留著抗跌或等低檔。" : "保留的現金不會被「要下的單」拿去買股票，其餘照雙引擎目標配置。例如保留 10 萬，買進最多只用到現金剩 10 萬為止，比觀察組合少買一點、抗跌一點。")
+              : ok ? <>投入 {moneyU(w.invested)} → <b style={{ color: "var(--fg)" }}>{moneyU(w.invested + delta)}</b>，現金 {moneyU(w.cash)} → <b style={{ color: "var(--fg)" }}>{moneyU(w.cash + delta)}</b>；{tid === "real" ? "下次請 Claude 建議時會用新的可用現金。" : "每檔目標金額照新的總值重算，「要下的單」會跟著更新。"}</>
+              : edit === "add" ? (tid === "real" ? "加進來的錢先放現金，之後買股票從現金扣。提領不能超過現金。" : "加進來的錢先放現金，「要下的單」會照新的總值算出要加買哪些、各幾股。提領不能超過現金。") : "填券商 App 上看到的可用現金。和帳上的差額會記成存入或提領，不影響報酬率。"}
           </div>
         </div>
       )}
-      {etf.trades.length > 0 && <>
+      {showMetrics && etf.trades.length > 0 && <>
         <div class="grid2">
           <div class="metric"><div class="k">目前總值</div><div class="v num">{fmtMoney(v.nav)}</div><div class={`d num ${cls(total)}`}>比投入 {signedMoney(total)}（{fmtPct(v.ret, 2)}）</div></div>
           <div class="metric"><div class="k">同樣的錢買 0050</div><div class="v num">{fmtMoney(v.bench)}</div><div class={`d num ${cls(v.benchRet)}`}>{signedMoney(v.bench - w.invested)}（{fmtPct(v.benchRet, 2)}）</div></div>
@@ -1981,6 +1981,8 @@ function RealEtfScreen() {
         <div class="muted" style={{ fontSize: "11px", lineHeight: 1.6 }}>已估算手續費 0.1425% 與賣出證交稅 0.3%（未計券商折扣）。對照組：每次買賣時，用同樣金額買賣 0050。{etf.flows?.length ? "有中途存入／提領：總損益＝淨值－投入本金；報酬率用時間加權（基金常用的算法），存提款的錢不算賺賠，報酬率只反映操作好壞；0050 對照組同一天存提同樣的錢。" : ""}</div>
       </div>
 
+      {etf.trades.length > 0 && <DualWater etf={etf} v={v} price={livePx} tid="real" showMetrics={false} onFlow={(d) => addEtfFlow(d, { nav: v.nav, bench: v.bench })} onReserve={setEtfReserve} />}
+
       {(pos.length > 0 || v.cash < v.invested) && <CashGauge plan={cashPlanMkt} nav={v.nav} marketValue={v.marketValue}
         pendingNet={orderRows.reduce((t, r) => t + (r.side === "buy" ? 1 : -1) * r.shares * (r.price ?? 0), 0)} pendingLabel="今日下單清單照做"
         note="目標和 Claude 虛擬組合用同一套規則（每天收盤後依加權指數距 20 日高點的跌幅判斷），只是參考：要不要加碼由你決定，不用為了補水位硬買。" />}
@@ -2054,7 +2056,7 @@ function RealEtfScreen() {
         </>
       )}
       {showFill && (
-        <div style={{ marginTop: "10px" }}><PlanFill key={fillKey} items={agreed!.go} planKey={fillKey!} cash={v.cash} stops={fillParsed!.stops} source={fillSrc === "pro" ? "Claude Pro" : "Claude API"} asOf={fillSrc === "pro" ? etf.proAsOf : etf.planAsOf} /></div>
+        <div style={{ marginTop: "10px" }}><PlanFill key={fillKey} items={agreed!.go} planKey={fillKey!} cash={Math.max(0, v.cash - Math.max(0, etf.cashReserve ?? 0))} stops={fillParsed!.stops} source={fillSrc === "pro" ? "Claude Pro" : "Claude API"} asOf={fillSrc === "pro" ? etf.proAsOf : etf.planAsOf} /></div>
       )}
       {!busy && fillParsed && !fillParsed.items.length && <div class="notice" style={{ marginTop: "10px" }}>這份建議沒有要買賣（維持不變），或回覆最後沒有附上 JSON 清單。</div>}
       {!busy && !plan && !pro && (

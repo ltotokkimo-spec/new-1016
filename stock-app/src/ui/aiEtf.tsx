@@ -201,7 +201,7 @@ function NavChart({ points, budget, mine = "我的自組 ETF", flows }: { points
 }
 
 /** 資金水位：一條 0~100% 的橫條，看股票佔多少、目標在哪、還能不能加碼；下面一張小表列出規劃，目前所在的那一段標出來 */
-export function CashGauge({ plan, nav, marketValue, pendingNet = 0, note, pendingLabel = "已排定委託" }: { plan?: CashPlan; nav: number; marketValue: number; pendingNet?: number; note?: string; pendingLabel?: string }) {
+export function CashGauge({ plan, nav, marketValue, pendingNet = 0, note, pendingLabel = "已排定委託", embedded = false }: { plan?: CashPlan; nav: number; marketValue: number; pendingNet?: number; note?: string; pendingLabel?: string; embedded?: boolean }) {
   const lv = cashLevel(plan, nav, marketValue);
   const pct = (x: number) => `${Math.round(x * 100)}%`;
   const after = nav > 0 ? (marketValue + pendingNet) / nav : 0; // 已排定的委託成交後
@@ -212,6 +212,30 @@ export function CashGauge({ plan, nav, marketValue, pendingNet = 0, note, pendin
     { k: "平常", v: `${Math.round(CASH_BASE * 10)} 成股票・${Math.round((1 - CASH_BASE) * 10)} 成現金`, t: CASH_BASE },
     ...CASH_STEPS.map((x) => ({ k: `大盤跌 ${Math.round(x.dd * 100)}%`, v: `股票最多 ${Math.round(x.target * 10)} 成`, t: x.target })),
   ];
+  const ruleRows = rows.map((r) => {
+    const on = Math.abs(r.t - lv.target) < 1e-9;
+    return (
+      <div class="row" style={{ justifyContent: "space-between", padding: "4px 8px", borderRadius: "6px", background: on ? "var(--hold-bg)" : "transparent", fontWeight: on ? 700 : 400 }}>
+        <span>{on ? "▶ " : ""}{r.k}</span><span class="num">{r.v}</span>
+      </div>
+    );
+  });
+  // 11/22 使用者：我的實單的兩張「資金水位」整理成一張——嵌在成本／現金橫條下面，只留比重、目標與加碼空間，規則表收起來
+  if (embedded) return (
+    <div class="stack" style={{ gap: "6px", borderTop: "1px solid var(--line)", paddingTop: "10px" }} data-testid="cash-gauge">
+      <div style={{ fontSize: "14px", lineHeight: 1.6 }} data-testid="cash-status">
+        <span class="num">股票 <b>{pct(lv.stock)}</b>・現金 <b>{pct(lv.cash)}</b></span>｜目標股票 <b class="num">{pct(lv.target)}</b>（{lv.label}）・<b>{status}</b>
+        {pendingNet !== 0 && <div class="muted" style={{ fontSize: "12px" }}>{pendingLabel} {pendingNet > 0 ? "淨買進" : "淨賣出"}約 {fmtMoney(Math.abs(pendingNet))}，成交後股票約 {pct(after)}</div>}
+        {plan && <div class="muted" style={{ fontSize: "12px" }}>{prettyW(plan.date)} 判斷：加權指數距近 20 日最高收盤 <span class={cls(plan.drawdown)}>{fmtPct(plan.drawdown, 1)}</span>。</div>}
+      </div>
+      <details style={{ fontSize: "13px" }}>
+        <summary class="muted" style={{ cursor: "pointer", listStyle: "revert", fontSize: "12.5px" }}>水位規則（平常 7 成、大盤跌深最多 9 成）</summary>
+        {ruleRows}
+        {plan?.reason && <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, marginTop: "4px" }}>{plan.reason}</div>}
+      </details>
+      <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>至少留 1 成現金。{note ?? "Claude 每天收盤後自動判斷並調整。"}</div>
+    </div>
+  );
   return (
     <div class="card stack" style={{ marginTop: "12px" }} data-testid="cash-gauge">
       <div class="row" style={{ justifyContent: "space-between" }}>
@@ -237,14 +261,7 @@ export function CashGauge({ plan, nav, marketValue, pendingNet = 0, note, pendin
         {plan && <div class="muted" style={{ fontSize: "12px" }}>{prettyW(plan.date)} 判斷：加權指數距近 20 日最高收盤 <span class={cls(plan.drawdown)}>{fmtPct(plan.drawdown, 1)}</span>。{plan.reason}</div>}
       </div>
       <div style={{ fontSize: "13px" }}>
-        {rows.map((r) => {
-          const on = Math.abs(r.t - lv.target) < 1e-9;
-          return (
-            <div class="row" style={{ justifyContent: "space-between", padding: "4px 8px", borderRadius: "6px", background: on ? "var(--hold-bg)" : "transparent", fontWeight: on ? 700 : 400 }}>
-              <span>{on ? "▶ " : ""}{r.k}</span><span class="num">{r.v}</span>
-            </div>
-          );
-        })}
+        {ruleRows}
         <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, marginTop: "4px" }}>至少留 1 成現金（斜線區不動用）。反彈站回 20 日線後，分批降回 7 成。{note ?? "Claude 每天收盤後自動判斷並調整。"}</div>
       </div>
     </div>
@@ -721,7 +738,7 @@ function Roll({ value, fmt }: { value: number; fmt: (x: number) => string }) {
   return <>{fmt(v)}</>;
 }
 const WATER = { cost: "#2f4b6e", cash: "#c9d8ea", tick: "#12263a", gain: "#d7263d", loss: "#00e676" };
-function DualWater({ etf, v, price, tid = "dualreal", onFlow = addDualFlow, onReserve = setDualReserve, showMetrics = true }: { etf: AiEtf; v: Valuation; price: (code: string) => number | undefined; tid?: string; onFlow?: (delta: number) => Promise<void>; onReserve?: (n: number) => Promise<void>; showMetrics?: boolean }) {
+function DualWater({ etf, v, price, tid = "dualreal", onFlow = addDualFlow, onReserve = setDualReserve, showMetrics = true, children }: { etf: AiEtf; v: Valuation; price: (code: string) => number | undefined; tid?: string; onFlow?: (delta: number) => Promise<void>; onReserve?: (n: number) => Promise<void>; showMetrics?: boolean; children?: any }) {
   const w = waterLevel(etf, price);
   const [edit, setEdit] = useState<"" | "add" | "cash" | "keep">("");
   const [text, setText] = useState("");
@@ -792,6 +809,7 @@ function DualWater({ etf, v, price, tid = "dualreal", onFlow = addDualFlow, onRe
           {v.missing.length ? <span class="muted">收盤價更新後再比較輸贏</span> : v.ret >= v.benchRet ? <span class="up">贏過 0050 {fmtPct(v.ret - v.benchRet, 2)}</span> : <span class="down">落後 0050 {fmtPct(v.ret - v.benchRet, 2)}</span>}
         </div>
       </>}
+      {children}
       <div class="muted" style={{ fontSize: "11.5px" }}>
         <span style={lg}>{sw(WATER.cost)}股票成本</span><span style={lg}>{sw(WATER.gain)}賺</span><span style={lg}>{sw(WATER.loss)}賠</span><span style={lg}>{sw(WATER.cash)}現金</span><span style={lg}>{sw("repeating-linear-gradient(135deg,rgba(42,75,107,.45) 0 2px,#c9d8ea 2px 4px)")}保留現金</span><span style={lg}><i style={{ width: "2px", height: "12px", background: WATER.tick, display: "inline-block" }} />成本線</span>
       </div>
@@ -1992,11 +2010,14 @@ function RealEtfScreen() {
         <div class="muted" style={{ fontSize: "11px", lineHeight: 1.6 }}>已估算手續費 0.1425% 與賣出證交稅 0.3%（未計券商折扣）。對照組：每次買賣時，用同樣金額買賣 0050。{etf.flows?.length ? "有中途存入／提領：總損益＝淨值－投入本金；報酬率用時間加權（基金常用的算法），存提款的錢不算賺賠，報酬率只反映操作好壞；0050 對照組同一天存提同樣的錢。" : ""}</div>
       </div>
 
-      {etf.trades.length > 0 && <DualWater etf={etf} v={v} price={livePx} tid="real" showMetrics={false} onFlow={(d) => addEtfFlow(d, { nav: v.nav, bench: v.bench })} onReserve={setEtfReserve} />}
-
-      {(pos.length > 0 || v.cash < v.invested) && <CashGauge plan={cashPlanMkt} nav={v.nav} marketValue={v.marketValue}
-        pendingNet={orderRows.reduce((t, r) => t + (r.side === "buy" ? 1 : -1) * r.shares * (r.price ?? 0), 0)} pendingLabel="今日下單清單照做"
-        note="目標和 Claude 虛擬組合用同一套規則（每天收盤後依加權指數距 20 日高點的跌幅判斷），只是參考：要不要加碼由你決定，不用為了補水位硬買。" />}
+      {(() => {
+        const gauge = (embedded: boolean) => <CashGauge embedded={embedded} plan={cashPlanMkt} nav={v.nav} marketValue={v.marketValue}
+          pendingNet={orderRows.reduce((t, r) => t + (r.side === "buy" ? 1 : -1) * r.shares * (r.price ?? 0), 0)} pendingLabel="今日下單清單照做"
+          note="目標和 Claude 虛擬組合用同一套規則（每天收盤後依加權指數距 20 日高點的跌幅判斷），只是參考：要不要加碼由你決定，不用為了補水位硬買。" />;
+        // 11/22 使用者：兩張資金水位合成一張（成本／賺賠／現金橫條＋目標比重與加碼空間）
+        if (etf.trades.length > 0) return <DualWater etf={etf} v={v} price={livePx} tid="real" showMetrics={false} onFlow={(d) => addEtfFlow(d, { nav: v.nav, bench: v.bench })} onReserve={setEtfReserve}>{gauge(true)}</DualWater>;
+        return pos.length > 0 || v.cash < v.invested ? gauge(false) : null;
+      })()}
 
       {etf.nav.length >= 2 && <><div class="section-title"><span>報酬走勢</span><span>{etf.nav.length} 天</span></div><NavChart points={etf.nav} budget={etf.budget} flows={etf.flows} /></>}
 

@@ -659,16 +659,18 @@ function ReplyDetails({ replies, held, name }: { replies: ReplyInfo[]; held: Set
       if (!cond.length) cond = h?.cond ?? [];
       if (stop === undefined) stop = r.p.stops[code];
     }
-    return { code, act, diff: uniq.length > 1, why, cond, stop };
+    return { code, act, diff: uniq.length > 1, why, cond, stop, trade: acts.some((a) => a === "買進" || a === "賣出") };
   });
+  // 11/22 使用者：只列有買賣的；續抱／不動的不用逐檔列（畫面太長），收成一行
+  const quiet = rows.filter((r) => !r.trade);
   return (
     <div class="stack" style={{ gap: "8px" }} data-testid="reply-details">
-      {rows.length > 0 && (
+      {rows.some((r) => r.trade) && (
         <div class="scroll-x" data-testid="reply-table">
           <table class="cmp" style={{ fontSize: "12.5px" }}>
             <thead><tr><th style={{ whiteSpace: "nowrap" }}>股票</th><th style={{ whiteSpace: "nowrap" }}>建議</th><th style={{ whiteSpace: "nowrap" }}>停損</th><th>重點</th></tr></thead>
             <tbody>
-              {rows.map((r) => (
+              {rows.filter((r) => r.trade).map((r) => (
                 <tr class={r.diff ? "diff" : ""} data-testid="reply-row">
                   <td style={{ whiteSpace: "nowrap" }}><b>{name(r.code)}</b><div class="muted num" style={{ fontSize: "11px" }}>{r.code}</div></td>
                   <td style={{ whiteSpace: "nowrap" }}><span class={/買進/.test(r.act) ? "up" : /賣出/.test(r.act) ? "down" : ""}>{r.act}</span></td>
@@ -680,6 +682,7 @@ function ReplyDetails({ replies, held, name }: { replies: ReplyInfo[]; held: Set
           </table>
         </div>
       )}
+      {quiet.length > 0 && <div class="muted" style={{ fontSize: "12.5px", lineHeight: 1.6 }} data-testid="reply-quiet">續抱／不動 {quiet.length} 檔（不用動作）：{quiet.map((r) => name(r.code)).join("、")}</div>}
       <details data-testid="reply-full" style={{ border: "1px solid var(--line)", borderRadius: "10px", padding: "8px 12px" }}>
         <summary style={{ cursor: "pointer", listStyle: "revert", fontSize: "13px" }}>看 {replies.length} 份回覆原文</summary>
         <div class="stack" style={{ gap: "10px", marginTop: "8px" }}>

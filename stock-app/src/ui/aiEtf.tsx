@@ -312,11 +312,17 @@ const fmtAt = (t: number) => new Date(t).toLocaleString("zh-TW", { month: "numer
 
 // 去 Claude App 之前記一筆旗標；回到金雷達時，如果剪貼簿裡有 Claude 的回覆就問要不要載入，不用自己貼
 const PRO_KEY = "proPending";
+const PRO_LOADED = "proLoadedAt";
 const PRO_TTL = 24 * 3600_000; // 按過按鈕後 24 小時內，回到 App 都會自動偵測剪貼簿
 const proFlag = {
   get: () => { try { const t = Number(localStorage.getItem(PRO_KEY)); return t && Date.now() - t < PRO_TTL ? t : 0; } catch { return 0; } },
   set: () => { try { localStorage.setItem(PRO_KEY, String(Date.now())); } catch { /* 不重要 */ } },
-  clear: () => { try { localStorage.removeItem(PRO_KEY); } catch { /* 不重要 */ } },
+  clear: () => { try { localStorage.removeItem(PRO_KEY); localStorage.removeItem(PRO_LOADED); } catch { /* 不重要 */ } },
+  // 11/22 使用者：先一次開好 -1／-2／-3 三個對話，再一份一份複製回來時，第 1 份載入後旗標被清掉，第 2、3 份就不會自動載入。
+  // 改成載入後不清旗標，只記下載入時間：按過按鈕後 24 小時內，每份新的回覆都會自動載入（同一份不會重複，靠 proSeen）
+  loaded: () => { try { localStorage.setItem(PRO_LOADED, String(Date.now())); } catch { /* 不重要 */ } },
+  /** 按按鈕之後還沒載入過任何回覆：才顯示「從 Claude App 回來了嗎？」提示卡 */
+  waiting: () => { const t = proFlag.get(); if (!t) return false; try { return t > Number(localStorage.getItem(PRO_LOADED) || 0); } catch { return true; } },
 };
 // 已載入或略過的回覆（指紋）：同一份不再自動載入、不再重複問；存在手機上，重開 App 也記得
 const PRO_SEEN = "proSeen";
@@ -328,12 +334,13 @@ const proSeen = {
 let proStatusText = "";
 const setProStatus = (t: string) => { proStatusText = t ? `${new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })} ${t}` : ""; window.dispatchEvent(new Event("pro-status")); };
 const scrollToPro = () => setTimeout(() => (document.querySelector('[data-testid="pro-loaded"], [data-testid="pro-found"]') as HTMLElement | null)?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+let proSettled = false; // 這次回到前景是否已讀到剪貼簿內容
 let proChecking = false; // 正在等焦點／讀剪貼簿：不要同時跑兩次
 let proLoading = false; // 回到前景會同時觸發 focus 和 visibilitychange：避免同一份回覆載入兩次
 
 /** 從 Claude App 回來：剪貼簿有完整的 Claude 回覆就直接載入並整理（11/14 起不用再按一次）；回覆被截斷才先問；讀不到剪貼簿就請你按「貼上並載入」 */
 function ProResume() {
-  const [pending, setPending] = useState(() => proFlag.get() > 0);
+  const [pending, setPending] = useState(() => proFlag.waiting());
   const [found, setFound] = useState<{ text: string; items: number; truncated?: boolean } | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -343,7 +350,7 @@ function ProResume() {
     try {
       proSeen.add(text);
       await saveProReply(text);
-      proFlag.clear();
+      proFlag.loaded();
       setFound(null); setPending(false);
       setMsg(truncated
         ? "⚠ 已載入，但這段回覆不完整（複製時被截斷，或 Claude 沒寫完），只讀得到前面的部分。建議回 Claude App 按回覆下方的「複製」重新複製整段，再貼一次。"
@@ -354,12 +361,13 @@ function ProResume() {
   };
   const check = async () => {
     if (!proFlag.get()) { setPending(false); return; }
-    setPending(true);
+    setPending(proFlag.waiting());
     if (proChecking) return;
     proChecking = true;
     try {
       setProStatus("正在讀剪貼簿…");
       const text = await readClipboard(true);
+      if (text.trim()) proSettled = true; // 這次回到前景已經讀到東西：停止輪詢（Android 每讀一次剪貼簿會跳一次提示，不要一直讀）
       const r = proClipboardAction(text, proSeen.get());
       if (r.action === "load") await load(text, r.items, false, true);
       else if (r.action === "ask") { setFound({ text, items: r.items, truncated: true }); setMsg(""); setProStatus("剪貼簿裡的回覆不完整（被截斷），請看頁面最上面的提示。"); scrollToPro(); }
@@ -376,13 +384,13 @@ function ProResume() {
   useEffect(() => {
     let tries = 0; // 回到前景後約 1 分鐘內，每 2 秒再讀一次剪貼簿：第 2、3 份回覆時「回到前景」通知有時漏掉，光靠事件不夠（11/19 使用者回報）
     check();
-    const on = () => { tries = 0; if (document.visibilityState === "visible") check(); };
+    const on = () => { tries = 0; proSettled = false; if (document.visibilityState === "visible") check(); };
     document.addEventListener("visibilitychange", on);
     window.addEventListener("focus", on);
-    const offResume = onAppResume(() => { tries = 0; void check(); }); // 手機 App：原生的「回到前景」通知
-    const armed = () => { tries = 0; };
+    const offResume = onAppResume(() => { tries = 0; proSettled = false; void check(); }); // 手機 App：原生的「回到前景」通知
+    const armed = () => { tries = 0; proSettled = false; };
     window.addEventListener("pro-armed", armed);
-    const poll = setInterval(() => { if (document.visibilityState === "visible" && proFlag.get() && tries++ < 30) void check(); }, 2000);
+    const poll = setInterval(() => { if (document.visibilityState === "visible" && proFlag.get() && !proSettled && tries++ < 30) void check(); }, 2000);
     return () => { document.removeEventListener("visibilitychange", on); window.removeEventListener("focus", on); offResume(); clearInterval(poll); window.removeEventListener("pro-armed", armed); };
   }, []);
   const pasteAndLoad = async () => {

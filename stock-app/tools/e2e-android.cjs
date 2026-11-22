@@ -1248,10 +1248,10 @@ function check(ok, name, detail = "") {
       const wrote = await page.evaluate((t) => window.__srClipWrite(t).then(() => "ok", (e) => "失敗：" + e), reply(j)).catch((e) => "失敗：" + e);
       await page.evaluate(() => { localStorage.setItem("proPending", String(Date.now())); document.dispatchEvent(new Event("visibilitychange")); });
       const auto = await page.waitForSelector('[data-testid="pro-loaded"]', { timeout: 25000 }).then((h) => h.innerText()).catch(() => "");
-      const flag = await page.evaluate(() => localStorage.getItem("proPending"));
+      const flag = await page.evaluate(() => localStorage.getItem("proLoadedAt")); // 11/22：載入後不再清掉旗標（讓第 2、3 份也能自動載入），改記載入時間
       const st1 = await page.evaluate(() => document.querySelector('[data-testid="pro-status"]')?.innerText || "（沒有偵測狀態）");
-      log("自動載入剪貼簿的回覆", wrote, auto, "proPending=" + flag, st1);
-      check(wrote === "ok" && /已自動載入 Claude 的建議（2 筆買賣）/.test(auto) && !flag, "從 Claude App 複製回覆後回到金雷達會自動載入（讀手機的系統剪貼簿，不用按按鈕）", `${wrote}｜${auto}｜${st1}`);
+      log("自動載入剪貼簿的回覆", wrote, auto, "proLoadedAt=" + flag, st1);
+      check(wrote === "ok" && /已自動載入 Claude 的建議（2 筆買賣）/.test(auto) && !!flag, "從 Claude App 複製回覆後回到金雷達會自動載入（讀手機的系統剪貼簿，不用按按鈕）", `${wrote}｜${auto}｜${st1}`);
       await shot("05c0-自動載入Claude回覆");
       // 同一份回覆再回來一次：不能重複載入（比對表仍只有 1 份）
       await page.evaluate(() => { localStorage.setItem("proPending", String(Date.now())); document.dispatchEvent(new Event("visibilitychange")); });
@@ -1272,7 +1272,7 @@ function check(ok, name, detail = "") {
       await device.shell("input keyevent 3");
       await sleep(2500);
       await device.shell(`am start -n ${PKG}/.MainActivity`);
-      const loaded2 = await page.waitForFunction(() => !localStorage.getItem("proPending") && JSON.parse(localStorage.getItem("proSeen") || "[]").length >= 2, null, { timeout: 20000 }).then(() => true).catch(() => false);
+      const loaded2 = await page.waitForFunction(() => JSON.parse(localStorage.getItem("proSeen") || "[]").length >= 2, null, { timeout: 20000 }).then(() => true).catch(() => false);
       await page.waitForTimeout(1500);
       const st2 = await page.evaluate(() => ({ status: document.querySelector('[data-testid="pro-status"]')?.innerText || "", msgTop: Math.round(document.querySelector('[data-testid="pro-loaded"]')?.getBoundingClientRect().top ?? -9999), h: innerHeight, seen: localStorage.getItem("proSeen"), flag: localStorage.getItem("proPending") }));
       log("切出去再切回來的自動載入", JSON.stringify(st2));

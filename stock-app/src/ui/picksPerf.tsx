@@ -3,7 +3,9 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { BOOK_INFO, firstPickIds, PICK_HORIZONS, sortPerfRows, perfStats, toCsv, type PickBook, type PickH, type PickPerf, type PickPerfFile } from "../engine/pickLog";
 import { pretty, prettyW } from "../lib/dates";
-import { getState, picksCsvUrl, refreshPicksPerf, useStore } from "../store";
+import { findScored, getState, picksCsvUrl, refreshPicksPerf, useStore } from "../store";
+import type { Scored } from "../engine/score";
+import type { Market } from "../store";
 import { fmtPct, fmtPrice, Sheet } from "./common";
 
 const cls = (x?: number) => (x === undefined || !Number.isFinite(x) ? "" : x > 0 ? "up" : x < 0 ? "down" : "");
@@ -27,7 +29,8 @@ function copy(text: string, done: (ok: boolean) => void) {
 }
 
 /** 選股頁的入口卡片（台股） */
-export function PicksPerfCard({ book = "TW" }: { book?: PickBook }) {
+type Open = (s: Scored, list?: Scored[]) => void;
+export function PicksPerfCard({ book = "TW", open: openStock }: { book?: PickBook; open?: Open }) {
   const pp = useStore((s) => s.picksPerf[book]);
   const [open, setOpen] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -49,7 +52,7 @@ export function PicksPerfCard({ book = "TW" }: { book?: PickBook }) {
         </div>
         <div class="muted" style={{ fontSize: "12px" }}>{pp?.data.start ? `${pretty(pp.data.start)} 起每天記下${listWord(book)}、之後不改${s && s.x.n < MIN_N ? `・樣本 ${s.x.n} 筆，還不夠下結論` : ""}` : `每天收盤後記下${listWord(book)}，之後不改`}</div>
       </button>
-      {open && <PicksPerfSheet book={book} onClose={() => setOpen(false)} />}
+      {open && <PicksPerfSheet book={book} onClose={() => setOpen(false)} open={openStock} />}
     </>
   );
 }
@@ -58,7 +61,7 @@ function Stat({ k, v, c = "", d, id }: { k: string; v: string; c?: string; d?: s
   return <div class="metric" data-testid={id}><div class="k">{k}</div><div class={`v num ${c}`}>{v}</div>{d && <div class="d muted">{d}</div>}</div>;
 }
 
-export function PicksPerfSheet({ book = "TW", onClose }: { book?: PickBook; onClose: () => void }) {
+export function PicksPerfSheet({ book = "TW", onClose, open }: { book?: PickBook; onClose: () => void; open?: Open }) {
   const pp = useStore((s) => s.picksPerf[book]);
   // 預設顯示「已經有樣本」裡最長的持有天數（剛開始只有 5 日有資料）
   const [h, setH] = useState<PickH>(() => { const r = getState().picksPerf[book]?.data.rows ?? []; return ([20, 10, 5] as PickH[]).find((x) => r.some((y) => y.h[x])) ?? 5; });
@@ -156,7 +159,15 @@ export function PicksPerfSheet({ book = "TW", onClose }: { book?: PickBook; onCl
             <button class="chip" aria-pressed={show === "all"} onClick={() => setShowS("all")}>全部</button>
           </div>
           <div class="list" data-testid="perf-rows">
-            {shown.map((r) => <PerfRow r={r} h={h} first={!firstOnly && first.has(r.id)} usd={d.currency === "USD"} />)}
+            {shown.map((r) => <PerfRow r={r} h={h} first={!firstOnly && first.has(r.id)} usd={d.currency === "USD"} onOpen={open && (() => {
+              // 11/22 使用者：點推薦紀錄要能打開個股頁；左右切換這份清單裡（重複的代號只留一次）的其他股票
+              const mk = book as Market;
+              const s0 = findScored(r.code, mk);
+              if (!s0) return;
+              const seen = new Set<string>(), list: Scored[] = [];
+              for (const x of shown) { if (seen.has(x.code)) continue; seen.add(x.code); const sx = findScored(x.code, mk); if (sx) list.push(sx); }
+              open(s0, list);
+            })} />)}
           </div>
           {!all && (day ? view.filter((r) => r.date === day).length : view.length) > 60 && <button class="chip" onClick={() => setAll(true)}>顯示全部</button>}
         </>}
@@ -165,11 +176,11 @@ export function PicksPerfSheet({ book = "TW", onClose }: { book?: PickBook; onCl
   );
 }
 
-function PerfRow({ r, h, first, usd }: { r: PickPerf; h: PickH; first?: boolean; usd?: boolean }) {
+function PerfRow({ r, h, first, usd, onOpen }: { r: PickPerf; h: PickH; first?: boolean; usd?: boolean; onOpen?: () => void }) {
   const px = (x: number) => (usd ? "$" : "") + fmtPrice(x);
   const x = r.h[h];
   return (
-    <div class="item" style={{ cursor: "default" }} data-testid="perf-row">
+    <div class="item" style={{ cursor: onOpen ? "pointer" : "default" }} onClick={onOpen} data-testid="perf-row">
       <div style={{ minWidth: 0 }}>
         <div class="name">{r.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{r.code}</span>{first && <span class="tag" style={{ marginLeft: "6px", fontSize: "11px", fontWeight: 400 }}>首次</span>}</div>
         <div class="sub num" style={{ whiteSpace: "normal" }}>{pretty(r.date)} 推薦 {px(r.price)}・停損 {px(r.stop)}・分數 {r.score}{x?.stopHit ? <span class="down">・{pretty(x.stopDate!)} 跌破停損</span> : ""}</div>

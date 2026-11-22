@@ -124,7 +124,7 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
         </div>
       )}
       {filter === "四因子" && quad ? <QuadCard quad={quad} /> : filter === "剛轉強" && turn ? <TurnCard turn={turn} /> : <BacktestCard market={market} />}
-      {filter !== "剛轉強" && filter !== "四因子" && <PicksPerfCard book={market} />}
+      {filter !== "剛轉強" && filter !== "四因子" && <PicksPerfCard book={market} open={open} />}
       {ms.error && <div class="error" style={{ marginTop: "10px" }}>{ms.error}</div>}
       {ms.warning && <div class="notice" style={{ marginTop: "10px" }}>{ms.warning}</div>}
       {ms.status === "loading" && <Progress p={ms.progress} />}

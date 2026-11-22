@@ -165,6 +165,18 @@ function check(ok, name, detail = "") {
       await shot("02e-推薦績效-首次");
       await page.click('[data-testid="perf-all"]').catch(() => {});
     } else check(false, "推薦績效有「只看首次推薦」切換");
+    // 11/22 使用者：點每筆推薦要能打開個股頁
+    const prow = await page.$('[data-testid="perf-row"]');
+    if (prow) {
+      const want = await prow.evaluate((e) => (e.querySelector(".name .num")?.textContent || "").trim());
+      await prow.scrollIntoViewIfNeeded().catch(() => {});
+      await prow.click();
+      const got = await page.waitForFunction(() => { const hs = [...document.querySelectorAll(".sheet h2")]; return hs.length >= 2 ? hs[hs.length - 1].textContent : ""; }, null, { timeout: 15000 }).then((h) => h.jsonValue()).catch(() => "");
+      log("推薦績效點個股", JSON.stringify({ want, got }));
+      check(!!want && String(got).includes(want), "推薦績效的每筆推薦點一下打開那一檔的個股頁", JSON.stringify({ want, got }));
+      await page.evaluate(() => { const bs = [...document.querySelectorAll('.sheet header button[aria-label="返回"]')]; bs[bs.length - 1]?.click(); });
+      await page.waitForFunction(() => document.querySelectorAll(".sheet").length <= 1, null, { timeout: 5000 }).catch(() => {});
+    }
     await page.click('.sheet header button[aria-label="返回"]').catch(() => {});
     await page.waitForFunction(() => !document.querySelector(".sheet"), null, { timeout: 5000 }).catch(() => {});
   }

@@ -2195,6 +2195,13 @@ function AlertsCard() {
       <div class="muted" style={{ fontSize: "12.5px", lineHeight: 1.6 }}>
         盤中（週一～五 9:00～13:35）手機每 15 分鐘在背景檢查「我的實單」「雙引擎實單」的持股：獲利 ≥ 10% 且跌破 5 日線、跌破停利價，或跌破停損，就跳手機通知（同一檔同一種一天一次）。App 沒開也會檢查；Android 省電模式可能延後幾分鐘。
       </div>
+      <label class="row" style={{ justifyContent: "space-between", gap: "10px", cursor: "pointer", borderTop: "1px solid var(--line)", paddingTop: "10px" }}>
+        <span style={{ fontSize: "14.5px" }}>同時推播到 LINE</span>
+        <input type="checkbox" checked={settings.lineAlerts === true} onChange={(e) => void saveSettings({ ...settings, lineAlerts: (e.target as HTMLInputElement).checked })} data-testid="line-alerts-toggle" style={{ width: "22px", height: "22px" }} />
+      </label>
+      <div class="muted" style={{ fontSize: "12.5px", lineHeight: 1.6 }} data-testid="line-alerts-note">
+        {settings.lineAlerts ? "已記住要推到 LINE，但 LINE 推播功能還在準備中，目前仍只會跳手機通知；完成後會再請你設定 LINE 官方帳號。" : "LINE 推播功能還在準備中（LINE Notify 已停止服務，之後改用 LINE 官方帳號）。"}
+      </div>
       {st && <div class="muted" style={{ fontSize: "12.5px" }} data-testid="alerts-status">{on ? (st.granted ? `目前盯 ${st.count} 檔` : "手機的通知權限沒有開：請到 Android 設定 → 應用程式 → 金雷達 → 通知，打開後才收得到") : "已關閉，背景不檢查"}</div>}
     </div>
   );

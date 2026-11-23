@@ -39,7 +39,7 @@ import { INDEX_CH } from "../data/twIndexLive";
 // 數據頁可點進去看日 K 與詳細報價的國際指標（CNBC 代號）：美股指數、亞洲大盤、原物料期貨
 const US_INDEX_SYMBOLS = [".SPX", ".IXIC", ".SOX", ".DJI", ".VIX"];
 const CHART_SYMBOLS = new Set([...US_INDEX_SYMBOLS, ...MACRO_SYMBOLS.filter((m) => m.group === "亞洲" || m.group === "原物料" || m.group === "虛擬幣").map((m) => m.symbol)]);
-import { nyParts, pretty, prettyW, taipeiToday, usQuoteHours, usSession } from "../lib/dates";
+import { addDays, nyParts, pretty, prettyW, taipeiToday, usQuoteHours, usSession } from "../lib/dates";
 import { latestNotes } from "../lib/notes";
 import { fmtNtd, ntd, usdTwdRate } from "../lib/fx";
 import type { BacktestResult } from "../engine/backtest";
@@ -783,10 +783,10 @@ export function HoldingsScreen({ open }: { open: (s: Scored, list?: Scored[]) =>
     const q = live[v.code];
     if (q && q.date && q.date >= ((isUs ? usAsOf : twAsOf) ?? "")) {
       const price = q.price;
-      return { ...v, price, pnl: (price - v.cost) * v.shares, pnlPct: v.cost > 0 ? price / v.cost - 1 : NaN,
+      return { ...v, price, qDate: q.date, pnl: (price - v.cost) * v.shares, pnlPct: v.cost > 0 ? price / v.cost - 1 : NaN,
         chg: Number.isFinite(q.prevClose) ? price / q.prevClose - 1 : NaN, liveLabel: isUs ? (q.session ?? "收盤") : q.trial && isLiveNow(q, today) ? "試搓" : !q.final && q.date === today && marketOpen() ? "盤中" : "收盤", ext: q.ext, limit: isUs || getState().esb[v.code] ? undefined : q.limit };
     }
-    return { ...v, chg: v.scored?.chg1d ?? NaN, liveLabel: "收盤", limit: isUs || getState().esb[v.code] ? undefined : limitFromChg(v.price, v.scored?.chg1d, isEtf(v.code)) };
+    return { ...v, qDate: (isUs ? usAsOf : twAsOf) ?? "", chg: v.scored?.chg1d ?? NaN, liveLabel: "收盤", limit: isUs || getState().esb[v.code] ? undefined : limitFromChg(v.price, v.scored?.chg1d, isEtf(v.code)) };
   });
   const views = withLive(base);
   const byBroker = tab === "stats" ? BROKERS.map((b) => ({ ...b, rows: withLive(hs.filter((h) => brokerOf(h) === b.key)) })) : [];
@@ -996,7 +996,9 @@ function BrokerStats({ byBroker, merged, fx }: { byBroker: { key: Broker; label:
   const twd = (v: any, x: number) => (v.market === "US" ? (fx ? x * fx : NaN) : x);
   const stat = (rows: any[]) => {
     const value = sum(rows, (v) => twd(v, v.price * v.shares)), cost = sum(rows, (v) => twd(v, v.cost * v.shares)), pnl = sum(rows, (v) => twd(v, v.pnl));
-    const dv = rows.filter((v) => Number.isFinite(v.chg) && Number.isFinite(v.price));
+    // 11/23 使用者：週一台股收盤後，美股的漲跌還是上週五的，不該算進「今日」。美股只算昨晚～今天（台北）這一盤：資料日 ≥ 台北昨天
+    const usFrom = addDays(taipeiToday(), -1);
+    const dv = rows.filter((v) => Number.isFinite(v.chg) && Number.isFinite(v.price) && (v.market !== "US" || (v.qDate ?? "") >= usFrom));
     const day = dv.map((v) => twd(v, v.shares * (v.price - v.price / (1 + v.chg)))).filter(Number.isFinite).reduce((a, x) => a + x, 0);
     return { value, cost, pnl, day, n: rows.length, win: rows.filter((v) => v.pnl > 0).length };
   };
@@ -1012,7 +1014,7 @@ function BrokerStats({ byBroker, merged, fx }: { byBroker: { key: Broker; label:
       {t.n > 0 && <div class="grid2">
         <div class="metric"><div class="k">目前市值</div><div class="v num">{fmtMoney(t.value)}</div><div class="d muted" style={{ fontSize: "11.5px" }}>{share !== undefined ? `佔兩家合計 ${Math.round(share * 100)}%` : `買進成本 ${fmtMoney(t.cost)}`}</div></div>
         <div class="metric"><div class="k">累計損益</div><div class={`v num ${cls(t.pnl)}`}>{nt(t.pnl)}</div><div class={`d num ${cls(t.pnl)}`} style={{ fontSize: "11.5px" }}>{fmtPct(t.cost ? t.pnl / t.cost : NaN)}・從買進到現在</div></div>
-        <div class="metric" style={{ gridColumn: "1 / -1" }}><div class="k">今日損益</div><div class={`v num ${cls(t.day)}`}>{nt(t.day)}<span style={{ fontSize: "13px", marginLeft: "6px" }}>（{fmtPct(t.value - t.day ? t.day / (t.value - t.day) : NaN)}）</span></div><div class="d muted" style={{ fontSize: "11.5px" }}>今天每檔（現價 − 昨天收盤）× 股數，加總</div></div>
+        <div class="metric" style={{ gridColumn: "1 / -1" }}><div class="k">今日損益</div><div class={`v num ${cls(t.day)}`}>{nt(t.day)}<span style={{ fontSize: "13px", marginLeft: "6px" }}>（{fmtPct(t.value - t.day ? t.day / (t.value - t.day) : NaN)}）</span></div><div class="d muted" style={{ fontSize: "11.5px" }}>今天每檔（現價 − 昨天收盤）× 股數，加總；美股只算台北昨晚到今天這一盤（週一不算上週五）</div></div>
       </div>}
     </div>
   );

@@ -9,6 +9,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(ApkUpdaterPlugin.class);
         registerPlugin(TextOcrPlugin.class);
         registerPlugin(ClipPlugin.class);
+        registerPlugin(AlertsPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

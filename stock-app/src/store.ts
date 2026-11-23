@@ -26,6 +26,7 @@ import { mergeLive, parseMoneyDjHoldings, type ActiveEtfData } from "./lib/activ
 import { liveUrl, parseLive, type LiveQuote } from "./data/twLive";
 import { esbLiveUrl, parseEsbLive } from "./data/esb";
 import { twHistory } from "./data/history";
+import { setAlertWatch, type AlertWatchItem } from "./lib/alerts";
 import { parseRevenue, revenueUrls, type Revenue } from "./data/revenue";
 import { DUAL_REAL } from "./engine/dualReal";
 import { emptyEtf, etfAlerts, isOffList, liquidityCut, pickCandidates, positions as etfPositions, recordNav, stopOf, valuate, type AiEtf, type EtfTrade } from "./engine/aiEtf";
@@ -153,6 +154,7 @@ export function getState() { return state; }
 function set(patch: Partial<State>) {
   state = { ...state, ...patch };
   listeners.forEach((l) => l());
+  if (("aiEtf" in patch || "dualReal" in patch || "tw" in patch) && state.loaded) scheduleAlertSync();
 }
 
 export function useStore<T>(pick: (s: State) => T): T {
@@ -1122,6 +1124,37 @@ export async function resetDualReal() { set({ dualReal: undefined }); await kv.d
 async function saveAiEtf(etf: AiEtf) {
   set({ aiEtf: etf });
   await kv.set("aiEtf", etf);
+}
+
+/** 持股警示推播（11/23）：把「我的實單」「雙引擎實單」的持股交給手機背景檢查（見 lib/alerts.ts） */
+let alertSyncKey = "", alertTimer: ReturnType<typeof setTimeout> | undefined;
+export async function syncAlertWatch() {
+  const accts: [AlertWatchItem["acct"], AiEtf | undefined][] = [["real", state.aiEtf], ["dual", state.dualReal]];
+  const items: AlertWatchItem[] = [];
+  const today = taipeiToday();
+  for (const [acct, etf] of accts) {
+    if (!etf) continue;
+    for (const p of etfPositions(etf.trades)) {
+      if (p.shares <= 0 || !/^\d{4,6}[A-Z]?$/.test(p.code)) continue;
+      const s = state.tw.scored.find((x) => x.code === p.code) ?? state.etf.scored.find((x) => x.code === p.code);
+      const mkt = s?.market === "TPEX" ? "TPEX" : "TWSE";
+      let ma4: number | undefined;
+      try {
+        const bars = await twHistory(fetcher, kv, p.code, mkt, 2, Date.now(), undefined, true);
+        const past = bars.filter((b) => b.date < today && Number.isFinite(b.close)).slice(-4).map((b) => b.close);
+        if (past.length === 4) ma4 = past.reduce((a, b) => a + b, 0) / 4;
+      } catch { /* 沒有日 K 就只盯停損 */ }
+      items.push({ code: p.code, name: p.name, acct, ex: mkt === "TPEX" ? "otc" : "tse", avg: p.avgCost, stop: stopOf(p, etf.stops).stop, ma4 });
+    }
+  }
+  await setAlertWatch(items);
+}
+function scheduleAlertSync() {
+  const key = [state.aiEtf.trades.length, JSON.stringify(state.aiEtf.stops ?? {}), state.dualReal?.trades.length ?? 0, JSON.stringify(state.dualReal?.stops ?? {}), state.tw.asOf ?? "", state.tw.scored.length > 0].join("|");
+  if (key === alertSyncKey) return;
+  alertSyncKey = key;
+  clearTimeout(alertTimer);
+  alertTimer = setTimeout(() => { void syncAlertWatch(); }, 3000);
 }
 
 /** 用最新收盤價記下今天的淨值（每天一筆，畫走勢用） */

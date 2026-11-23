@@ -1873,6 +1873,8 @@ function check(ok, name, detail = "") {
   check(/已是最新版本/.test(card) || /HTTP 404/.test(card), "檢查更新可以讀到 GitHub 上的最新版資訊", card);
   // 重開 App（page2）後免責聲明不會再出現；設定頁看得到全文
   const gate2 = !!(await page2.$('[data-testid="disclaimer"]'));
+  const alertCard = await page2.$eval('[data-testid="alerts-card"]', (e) => ({ t: e.innerText.replace(/\s+/g, " "), on: e.querySelector('[data-testid="alerts-toggle"]')?.checked })).catch(() => null);
+  check(!!alertCard && /達標離場／跌破停損時推播通知/.test(alertCard.t) && alertCard.on === true, "設定有「持股警示推播」開關（預設開啟）", JSON.stringify(alertCard));
   const setDis = await page2.$eval('[data-testid="settings-disclaimer"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   check(!gate2 && /不是投資建議/.test(setDis) && /授權/.test(setDis), "重開 App 不再顯示免責聲明，設定頁看得到免責聲明與授權全文", setDis.slice(0, 100));
   // 設定頁的「立即更新全部資料」：按下去要有回應（更新中→完成），並列出各來源的資料日（之前看起來沒反應）

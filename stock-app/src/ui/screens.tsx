@@ -12,6 +12,7 @@ import {
   saveSettings, clearCache, useStore, usBars, recordSpend, estimatedBalance, checkForUpdate, installUpdate,
   addUsSymbol, removeUsSymbol, refreshLive, refreshUsLive, refreshTwIndex, refreshFutures, refreshTurnover, refreshTurnoverLive, refreshEtfNav, refreshQuad, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
 } from "../store";
+import { alertStatus } from "../lib/alerts";
 import { BROKERS, brokerOf, mergeHoldings, type Broker, type Holding, type Rating, type Scored, type SectorStat } from "../engine/score";
 import { type AiReport, analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, parseUrls, holdingsAppPrompt, holdingsReviewPrompt, parseHoldingsReply, marketBrief, MODEL, type ImportedHolding } from "../ai/claude";
 import { twHistory } from "../data/history";
@@ -2179,6 +2180,26 @@ function DataRefreshCard() {
   );
 }
 
+/** 設定：持股警示推播開關（11/23 使用者）。開啟時盤中每 15 分鐘由手機背景檢查「我的實單」「雙引擎實單」，達標離場或跌破停損跳通知 */
+function AlertsCard() {
+  const settings = useStore((s) => s.settings);
+  const on = settings.holdingAlerts !== false;
+  const [st, setSt] = useState<{ count: number; granted: boolean } | undefined>();
+  useEffect(() => { let alive = true; const t = setTimeout(() => alertStatus().then((x) => { if (alive) setSt(x); }), on ? 4000 : 500); return () => { alive = false; clearTimeout(t); }; }, [on]);
+  return (
+    <div class="card stack" data-testid="alerts-card">
+      <label class="row" style={{ justifyContent: "space-between", gap: "10px", cursor: "pointer" }}>
+        <span style={{ fontSize: "14.5px" }}>達標離場／跌破停損時推播通知</span>
+        <input type="checkbox" checked={on} onChange={(e) => void saveSettings({ ...settings, holdingAlerts: (e.target as HTMLInputElement).checked })} data-testid="alerts-toggle" style={{ width: "22px", height: "22px" }} />
+      </label>
+      <div class="muted" style={{ fontSize: "12.5px", lineHeight: 1.6 }}>
+        盤中（週一～五 9:00～13:35）手機每 15 分鐘在背景檢查「我的實單」「雙引擎實單」的持股：獲利 ≥ 10% 且跌破 5 日線、跌破停利價，或跌破停損，就跳手機通知（同一檔同一種一天一次）。App 沒開也會檢查；Android 省電模式可能延後幾分鐘。
+      </div>
+      {st && <div class="muted" style={{ fontSize: "12.5px" }} data-testid="alerts-status">{on ? (st.granted ? `目前盯 ${st.count} 檔` : "手機的通知權限沒有開：請到 Android 設定 → 應用程式 → 金雷達 → 通知，打開後才收得到") : "已關閉，背景不檢查"}</div>}
+    </div>
+  );
+}
+
 export function SettingsScreen() {
   const settings = useStore((s) => s.settings);
   const [key, setKey] = useState(settings.apiKey);
@@ -2212,6 +2233,8 @@ export function SettingsScreen() {
           金鑰只存在這支手機裡，直接用來呼叫 Anthropic。到 platform.claude.com 建立金鑰並儲值。使用模型：{MODEL}。
         </div>
       </div>
+      <div class="section-title"><span>持股警示推播</span></div>
+      <AlertsCard />
       <div class="section-title"><span>Claude 額度與花費</span></div>
       <SpendCard />
       <div class="section-title"><span>App 更新</span></div>

@@ -76,6 +76,7 @@ export interface MarketState {
 export interface Settings {
   apiKey: string;
   balance?: { usd: number; at: number }; // 使用者從官網抄下來的餘額與時間
+  holdingAlerts?: boolean; // 持股警示推播（11/23）：false＝關閉；沒設定＝開啟
 }
 
 /** 估計剩餘額度＝使用者填的餘額 − 填寫之後這支手機的花費 */
@@ -154,7 +155,7 @@ export function getState() { return state; }
 function set(patch: Partial<State>) {
   state = { ...state, ...patch };
   listeners.forEach((l) => l());
-  if (("aiEtf" in patch || "dualReal" in patch || "tw" in patch) && state.loaded) scheduleAlertSync();
+  if (("aiEtf" in patch || "dualReal" in patch || "tw" in patch || "settings" in patch) && state.loaded) scheduleAlertSync();
 }
 
 export function useStore<T>(pick: (s: State) => T): T {
@@ -1132,7 +1133,8 @@ export async function syncAlertWatch() {
   const accts: [AlertWatchItem["acct"], AiEtf | undefined][] = [["real", state.aiEtf], ["dual", state.dualReal]];
   const items: AlertWatchItem[] = [];
   const today = taipeiToday();
-  for (const [acct, etf] of accts) {
+  const on = state.settings.holdingAlerts !== false; // 設定頁的開關：關閉時交空名單，背景檢查會停掉
+  for (const [acct, etf] of on ? accts : []) {
     if (!etf) continue;
     for (const p of etfPositions(etf.trades)) {
       if (p.shares <= 0 || !/^\d{4,6}[A-Z]?$/.test(p.code)) continue;
@@ -1150,7 +1152,7 @@ export async function syncAlertWatch() {
   await setAlertWatch(items);
 }
 function scheduleAlertSync() {
-  const key = [state.aiEtf.trades.length, JSON.stringify(state.aiEtf.stops ?? {}), state.dualReal?.trades.length ?? 0, JSON.stringify(state.dualReal?.stops ?? {}), state.tw.asOf ?? "", state.tw.scored.length > 0].join("|");
+  const key = [state.settings.holdingAlerts !== false, state.aiEtf.trades.length, JSON.stringify(state.aiEtf.stops ?? {}), state.dualReal?.trades.length ?? 0, JSON.stringify(state.dualReal?.stops ?? {}), state.tw.asOf ?? "", state.tw.scored.length > 0].join("|");
   if (key === alertSyncKey) return;
   alertSyncKey = key;
   clearTimeout(alertTimer);

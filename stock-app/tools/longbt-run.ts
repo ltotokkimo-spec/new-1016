@@ -15,6 +15,7 @@ import { WATCH } from "../src/engine/watch";
 import { growthLbPicker } from "../src/engine/longbtGrowth";
 import { LB, cagr, ddBetween, maxDd, mulberry32, percentileOf, randomPicker, rollingWin, simulateLB, type LbSim } from "../src/engine/longbt";
 import { addDays, taipeiToday, weekdaysBack } from "../src/lib/dates";
+import { cnbcBarsUrl, parseCnbcBars } from "../src/data/indexHistory";
 import type { KV } from "../src/lib/kv";
 
 const cacheDir = process.argv[2] ?? ".lbt-cache";
@@ -27,6 +28,7 @@ const DRAWS = Number(process.env.LBT_DRAWS ?? 1000);
 const openB = process.env.LBT_OPEN_B === "1";
 const exp2 = process.env.LBT_EXP2 === "1"; // 雙引擎候選限定在選股頁名單（PREREG 第 10 節）
 const exp = process.env.LBT_EXP === "1"; // 成長組走勢濾網實驗（PREREG 第 9 節）
+const exp5 = process.env.LBT_EXP5 === "1"; // 前一晚美股（那斯達克、費半）大跌／大漲時，隔天照「買入」名單買的表現（11/24 使用者要求）
 const exp4 = process.env.LBT_EXP4 === "1"; // 推薦（每天「買入」名單）停損與大盤弱勢暫停的事件研究（11/24 使用者要求）
 const exp3 = process.env.LBT_EXP3 === "1"; // 達標離場（獲利 ≥10% 且跌破 5 日線，不等判斷日先賣）對雙引擎的影響（11/24 使用者要求）
 const diag = process.env.LBT_DIAG === "1"; // 成本對照診斷：同一批組合分別用零成本、低滑價（0.05%）再跑一次，只印出來比較，不改判定
@@ -171,6 +173,59 @@ async function main() {
       const a = acc.get(`${h}|${sk}|${rk}`); if (!a) continue;
       const med = a.rets.sort((x, y) => x - y)[Math.floor(a.rets.length / 2)];
       console.log(`LBT_EXP4 ${h}日｜${rk}｜停損 ${sk}｜筆數 ${a.n}｜平均淨報酬 ${pc2(a.ret / a.n)}｜中位 ${pc2(med)}｜賺錢 ${((a.win / a.n) * 100).toFixed(0)}%｜平均超額(對0050) ${pc2(a.ex / a.n)}｜贏0050 ${((a.beat / a.n) * 100).toFixed(0)}%`);
+    }
+  }
+  if (exp5) {
+    // 美股日 K（CNBC，和 App 的國際指標同一個來源）：美股 D 日（美國日期）收盤，就是台北 D+1 早上看到的「前一晚美股」
+    const usRet = new Map<string, Map<string, number>>();
+    for (const sym of [".IXIC", ".SOX"]) {
+      const bars: { date: string; close: number }[] = [];
+      for (const y of [2018, 2019, 2020, 2021]) {
+        try { const r = await fetch(cnbcBarsUrl(sym, `${y - 1}1220`, `${y}1231`), { headers: { "User-Agent": "Mozilla/5.0" } }); bars.push(...parseCnbcBars(await r.json())); } catch (e) { log(`LBT_EXP5 ${sym} ${y} 下載失敗`, String(e)); }
+      }
+      const byDate = new Map(bars.map((b) => [b.date, b.close]));
+      const ds = [...byDate.keys()].sort(), m = new Map<string, number>();
+      for (let i = 1; i < ds.length; i++) m.set(ds[i], byDate.get(ds[i])! / byDate.get(ds[i - 1])! - 1);
+      usRet.set(sym, m);
+      log(`LBT_EXP5 ${sym} 日 K ${ds.length} 天（${ds[0]}～${ds.at(-1)}）`);
+    }
+    const COST = 0.001425 * 2 + 0.003;
+    const bucket = (r: number | undefined) => r === undefined ? "美股休市" : r <= -0.02 ? "跌 ≥2%" : r <= -0.01 ? "跌 1～2%" : r < 0.01 ? "±1% 內" : r < 0.02 ? "漲 1～2%" : "漲 ≥2%";
+    type Acc = { n: number; ret: number; ex: number; win: number; days: Set<string> };
+    const acc = new Map<string, Acc>();
+    const add = (k: string, r: number, ex: number, d: string) => { let a = acc.get(k); if (!a) acc.set(k, (a = { n: 0, ret: 0, ex: 0, win: 0, days: new Set() })); a.n++; a.ret += r; a.ex += ex; if (r > 0) a.win++; a.days.add(d); };
+    const endA = c.dates.findLastIndex((d) => d <= A_END);
+    for (let j = j0; j <= endA - 21; j++) {
+      const buys = scoredAt(j).filter((x) => x.rating === "買入");
+      if (!buys.length) continue;
+      const D = c.dates[j], e0 = j + 1; // D 收盤出名單；台北 D+1 早上看到美股 D 日收盤，D+1 收盤買進
+      for (const sym of [".IXIC", ".SOX"]) {
+        const b = bucket(usRet.get(sym)!.get(D));
+        for (const h of [5, 10, 20]) {
+          const b0 = px(BENCH, e0), bh = px(BENCH, e0 + h); if (!(b0 > 0 && bh > 0)) continue;
+          const bret = bh / b0 - 1;
+          for (const x of buys) {
+            const e = px(x.code, e0); if (!(e > 0) || !(px(x.code, e0 + h) > 0)) continue;
+            let exitP = px(x.code, e0 + h);
+            for (let k = e0 + 1; k <= e0 + h; k++) { const p = px(x.code, k); if (p > 0 && p <= e * 0.92) { exitP = p; break; } }
+            const r = exitP / e - 1 - COST;
+            add(`${sym}|${h}|${b}`, r, r - bret, D);
+            add(`${sym}|${h}|全部`, r, r - bret, D);
+          }
+          // 同一天的台股（D+1）本身怎麼走：開盤跳空後收盤，0050 當天漲跌
+        }
+        const tw = px(BENCH, e0) / px(BENCH, j) - 1;
+        if (Number.isFinite(tw)) add(`${sym}|0050隔天|${b}`, tw, 0, D);
+      }
+    }
+    const pc2 = (x: number) => `${x >= 0 ? "+" : ""}${(x * 100).toFixed(2)}%`;
+    for (const sym of [".IXIC", ".SOX"]) {
+      for (const b of ["全部", "跌 ≥2%", "跌 1～2%", "±1% 內", "漲 1～2%", "漲 ≥2%", "美股休市"]) {
+        const t = acc.get(`${sym}|0050隔天|${b}`);
+        const parts = [5, 10, 20].map((h) => { const a = acc.get(`${sym}|${h}|${b}`); return a ? `${h}日 平均 ${pc2(a.ret / a.n)}・超額 ${pc2(a.ex / a.n)}・賺錢 ${((a.win / a.n) * 100).toFixed(0)}%` : `${h}日 —`; });
+        const a5 = acc.get(`${sym}|5|${b}`);
+        console.log(`LBT_EXP5 ${sym === ".IXIC" ? "那斯達克" : "費城半導體"} 前一晚 ${b}｜${a5 ? a5.days.size : 0} 天 ${a5?.n ?? 0} 筆｜${parts.join("｜")}${t ? `｜0050 隔天平均 ${pc2(t.ret / t.n)}` : ""}`);
+      }
     }
   }
   const hold0050: Picker = () => new Map([[BENCH, 1]]);

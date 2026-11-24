@@ -72,8 +72,8 @@ function PreMarket() {
     <div class={down || up ? "warn-box" : "notice"} style={{ fontSize: "13px", lineHeight: 1.7, marginBottom: "8px" }} data-testid="premarket">
       <b>🌙 盤前參考</b>　
       <span class="num">那斯達克 <span class={cls(ixic?.changePct ?? 0)}>{pc(ixic?.changePct)}</span>・費半 <span class={cls(sox?.changePct ?? 0)}>{pc(sox?.changePct)}</span>・夜盤台指 <span class={cls(night?.changePct ?? 0)}>{pc(night?.changePct)}</span></span>
-      {down && <div data-testid="premarket-down"><b>開盤可能大跌</b>：買入名單建議等開盤後 30 分鐘、價格穩定再下單；半導體、電子類受影響最大。</div>}
-      {up && <div data-testid="premarket-up"><b>開盤可能跳空大漲</b>：不要追價，用限價單（推薦價 +1.5% 以內），買不到就算了。</div>}
+      {down && <div data-testid="premarket-down"><b>開盤可能大跌</b>：建議等開盤後 30 分鐘、價格穩定再下單；半導體、電子類受影響最大。<div class="muted" style={{ fontSize: "12px" }}>回測 2018～2021：那斯達克前一晚跌 ≥2% 時，隔天 0050 平均 −1.1%；當天照名單買，持有 5 天平均 −0.6%（一般日子 −0.1%），但持有 20 天平均 +1.8%（一般 +0.9%）。不用因此整天不買，只要避開開盤急殺。</div></div>}
+      {up && <div data-testid="premarket-up"><b>開盤可能跳空大漲</b>：不要追價，用限價單（推薦價 +1.5% 以內），買不到就算了。<div class="muted" style={{ fontSize: "12px" }}>回測 2018～2021：那斯達克前一晚漲 ≥2% 時，隔天照名單追買，持有 5 天平均 −0.4%、輸 0050 0.8%，追高不划算。</div></div>}
       {!down && !up && <div class="muted" style={{ fontSize: "12px" }}>美股與夜盤沒有大波動。名單依台股昨天收盤算好，美股的影響開盤時就會反映在價格上。</div>}
     </div>
   );

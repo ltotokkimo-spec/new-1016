@@ -189,7 +189,7 @@
 **App 新功能（都已發布，最後一版 run 488 之後還有 f996872「當沖推薦中性標示」待 CI，見文末待辦）**
 - **我的實單**：成交記錄防超賣（`aiEtf.ts` `effectiveShares`／`oversold`）；Claude Pro 三份回覆（`MMDD-1~3` 標題）自動載入（`proLoadedAt`）；「帶入現價」；水位表合一；今日持股建議、今日下單清單可收合（localStorage `holdCheckOpen`、`orderListOpen`）。
 - **記成交限制（11/24 使用者）**：照 Claude 建議（`PlanFill`）與雙引擎實單（`DualFill`）都要等「下單日」09:00 開盤後才能存；同一天只能照建議記一次（`AiEtf.appliedDay`）。下單日＝`nextWeekday(資料日)` 與 `orderDay(資料日, 解析時間 proAt/planAt)` 較晚者（收盤後解析→下一交易日）。e2e 用 `window.__srIgnoreOrderGate` 繞過。
-- **持股警示推播**：Android WorkManager 每 15 分鐘（盤中）檢查我的實單／雙引擎實單：達標離場（獲利 ≥10% 且跌破 5 日線，或跌破停利價）、跌破停損 → 手機通知；**LINE 推播**（LINE 官方帳號 Messaging API push，權杖與 User ID 只存原生 SharedPreferences，設定頁可填、可傳測試訊息）。檔案：`AlertsPlugin.java`、`AlertWorker.java`、`src/lib/alerts.ts`、設定頁 `AlertsCard`。使用者已建好官方帳號「金雷達通知」(@244shfui) 並拿到權杖，**是否已在 App 填好、測試成功未確認**。
+- **持股警示推播**：Android WorkManager 每 15 分鐘（盤中）檢查我的實單／雙引擎實單：達標離場（獲利 ≥10% 且跌破 5 日線，或跌破停利價）、跌破停損 → 手機通知；**LINE 推播**（LINE 官方帳號 Messaging API push，權杖與 User ID 只存原生 SharedPreferences，設定頁可填、可傳測試訊息）。檔案：`AlertsPlugin.java`、`AlertWorker.java`、`src/lib/alerts.ts`、設定頁 `AlertsCard`。使用者已建好官方帳號「金雷達通知」(@244shfui) 並拿到權杖，**11/25 使用者確認已填好、測試傳訊成功**。
 - **大盤弱勢標註**：0050 收盤跌破 20 日線時，選股「買入」上方提醒；推薦績效標「大盤弱勢」並分開算平均（`store.ts` `ensureMarketRegime`）。
 - **盤前參考**：平日 05:00～13:30 選股「買入」上方顯示那斯達克、費半、夜盤台指；規則依回測（見下）。
 - **當沖推薦**：當沖分頁第三個切換「當沖推薦」前 10（`volRank.ts` `dtPicks`：成交值 40%＋振幅 30%＋量能放大 30%，排除鎖漲跌停／處置／不可當沖）；位置標示中性「今天在高檔／低檔／區間中段」。
@@ -200,7 +200,7 @@
 - 前一晚美股：那斯達克跌 ≥2% 隔天推薦 5 日 −0.6%（20 日 +1.8%）、漲 ≥2% 追買 5 日 −0.4%；費半跌 ≥2% 推薦沒變差、漲 ≥2% 推薦 20 日 +2.35%（唯一贏 0050）→ 盤前提示只提醒時機，不暫停推薦。
 - 當沖推薦（上市近半年、日 K 近似）：推薦股隔天振幅 7.0% vs 一般 5.0%，但照方向做多放空平均 −0.8%、勝率 41% → 改中性標示。
 **CI 坑（11/24 很多）**：模擬器 WebView 常在「我的實單 → 存入資金」附近被關掉、點擊被吃、深夜證交所資料下載卡住；e2e 已加重連（`recoverReal`）與多處點擊重試。失敗先看 FATAL，屬模擬器問題就 `rerun_failed_jobs`，深夜卡資料就隔天 09:40 再跑。
-**待辦**：①確認 f996872（當沖中性標示）CI 發布 ②使用者是否已在設定頁填 LINE 權杖並測試成功（可問）③（11/25 已完成：新對話 session_01JrEEmaPZT7sMSm276njmzN，舊 trig_01Vw5…／trig_011RB… 已停用）排程轉移到新對話（ROUTINES.md §D；目前啟用中：每日 `trig_01RJT1FieteRvuw8i22jQHQC`、每週 `trig_015gHFMUth4MzpFVHA92rzuk`，綁 `session_01JrEEmaPZT7sMSm276njmzN`）。
+**待辦**：①確認 f996872（當沖中性標示）CI 發布 ②（已完成：11/25 使用者確認 LINE 推播測試成功）③（11/25 已完成：新對話 session_01JrEEmaPZT7sMSm276njmzN，舊 trig_01Vw5…／trig_011RB… 已停用）排程轉移到新對話（ROUTINES.md §D；目前啟用中：每日 `trig_01RJT1FieteRvuw8i22jQHQC`、每週 `trig_015gHFMUth4MzpFVHA92rzuk`，綁 `session_01JrEEmaPZT7sMSm276njmzN`）。
 
 ## 10. 接手檢查清單
 0. **排程轉移**（若接手者不是持有排程的那個對話）：照 `stock-app/virtual/ROUTINES.md` §D（建新、停舊、核對 `list_triggers`、當天 16:40 後確認有跑）。

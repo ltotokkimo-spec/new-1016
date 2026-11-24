@@ -1,5 +1,7 @@
 # 排程總表與轉移程序（2026-11-19 盤點、11/25 更新；新對話接手時第一份要讀、要照做的）
 
+> **11/25 已轉移（對話「接收金雷達」`session_01JrEEmaPZT7sMSm276njmzN`）**：新每日 `trig_01RJT1FieteRvuw8i22jQHQC`、新每週 `trig_015gHFMUth4MzpFVHA92rzuk`，皆啟用、綁新對話；舊的 `trig_01Vw5Wq5B5YnS863Ho2nx4ip`、`trig_011RBJFtAWwRWm5CtJHCpjpi`（綁 `session_01JrEEmaZvY5uHpZ3UCVJ3ip`）已停用。下次換對話要停用的是**新的這兩個**。下表的 id 已更新。
+
 > **11/25：本對話（…Ip，「金雷達工作交接-1117」）上下文已滿，使用者要換新對話。** 新對話照 §D 轉移：要停用的舊 id 現在是 **`trig_01Vw5Wq5B5YnS863Ho2nx4ip`（每日）與 `trig_011RBJFtAWwRWm5CtJHCpjpi`（每週）**（§D 第 3、4 點寫的 `trig_01N2F…`／`trig_011Nd…` 是 11/19 前的舊 id，已停用）。本對話留下的一次性提醒（send_later，名稱「檢查…打包」）都只是檢查 CI，可以不理或停用。
 
 > 這份**不含任何持股、成本、損益**（repo 公開）。排程的「定義」都寫在這裡：換對話時可以**原樣重建**，不需要翻舊對話。
@@ -9,8 +11,8 @@
 
 | # | 排程 | 時間（台北） | 誰在跑 | 綁定對話 | 狀態 |
 |---|---|---|---|---|---|
-| 1 | **Claude 虛擬自組ETF 每日操作＋雙引擎＋新聞否決** `trig_01Vw5Wq5B5YnS863Ho2nx4ip` | 週一～五 16:40 | Claude 排程（叫醒綁定的對話） | `session_01JrEEmaZvY5uHpZ3UCVJ3ip`（**目前對話，11/19 轉入**） | **啟用中** |
-| 2 | **虛擬ETF每週檢視** `trig_011RBJFtAWwRWm5CtJHCpjpi` | 週六 09:50 | Claude 排程 | 同上 | **啟用中**（下一次 11/21） |
+| 1 | **Claude 虛擬自組ETF 每日操作＋雙引擎＋新聞否決** `trig_01RJT1FieteRvuw8i22jQHQC` | 週一～五 16:40 | Claude 排程（叫醒綁定的對話） | `session_01JrEEmaPZT7sMSm276njmzN`（**目前對話，11/19 轉入**） | **啟用中** |
+| 2 | **虛擬ETF每週檢視** `trig_015gHFMUth4MzpFVHA92rzuk` | 週六 09:50 | Claude 排程 | 同上 | **啟用中**（下一次 11/21） |
 | 3 | 貝爾威勒（興櫃 7861）轉上市進度追蹤 `trig_01MHAM59HPmLsnWaH6vs6zaX` | 週五 18:30 | Claude 排程（不綁對話，Sonnet） | 無 | 啟用中，**不需轉移** |
 | 4 | Stock Backtest Daily（GitHub 定時） | 週一～五 16:40／17:10／17:40／18:40 | GitHub Actions（預設分支 `claude/conversation-start-guide-ya0q8x`） | 無 | 啟用中，**不需轉移**（見 §C） |
 | — | **已停用（11/19 轉出）**：`trig_01N2FNVWPGY5BLFzHRPR6rkv`（每日）、`trig_011Nd3V6ANET3xfxvEhqtyR2`（每週），原綁舊對話 `session_01JrEEmdeMmbdXWNmHqz45Ep` | — | — | — | `enabled=false`，保留當歷史，不要重新啟用 |

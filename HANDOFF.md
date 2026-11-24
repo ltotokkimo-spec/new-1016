@@ -60,7 +60,7 @@
 - 其他 MCP：「台股官方」（工具前綴 `mcp__1710cc71-…__`，有即時報價、技術指標、法人、財報；上櫃歷史用 `get_otc_stock_history`，上市單日用 `get_stock_daily_trading`）。
 
 ## 7. 排程與算力（2026-11-19 重盤點；完整表與提示詞原文在 `stock-app/virtual/ROUTINES.md`）
-- **綁在對話上的排程只有兩個，換對話必須轉移**：每日 16:40（`trig_01Vw5Wq5B5YnS863Ho2nx4ip`，虛擬ETF＋雙引擎＋新聞否決）、每週六 09:50（`trig_011RBJFtAWwRWm5CtJHCpjpi`，週檢視）。**11/19 已從舊對話 `session_01JrEEmdeMmbdXWNmHqz45Ep` 轉到本對話 `session_01JrEEmaZvY5uHpZ3UCVJ3ip`，舊的兩個（`trig_01N2FNVWPGY5BLFzHRPR6rkv`、`trig_011Nd3V6ANET3xfxvEhqtyR2`）已停用。**下次換對話照 ROUTINES.md §D 再轉一次。
+- **綁在對話上的排程只有兩個，換對話必須轉移**：每日 16:40（`trig_01RJT1FieteRvuw8i22jQHQC`，虛擬ETF＋雙引擎＋新聞否決）、每週六 09:50（`trig_015gHFMUth4MzpFVHA92rzuk`，週檢視）。**11/19 已從舊對話 `session_01JrEEmdeMmbdXWNmHqz45Ep` 轉到本對話 `session_01JrEEmaPZT7sMSm276njmzN`，舊的兩個（`trig_01N2FNVWPGY5BLFzHRPR6rkv`、`trig_011Nd3V6ANET3xfxvEhqtyR2`）已停用。**下次換對話照 ROUTINES.md §D 再轉一次。
 - 不需轉移：貝爾威勒週五 18:30（`trig_01MHAM59HPmLsnWaH6vs6zaX`，不綁對話）；GitHub 定時 `stock-backtest-daily.yml`（預設分支，週一～五 16:40／17:10／17:40／18:40，有「今天已成功就跳過」）。
 - 已停用且不要重啟：`trig_01P8toMCwxC8oqAhFiSS27tp`、`trig_015iTBWsQ3HRo3CfsdP7Djom`、`trig_01GKTYGpLeqWRS2Nrv75CoTv`。
 - 10/20 曾因 `USAGE_LIMIT_REACHED` 所有排程失敗（備援與主排程共用額度）；10/21 已精簡排程（補漏不寫 mcp_avail、15:00 拿掉興櫃、貝爾威勒改每週）。
@@ -200,7 +200,7 @@
 - 前一晚美股：那斯達克跌 ≥2% 隔天推薦 5 日 −0.6%（20 日 +1.8%）、漲 ≥2% 追買 5 日 −0.4%；費半跌 ≥2% 推薦沒變差、漲 ≥2% 推薦 20 日 +2.35%（唯一贏 0050）→ 盤前提示只提醒時機，不暫停推薦。
 - 當沖推薦（上市近半年、日 K 近似）：推薦股隔天振幅 7.0% vs 一般 5.0%，但照方向做多放空平均 −0.8%、勝率 41% → 改中性標示。
 **CI 坑（11/24 很多）**：模擬器 WebView 常在「我的實單 → 存入資金」附近被關掉、點擊被吃、深夜證交所資料下載卡住；e2e 已加重連（`recoverReal`）與多處點擊重試。失敗先看 FATAL，屬模擬器問題就 `rerun_failed_jobs`，深夜卡資料就隔天 09:40 再跑。
-**待辦**：①確認 f996872（當沖中性標示）CI 發布 ②使用者是否已在設定頁填 LINE 權杖並測試成功（可問）③排程轉移到新對話（ROUTINES.md §D；目前啟用中：每日 `trig_01Vw5Wq5B5YnS863Ho2nx4ip`、每週 `trig_011RBJFtAWwRWm5CtJHCpjpi`，綁 `session_01JrEEmaZvY5uHpZ3UCVJ3ip`）。
+**待辦**：①確認 f996872（當沖中性標示）CI 發布 ②使用者是否已在設定頁填 LINE 權杖並測試成功（可問）③（11/25 已完成：新對話 session_01JrEEmaPZT7sMSm276njmzN，舊 trig_01Vw5…／trig_011RB… 已停用）排程轉移到新對話（ROUTINES.md §D；目前啟用中：每日 `trig_01RJT1FieteRvuw8i22jQHQC`、每週 `trig_015gHFMUth4MzpFVHA92rzuk`，綁 `session_01JrEEmaPZT7sMSm276njmzN`）。
 
 ## 10. 接手檢查清單
 0. **排程轉移**（若接手者不是持有排程的那個對話）：照 `stock-app/virtual/ROUTINES.md` §D（建新、停舊、核對 `list_triggers`、當天 16:40 後確認有跑）。

@@ -1836,13 +1836,17 @@ export function OrderList({ rows, holds, cash, asOf, planAsOf, hasPlan, wait, ca
 function HoldCheckCard({ checks, asOf, priceNote }: { checks: HoldCheck[]; asOf?: string; priceNote: string }) {
   const color: Record<string, string> = { 出場: "exit", 減碼: "hold", 可加碼: "buy", 續抱: "none" };
   const count = (k: string) => checks.filter((c) => c.verdict === k).length;
+  // 可收合（11/24 使用者）：記住上次的開合；收起時仍顯示各建議的檔數
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem("holdCheckOpen") !== "0"; } catch { return true; } });
+  const toggle = () => { const v = !open; setOpen(v); try { localStorage.setItem("holdCheckOpen", v ? "1" : "0"); } catch { /* 無法儲存就只影響這次 */ } };
   return (
     <div class="card stack" data-testid="hold-check">
-      <div class="row" style={{ justifyContent: "space-between" }}>
+      <div class="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
         <b>今日持股建議（規則自動檢查）</b>
-        <span class="muted" style={{ fontSize: "12px" }}>{asOf ? `評分 ${prettyW(asOf)}` : ""}</span>
+        <button class="linkbtn" onClick={toggle} data-testid="hold-check-toggle">{open ? "收起" : "展開"}</button>
       </div>
-      <div class="muted" style={{ fontSize: "12px" }}>出場 {count("出場")}・減碼 {count("減碼")}・可加碼 {count("可加碼")}・續抱 {count("續抱")}{priceNote ? `　價格：${priceNote}` : ""}</div>
+      <div class="muted" style={{ fontSize: "12px" }}>出場 {count("出場")}・減碼 {count("減碼")}・可加碼 {count("可加碼")}・續抱 {count("續抱")}{asOf ? `　評分 ${prettyW(asOf)}` : ""}{priceNote ? `　價格：${priceNote}` : ""}</div>
+      {open && <>
       {checks.map((c) => (
         <div style={{ borderTop: "1px solid var(--line)", paddingTop: "8px" }} data-testid="hold-check-row">
           <div class="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
@@ -1854,6 +1858,7 @@ function HoldCheckCard({ checks, asOf, priceNote }: { checks: HoldCheck[]; asOf?
         </div>
       ))}
       <div class="muted" style={{ fontSize: "11px", lineHeight: 1.6 }}>每天收盤後 App 更新評分時自動重算，不花錢、不呼叫 Claude。規則：跌破停損或評為「離場」→ 出場；外資連賣 3 天且一週下跌、虧損超過 8%、近 1 月跌超過 10%、單一持股超過淨值 30% → 減碼；評為「買入」70 分以上且賺錢、一週沒漲過 15% → 可加碼。要更深入的建議再按「請 Claude 建議」。</div>
+      </>}
     </div>
   );
 }

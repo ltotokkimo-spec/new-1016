@@ -39,6 +39,8 @@ export interface AiEtf {
   fillFrom?: "api" | "pro"; // 要照哪一份建議填成交
   planAsOf?: string; // 付費版建議用的收盤資料日（YYYYMMDD）
   proAsOf?: string; // Pro 版建議用的收盤資料日
+  planAt?: number; // 付費版建議產生的時間（毫秒）：收盤後才產生的，最早下一個交易日才能照著記成交
+  proAt?: number; // 最近一次貼回 Pro 回覆的時間（毫秒）
 }
 
 export const FEE = 0.001425; // 券商手續費（未打折）

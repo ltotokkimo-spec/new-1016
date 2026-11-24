@@ -14,3 +14,14 @@ describe("下單日與開盤（11/24）", () => {
     expect(oo("20261125", tp("202611260800"))).toBe(true);
   });
 });
+
+import { orderDay as od } from "../src/lib/dates";
+describe("收盤後解析的建議，最早下一個交易日（11/24）", () => {
+  const tp = (ymdhm: string) => Date.UTC(+ymdhm.slice(0, 4), +ymdhm.slice(4, 6) - 1, +ymdhm.slice(6, 8), +ymdhm.slice(8, 10) - 8, +ymdhm.slice(10, 12));
+  const since = (asOf: string, at: number) => [nw(asOf), od(asOf, at)].sort().at(-1);
+  it("資料日 11/24、11/25 盤中解析 → 11/25；11/25 收盤後解析 → 11/26", () => {
+    expect(since("20261124", tp("202611251000"))).toBe("20261125");
+    expect(since("20261124", tp("202611251400"))).toBe("20261126");
+    expect(since("20261124", tp("202611241852"))).toBe("20261125");
+  });
+});

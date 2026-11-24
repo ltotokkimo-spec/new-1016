@@ -1057,11 +1057,12 @@ function DualManual() {
 }
 
 /** 照 Claude 的清單填入實際成交 */
-function PlanFill({ items, planKey, cash, stops, source, asOf }: { items: PlanItem[]; planKey: string; cash: number; stops: Record<string, number>; source: string; asOf?: string }) {
+function PlanFill({ items, planKey, cash, stops, source, asOf, at }: { items: PlanItem[]; planKey: string; cash: number; stops: Record<string, number>; source: string; asOf?: string; at?: number }) {
   const fitted = useMemo(() => fitBudget(items, etfPrice, cash), [items]);
   // 這份建議是在下單前問的：你可能已經先下了單、記過了（11/20 使用者：「持股買賣搭不上，我已賣過」）。已經記錄過的筆預設取消勾選，並標出原因，免得重複記或賣到沒有的持股
   // 下單日固定是資料日的下一個平日（以前用 orderDay，下單日收盤後會跳到再下一天，導致當天已記的成交沒被認出來）
-  const since = asOf ? nextWeekday(asOf) : taipeiToday();
+  // 11/24 使用者：收盤後（13:30 起）才解析出的買賣，最早明天開盤後才能執行：下單日取「資料日下一個平日」和「解析當下的下一個可下單日」較晚者
+  const since = asOf ? [nextWeekday(asOf), at ? orderDay(asOf, at) : ""].sort().at(-1)! : taipeiToday();
   // 11/24 使用者：明天要下的單，要等明天開盤後才能記；同一個下單日照建議記過一次，重新解析出新建議也不能再記
   const appliedDay = useStore((s) => s.aiEtf.appliedDay);
   const early = !!asOf && !openedOn(since);
@@ -2102,7 +2103,7 @@ function RealEtfScreen() {
         </>
       )}
       {showFill && (
-        <div style={{ marginTop: "10px" }}><PlanFill key={fillKey} items={agreed!.go} planKey={fillKey!} cash={Math.max(0, v.cash - Math.max(0, etf.cashReserve ?? 0))} stops={fillParsed!.stops} source={fillSrc === "pro" ? "Claude Pro" : "Claude API"} asOf={fillSrc === "pro" ? etf.proAsOf : etf.planAsOf} /></div>
+        <div style={{ marginTop: "10px" }}><PlanFill key={fillKey} items={agreed!.go} planKey={fillKey!} cash={Math.max(0, v.cash - Math.max(0, etf.cashReserve ?? 0))} stops={fillParsed!.stops} source={fillSrc === "pro" ? "Claude Pro" : "Claude API"} asOf={fillSrc === "pro" ? etf.proAsOf : etf.planAsOf} at={fillSrc === "pro" ? etf.proAt : etf.planAt} /></div>
       )}
       {!busy && fillParsed && !fillParsed.items.length && <div class="notice" style={{ marginTop: "10px" }}>這份建議沒有要買賣（維持不變），或回覆最後沒有附上 JSON 清單。</div>}
       {!busy && !plan && !pro && (

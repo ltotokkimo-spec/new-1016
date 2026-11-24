@@ -1267,13 +1267,13 @@ export async function startEtfAdvice() {
   const input = etfAdviceInput();
   const key = `aietf:${Date.now()}`;
   const prev = state.aiEtf;
-  await saveAiEtf({ ...prev, planKey: key, fillFrom: "api", planAsOf: state.tw.asOf });
+  await saveAiEtf({ ...prev, planKey: key, fillFrom: "api", planAsOf: state.tw.asOf, planAt: Date.now() });
   await startAiJob({ key, kind: "aietf", title: input.holdings.length ? "自組 ETF 檢視調整" : "自組 ETF 建倉建議" },
     async (onProgress) => {
       try { return await aiEtfAdvice(state.settings.apiKey, input, onProgress); }
       catch (e) {
         // 這次失敗：還沒套用的上一份建議要留著，不能被指向一份不存在的報告
-        await saveAiEtf({ ...state.aiEtf, planKey: prev.planKey, fillFrom: prev.fillFrom, planAsOf: prev.planAsOf });
+        await saveAiEtf({ ...state.aiEtf, planKey: prev.planKey, fillFrom: prev.fillFrom, planAsOf: prev.planAsOf, planAt: prev.planAt });
         throw e;
       }
     });
@@ -1286,7 +1286,7 @@ export async function saveProReply(text: string) {
   // 同一個資料日貼的回覆都留著（最多 3 份），用來比對哪些交易重複出現；換了資料日就重新算
   const e = state.aiEtf, same = e.proAsOf === state.tw.asOf;
   const prevKeys = same ? (e.proKeys ?? (e.proKey ? [e.proKey] : [])) : [];
-  await saveAiEtf({ ...e, proKey: key, proKeys: [...prevKeys, key].slice(-3), proAsOf: state.tw.asOf });
+  await saveAiEtf({ ...e, proKey: key, proKeys: [...prevKeys, key].slice(-3), proAsOf: state.tw.asOf, proAt: Date.now() });
 }
 
 export async function setEtfFillFrom(fillFrom: "api" | "pro") {

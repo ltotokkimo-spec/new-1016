@@ -151,14 +151,14 @@ export function DayTradeRank({ open }: { open: (s: Scored, list?: Scored[]) => v
 function DtPickList({ picks, live, open }: { picks: DtPick[]; live: boolean; open: (code: string) => void }) {
   if (!live) return <div class="empty" data-testid="dt-pick-empty">當沖推薦要用今天的成交量與振幅，開盤（9:00）後才會出現；開盤後 15～30 分鐘較準。</div>;
   if (!picks.length) return <div class="empty" data-testid="dt-pick-empty">目前沒有同時符合「成交值夠大、振幅 1.5% 以上、沒有漲跌停鎖住、可當沖」的股票。</div>;
-  const biasCls = (b: DtPick["bias"]) => (b === "偏多" ? "up" : b === "偏空" ? "down" : "muted");
+  const biasCls = (_b: DtPick["bias"]) => "muted"; // 中性描述，不用紅綠暗示方向
   return (
     <div class="list" data-testid="dt-pick-list">
       {picks.map((p) => (
         <button class="item rank-item" onClick={() => open(p.code)} data-testid="dt-pick-row" data-code={p.code}>
           <span class="rank-no num">{p.rank}</span>
           <div style={{ minWidth: 0 }}>
-            <div class="name">{p.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{p.code}</span> <span class={biasCls(p.bias)} style={{ fontSize: "12px", fontWeight: 700 }}>{p.bias}</span></div>
+            <div class="name">{p.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{p.code}</span> <span class={biasCls(p.bias)} style={{ fontSize: "12px" }}>今天在{p.bias}</span></div>
             <div class="sub num">成交值 {fmtValue(p.value)}元・振幅 {(p.range * 100).toFixed(1)}%・量能 {p.relVol.toFixed(1)} 倍</div>
             <div class="sub num muted">價位在今天區間的 {Math.round(p.pos * 100)}%・推薦分數 {p.score}</div>
           </div>
@@ -171,7 +171,7 @@ function DtPickList({ picks, live, open }: { picks: DtPick[]; live: boolean; ope
       ))}
       <p class="muted" style={{ fontSize: "12px", lineHeight: 1.6, marginTop: "6px" }} data-testid="dt-pick-note">
         怎麼挑：只看「適合當沖」，不預測漲跌。分數＝成交值排名 40%（好進出、價差小）＋今天振幅 30%（6% 以上滿分）＋量能放大 30%（和昨天同時段比，3 倍以上滿分）。排除漲停／跌停鎖住、處置股與不可當沖的股票。
-        「偏多」＝價位在今天高檔且站上開盤價，「偏空」＝在今天低檔且跌破開盤價（先賣後買要確認沒有被暫停），其他是「震盪」。沒有盤中歷史資料可以回測，只是篩選規則，不是勝率保證；當沖請先設好停損。
+        「今天在高檔／低檔／區間中段」只描述現價在今天最高最低之間的位置，不代表該做多或做空。回測（上市近半年、用日 K 近似）：推薦股隔天平均振幅 7.0%（一般 5.0%），確實比較有波動；但照前一天的強弱方向做多或放空，隔天平均 −0.8%、只有 41% 賺錢，當沖成本約 0.44% 也要算進去。方向請自己判斷，進場前先設好停損。
       </p>
     </div>
   );

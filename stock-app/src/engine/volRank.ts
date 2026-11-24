@@ -30,10 +30,10 @@ export const fmtValue = (v: number) => (v >= 1e8 ? `${(v / 1e8).toFixed(v >= 1e1
 
 // ---------- 當沖推薦（11/25 使用者）----------
 // 只挑「適合當沖」的標的，不預測漲跌：成交值大（好進出、價差小）、今天振幅夠（有空間）、量能比平常放大（有人在玩）。
-// 排除漲停／跌停鎖住（買不到或賣不掉）、處置股、不可當沖標的。方向只看今天的位置：偏多＝在今天高檔且站上開盤價。
+// 排除漲停／跌停鎖住（買不到或賣不掉）、處置股、不可當沖標的。只標今天的位置（高檔／低檔／區間中段），不給做多做空的方向。
 // 沒有盤中歷史資料可以回測，只是篩選與排序規則，不是勝率保證。
 export interface DtPickQuote extends RankQuote { open?: number; high?: number; low?: number; limit?: "up" | "down" }
-export interface DtPick { code: string; name: string; price: number; chg: number; value: number; range: number; relVol: number; pos: number; score: number; bias: "偏多" | "偏空" | "震盪"; rank: number }
+export interface DtPick { code: string; name: string; price: number; chg: number; value: number; range: number; relVol: number; pos: number; score: number; bias: "高檔" | "低檔" | "區間中段"; rank: number }
 
 /** elapsed＝今天交易時段已經過的比例（0～1，收盤後＝1）；prevVol＝前一個交易日成交量（股）；skip＝要排除的代號（處置、不可當沖） */
 export function dtPicks(qs: DtPickQuote[], prevVol: Map<string, number>, elapsed: number, skip: (code: string) => boolean = () => false, n = 10): DtPick[] {
@@ -44,7 +44,8 @@ export function dtPicks(qs: DtPickQuote[], prevVol: Map<string, number>, elapsed
       const relVol = pv > 0 ? (q.volume ?? 0) / (pv * el) : 1;
       const pos = q.high! > q.low! ? (q.price - q.low!) / (q.high! - q.low!) : 0.5;
       const chg = q.price / q.prevClose - 1, open = Number.isFinite(q.open) && (q.open ?? 0) > 0 ? q.open! : q.prevClose;
-      const bias: DtPick["bias"] = chg > 0 && q.price >= open && pos >= 0.6 ? "偏多" : chg < 0 && q.price <= open && pos <= 0.4 ? "偏空" : "震盪";
+      // 11/25 回測（上市近半年）：照前一天「偏多做多、偏空放空」隔天平均 −0.8%、勝率 41%，方向沒有優勢 → 改成中性描述今天的位置
+      const bias: DtPick["bias"] = pos >= 0.7 ? "高檔" : pos <= 0.3 ? "低檔" : "區間中段";
       return { code: q.code, name: q.name, price: q.price, chg, value, range, relVol, pos, bias, score: 0, rank: 0 };
     })
     .filter((x) => x.value >= 1e8 * el && x.range >= 0.015); // 至少 1 億（依時段比例）、振幅 1.5% 以上

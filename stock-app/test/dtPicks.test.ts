@@ -15,8 +15,8 @@ describe("當沖推薦", () => {
       q("F", { price: 98.5, open: 100, high: 101, low: 98, volume: 4_000_000 }),
     ], new Map([["A", 3_000_000], ["F", 4_000_000]]), 1, (c) => c === "E");
     expect(r.map((x) => x.code)).toEqual(["A", "F"]);
-    expect(r[0].bias).toBe("偏多");
-    expect(r[1].bias).toBe("偏空");
+    expect(r[0].bias).toBe("高檔");
+    expect(r[1].bias).toBe("低檔");
     expect(r[0].relVol).toBeCloseTo(3);
   });
 });

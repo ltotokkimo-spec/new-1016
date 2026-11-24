@@ -75,3 +75,6 @@ export function marketOpen(now = Date.now()): boolean {
   const w = d.getUTCDay(), m = d.getUTCHours() * 60 + d.getUTCMinutes();
   return w >= 1 && w <= 5 && m >= 9 * 60 && m <= 13 * 60 + 35;
 }
+
+/** 試搓價的標籤：開盤前叫「試搓」；開盤後還是試搓價代表盤中價還沒抓到（證交所沒回應），標「試搓舊價」提醒不是現價 */
+export const trialLabel = (now = Date.now()) => (preOpen(now) ? "試搓" : "試搓舊價");

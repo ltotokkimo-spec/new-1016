@@ -18,7 +18,7 @@ import { isEtf } from "../data/tw";
 import { emptyEtf, type AiEtf, type Valuation } from "../engine/aiEtf";
 import { addWeekdays, orderDay, pretty, prettyW, taipeiClock, taipeiHour, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
-import { livePolling, type LiveQuote } from "../data/twLive";
+import { livePolling, trialLabel, type LiveQuote } from "../data/twLive";
 import { CostValue, cls, fmtMoney, fmtPct, fmtPrice, fmtSigned, LimitPx, Markdown } from "./common";
 import { navStats } from "../engine/navStats";
 import { compareGroups, realAsGroup, type GroupRow } from "../engine/compare";
@@ -821,7 +821,7 @@ function DualWater({ etf, v, price, tid = "dualreal", onFlow = addDualFlow, onRe
 function PxPill({ code, q, close, tid = "dualreal-pxpill" }: { code: string; q?: LiveQuote; close?: number; tid?: string }) {
   const traded = q && (q.trial || (q.volume ?? 0) > 0) && q.prevClose > 0 && q.price > 0;
   let price: number | undefined, chg: number | undefined, label: string, limit: "up" | "down" | undefined;
-  if (traded) { price = q!.price; chg = q!.price / q!.prevClose - 1; label = q!.trial ? "試搓" : !q!.final && livePolling() ? "盤中" : "收盤"; limit = q!.limit; }
+  if (traded) { price = q!.price; chg = q!.price / q!.prevClose - 1; label = q!.trial ? trialLabel() : !q!.final && livePolling() ? "盤中" : "收盤"; limit = q!.limit; }
   else { price = close; const c = findScored(code)?.chg1d; chg = Number.isFinite(c) ? c : undefined; label = "收盤"; limit = price && chg !== undefined ? limitFromChg(price, chg, isEtf(code)) : undefined; }
   if (!(price && price > 0)) return null;
   const k = limit ? `lim-${limit}` : chg === undefined || Math.abs(chg) < 5e-5 ? "" : chg > 0 ? "up" : "down";
@@ -1692,7 +1692,7 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
             {pos.map((p) => {
               const c = px(p.code);
               const q = fresh(p.code);
-              const label = q && !q.final && q.date === taipeiToday() ? `${q.trial ? "試搓" : "現價"} ${q.time.slice(0, 5)}` : "收盤";
+              const label = q && !q.final && q.date === taipeiToday() ? `${q.trial ? trialLabel() : "現價"} ${q.time.slice(0, 5)}` : "收盤";
               return (
                 <div class="item" style={{ cursor: "pointer" }} onClick={(e) => openPos(p.code, pos.map((x) => x.code), e)} data-testid="pos-item">
                   <div style={{ minWidth: 0 }}>

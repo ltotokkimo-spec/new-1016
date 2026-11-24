@@ -23,7 +23,7 @@ import * as upd from "./lib/update";
 import type { BacktestResult } from "./engine/backtest";
 import type { VirtualEtf } from "./engine/virtualEtf";
 import { mergeLive, parseMoneyDjHoldings, type ActiveEtfData } from "./lib/activeEtf";
-import { liveUrl, parseLive, type LiveQuote } from "./data/twLive";
+import { liveUrl, parseLive, preOpen, type LiveQuote } from "./data/twLive";
 import { esbLiveUrl, parseEsbLive } from "./data/esb";
 import { twHistory } from "./data/history";
 import { setAlertWatch, type AlertWatchItem } from "./lib/alerts";
@@ -209,7 +209,8 @@ async function initInner() {
   set({ usExtra: (await kv.get<UsExtra[]>("usExtra")) ?? [], aiEtf: (await kv.get<AiEtf>("aiEtf")) ?? emptyEtf(), fng: (await kv.get<Fng>("fng")) ?? undefined, fngUs: (await kv.get<Fng>("fngUs")) ?? undefined });
   // 今天的台股即時報價（11/16 使用者：重開 App 都先看到前一個交易日，要等一陣子才變今天）：官方收盤資料傍晚才有，這段時間今天的價格只靠即時報價
   const lv = await kv.get<{ date: string; q: Record<string, LiveQuote> }>("liveToday");
-  if (lv?.date === taipeiToday() && lv.q && !Object.keys(state.live).length) set({ live: lv.q, liveAt: Date.now() });
+  // 開盤前存下的試搓價，開盤後（9:00 起）重開 App 就不再沿用（11/24 使用者：盤中還一直顯示「試搓」），等重抓盤中價
+  if (lv?.date === taipeiToday() && lv.q && !Object.keys(state.live).length) set({ live: preOpen() ? lv.q : Object.fromEntries(Object.entries(lv.q).filter(([, x]) => !x.trial)), liveAt: Date.now() });
   const nc = await kv.get<State["news"]>("news");
   if (nc?.items?.length) set({ news: { items: nc.items, at: nc.at } });
   const vt = await kv.get<State["virtual"]>("virtual");

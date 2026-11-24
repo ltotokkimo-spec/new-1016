@@ -35,7 +35,7 @@ import { DisclaimerText } from "./disclaimer";
 import { levelsOf, recoveryPlan, type Levels, type RecoveryItem } from "../engine/recovery";
 import { withLiveBar } from "../engine/liveBar";
 import { isUsSymbol, MACRO_SYMBOLS, macroDelta, retN, sma, type MacroQuote } from "../data/us";
-import { isLiveNow, livePolling, marketOpen, type LiveQuote } from "../data/twLive";
+import { isLiveNow, livePolling, marketOpen, trialLabel, type LiveQuote } from "../data/twLive";
 import { INDEX_CH } from "../data/twIndexLive";
 // 數據頁可點進去看日 K 與詳細報價的國際指標（CNBC 代號）：美股指數、亞洲大盤、原物料期貨
 const US_INDEX_SYMBOLS = [".SPX", ".IXIC", ".SOX", ".DJI", ".VIX"];
@@ -197,7 +197,7 @@ function StockRow({ s, q, turn, quad, onClick }: { s: Scored; q?: LiveQuote; tur
         </>}
       </div>
       <div class="px">
-        <div class="p num"><span class="lbl">{q?.trial ? `試搓 ${q.time.slice(0, 5)}` : intraday ? `現價 ${q!.time.slice(0, 5)}` : "收盤"}</span><LimitPx s={s.market !== "US" ? q?.limit ?? limitFromChg(price, chg, isEtf(s.code)) : undefined}>{fmtPrice(price, s.market)}</LimitPx></div>
+        <div class="p num"><span class="lbl">{q?.trial ? `${trialLabel()} ${q.time.slice(0, 5)}` : intraday ? `現價 ${q!.time.slice(0, 5)}` : "收盤"}</span><LimitPx s={s.market !== "US" ? q?.limit ?? limitFromChg(price, chg, isEtf(s.code)) : undefined}>{fmtPrice(price, s.market)}</LimitPx></div>
         {chg !== undefined && Number.isFinite(chg) && <div class={`c num ${cls(chg)}`} data-testid="pick-day"><span class="lbl">今日</span>{fmtPct(chg)}</div>}
         {q?.ext && <div class={`c num ${cls(q.ext.chg)}`} data-testid="pick-ext"><span class="lbl">{q.ext.label} {q.ext.time}</span>{fmtPrice(q.ext.price, s.market)} {fmtPct(q.ext.chg)}</div>}
         <div class={`c num ${cls(s.ret1m)}`}><span class="lbl">近1月</span>{fmtPct(s.ret1m)}</div>

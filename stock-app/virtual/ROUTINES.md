@@ -13,6 +13,7 @@
 |---|---|---|---|---|---|
 | 1 | **Claude 虛擬自組ETF 每日操作＋雙引擎＋新聞否決** `trig_01RJT1FieteRvuw8i22jQHQC` | 週一～五 16:40 | Claude 排程（叫醒綁定的對話） | `session_01JrEEmaPZT7sMSm276njmzN`（**目前對話，11/19 轉入**） | **啟用中** |
 | 2 | **虛擬ETF每週檢視** `trig_015gHFMUth4MzpFVHA92rzuk` | 週六 09:50 | Claude 排程 | 同上 | **啟用中**（下一次 11/21） |
+| 5 | **收盤後股市資訊推播**（11/25 新增，使用者要求）`trig_01B1qjmMCvx6qjBC6Qrr7Gm1` | 週一～五 17:00（系統會錯開幾分鐘，實際約 17:07） | Claude 排程（叫醒綁定的對話） | `session_01JrEEmaPZT7sMSm276njmzN` | **啟用中，換對話必須轉移**（見 §D 第 9 點；定義在 §E-4） |
 | 3 | 貝爾威勒（興櫃 7861）轉上市進度追蹤 `trig_01MHAM59HPmLsnWaH6vs6zaX` | 週五 18:30 | Claude 排程（不綁對話，Sonnet） | 無 | 啟用中，**不需轉移** |
 | 4 | Stock Backtest Daily（GitHub 定時） | 週一～五 16:40／17:10／17:40／18:40 | GitHub Actions（預設分支 `claude/conversation-start-guide-ya0q8x`） | 無 | 啟用中，**不需轉移**（見 §C） |
 | — | **已停用（11/19 轉出）**：`trig_01N2FNVWPGY5BLFzHRPR6rkv`（每日）、`trig_011Nd3V6ANET3xfxvEhqtyR2`（每週），原綁舊對話 `session_01JrEEmdeMmbdXWNmHqz45Ep` | — | — | — | `enabled=false`，保留當歷史，不要重新啟用 |
@@ -52,6 +53,7 @@
 5. `list_triggers` 再看一次：新兩個 `enabled=true`、舊兩個 `enabled=false`、沒有重複啟用；把新 id 記進 `HANDOFF.md` §9c 與本檔 §A（改表格）；不要刪舊的（保留執行歷史，方便回復）。
 6. 當天 16:40 後確認新每日排程有跑（`last_run`、`stock-app/virtual/v-2wy3g7efad1c.json` 有當日提交 `virtual-etf: D 收盤更新`、`dual-veto.json` 是否更新）。沒跑就用 `fire_trigger` 手動補一次。
 7. **不要**同時留兩份啟用（會重複操作、重複推送、重複通知）；也**不要**在建好新的之前先停舊的（會有空窗）。
+9. **第三個綁對話的排程（11/25 起）**：收盤後股市資訊推播 `trig_01B1qjmMCvx6qjBC6Qrr7Gm1`。換對話時同樣 `create_trigger`（預設綁新對話；`cron_expression` `CRON_TZ=Asia/Taipei 0 17 * * 1-5`，`prompt` 用 §E-4 原文）再把舊的 `enabled:false`。**不能改成「每次新開對話」（create_new_session_on_fire）**：這個組織的排程不能掛連接器（`connectors` 參數會被拒絕），新開的對話抓不到「台股官方」資料，所以必須綁在有該連接器的對話。
 8. 另一個選擇（需要使用者同意才做）：建成 `create_new_session_on_fire: true`（每次新開對話、不綁任何對話），之後換對話就不必再轉移；代價是每次從零開始、不能累積上下文（提示詞已寫成自給自足，會自己讀 `DAILY.md`）。
 
 ## E. 完整提示詞原文（建立新排程時整段複製；不含任何持股）
@@ -90,3 +92,41 @@
 ```
 請用繁體中文，查詢貝爾威勒（興櫃代號 7861）轉上市的最新進度，並用簡短的重點整理回報。背景：證交所上市審議委員會已在 2026/9/11 通過貝爾威勒初次申請上市案，輔導承銷商為元大證券，但仍須提報證交所董事會核議，媒體預期最快 2026 年底到 2027 年初掛牌。請用 WebSearch 查以下項目：(1) 證交所董事會是否已核議通過貝爾威勒上市案及日期；(2) 是否已公告承銷價、釋股張數、承銷方式（詢價圈購或競價拍賣）、掛牌日；(3) 最新興櫃收盤價與漲跌；(4) 其他重大訊息，例如月營收、財報更正、公司公告。這個排程已改為每週五查一次（2026/10/21 起），只回報自上一次查詢（約一週內）以來的新進展；如果沒有新消息，只回一句「目前沒有新進展」並附最新收盤價，不要重複已知內容。回覆最後附上來源連結，並註明這不是投資建議。
 ```
+
+### E-4 收盤後股市資訊推播（週一～五 17:00，綁對話，**換對話必須轉移**）
+`trig_01B1qjmMCvx6qjBC6Qrr7Gm1`，`CRON_TZ=Asia/Taipei 0 17 * * 1-5`。只讀資料＋手機推播，不改檔案、不推 git、不觸發 workflow。提示詞：
+```
+【排程：收盤後股市資訊推播】現在是台北時間平日約 17:00。請用「台股官方」MCP 工具（先用 ToolSearch 載入需要的工具，例如 get_taiex_index_history、get_market_turnover_history、get_market_institutional_amounts_history、get_twse_institutional_investors_summary、get_futures_institutional、get_margin_balance，以及 PushNotification），整理今天的收盤資訊，最後用 PushNotification 發一則手機推播。全部繁體中文；漲紅 🔴、跌綠 🟢；只用工具回傳的數字，不要自己編。
+
+【取資料】
+1. 大盤：get_taiex_index_history（本月）取今天收盤與漲跌點數，算漲跌幅；get_market_turnover_history 取今天成交金額（換算成「億」）。
+2. 三大法人合計：get_market_institutional_amounts_history（單日，億元）：合計、外資及陸資、投信、自營商（自行買賣＋避險合計，括號寫兩者）。
+3. 個股買賣超：get_twse_institutional_investors_summary，category="stock"（排除 ETF），limit=3：side=buy sort_by=foreign（外資買超前3）、side=sell sort_by=foreign（外資賣超前3）、side=buy sort_by=trust（投信買超前3）。股數除以 1000 換成「張」，千分位。
+4. 外資期貨：get_futures_institutional（最新交易日），取「外資及陸資」期貨未平倉淨口數，寫「淨多／淨空 N口」。
+5. 融資：get_margin_balance（limit=1）取全市場「融資金額（仟元）」今日餘額與前日餘額，換算成億與增減。
+
+【日期檢查（先做）】
+- 每個工具回傳都有日期。若 get_taiex_index_history 沒有「今天」的資料（今天休市或還沒更新），且今天是平日：推播「股市資訊：今天休市或資料尚未公布」，結束。週末不會觸發。
+- 若三大法人（步驟 2、3）回傳的日期不是今天：推播時該區塊寫「三大法人尚未公布（最新為 M/D）」，其餘照常。融資、期貨同理，各自標註未更新。
+
+【資料合理性檢查】
+- 今天成交金額若低於近 5 個交易日平均的 60%，或大盤單日漲跌幅絕對值 ≥ 5%，在推播第 2 行後加一行「⚠️ 成交金額／漲跌幅異常，資料可能未完整，請再確認」。這個檢查只標註，不要修改或猜測數字。
+
+【推播格式（照這個，一則訊息，無 markdown，每行簡短）】
+📊 M/D 收盤｜三大法人
+加權 X 🔴/🟢±點數（±幅度%）
+成交 N億
+三大法人合計 🔴/🟢±N億
+ 外資 ±N億　投信 ±N億
+ 自營 ±N億（自行±N、避險±N）
+
+外資買超：名稱 N張、名稱 N張、名稱 N張
+外資賣超：名稱 N張、名稱 N張、名稱 N張
+投信買超：名稱 N張、名稱 N張、名稱 N張
+
+外資期貨未平倉 淨空／淨多 N口
+融資餘額 N億（±N億）
+
+【回覆】第一行寫 ✅ 已推播 或 ❌ 失敗：原因，之後貼出推播全文。只讀資料、發推播；不要改任何檔案、不要推送 git、不要觸發任何 workflow。
+```
+> 11/24 實測資料的注意點：當天成交金額只有約 4,326 億（近日約 9,000～11,000 億）但大盤單日 +9.0%，兩者對不起來，推播的「異常」標註就是為此設計；11/25 起請對照實際推播確認格式與數字。

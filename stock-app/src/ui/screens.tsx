@@ -10,7 +10,7 @@ import {
   LIVE_MS,
   findScored, getFetcher, getKv, getState, holdingViews, refreshEsb, refreshMacro, refreshTw, refreshUs, saveHoldings, saveReport,
   saveSettings, clearCache, useStore, usBars, recordSpend, estimatedBalance, checkForUpdate, installUpdate,
-  addUsSymbol, removeUsSymbol, refreshLive, refreshUsLive, refreshTwIndex, refreshFutures, refreshTurnover, refreshTurnoverLive, refreshEtfNav, refreshQuad, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
+  addUsSymbol, removeUsSymbol, refreshLive, refreshUsLive, refreshTwIndex, refreshFutures, refreshTurnover, refreshTurnoverLive, refreshEtfNav, refreshQuad, ensureMarketRegime, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
 } from "../store";
 import { alertStatus, setLine, lineTest, type LineInfo } from "../lib/alerts";
 import { BROKERS, brokerOf, mergeHoldings, type Broker, type Holding, type Rating, type Scored, type SectorStat } from "../engine/score";
@@ -62,6 +62,9 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
   // 剛轉強：每天回測時一起算好（需要 3 個月以上的日K），只有台股
   const turn = useStore((s) => (market === "TW" ? s.backtest?.data.turning : undefined));
   const turnMap = useMemo(() => new Map((turn?.picks ?? []).map((p) => [p.code, p])), [turn]);
+  // 大盤弱勢標註（11/24）：0050 收盤跌破 20 日線時，在台股「買入」清單上方提醒
+  const regime = useStore((s) => s.mktRegime);
+  useEffect(() => { if (market === "TW") void ensureMarketRegime(); }, [market, ms.asOf]);
   const refOnly = market === "ETF";
   const filter = refOnly ? "全部" : (filter0 === "剛轉強" && !turn) || (filter0 === "四因子" && !quad) ? "買入" : filter0; // ETF 不分評等；美股沒有「剛轉強」，從台股切過來時改回「買入」
   const [q, setQ] = useState("");
@@ -140,6 +143,12 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
             <div class="seg" role="group" aria-label="ETF 排序" style={{ marginBottom: "8px" }}>
               <button aria-pressed={etfSort === "vol"} onClick={() => setEtfSort("vol")} data-testid="etf-sort-vol">成交量</button>
               <button aria-pressed={etfSort === "score"} onClick={() => setEtfSort("score")} data-testid="etf-sort-score">參考分數</button>
+            </div>
+          )}
+          {market === "TW" && filter === "買入" && !q.trim() && regime?.weak && (
+            <div class="warn-box" style={{ fontSize: "13px", lineHeight: 1.7, marginBottom: "8px" }} data-testid="weak-market">
+              <b>⚠ 大盤弱勢：建議先觀察或減量</b>
+              <div>0050 {prettyW(regime.asOf)} 收盤 {fmtPrice(regime.close)}，跌破 20 日線（{fmtPrice(regime.ma20)}）。2018～2021 回測：這種日子的「買入」推薦，持有 10 天平均 −0.4%、輸 0050 約 0.9%；大盤在 20 日線上時平均 +1.0%。等 0050 站回 20 日線再買比較好。</div>
             </div>
           )}
           {market === "US" && <UsLookup q={q} found={list.length > 0} />}

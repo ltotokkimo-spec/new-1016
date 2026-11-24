@@ -123,6 +123,11 @@ function check(ok, name, detail = "") {
   }, null, { timeout: 30000 }).then((h) => h.jsonValue()).catch(() => null);
   log("選股今日漲跌", JSON.stringify(pickDay));
   check(!!pickDay && pickDay.every((t) => /(現價|試搓(?:舊價)?|收盤).*今日\s*[+-]?\d/.test(t)), "選股每列顯示今日漲跌", JSON.stringify(pickDay));
+  // 大盤弱勢標註（11/24）：0050 跌破 20 日線時「買入」清單上方有提醒；有出現就要寫清楚原因與數字
+  await page.waitForSelector('[data-testid="weak-market"]', { timeout: 8000 }).catch(() => {});
+  const weakTxt = await page.$eval('[data-testid="weak-market"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
+  log("大盤弱勢標註", weakTxt || "（大盤不弱或尚未算好，沒有顯示）");
+  if (weakTxt) check(/大盤弱勢/.test(weakTxt) && /跌破 20 日線/.test(weakTxt) && /\d+\.\d/.test(weakTxt), "大盤弱勢時「買入」清單上方顯示提醒（0050 跌破 20 日線）", weakTxt.slice(0, 120));
   // 漲停亮紅燈、跌停亮綠燈：畫面上有燈的列，今日漲跌幅方向與幅度要對得上（沒有漲跌停的日子就沒有燈，這項自然通過）
   const lights = await page.evaluate(() => [...document.querySelectorAll('[data-testid="limit-light"]')].map((l) => ({ limit: l.getAttribute("data-limit"), row: (l.closest(".item")?.innerText || "").replace(/\s+/g, " ").slice(0, 120) })));
   log("選股漲跌停燈", JSON.stringify(lights.slice(0, 6)));

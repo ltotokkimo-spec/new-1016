@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 import { BOOK_INFO, firstPickIds, PICK_HORIZONS, sortPerfRows, perfStats, toCsv, type PickBook, type PickH, type PickPerf, type PickPerfFile } from "../engine/pickLog";
 import { pretty, prettyW } from "../lib/dates";
-import { findScored, getState, picksCsvUrl, refreshPicksPerf, useStore } from "../store";
+import { ensureMarketRegime, findScored, getState, picksCsvUrl, refreshPicksPerf, useStore } from "../store";
 import type { Scored } from "../engine/score";
 import type { Market } from "../store";
 import { fmtPct, fmtPrice, Sheet } from "./common";
@@ -78,6 +78,17 @@ export function PicksPerfSheet({ book = "TW", onClose, open }: { book?: PickBook
   const first = useMemo(() => firstPickIds(allRows), [allRows]);
   const rows = useMemo(() => (firstOnly ? allRows.filter((r) => first.has(r.id)) : allRows), [allRows, first, firstOnly]);
   const st = useMemo(() => perfStats(rows, h), [rows, h]);
+  // 大盤弱勢標註（11/24）：0050 收盤跌破 20 日線那天的推薦加標籤，並分開算平均
+  const regime = useStore((s) => s.mktRegime);
+  useEffect(() => { if (book === "TW") void ensureMarketRegime(); }, [book]);
+  const weakSet = useMemo(() => new Set(regime?.weakDays ?? []), [regime]);
+  const split = useMemo(() => {
+    if (book !== "TW" || !regime) return undefined;
+    const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
+    const done = rows.filter((r) => r.h[h]);
+    const w = done.filter((r) => weakSet.has(r.date)).map((r) => r.h[h]!.net), o = done.filter((r) => !weakSet.has(r.date)).map((r) => r.h[h]!.net);
+    return w.length ? { w: avg(w), nw: w.length, o: avg(o), no: o.length } : undefined;
+  }, [rows, h, weakSet, book, regime]);
   const dates = useMemo(() => [...new Set(rows.map((r) => r.date))], [rows]); // 新到舊
   // 11/13 使用者：看不出收集 5 天後的成果 → 清單預設先列「已有結果」的，最新幾天還在追蹤的放後面
   const [show, setShowS] = useState<"done" | "wait" | "all">("done");
@@ -147,6 +158,7 @@ export function PicksPerfSheet({ book = "TW", onClose, open }: { book?: PickBook
             </table>
           </>}
 
+          {split && <div class="notice" style={{ fontSize: "12.5px", lineHeight: 1.6 }} data-testid="perf-weak-split">標「大盤弱勢」＝推薦當天 0050 收盤在 20 日線下。{h} 日結果：大盤弱勢時推薦 {split.nw} 筆平均 <b class={split.w >= 0 ? "up" : "down"}>{fmtPct(split.w)}</b>，其他 {split.no} 筆平均 <b class={split.o >= 0 ? "up" : "down"}>{fmtPct(split.o)}</b>。2018～2021 回測也是大盤弱勢時明顯較差，這時選股頁「買入」上方會提醒先觀察。</div>}
           <div class="section-title"><span>每筆推薦<span class="muted" style={{ fontWeight: 400, fontSize: "12px" }}>（新→舊，同日分數高→低）</span></span>
             <select value={day} onChange={(e) => { const v = (e.target as HTMLSelectElement).value; setDay(v); if (v) setShowS("all"); }} data-testid="perf-day" style={{ fontSize: "13px" }}>
               <option value="">全部日期（{rows.length} 筆）</option>
@@ -159,7 +171,7 @@ export function PicksPerfSheet({ book = "TW", onClose, open }: { book?: PickBook
             <button class="chip" aria-pressed={show === "all"} onClick={() => setShowS("all")}>全部</button>
           </div>
           <div class="list" data-testid="perf-rows">
-            {shown.map((r) => <PerfRow r={r} h={h} first={!firstOnly && first.has(r.id)} usd={d.currency === "USD"} onOpen={open && (() => {
+            {shown.map((r) => <PerfRow r={r} h={h} weak={book === "TW" && weakSet.has(r.date)} first={!firstOnly && first.has(r.id)} usd={d.currency === "USD"} onOpen={open && (() => {
               // 11/22 使用者：點推薦紀錄要能打開個股頁；左右切換這份清單裡（重複的代號只留一次）的其他股票
               const mk = book as Market;
               const s0 = findScored(r.code, mk);
@@ -176,13 +188,13 @@ export function PicksPerfSheet({ book = "TW", onClose, open }: { book?: PickBook
   );
 }
 
-function PerfRow({ r, h, first, usd, onOpen }: { r: PickPerf; h: PickH; first?: boolean; usd?: boolean; onOpen?: () => void }) {
+function PerfRow({ r, h, first, usd, onOpen, weak }: { r: PickPerf; h: PickH; first?: boolean; usd?: boolean; onOpen?: () => void; weak?: boolean }) {
   const px = (x: number) => (usd ? "$" : "") + fmtPrice(x);
   const x = r.h[h];
   return (
     <div class="item" style={{ cursor: onOpen ? "pointer" : "default" }} onClick={onOpen} data-testid="perf-row">
       <div style={{ minWidth: 0 }}>
-        <div class="name">{r.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{r.code}</span>{first && <span class="tag" style={{ marginLeft: "6px", fontSize: "11px", fontWeight: 400 }}>首次</span>}</div>
+        <div class="name">{r.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{r.code}</span>{first && <span class="tag" style={{ marginLeft: "6px", fontSize: "11px", fontWeight: 400 }}>首次</span>}{weak && <span class="tag" style={{ marginLeft: "6px", fontSize: "11px", fontWeight: 400, color: "#b25e00" }} data-testid="perf-weak">大盤弱勢</span>}</div>
         <div class="sub num" style={{ whiteSpace: "normal" }}>{pretty(r.date)} 推薦 {px(r.price)}・停損 {px(r.stop)}・分數 {r.score}{x?.stopHit ? <span class="down">・{pretty(x.stopDate!)} 跌破停損</span> : ""}</div>
         <div class="sub" style={{ whiteSpace: "normal", fontSize: "11.5px" }}>{r.reasons.join("；")}</div>
       </div>

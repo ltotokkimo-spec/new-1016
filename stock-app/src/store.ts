@@ -17,7 +17,7 @@ import { ETF_NAV_URL, parseEtfNav, type EtfNav } from "./data/etfNav";
 import { TAIFEX_URL, parseTaifex, taifexBody, type FutQuote } from "./data/taifexLive";
 import { scoreStocks, reviewHolding, type Holding, type HoldingView, type Scored, type SectorStat } from "./engine/score";
 import { AiError, aiEtfAdvice, explainError, type AiProgress, type EtfAdviceInput, type AiReport, type OnProgress } from "./ai/claude";
-import { addDays, orderDay, prettyW, taipeiToday, twNeedsRefresh, usNeedsRefresh } from "./lib/dates";
+import { addDays, orderDay, prettyW, taipeiHour, taipeiToday, twNeedsRefresh, usNeedsRefresh } from "./lib/dates";
 import { parseUsLive, usLiveUrl } from "./data/usLive";
 import * as upd from "./lib/update";
 import type { BacktestResult } from "./engine/backtest";
@@ -126,6 +126,8 @@ export interface State {
   dual?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 雙引擎觀察組合（成長組＋低波動組）
   dualPlus?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 雙引擎＋（加外資條件與 Claude 新聞否決）
   picksPerf: Partial<Record<PickBook, PicksPerfEntry>>; // 推薦績效追蹤（台股、ETF、美股）
+  /** 大盤強弱（11/24 使用者）：0050 收盤是否跌破 20 日線；weakDays＝近半年 0050 收盤在 20 日線下的日子（標記推薦績效用） */
+  mktRegime?: { asOf: string; close: number; ma20: number; weak: boolean; weakDays: string[] };
   exdiv?: { data: ExFile; fetchedAt: number }; // 除權息事件（雲端每天整理）：評分還原除權息、ETF 配息資訊
   activeEtf?: { data: ActiveEtfData; fetchedAt: number; error?: string; liveAt?: number; liveProgress?: { done: number; total: number }; liveFound?: number; liveHoldings?: { code: string; name: string; date: string; shares: Record<string, number> }[] };
   steady?: { data: SteadyLite; fetchedAt: number };
@@ -1292,3 +1294,27 @@ export async function saveProReply(text: string) {
 export async function setEtfFillFrom(fillFrom: "api" | "pro") {
   await saveAiEtf({ ...state.aiEtf, fillFrom });
 }
+
+// ---------- 大盤弱勢標註（11/24 使用者選）----------
+// 2018～2021 回測：0050 收盤跌破 20 日線那天的「買入」推薦，持有 10 天平均 −0.41%（大盤強時 +1.00%），輸 0050 約 0.9%。
+// 所以這時在選股「買入」清單上方提醒先觀察或減量，推薦績效也標出這些日子推薦的股票。
+let regimeDay = "";
+export async function ensureMarketRegime(): Promise<void> {
+  const today = taipeiToday();
+  if (regimeDay === today + (taipeiHour() >= 15 ? "c" : "")) return;
+  regimeDay = today + (taipeiHour() >= 15 ? "c" : "");
+  try {
+    const bars = (await twHistory(fetcher, kv, "0050", "TWSE", 7, Date.now(), undefined, true)).filter((b) => Number.isFinite(b.close) && b.close > 0);
+    if (bars.length < 21) return;
+    const weakDays: string[] = [];
+    let last: State["mktRegime"];
+    for (let i = 19; i < bars.length; i++) {
+      const ma20 = bars.slice(i - 19, i + 1).reduce((a, b) => a + b.close, 0) / 20;
+      const weak = bars[i].close < ma20;
+      if (weak) weakDays.push(bars[i].date);
+      last = { asOf: bars[i].date, close: bars[i].close, ma20, weak, weakDays };
+    }
+    if (last) set({ mktRegime: { ...last, weakDays } });
+  } catch { regimeDay = ""; /* 抓不到就不標註，下次再試 */ }
+}
+

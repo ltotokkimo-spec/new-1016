@@ -910,7 +910,7 @@ function DualRealScreen() {
         : !d.targets ? <div class="card muted" style={{ fontSize: "13px" }}>雙引擎＋還沒有目標配置（雲端每天傍晚更新），晚一點再來看。</div>
         : !twReady ? <div class="card muted" style={{ fontSize: "13px" }}>等台股收盤價下載完才能估算股數…</div>
         : orders.length === 0 ? <div class="card" style={{ fontSize: "13.5px" }} data-testid="dualreal-noorder">今天不用下單：持股和雙引擎的目標配置差距都小於淨值 {(DUAL_REAL.band * 100).toFixed(1)}%。下次判斷約在 {d.plan?.lastDecision ? prettyW(addWeekdays(d.plan.lastDecision, d.plan.every)) : "幾天後"} 收盤後。</div>
-        : <>{d.vetoes && d.vetoes.length > 0 && <div class="notice" style={{ fontSize: "12.5px", marginBottom: "8px" }} data-testid="dualreal-vetoes">新聞否決中：{d.vetoes.map((x) => `${x.name ?? x.code}（${x.reason}）`).join("、")}。這些不在下單清單裡，持有的會列在賣出。</div>}<DualFill key={orders.map((o) => `${o.side}${o.code}${o.shares}`).join(",")} orders={orders} groups={d.groups} flags={flags} onSkip={d.targetsDate ? (c) => void setDualSkip(c, true, d.targetsDate!) : undefined} /></>}
+        : <>{d.vetoes && d.vetoes.length > 0 && <div class="notice" style={{ fontSize: "12.5px", marginBottom: "8px" }} data-testid="dualreal-vetoes">新聞否決中：{d.vetoes.map((x) => `${x.name ?? x.code}（${x.reason}）`).join("、")}。這些不在下單清單裡，持有的會列在賣出。</div>}<DualFill key={orders.map((o) => `${o.side}${o.code}${o.shares}`).join(",")} orders={orders} groups={d.groups} flags={flags} targetsDate={d.targetsDate} onSkip={d.targetsDate ? (c) => void setDualSkip(c, true, d.targetsDate!) : undefined} /></>}
 
       {pos.length > 0 && <>
         <div class="section-title"><span>目前持股</span><span>{pos.length} 檔・{(() => { const q = pos.map((p) => nowQ(p.code)).find(Boolean); return q ? `即時價 ${q.time.slice(0, 5)}` : asOfDay ? `${pretty(asOfDay)} 收盤價` : "收盤價"; })()}</span></div>
@@ -970,7 +970,13 @@ async function nowPrices(codes: string[]): Promise<{ px: Record<string, number>;
 }
 
 /** 雙引擎實單的下單清單：勾選、改成實際的股數與成交價，一次記錄 */
-function DualFill({ orders, groups, flags = {}, onSkip }: { orders: DualOrder[]; groups?: DualGroups; flags?: Record<string, string>; onSkip?: (code: string) => void }) {
+function DualFill({ orders, groups, flags = {}, onSkip, targetsDate }: { orders: DualOrder[]; groups?: DualGroups; flags?: Record<string, string>; onSkip?: (code: string) => void; targetsDate?: string }) {
+  // 11/24 使用者：和「我的實單」一樣，判斷日收盤後算出的單要等下一個交易日 09:00 開盤後才能記；同一天照清單只能記一次（剩下沒成交的隔天再記，或用「手動新增一筆成交」）
+  const tradeDay = targetsDate ? nextWeekday(targetsDate) : undefined;
+  const appliedDay = useStore((s) => s.dualReal?.appliedDay);
+  const gateOff = !!(globalThis as any).__srIgnoreOrderGate; // 自動測試用
+  const early = !gateOff && !!tradeDay && !openedOn(tradeDay);
+  const already = !gateOff && appliedDay === taipeiToday();
   const fresh = (o: DualOrder) => ({ ...o, keep: true, sharesText: String(o.shares), priceText: String(o.price) });
   const [rows, setRows] = useState(() => orders.map(fresh));
   const [err, setErr] = useState("");
@@ -984,6 +990,9 @@ function DualFill({ orders, groups, flags = {}, onSkip }: { orders: DualOrder[];
     setPxMsg(note);
   };
   const save = async () => {
+    const off = !!(globalThis as any).__srIgnoreOrderGate;
+    if (early && !off) return setErr(`這是 ${prettyW(tradeDay!)} 要下的單，開盤（09:00）後才能記錄成交`);
+    if (already && !off) return setErr("今天已經照清單記錄過成交，同一天不能再記一次");
     const ok = rows.filter((r) => r.keep);
     if (!ok.length) return setErr("請至少勾選一筆");
     if (ok.some((r) => !(Number(r.sharesText) > 0) || !(Number(r.priceText) > 0))) return setErr("股數和成交價都要大於 0");
@@ -995,7 +1004,7 @@ function DualFill({ orders, groups, flags = {}, onSkip }: { orders: DualOrder[];
       heldNow.set(r.code, h - Number(r.sharesText));
     }
     setErr("");
-    await addDualTrades(ok.map((r) => ({ date: taipeiToday(), code: r.code, name: r.name, side: r.side, shares: Math.round(Number(r.sharesText)), price: Number(r.priceText) })));
+    await addDualTrades(ok.map((r) => ({ date: taipeiToday(), code: r.code, name: r.name, side: r.side, shares: Math.round(Number(r.sharesText)), price: Number(r.priceText) })), taipeiToday());
     setDone(`已記錄 ${ok.length} 筆成交。`);
   };
   const buys = rows.filter((r) => r.side === "buy").length, sells = rows.length - buys;
@@ -1021,7 +1030,9 @@ function DualFill({ orders, groups, flags = {}, onSkip }: { orders: DualOrder[];
       ))}
       {err && <div class="error">{err}</div>}
       {done && <div class="notice" style={{ fontSize: "13px" }}>{done}</div>}
-      <button class="btn block" onClick={save} data-testid="dualreal-save">記錄勾選的成交</button>
+      {early && <div class="notice" style={{ fontSize: "13px" }} data-testid="dualreal-early">⏰ 這是 {prettyW(tradeDay!)} 要下的單：等 {prettyW(tradeDay!)} 09:00 開盤、實際成交後才能記錄。</div>}
+      {already && !done && <div class="notice" style={{ fontSize: "13px" }} data-testid="dualreal-already">✅ 今天已經照清單記錄過成交了，同一天不能再記一次，免得重複下單。沒成交完的明天再記；真的還有別的成交，請用「手動新增一筆成交」。</div>}
+      <button class="btn block" onClick={save} disabled={early || already} data-testid="dualreal-save">{early ? `${prettyW(tradeDay!)} 開盤後才能記錄` : already ? "今天已記錄過" : "記錄勾選的成交"}</button>
     </div>
   );
 }

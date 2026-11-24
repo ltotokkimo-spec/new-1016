@@ -1091,10 +1091,10 @@ export async function snapshotDualNav(date = state.tw.asOf ?? taipeiToday()) {
   if (v.missing.length) return;
   await saveDualReal(recordNav(etf, date, v));
 }
-export async function addDualTrades(trades: Omit<EtfTrade, "id" | "benchPrice">[]) {
+export async function addDualTrades(trades: Omit<EtfTrade, "id" | "benchPrice">[], planDay?: string) {
   const bench = etfPrice("0050") ?? NaN;
   const etf = dualRealOf();
-  await saveDualReal({ ...etf, trades: [...etf.trades, ...trades.map((t, i) => ({ ...t, id: `${Date.now()}-${i}-${t.code}`, benchPrice: bench }))] });
+  await saveDualReal({ ...etf, trades: [...etf.trades, ...trades.map((t, i) => ({ ...t, id: `${Date.now()}-${i}-${t.code}`, benchPrice: bench }))], ...(planDay ? { appliedDay: planDay } : {}) });
   await snapshotDualNav();
 }
 export async function hideDualTrade(id: string) { const etf = dualRealOf(); await saveDualReal({ ...etf, trades: etf.trades.map((t) => (t.id === id ? { ...t, hidden: true } : t)) }); }

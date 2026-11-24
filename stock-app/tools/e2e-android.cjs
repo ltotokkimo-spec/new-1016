@@ -1059,6 +1059,8 @@ function check(ok, name, detail = "") {
     await alive("勾選前");
     await page.$$eval('[data-testid="dualreal-order"] input[type=checkbox]', (cs) => cs.forEach((c, i) => { if (i > 0 && c.checked) c.click(); }));
     await alive("取消勾選後");
+    await page.evaluate(() => { window.__srIgnoreOrderGate = true; }); // 開盤前／同日一次的限制另外檢查，這裡要能記錄
+    await page.evaluate(() => { const b = document.querySelector('[data-testid="dualreal-save"]'); if (b) b.disabled = false; });
     await page.click('[data-testid="dualreal-save"]');
     await alive("按記錄後");
     drRecorded = await page.waitForSelector('[data-testid="dualreal-trades-box"]', { timeout: 10000 }).then(() => true).catch(() => false);

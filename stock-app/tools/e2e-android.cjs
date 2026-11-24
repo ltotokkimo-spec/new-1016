@@ -180,7 +180,8 @@ function check(ok, name, detail = "") {
       await prow.click();
       const got = await page.waitForFunction(() => { const hs = [...document.querySelectorAll(".sheet h2")]; return hs.length >= 2 ? hs[hs.length - 1].textContent : ""; }, null, { timeout: 15000 }).then((h) => h.jsonValue()).catch(() => "");
       log("推薦績效點個股", JSON.stringify({ want, got }));
-      check(!!want && String(got).includes(want), "推薦績效的每筆推薦點一下打開那一檔的個股頁", JSON.stringify({ want, got }));
+      const nf = got ? "" : await page.$eval('[data-testid="perf-open-msg"]', (e) => e.innerText).catch(() => "");
+      check((!!want && String(got).includes(want)) || (nf.includes(want) && /不在評分名單/.test(nf)), "推薦績效的每筆推薦點一下打開那一檔的個股頁（今天沒評分的會說明原因）", JSON.stringify({ want, got, nf }));
       await page.evaluate(() => { const bs = [...document.querySelectorAll('.sheet header button[aria-label="返回"]')]; bs[bs.length - 1]?.click(); });
       await page.waitForFunction(() => document.querySelectorAll(".sheet").length <= 1, null, { timeout: 5000 }).catch(() => {});
     }

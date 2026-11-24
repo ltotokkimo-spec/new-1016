@@ -68,6 +68,7 @@ export function PicksPerfSheet({ book = "TW", onClose, open }: { book?: PickBook
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [day, setDay] = useState("");
+  const [openMsg, setOpenMsg] = useState("");
   const [all, setAll] = useState(false);
   const [firstOnly, setFirstOnlyS] = useState(() => { try { return localStorage.getItem("perfFirstOnly") === "1"; } catch { return false; } });
   const setFirstOnly = (v: boolean) => { setFirstOnlyS(v); try { localStorage.setItem("perfFirstOnly", v ? "1" : "0"); } catch { /* 不記也沒關係 */ } };
@@ -170,12 +171,14 @@ export function PicksPerfSheet({ book = "TW", onClose, open }: { book?: PickBook
             <button class="chip" aria-pressed={show === "wait"} onClick={() => setShowS("wait")} data-testid="perf-show-wait">追蹤中 {rows.length - doneN}</button>
             <button class="chip" aria-pressed={show === "all"} onClick={() => setShowS("all")}>全部</button>
           </div>
+          {openMsg && <div class="notice" style={{ fontSize: "12.5px" }} data-testid="perf-open-msg">{openMsg}</div>}
           <div class="list" data-testid="perf-rows">
             {shown.map((r) => <PerfRow r={r} h={h} weak={book === "TW" && weakSet.has(r.date)} first={!firstOnly && first.has(r.id)} usd={d.currency === "USD"} onOpen={open && (() => {
               // 11/22 使用者：點推薦紀錄要能打開個股頁；左右切換這份清單裡（重複的代號只留一次）的其他股票
               const mk = book as Market;
               const s0 = findScored(r.code, mk);
-              if (!s0) return;
+              if (!s0) { setOpenMsg(`${r.name} ${r.code} 今天不在評分名單（成交金額低於門檻或停止交易），沒有個股頁可以打開。`); return; }
+              setOpenMsg("");
               const seen = new Set<string>(), list: Scored[] = [];
               for (const x of shown) { if (seen.has(x.code)) continue; seen.add(x.code); const sx = findScored(x.code, mk); if (sx) list.push(sx); }
               open(s0, list);

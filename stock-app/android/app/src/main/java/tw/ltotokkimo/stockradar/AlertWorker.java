@@ -44,8 +44,8 @@ public class AlertWorker extends Worker {
         Calendar now = Calendar.getInstance(tz);
         int dow = now.get(Calendar.DAY_OF_WEEK), hm = now.get(Calendar.HOUR_OF_DAY) * 100 + now.get(Calendar.MINUTE);
         if (dow == Calendar.SATURDAY || dow == Calendar.SUNDAY || hm < 900 || hm > 1335) return Result.success();
-        if (!AlertsPlugin.granted(ctx)) return Result.success();
         SharedPreferences sp = AlertsPlugin.prefs(ctx);
+        if (!AlertsPlugin.granted(ctx) && !lineOn(sp)) return Result.success();
         try {
             JSONArray items = new JSONArray(sp.getString("items", "[]"));
             if (items.length() == 0) return Result.success();
@@ -111,10 +111,45 @@ public class AlertWorker extends Worker {
     }
     static double num(String s) { try { return Double.parseDouble(s); } catch (Exception e) { return Double.NaN; } }
 
+    static boolean lineOn(SharedPreferences sp) {
+        return sp.getBoolean("line_on", false) && !sp.getString("line_token", "").isEmpty() && !sp.getString("line_uid", "").isEmpty();
+    }
+
+    /** LINE 官方帳號 Messaging API push：回傳 {HTTP 狀態碼, 錯誤說明}；"0" 表示沒設定或連不上 */
+    static String[] pushLine(Context ctx, String text) {
+        SharedPreferences sp = AlertsPlugin.prefs(ctx);
+        String token = sp.getString("line_token", ""), uid = sp.getString("line_uid", "");
+        if (token.isEmpty() || uid.isEmpty()) return new String[] { "0", "還沒填權杖或 User ID" };
+        HttpURLConnection c = null;
+        try {
+            JSONObject msg = new JSONObject().put("type", "text").put("text", text);
+            JSONObject body = new JSONObject().put("to", uid).put("messages", new JSONArray().put(msg));
+            c = (HttpURLConnection) new URL("https://api.line.me/v2/bot/message/push").openConnection();
+            c.setConnectTimeout(15000); c.setReadTimeout(15000);
+            c.setRequestMethod("POST");
+            c.setDoOutput(true);
+            c.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            c.setRequestProperty("Authorization", "Bearer " + token);
+            try (java.io.OutputStream os = c.getOutputStream()) { os.write(body.toString().getBytes("UTF-8")); }
+            int code = c.getResponseCode();
+            String err = "";
+            if (code != 200 && c.getErrorStream() != null) {
+                StringBuilder sb = new StringBuilder();
+                try (BufferedReader r = new BufferedReader(new InputStreamReader(c.getErrorStream(), "UTF-8"))) { String l; while ((l = r.readLine()) != null) sb.append(l); }
+                err = new JSONObject(sb.toString()).optString("message", sb.toString());
+            }
+            return new String[] { String.valueOf(code), err };
+        } catch (Exception e) {
+            return new String[] { "0", String.valueOf(e.getMessage()) };
+        } finally { if (c != null) c.disconnect(); }
+    }
+
     static void send(Context ctx, SharedPreferences sp, SharedPreferences.Editor ed, String today, String key, String title, String body) {
         String k = "sent_" + key;
         if (today.equals(sp.getString(k, ""))) return;
         ed.putString(k, today);
+        if (lineOn(sp)) pushLine(ctx, title + "\n" + body);
+        if (!AlertsPlugin.granted(ctx)) return;
         NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
         if (Build.VERSION.SDK_INT >= 26 && nm != null && nm.getNotificationChannel(CHANNEL) == null) {
             nm.createNotificationChannel(new NotificationChannel(CHANNEL, "持股警示（達標離場／跌破停損）", NotificationManager.IMPORTANCE_HIGH));

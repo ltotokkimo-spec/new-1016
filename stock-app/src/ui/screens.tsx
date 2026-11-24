@@ -12,7 +12,7 @@ import {
   saveSettings, clearCache, useStore, usBars, recordSpend, estimatedBalance, checkForUpdate, installUpdate,
   addUsSymbol, removeUsSymbol, refreshLive, refreshUsLive, refreshTwIndex, refreshFutures, refreshTurnover, refreshTurnoverLive, refreshEtfNav, refreshQuad, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
 } from "../store";
-import { alertStatus } from "../lib/alerts";
+import { alertStatus, setLine, lineTest, type LineInfo } from "../lib/alerts";
 import { BROKERS, brokerOf, mergeHoldings, type Broker, type Holding, type Rating, type Scored, type SectorStat } from "../engine/score";
 import { type AiReport, analyzeStock, claudeAppPrompt, claudeAppUrl, client, explainError, parseUrls, holdingsAppPrompt, holdingsReviewPrompt, parseHoldingsReply, marketBrief, MODEL, type ImportedHolding } from "../ai/claude";
 import { twHistory } from "../data/history";
@@ -2185,6 +2185,20 @@ function AlertsCard() {
   const settings = useStore((s) => s.settings);
   const on = settings.holdingAlerts !== false;
   const [st, setSt] = useState<{ count: number; granted: boolean } | undefined>();
+  const lineOn = settings.lineAlerts === true;
+  const [li, setLi] = useState<LineInfo | undefined>();
+  const [tok, setTok] = useState(""), [uid, setUid] = useState(""), [lineMsg, setLineMsg] = useState(""), [busy, setBusy] = useState(false);
+  // 原生端的開關跟著設定走（舊版升級上來、或資料還原後也會對齊）
+  useEffect(() => { void setLine({ enabled: lineOn }).then(setLi); }, [lineOn]);
+  const saveLine = async () => {
+    const t = tok.trim(), u = uid.trim();
+    if (u && !/^U[0-9a-f]{32}$/.test(u)) { setLineMsg("User ID 格式不對：應該是 U 開頭、後面 32 個英數字"); return; }
+    if (t && t.length < 100) { setLineMsg("權杖看起來不完整：長期權杖通常有 170 個字左右，請重新複製"); return; }
+    const r = await setLine({ ...(t ? { token: t } : {}), ...(u ? { userId: u } : {}), enabled: true });
+    setLi(r); setTok(""); setUid("");
+    setLineMsg(r?.configured ? "已儲存，按「傳測試訊息」確認 LINE 收得到" : r ? "已儲存，還差" + (r.tokenSet ? " User ID" : "權杖") : "這一版 App 還沒有 LINE 推播，請先更新");
+  };
+  const testLine = async () => { setBusy(true); setLineMsg(""); const r = await lineTest(); setLineMsg(r.text); setBusy(false); };
   useEffect(() => { let alive = true; const t = setTimeout(() => alertStatus().then((x) => { if (alive) setSt(x); }), on ? 4000 : 500); return () => { alive = false; clearTimeout(t); }; }, [on]);
   return (
     <div class="card stack" data-testid="alerts-card">
@@ -2197,10 +2211,23 @@ function AlertsCard() {
       </div>
       <label class="row" style={{ justifyContent: "space-between", gap: "10px", cursor: "pointer", borderTop: "1px solid var(--line)", paddingTop: "10px" }}>
         <span style={{ fontSize: "14.5px" }}>同時推播到 LINE</span>
-        <input type="checkbox" checked={settings.lineAlerts === true} onChange={(e) => void saveSettings({ ...settings, lineAlerts: (e.target as HTMLInputElement).checked })} data-testid="line-alerts-toggle" style={{ width: "22px", height: "22px" }} />
+        <input type="checkbox" checked={lineOn} onChange={(e) => { const v = (e.target as HTMLInputElement).checked; void saveSettings({ ...settings, lineAlerts: v }); void setLine({ enabled: v }).then(setLi); }} data-testid="line-alerts-toggle" style={{ width: "22px", height: "22px" }} />
       </label>
+      {lineOn && (
+        <div class="stack" style={{ gap: "8px" }} data-testid="line-setup">
+          <label class="field">Channel access token（長期權杖）<input type="password" value={tok} onInput={(e) => setTok((e.target as HTMLInputElement).value)} placeholder={li?.tokenSet ? "已儲存（要換才重新貼上）" : "貼上 LINE Developers 的長期權杖"} autocomplete="off" data-testid="line-token" /></label>
+          <label class="field">Your user ID（U 開頭）<input value={uid} onInput={(e) => setUid((e.target as HTMLInputElement).value)} placeholder={li?.userIdTail ? `已儲存（…${li.userIdTail}）` : "U 開頭 33 個字"} autocomplete="off" data-testid="line-uid" /></label>
+          <div class="row">
+            <button class="btn" onClick={saveLine} disabled={!tok.trim() && !uid.trim()} data-testid="line-save">儲存</button>
+            <button class="btn secondary" onClick={testLine} disabled={busy || !li?.configured} data-testid="line-test">{busy ? "傳送中…" : "傳測試訊息"}</button>
+          </div>
+          {lineMsg && <div class="notice" data-testid="line-msg">{lineMsg}</div>}
+        </div>
+      )}
       <div class="muted" style={{ fontSize: "12.5px", lineHeight: 1.6 }} data-testid="line-alerts-note">
-        {settings.lineAlerts ? "已記住要推到 LINE，但 LINE 推播功能還在準備中，目前仍只會跳手機通知；完成後會再請你設定 LINE 官方帳號。" : "LINE 推播功能還在準備中（LINE Notify 已停止服務，之後改用 LINE 官方帳號）。"}
+        {lineOn
+          ? (li?.configured ? `LINE 已設定（User ID …${li.userIdTail}）：達標離場／跌破停損時，手機通知和 LINE 會同時收到。` : "請填入 LINE 官方帳號的長期權杖和你的 User ID，按儲存後再按「傳測試訊息」確認。")
+          : "打開後，警示也會推到你的 LINE 官方帳號（金雷達通知）。權杖只存在這支手機裡。"}
       </div>
       {st && <div class="muted" style={{ fontSize: "12.5px" }} data-testid="alerts-status">{on ? (st.granted ? `目前盯 ${st.count} 檔` : "手機的通知權限沒有開：請到 Android 設定 → 應用程式 → 金雷達 → 通知，打開後才收得到") : "已關閉，背景不檢查"}</div>}
     </div>

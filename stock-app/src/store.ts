@@ -77,7 +77,7 @@ export interface Settings {
   apiKey: string;
   balance?: { usd: number; at: number }; // 使用者從官網抄下來的餘額與時間
   holdingAlerts?: boolean; // 持股警示推播（11/23）：false＝關閉；沒設定＝開啟
-  lineAlerts?: boolean; // 持股警示也推到 LINE（11/24 使用者：先放開關，LINE 推播之後再做；目前只記住設定）
+  lineAlerts?: boolean; // 持股警示也推到 LINE（11/24）：權杖和 User ID 只存在原生端，這裡只記開關
 }
 
 /** 估計剩餘額度＝使用者填的餘額 − 填寫之後這支手機的花費 */

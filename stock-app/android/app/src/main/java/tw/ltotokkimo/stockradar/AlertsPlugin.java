@@ -71,6 +71,45 @@ public class AlertsPlugin extends Plugin {
         call.resolve(r);
     }
 
+    // ---- LINE 推播（11/24）：權杖和 User ID 只存在這支手機的 App 私有儲存區，不進網頁資料、不進備份匯出 ----
+    @PluginMethod
+    public void setLine(PluginCall call) {
+        SharedPreferences.Editor ed = prefs(getContext()).edit();
+        String token = call.getString("token"), uid = call.getString("userId");
+        if (token != null) ed.putString("line_token", token.trim());
+        if (uid != null) ed.putString("line_uid", uid.trim());
+        if (call.getData().has("enabled")) ed.putBoolean("line_on", Boolean.TRUE.equals(call.getBoolean("enabled", false)));
+        ed.apply();
+        call.resolve(lineInfo(getContext()));
+    }
+
+    static JSObject lineInfo(Context c) {
+        SharedPreferences sp = prefs(c);
+        String t = sp.getString("line_token", ""), u = sp.getString("line_uid", "");
+        JSObject r = new JSObject();
+        r.put("tokenSet", !t.isEmpty());
+        r.put("userIdTail", u.length() > 4 ? u.substring(u.length() - 4) : u);
+        r.put("configured", !t.isEmpty() && !u.isEmpty());
+        r.put("enabled", sp.getBoolean("line_on", false));
+        return r;
+    }
+
+    @PluginMethod
+    public void lineStatus(PluginCall call) { call.resolve(lineInfo(getContext())); }
+
+    @PluginMethod
+    public void lineTest(PluginCall call) {
+        final Context ctx = getContext();
+        new Thread(() -> {
+            String[] res = AlertWorker.pushLine(ctx, "✅ 金雷達：LINE 推播測試成功\n之後「我的實單」「雙引擎實單」達標離場或跌破停損時，會在這裡通知你。");
+            JSObject r = new JSObject();
+            r.put("ok", "200".equals(res[0]));
+            r.put("code", res[0]);
+            r.put("msg", res[1]);
+            call.resolve(r);
+        }).start();
+    }
+
     @PluginMethod
     public void status(PluginCall call) {
         int n = 0;

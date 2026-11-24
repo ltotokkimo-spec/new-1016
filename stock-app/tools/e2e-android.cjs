@@ -1876,7 +1876,22 @@ function check(ok, name, detail = "") {
   const alertCard = await page2.$eval('[data-testid="alerts-card"]', (e) => ({ t: e.innerText.replace(/\s+/g, " "), on: e.querySelector('[data-testid="alerts-toggle"]')?.checked })).catch(() => null);
   check(!!alertCard && /達標離場／跌破停損時推播通知/.test(alertCard.t) && alertCard.on === true, "設定有「持股警示推播」開關（預設開啟）", JSON.stringify(alertCard));
   const lineToggle = await page2.$eval('[data-testid="line-alerts-toggle"]', (e) => e.checked).catch(() => null);
-  check(lineToggle === false && /同時推播到 LINE/.test(alertCard?.t || ""), "設定有「同時推播到 LINE」開關（預設關閉，功能準備中）", JSON.stringify({ lineToggle }));
+  check(lineToggle === false && /同時推播到 LINE/.test(alertCard?.t || ""), "設定有「同時推播到 LINE」開關（預設關閉）", JSON.stringify({ lineToggle }));
+  // 打開 LINE 開關：出現權杖／User ID 欄位；沒填之前「傳測試訊息」不能按；格式不對會提示（不會真的送出）
+  await page2.click('[data-testid="line-alerts-toggle"]');
+  await page2.waitForSelector('[data-testid="line-token"]', { timeout: 5000 }).catch(() => {});
+  await page2.type('[data-testid="line-uid"]', "abc").catch(() => {});
+  await page2.click('[data-testid="line-save"]').catch(() => {});
+  await sleep(500);
+  const lineUi = await page2.evaluate(() => ({
+    token: !!document.querySelector('[data-testid="line-token"]'),
+    testDis: document.querySelector('[data-testid="line-test"]')?.disabled,
+    msg: document.querySelector('[data-testid="line-msg"]')?.innerText || "",
+    note: document.querySelector('[data-testid="line-alerts-note"]')?.innerText || "",
+  }));
+  check(lineUi.token && lineUi.testDis === true && /User ID 格式不對/.test(lineUi.msg) && /長期權杖/.test(lineUi.note), "LINE 開關打開後可填權杖／User ID，格式檢查有效", JSON.stringify(lineUi));
+  await page2.click('[data-testid="line-alerts-toggle"]');
+  await sleep(300);
   const setDis = await page2.$eval('[data-testid="settings-disclaimer"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   check(!gate2 && /不是投資建議/.test(setDis) && /授權/.test(setDis), "重開 App 不再顯示免責聲明，設定頁看得到免責聲明與授權全文", setDis.slice(0, 100));
   // 設定頁的「立即更新全部資料」：按下去要有回應（更新中→完成），並列出各來源的資料日（之前看起來沒反應）

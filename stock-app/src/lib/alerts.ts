@@ -16,7 +16,12 @@ interface AlertsNative extends Plugin {
   setWatch(o: { items: string }): Promise<{ count: number }>;
   requestPermission(): Promise<{ granted: boolean }>;
   status(): Promise<{ count: number; granted: boolean; scheduled: boolean }>;
+  setLine(o: { token?: string; userId?: string; enabled?: boolean }): Promise<LineInfo>;
+  lineStatus(): Promise<LineInfo>;
+  lineTest(): Promise<{ ok: boolean; code: string; msg: string }>;
 }
+/** LINE 推播設定狀態（權杖本身不會傳回網頁端） */
+export interface LineInfo { tokenSet: boolean; userIdTail: string; configured: boolean; enabled: boolean }
 const Alerts = registerPlugin<AlertsNative>("Alerts");
 
 let asked = false;
@@ -35,5 +40,30 @@ export async function setAlertWatch(items: AlertWatchItem[]): Promise<void> {
 export async function alertStatus() {
   if (!Capacitor.isNativePlatform()) return undefined;
   try { return await Alerts.status(); } catch { return undefined; }
+}
+
+// LINE 推播（11/24）：用 LINE 官方帳號 Messaging API 的長期權杖＋自己的 User ID，背景檢查達標時同時推到 LINE。
+// 權杖只交給原生端存在 App 私有儲存區（不放進網頁的設定資料，也不會出現在備份匯出）。
+export async function setLine(o: { token?: string; userId?: string; enabled?: boolean }): Promise<LineInfo | undefined> {
+  if (!Capacitor.isNativePlatform()) return undefined;
+  try { return await Alerts.setLine(o); } catch { return undefined; }
+}
+export async function lineStatus(): Promise<LineInfo | undefined> {
+  if (!Capacitor.isNativePlatform()) return undefined;
+  try { return await Alerts.lineStatus(); } catch { return undefined; }
+}
+/** 傳一則測試訊息；回傳給使用者看的說明 */
+export async function lineTest(): Promise<{ ok: boolean; text: string }> {
+  if (!Capacitor.isNativePlatform()) return { ok: false, text: "只有手機 App 能傳 LINE" };
+  try {
+    const r = await Alerts.lineTest();
+    if (r.ok) return { ok: true, text: "已送出，請看 LINE 有沒有收到「金雷達：LINE 推播測試成功」" };
+    const why = r.code === "401" ? "權杖不對（請重新複製 Channel access token）"
+      : r.code === "400" ? "User ID 不對，或還沒加官方帳號好友（User ID 是 U 開頭 33 個字）"
+      : r.code === "403" ? "沒有權限：請確認官方帳號已啟用 Messaging API"
+      : r.code === "429" ? "本月免費訊息額度用完了"
+      : r.code === "0" ? `連不上 LINE：${r.msg}` : `LINE 回應 ${r.code}`;
+    return { ok: false, text: `沒送出：${why}${r.msg && r.code !== "0" ? `（${r.msg}）` : ""}` };
+  } catch { return { ok: false, text: "這一版 App 還沒有 LINE 推播，請先更新" }; }
 }
 if (Capacitor.isNativePlatform()) (window as any).__srAlertStatus = alertStatus; // 自動測試用

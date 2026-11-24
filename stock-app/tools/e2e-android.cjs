@@ -1438,7 +1438,7 @@ function check(ok, name, detail = "") {
   log("台積電現價（設停損用）", px2330);
   const realPills = await page.$$eval('[data-testid="real-pxpill"]', (es) => es.map((e) => e.textContent.trim()));
   check(realPills.length > 0 && realPills.every((x) => /^(收盤|盤中|試搓(?:舊價)?) [\d,.]+( (▲|▼|－)|$)/.test(x)), "我的實單持股顯示價格膠囊（收盤／盤中／試搓、價格；有漲跌資料時帶漲跌）", JSON.stringify(realPills.slice(0, 5)));
-  await page.click('[data-e2e="tsmc"] [data-testid="stop-edit"]');
+  await page.click('[data-e2e="tsmc"] [data-testid="stop-edit"]', { timeout: 10000 }).catch(() => page.evaluate(() => document.querySelector('[data-e2e="tsmc"] [data-testid="stop-edit"]')?.click())); // 模擬器上元素一直被判定「不穩定」時直接觸發
   await page.fill('[data-testid="stop-input"]', String(Math.ceil(Number(px2330) * 1.05)));
   await page.click('[data-testid="stop-save"]');
   // 停損價設在現價之上＝高於均價，照 11/16 的規則寫「跌破你設的停利價」（仍是同一張提醒卡）

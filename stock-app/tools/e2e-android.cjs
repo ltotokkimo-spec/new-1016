@@ -1048,7 +1048,10 @@ function check(ok, name, detail = "") {
   if (tags.length) check(tags.length === pendN && tags.every((t) => /^(成長型|低波動型|成長＋低波動|已不在名單)$/.test(t)) && tags.some((t) => t === "成長型") && tags.some((t) => t === "低波動型"), "雙引擎＋委託清單每一檔標成長型／低波動型", JSON.stringify(tags.slice(0, 12)));
   // 雙引擎實單（11/15）：本金 50 萬、和我的實單分開記帳；有目標配置就列出要下的單（或今天不用下單），雲端還沒算出目標時說明原因
   await page.click('[data-testid="mode-dualreal"]');
-  await page.waitForSelector('[data-testid="dualreal-summary"]', { timeout: 10000 });
+  if (!(await page.waitForSelector('[data-testid="dualreal-summary"]', { timeout: 10000 }).catch(() => null))) { // 模擬器偶爾吃掉點擊：直接觸發再等
+    await page.evaluate(() => { const b = document.querySelector('[data-testid="mode-dualreal"]'); b?.scrollIntoView({ block: "center" }); b?.click(); });
+    await page.waitForSelector('[data-testid="dualreal-summary"]', { timeout: 20000 });
+  }
   await page.waitForFunction(() => /要下的單/.test(document.querySelector('[data-testid="dualreal"]')?.innerText || "") && !/等台股收盤價下載完/.test(document.querySelector('[data-testid="dualreal"]')?.innerText || ""), null, { timeout: 30000 }).catch(() => {});
   const drTxt = await page.$eval('[data-testid="dualreal"]', (e) => e.innerText.replace(/\s+/g, " "));
   const drOrders = await page.$$eval('[data-testid="dualreal-order"]', (rs) => rs.length);

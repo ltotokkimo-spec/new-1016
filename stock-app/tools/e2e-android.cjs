@@ -556,6 +556,12 @@ function check(ok, name, detail = "") {
     await sleep(800);
     const vals2 = await page.$$eval('[data-testid="dt-row"]', (es) => es.map((e) => { const m = /值 ([\d.,]+) (億|萬)/.exec(e.innerText); return m ? parseFloat(m[1].replace(/,/g, "")) * (m[2] === "億" ? 1e4 : 1) : NaN; }));
     check(vals2.length === 15 && vals2.every((v, i) => Number.isFinite(v) && (!i || v <= vals2[i - 1] * 1.001)), "選「成交值」後，自動更新仍依成交值排序", JSON.stringify(vals2.slice(0, 5)));
+    // 當沖推薦（11/25）：有今天資料時列出前 10 名（成交值、振幅、量能、偏多／偏空），沒有今天資料時說明開盤後才有
+    await page.click('[data-testid="dt-by-pick"]');
+    await sleep(600);
+    const dtp = await page.evaluate(() => ({ rows: [...document.querySelectorAll('[data-testid="dt-pick-row"]')].map((e) => e.innerText.replace(/\s+/g, " ")), empty: document.querySelector('[data-testid="dt-pick-empty"]')?.innerText || "", note: !!document.querySelector('[data-testid="dt-pick-note"]') }));
+    log("當沖推薦", JSON.stringify({ n: dtp.rows.length, first: dtp.rows[0], empty: dtp.empty }));
+    check((dtp.rows.length > 0 && dtp.rows.length <= 10 && dtp.note && dtp.rows.every((r) => /成交值 .+・振幅 \d+\.\d%・量能 \d+\.\d 倍/.test(r) && /(偏多|偏空|震盪)/.test(r))) || /開盤|沒有同時符合/.test(dtp.empty), "當沖分頁有「當沖推薦」：成交值、振幅、量能與偏多偏空（或說明為何沒有）", JSON.stringify(dtp).slice(0, 200));
     await page.click('[data-testid="dt-by-vol"]');
     await sleep(500);
     const first = dtv.rows[0];

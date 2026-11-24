@@ -4,7 +4,7 @@ import { fetchRankQuotes } from "../data/volRank";
 import { loadDtFlags } from "../data/dtFlags";
 import { flagOf, type DtFlag, type DtLists } from "../engine/dtFlags";
 import { livePolling, marketOpen } from "../data/twLive";
-import { fmtValue, rankPool, rankQuotes, type RankBy, type RankRow } from "../engine/volRank";
+import { dtPicks, fmtValue, rankPool, rankQuotes, type DtPick, type RankBy, type RankRow } from "../engine/volRank";
 import type { Scored } from "../engine/score";
 import { pretty, taipeiToday } from "../lib/dates";
 import { useStore } from "../store";
@@ -14,6 +14,8 @@ export const RANK_MS = 10_000;
 /** 台北時間平日 9:00 以前 */
 const beforeOpen = () => { const d = new Date(Date.now() + 8 * 3600_000); return d.getUTCHours() < 9; };
 const TOP = 15;
+/** 今天交易時段（9:00～13:30）已經過的比例；收盤後與非交易時間＝1 */
+const sessionFrac = () => { const d = new Date(Date.now() + 8 * 3600_000), m = d.getUTCHours() * 60 + d.getUTCMinutes() - 9 * 60; return m <= 0 ? 1 : Math.min(1, m / 270); };
 const load = (k: string, d: string) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
 const save = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* 不記也沒關係 */ } };
 
@@ -34,6 +36,9 @@ function Move({ m }: { m: RankRow["move"] }) {
 export function DayTradeRank({ open }: { open: (s: Scored, list?: Scored[]) => void }) {
   const st = useStore((s) => ({ tw: s.tw.scored, etf: s.etf.scored, status: s.tw.status, asOf: s.tw.asOf }));
   const [by, setBy0] = useState<RankBy>(() => (load("dtBy", "vol") === "value" ? "value" : "vol"));
+  const [pickMode, setPick0] = useState(() => load("dtPick", "0") === "1"); // 11/25：當沖推薦
+  const setPick = (v: boolean) => { setPick0(v); save("dtPick", v ? "1" : "0"); };
+  const [picks, setPicks] = useState<DtPick[]>([]);
   const [withEtf, setEtf0] = useState(() => load("dtEtf", "0") === "1");
   const setBy = (v: RankBy) => { setBy0(v); save("dtBy", v); };
   const setEtf = (v: boolean) => { setEtf0(v); save("dtEtf", v ? "1" : "0"); };
@@ -49,6 +54,8 @@ export function DayTradeRank({ open }: { open: (s: Scored, list?: Scored[]) => v
   // 處置股、可當沖標的：一天抓一次
   const [flags, setFlags] = useState<{ lists: DtLists; status: Record<string, string> } | undefined>();
   useEffect(() => { loadDtFlags().then(setFlags).catch(() => {}); }, []);
+  const flagsRef = useRef(flags);
+  flagsRef.current = flags;
 
   const pull = async () => {
     if (busyRef.current || !pool.length) return;
@@ -59,6 +66,7 @@ export function DayTradeRank({ open }: { open: (s: Scored, list?: Scored[]) => v
       if (!qs.length) { setSnap((s) => ({ rows: s?.rows ?? [], at: s?.at ?? 0, time: s?.time, date: s?.date, failed: r.failed, total: r.total })); return; }
       quotesRef.current = qs;
       const rows = rankQuotes(qs, byRef.current, TOP, prev.current);
+      setPicks(dtPicks(qs as any, new Map(pool.map((x) => [x.code, x.volume ?? 0])), sessionFrac(), (c) => { const f = flagOf(c, (st.tw.find((x) => x.code === c) ?? st.etf.find((x) => x.code === c))?.market, flagsRef.current?.lists); return !!(f.disposal || f.noDayTrade); }));
       prev.current = new Map(rows.map((x) => [x.code, x.rank]));
       const time = qs.reduce((m, q) => (q.time > m ? q.time : m), "");
       const date = qs.reduce((m, q) => (q.date > m ? q.date : m), "");
@@ -98,18 +106,19 @@ export function DayTradeRank({ open }: { open: (s: Scored, list?: Scored[]) => v
   return (
     <div data-testid="daytrade">
       <div class="section-title">
-        <span>盤中成交{by === "vol" ? "量" : "值"}排行・前 {TOP} 名</span>
+        <span>{pickMode ? "當沖推薦・前 10 名" : `盤中成交${by === "vol" ? "量" : "值"}排行・前 ${TOP} 名`}</span>
         <span class="muted" style={{ fontSize: "12px", fontWeight: 400 }} data-testid="dt-state">{busy && !live ? "抓即時資料中…" : state}</span>
       </div>
       <div class="row" style={{ gap: "8px", marginBottom: "8px", flexWrap: "wrap" }}>
         <div class="seg" role="group" aria-label="排序">
-          <button aria-pressed={by === "vol"} onClick={() => setBy("vol")} data-testid="dt-by-vol">成交量</button>
-          <button aria-pressed={by === "value"} onClick={() => setBy("value")} data-testid="dt-by-value">成交值</button>
+          <button aria-pressed={!pickMode && by === "vol"} onClick={() => { setPick(false); setBy("vol"); }} data-testid="dt-by-vol">成交量</button>
+          <button aria-pressed={!pickMode && by === "value"} onClick={() => { setPick(false); setBy("value"); }} data-testid="dt-by-value">成交值</button>
+          <button aria-pressed={pickMode} onClick={() => setPick(true)} data-testid="dt-by-pick">當沖推薦</button>
         </div>
         <button class="chip" aria-pressed={withEtf} onClick={() => setEtf(!withEtf)} data-testid="dt-etf">含 ETF</button>
         <button class="chip" disabled={busy} onClick={() => void pull()} data-testid="dt-refresh">{busy ? "更新中…" : "立即更新"}</button>
       </div>
-      {rows.length === 0 ? <div class="empty">{busy ? "抓即時資料中…" : "抓不到即時資料，請檢查網路後按「立即更新」"}</div> : (
+      {pickMode ? <DtPickList picks={picks} live={live && !(snap!.date && snap!.date < today)} open={(c) => { const x = find(c); if (x) open(x, picks.map((p) => find(p.code)).filter((y): y is Scored => !!y)); }} /> : rows.length === 0 ? <div class="empty">{busy ? "抓即時資料中…" : "抓不到即時資料，請檢查網路後按「立即更新」"}</div> : (
         <div class="list" data-testid="dt-list">
           <div class="rank-item rank-head muted" data-testid="dt-head"><span>名次</span><span>股票名稱 代號</span><span style={{ textAlign: "right" }}>成交價（元）<br />漲跌幅</span><span style={{ textAlign: "right" }}>名次<br />變化</span></div>
           {rows.map((r) => (
@@ -133,6 +142,36 @@ export function DayTradeRank({ open }: { open: (s: Scored, list?: Scored[]) => v
       <p class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }} data-testid="dt-note" data-flags={flags ? JSON.stringify(flags.status) : ""}>
         標示：<span class="dt-flag bad">處置</span> 處置期間（須預收款券，實際上不能當沖）、<span class="dt-flag bad">不可當沖</span> 不在證交所／櫃買的現股當沖標的、<span class="dt-flag warn">暫停先賣後買</span> 只能先買後賣。上櫃股票只標處置（櫃買的可當沖標的沒有公開資料可抓）。{flags && !flags.lists.eligible.TWSE ? "這次沒抓到證交所的可當沖標的，只標處置。" : ""}{!flags ? "（標示資料下載中）" : ""}<br />
         資料來源：證交所即時報價（約每 5 秒更新，比券商看盤軟體慢幾秒；每 100 檔問一次，一輪約 2～3 秒抓完）。從前一個交易日成交量最大的 200 檔股票{withEtf ? "與 40 檔 ETF" : ""}即時排名；成交值是「現價 × 成交量」估計。名次箭頭是跟上一次更新（10 秒前）比。當沖風險高，請自行設停損，這不是投資建議。
+      </p>
+    </div>
+  );
+}
+
+/** 當沖推薦清單（11/25）：適合當沖的標的，依「成交值、振幅、量能放大」綜合分數排序 */
+function DtPickList({ picks, live, open }: { picks: DtPick[]; live: boolean; open: (code: string) => void }) {
+  if (!live) return <div class="empty" data-testid="dt-pick-empty">當沖推薦要用今天的成交量與振幅，開盤（9:00）後才會出現；開盤後 15～30 分鐘較準。</div>;
+  if (!picks.length) return <div class="empty" data-testid="dt-pick-empty">目前沒有同時符合「成交值夠大、振幅 1.5% 以上、沒有漲跌停鎖住、可當沖」的股票。</div>;
+  const biasCls = (b: DtPick["bias"]) => (b === "偏多" ? "up" : b === "偏空" ? "down" : "muted");
+  return (
+    <div class="list" data-testid="dt-pick-list">
+      {picks.map((p) => (
+        <button class="item rank-item" onClick={() => open(p.code)} data-testid="dt-pick-row" data-code={p.code}>
+          <span class="rank-no num">{p.rank}</span>
+          <div style={{ minWidth: 0 }}>
+            <div class="name">{p.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{p.code}</span> <span class={biasCls(p.bias)} style={{ fontSize: "12px", fontWeight: 700 }}>{p.bias}</span></div>
+            <div class="sub num">成交值 {fmtValue(p.value)}元・振幅 {(p.range * 100).toFixed(1)}%・量能 {p.relVol.toFixed(1)} 倍</div>
+            <div class="sub num muted">價位在今天區間的 {Math.round(p.pos * 100)}%・推薦分數 {p.score}</div>
+          </div>
+          <div class="px num">
+            <div class={`p ${cls(p.chg)}`}>{fmtPrice(p.price)}</div>
+            <div class={`c ${cls(p.chg)}`}>{fmtPct(p.chg, 2)}</div>
+          </div>
+          <span />
+        </button>
+      ))}
+      <p class="muted" style={{ fontSize: "12px", lineHeight: 1.6, marginTop: "6px" }} data-testid="dt-pick-note">
+        怎麼挑：只看「適合當沖」，不預測漲跌。分數＝成交值排名 40%（好進出、價差小）＋今天振幅 30%（6% 以上滿分）＋量能放大 30%（和昨天同時段比，3 倍以上滿分）。排除漲停／跌停鎖住、處置股與不可當沖的股票。
+        「偏多」＝價位在今天高檔且站上開盤價，「偏空」＝在今天低檔且跌破開盤價（先賣後買要確認沒有被暫停），其他是「震盪」。沒有盤中歷史資料可以回測，只是篩選規則，不是勝率保證；當沖請先設好停損。
       </p>
     </div>
   );

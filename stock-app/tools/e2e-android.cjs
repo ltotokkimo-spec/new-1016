@@ -1237,6 +1237,19 @@ function check(ok, name, detail = "") {
   }
   // 中途存入／提領資金：存入 5 萬 → 投入本金 15 萬、現金多 5 萬、報酬率與總損益不變；刪掉這筆後恢復原狀（不影響後面的測試）
   const fsum = async () => page.evaluate(() => { const t = document.querySelector('[data-testid="etf-summary"]').innerText.replace(/\s+/g, " "); return { t: t.slice(0, 260), ret: (t.match(/報酬 ([+-]?[\d.]+%)/) || [])[1], pnl: (t.match(/總損益 ([+-]?[\d,]+)/) || [])[1], cash: (t.match(/現金 ([\d.]+) 萬/) || [])[1] }; });
+  // 11/24 好幾次在這裡（剛開關過個股頁）模擬器的 WebView 被系統關掉：重新連上、回到自組ETF「我的實單」再繼續
+  for (let i = 1; page.isClosed() || !(await page.$('[data-testid="etf-summary"]').catch(() => null)); i++) {
+    if (i > 3) throw new Error("我的實單畫面一直中斷");
+    log(`我的實單畫面中斷（第 ${i} 次），重新連接`);
+    if (page.isClosed()) {
+      try { webview = await withTimeout(device.webView({ pkg: PKG }), 90_000, "重新等待 WebView"); page = await withTimeout(webview.page(), 60_000, "重新連接頁面"); }
+      catch { await device.shell(`am start -n ${PKG}/.MainActivity`); await sleep(5000); continue; }
+      await page.waitForSelector("nav.tabs", { timeout: 60000 }).catch(() => {});
+    }
+    await page.click("nav.tabs button:nth-child(4)").catch(() => {});
+    await page.click('[data-testid="mode-real"]').catch(() => {});
+    await page.waitForSelector('[data-testid="etf-summary"]', { timeout: 30000 }).catch(() => {});
+  }
   const fl0 = await fsum();
   await page.click('[data-testid="flow-open"]');
   await page.fill('[data-testid="flow-amount"]', "50000");

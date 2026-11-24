@@ -125,6 +125,9 @@ function check(ok, name, detail = "") {
   check(!!pickDay && pickDay.every((t) => /(現價|試搓(?:舊價)?|收盤).*今日\s*[+-]?\d/.test(t)), "選股每列顯示今日漲跌", JSON.stringify(pickDay));
   // 大盤弱勢標註（11/24）：0050 跌破 20 日線時「買入」清單上方有提醒；有出現就要寫清楚原因與數字
   await page.waitForSelector('[data-testid="weak-market"]', { timeout: 8000 }).catch(() => {});
+  const preTxt = await page.$eval('[data-testid="premarket"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
+  log("盤前參考", preTxt || "（不在平日 05:00～13:30 或沒有資料，沒有顯示）");
+  if (preTxt) check(/盤前參考/.test(preTxt) && /那斯達克/.test(preTxt) && /夜盤台指/.test(preTxt), "平日早上選股「買入」上方顯示盤前參考（美股、夜盤台指）", preTxt.slice(0, 120));
   const weakTxt = await page.$eval('[data-testid="weak-market"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   log("大盤弱勢標註", weakTxt || "（大盤不弱或尚未算好，沒有顯示）");
   if (weakTxt) check(/大盤弱勢/.test(weakTxt) && /跌破 20 日線/.test(weakTxt) && /\d+\.\d/.test(weakTxt), "大盤弱勢時「買入」清單上方顯示提醒（0050 跌破 20 日線）", weakTxt.slice(0, 120));

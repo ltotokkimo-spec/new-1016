@@ -49,6 +49,36 @@ import type { TurnPick } from "../engine/turning";
 import { CostValue, cls, fmtMoney, fmtPct, fmtPrice, fmtSigned, LimitPx, lots, Markdown, Progress, RatingPill, Sheet } from "./common";
 import { limitFromChg } from "../lib/limit";
 
+// 盤前提示（11/24 使用者：早上參考美股走勢與夜盤台指期）：選股名單仍以台股收盤資料為準（美股影響開盤就反映了），
+// 這裡只提醒「今天開盤可能大跌／大漲，買進要不要等、要不要追」。平日 05:00～13:30 顯示。
+function PreMarket() {
+  const macro = useStore((s) => s.macro);
+  const fut = useStore((s) => s.futures);
+  const d8 = new Date(Date.now() + 8 * 3600_000), w = d8.getUTCDay(), m = d8.getUTCHours() * 60 + d8.getUTCMinutes();
+  const show = w >= 1 && w <= 5 && m >= 5 * 60 && m < 13 * 60 + 30;
+  useEffect(() => {
+    if (!show) return;
+    if (!macro.at || Date.now() - macro.at > 10 * 60_000) void refreshMacro();
+    if (!fut.at || Date.now() - fut.at > 10 * 60_000) void refreshFutures();
+  }, [show]);
+  if (!show) return null;
+  const q = (sym: string) => macro.quotes.find((x) => x.symbol === sym);
+  const ixic = q(".IXIC"), sox = q(".SOX"), night = fut.night && fut.night.date < taipeiToday() && fut.night.date >= addDays(taipeiToday(), -4) ? fut.night : undefined; // 夜盤的 date 是昨天（或上週五）15:00 開盤那天
+  if (!ixic && !sox && !night) return null;
+  const pc = (x?: number) => (x === undefined || !Number.isFinite(x) ? "—" : `${x > 0 ? "+" : ""}${x.toFixed(2)}%`);
+  const down = (night && night.changePct <= -2) || (sox && sox.changePct <= -3) || (ixic && ixic.changePct <= -2);
+  const up = !down && ((night && night.changePct >= 2) || (sox && sox.changePct >= 3) || (ixic && ixic.changePct >= 2));
+  return (
+    <div class={down || up ? "warn-box" : "notice"} style={{ fontSize: "13px", lineHeight: 1.7, marginBottom: "8px" }} data-testid="premarket">
+      <b>🌙 盤前參考</b>　
+      <span class="num">那斯達克 <span class={cls(ixic?.changePct ?? 0)}>{pc(ixic?.changePct)}</span>・費半 <span class={cls(sox?.changePct ?? 0)}>{pc(sox?.changePct)}</span>・夜盤台指 <span class={cls(night?.changePct ?? 0)}>{pc(night?.changePct)}</span></span>
+      {down && <div data-testid="premarket-down"><b>開盤可能大跌</b>：買入名單建議等開盤後 30 分鐘、價格穩定再下單；半導體、電子類受影響最大。</div>}
+      {up && <div data-testid="premarket-up"><b>開盤可能跳空大漲</b>：不要追價，用限價單（推薦價 +1.5% 以內），買不到就算了。</div>}
+      {!down && !up && <div class="muted" style={{ fontSize: "12px" }}>美股與夜盤沒有大波動。名單依台股昨天收盤算好，美股的影響開盤時就會反映在價格上。</div>}
+    </div>
+  );
+}
+
 // ---------------- 選股 ----------------
 export function PicksScreen({ market, setMarket, sector, setSector, open }: {
   market: Market; setMarket: (m: Market) => void; sector: string; setSector: (s: string) => void; open: (s: Scored, list?: Scored[]) => void;
@@ -145,6 +175,7 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
               <button aria-pressed={etfSort === "score"} onClick={() => setEtfSort("score")} data-testid="etf-sort-score">參考分數</button>
             </div>
           )}
+          {market === "TW" && filter === "買入" && !q.trim() && <PreMarket />}
           {market === "TW" && filter === "買入" && !q.trim() && regime?.weak && (
             <div class="warn-box" style={{ fontSize: "13px", lineHeight: 1.7, marginBottom: "8px" }} data-testid="weak-market">
               <b>⚠ 大盤弱勢：建議先觀察或減量</b>

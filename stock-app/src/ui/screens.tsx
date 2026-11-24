@@ -66,15 +66,27 @@ function PreMarket() {
   const ixic = q(".IXIC"), sox = q(".SOX"), night = fut.night && fut.night.date < taipeiToday() && fut.night.date >= addDays(taipeiToday(), -4) ? fut.night : undefined; // 夜盤的 date 是昨天（或上週五）15:00 開盤那天
   if (!ixic && !sox && !night) return null;
   const pc = (x?: number) => (x === undefined || !Number.isFinite(x) ? "—" : `${x > 0 ? "+" : ""}${x.toFixed(2)}%`);
-  const down = (night && night.changePct <= -2) || (sox && sox.changePct <= -3) || (ixic && ixic.changePct <= -2);
-  const up = !down && ((night && night.changePct >= 2) || (sox && sox.changePct >= 3) || (ixic && ixic.changePct >= 2));
+  // 11/25 依回測調整（2018～2021，前一晚美股 vs 隔天照「買入」名單買）：
+  // 那斯達克跌 ≥2%：隔天 0050 −1.1%、推薦 5 天 −0.6%（20 天 +1.8%）→ 避開開盤急殺；漲 ≥2%：追買 5 天 −0.4% → 別追價
+  // 費半跌 ≥2%：隔天 0050 −1.0%，但推薦 5 天 +0.1%、20 天 +1.8% 沒變差 → 只提醒開盤會跟著跌；漲 ≥2%：推薦 20 天 +2.35%，唯一長期贏 0050 的一組
+  const p = (x?: { changePct: number }) => x?.changePct;
+  const nqDown = (p(ixic) ?? 0) <= -2, nqUp = (p(ixic) ?? 0) >= 2;
+  const soxDown = (p(sox) ?? 0) <= -2, soxUp = (p(sox) ?? 0) >= 2;
+  const nightDown = (p(night) ?? 0) <= -2;
+  const down = nqDown || soxDown || nightDown;
+  const warn = down || nqUp;
   return (
-    <div class={down || up ? "warn-box" : "notice"} style={{ fontSize: "13px", lineHeight: 1.7, marginBottom: "8px" }} data-testid="premarket">
+    <div class={warn ? "warn-box" : "notice"} style={{ fontSize: "13px", lineHeight: 1.7, marginBottom: "8px" }} data-testid="premarket">
       <b>🌙 盤前參考</b>　
       <span class="num">那斯達克 <span class={cls(ixic?.changePct ?? 0)}>{pc(ixic?.changePct)}</span>・費半 <span class={cls(sox?.changePct ?? 0)}>{pc(sox?.changePct)}</span>・夜盤台指 <span class={cls(night?.changePct ?? 0)}>{pc(night?.changePct)}</span></span>
-      {down && <div data-testid="premarket-down"><b>開盤可能大跌</b>：建議等開盤後 30 分鐘、價格穩定再下單；半導體、電子類受影響最大。<div class="muted" style={{ fontSize: "12px" }}>回測 2018～2021：那斯達克前一晚跌 ≥2% 時，隔天 0050 平均 −1.1%；當天照名單買，持有 5 天平均 −0.6%（一般日子 −0.1%），但持有 20 天平均 +1.8%（一般 +0.9%）。不用因此整天不買，只要避開開盤急殺。</div></div>}
-      {up && <div data-testid="premarket-up"><b>開盤可能跳空大漲</b>：不要追價，用限價單（推薦價 +1.5% 以內），買不到就算了。<div class="muted" style={{ fontSize: "12px" }}>回測 2018～2021：那斯達克前一晚漲 ≥2% 時，隔天照名單追買，持有 5 天平均 −0.4%、輸 0050 0.8%，追高不划算。</div></div>}
-      {!down && !up && <div class="muted" style={{ fontSize: "12px" }}>美股與夜盤沒有大波動。名單依台股昨天收盤算好，美股的影響開盤時就會反映在價格上。</div>}
+      {down && <div data-testid="premarket-down"><b>開盤可能跟著跌</b>：建議等開盤後 30 分鐘、價格穩定再下單。
+        <div class="muted" style={{ fontSize: "12px" }}>{nqDown
+          ? "回測 2018～2021：那斯達克前一晚跌 ≥2% 時，隔天 0050 平均 −1.1%；當天照名單買，持有 5 天平均 −0.6%（一般日子 −0.1%），但持有 20 天平均 +1.8%（一般 +0.9%）。不用整天不買，只要避開開盤急殺。"
+          : soxDown ? "回測 2018～2021：費半前一晚跌 ≥2% 時，隔天 0050 平均 −1.0%，但照名單買的表現沒有變差（5 天 +0.1%、20 天 +1.8%）。只是開盤會跟著跌，名單照常參考。"
+          : "夜盤台指大跌，開盤多半跟著反映；名單照常參考，只是不要一開盤就買。"}</div></div>}
+      {nqUp && <div data-testid="premarket-up"><b>那斯達克大漲，開盤可能跳空</b>：不要追價，用限價單（推薦價 +1.5% 以內），買不到就算了。<div class="muted" style={{ fontSize: "12px" }}>回測 2018～2021：那斯達克前一晚漲 ≥2% 時，隔天照名單追買，持有 5 天平均 −0.4%、輸 0050 0.8%。</div></div>}
+      {soxUp && <div data-testid="premarket-sox-up"><b>費半大漲</b>：回測 2018～2021，費半前一晚漲 ≥2% 的日子，照名單買持有 20 天平均 +2.35%，是唯一長期贏 0050 的一組（+0.3%）；追買短期也不吃虧（5 天 +0.1%）。</div>}
+      {!down && !nqUp && !soxUp && <div class="muted" style={{ fontSize: "12px" }}>美股與夜盤沒有大波動。名單依台股昨天收盤算好，美股的影響開盤時就會反映在價格上。</div>}
     </div>
   );
 }

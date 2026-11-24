@@ -24,13 +24,21 @@ const ma = (c: Ctx, code: string, j: number, n: number) => {
 export interface LbSim { eq: number[]; traded: number; costPaid: number; blockedBuys: number; blockedSells: number; avgHold: number; exposure: number }
 
 /** 逐日模擬：第 j 天收盤決定，第 j+1 天收盤成交（從 j+2 起承擔漲跌）。含手續費、證交稅、滑價；漲停買不到、跌停賣不掉 */
-export function simulateLB(c: Ctx, j0: number, pick: Picker, opts: SimOpts & { costs?: boolean; slip?: number } = {}): LbSim {
+/**
+ * takeProfit（11/24 使用者問：雙引擎實單亮「達標離場」但還沒到判斷日，要不要先賣）：
+ * 收盤時獲利（對平均成本）≥ gain 且收盤跌破 5 日線 → 隔天收盤賣出（和停損一樣不等判斷日）。
+ * noRebuy＝賣掉後，要等某次判斷日的名單不含它才能再買（否則判斷日名單還有它就照目標買回來）。
+ */
+export interface TakeProfit { gain: number; noRebuy?: boolean }
+export function simulateLB(c: Ctx, j0: number, pick: Picker, opts: SimOpts & { costs?: boolean; slip?: number; takeProfit?: TakeProfit } = {}): LbSim & { tpSells: number } {
   const costs = opts.costs !== false;
   const slipS = opts.slip ?? LB.slipStock, slipE = opts.slip === undefined ? LB.slipEtf : opts.slip / 3; // slip：對照診斷用的股票單邊滑價（ETF 取三分之一）
   const buyCost = (code: string) => (costs ? LB.fee + (isEtf(code) ? slipE : slipS) : 0);
   const sellCost = (code: string) => (costs ? LB.fee + (isEtf(code) ? LB.taxEtf + slipE : LB.taxStock + slipS) : 0);
-  const hold = new Map<string, { v: number; peak: number; atr: number; entry?: number }>();
-  let cash = 1, traded = 0, costPaid = 0, holdN = 0, expo = 0, blockedBuys = 0, blockedSells = 0;
+  const hold = new Map<string, { v: number; peak: number; atr: number; entry?: number; units?: number; costSum?: number }>();
+  let cash = 1, traded = 0, costPaid = 0, holdN = 0, expo = 0, blockedBuys = 0, blockedSells = 0, tpSells = 0;
+  const tp = opts.takeProfit, banned = new Set<string>();
+  const scaleCost = (h: { v: number; units?: number; costSum?: number }, keepFrac: number) => { if (h.units !== undefined) { h.units *= keepFrac; h.costSum! *= keepFrac; } };
   let pending: Map<string, number> | null = null;
   const stopOut = new Set<string>();
   const eq: number[] = [];
@@ -55,13 +63,14 @@ export function simulateLB(c: Ctx, j0: number, pick: Picker, opts: SimOpts & { c
         if (want < h.v) {
           if (opts.band && want > 1e-12 && h.v - want < opts.band * total) continue;
           if (ret(c, code, j) <= -LB.limit) { blockedSells++; keep.set(code, pending.get(code) ?? 0); continue; }
-          const sell = h.v - want; cash += sell * (1 - sellCost(code)); costPaid += sell * sellCost(code); traded += sell; h.v = want;
+          const sell = h.v - want; cash += sell * (1 - sellCost(code)); costPaid += sell * sellCost(code); traded += sell; scaleCost(h, h.v > 0 ? want / h.v : 0); h.v = want;
           if (want <= 1e-12) hold.delete(code);
         }
       }
       for (const [code, w] of pending) {
         const want = w * total, have = hold.get(code)?.v ?? 0;
         if (want > have + 1e-12) {
+          if (banned.has(code)) continue; // 達標離場賣掉的，這次名單還有它：不買回
           if (opts.band && want - have < opts.band * total) continue;
           if (ret(c, code, j) >= LB.limit) { blockedBuys++; continue; } // 漲停買不到，這次放棄（下次判斷日再說）
           const buy = Math.min(want - have, cash / (1 + buyCost(code)));
@@ -70,7 +79,7 @@ export function simulateLB(c: Ctx, j0: number, pick: Picker, opts: SimOpts & { c
           const r20: number[] = [];
           for (let k = j - 19; k <= j; k++) { const r = ret(c, code, k); if (Number.isFinite(r)) r20.push(Math.abs(r)); }
           const h = hold.get(code) ?? { v: 0, peak: px(c, code, j), atr: r20.length ? r20.reduce((a, b) => a + b, 0) / r20.length : 0.02, entry: px(c, code, j) };
-          h.v += buy; hold.set(code, h);
+          h.v += buy; h.units = (h.units ?? 0) + buy / px(c, code, j); h.costSum = (h.costSum ?? 0) + buy; hold.set(code, h);
         }
       }
       pending = keep.size ? keep : null;
@@ -82,12 +91,20 @@ export function simulateLB(c: Ctx, j0: number, pick: Picker, opts: SimOpts & { c
       const p = px(c, code, j);
       if (p < ma(c, code, j, 60) || p < h.peak * (1 - 2.5 * h.atr)) stopOut.add(code);
     }
+    if (tp) for (const [code, h] of hold) {
+      if (stopOut.has(code) || !(h.units && h.units > 0)) continue;
+      const p = px(c, code, j), avg = h.costSum! / h.units;
+      if (p >= avg * (1 + tp.gain) && p < ma(c, code, j, 5)) { stopOut.add(code); tpSells++; if (tp.noRebuy) banned.add(code); }
+    }
     if (opts.costStop) for (const [code, h] of hold) {
       if (h.entry && px(c, code, j) < h.entry * (1 - opts.costStop)) stopOut.add(code);
     }
-    if ((j - j0) % (opts.every ?? 5) === 0 && j < c.N - 1) pending = pick(j);
+    if ((j - j0) % (opts.every ?? 5) === 0 && j < c.N - 1) {
+      pending = pick(j);
+      for (const code of [...banned]) if (!((pending.get(code) ?? 0) > 0) && !stopOut.has(code)) banned.delete(code); // 名單已經沒有它：之後可以再買
+    }
   }
-  return { eq, traded, costPaid, blockedBuys, blockedSells, avgHold: holdN / eq.length, exposure: expo / eq.length };
+  return { eq, traded, costPaid, blockedBuys, blockedSells, avgHold: holdN / eq.length, exposure: expo / eq.length, tpSells };
 }
 
 // ---------- 指標 ----------

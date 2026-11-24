@@ -59,4 +59,19 @@ describe("longbt 指標", () => {
     expect([...a.keys()]).toEqual([...b.keys()]);
     expect(a.size).toBe(10);
   });
+  it("達標離場：獲利 ≥10% 且跌破 5 日線隔天賣出；noRebuy 時判斷日名單還有它也不買回", () => {
+    // 2330 前 15 天每天 +1.5%、之後每天 -2%（漲超過 10% 後回落、跌破 5 日線）
+    const dates = weekdaysBack("20261016", 30).reverse();
+    let a = 100;
+    const days: BtDay[] = dates.map((d, i) => { const a0 = a; a *= i < 15 ? 1.015 : 0.98; return { date: d, quotes: [["2330", "甲", a, a - a0, 5e8, 1], ["2317", "乙", 100, 0, 5e8, 1]], flows: [], tpexCodes: new Set() } as BtDay; }).reverse();
+    const c = buildCtx(days, []);
+    const pick = () => new Map([["2330", 1]]);
+    const base = simulateLB(c, 0, pick, { every: 5 });
+    const r = simulateLB(c, 0, pick, { every: 5, takeProfit: { gain: 0.1 } });
+    const n = simulateLB(c, 0, pick, { every: 5, takeProfit: { gain: 0.1, noRebuy: true } });
+    expect(base.tpSells).toBe(0);
+    expect(r.tpSells).toBeGreaterThanOrEqual(1);
+    expect(n.tpSells).toBe(1); // 不買回：只會賣一次
+    expect(n.eq.at(-1)!).toBeGreaterThan(base.eq.at(-1)!); // 回落段空手，比一直抱著好
+  });
 });

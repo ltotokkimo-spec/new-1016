@@ -7,23 +7,25 @@
 > 這份**不含任何持股、成本、損益**（repo 公開）。排程的「定義」都寫在這裡：換對話時可以**原樣重建**，不需要翻舊對話。
 > 工具：`mcp__claude-code-remote__list_triggers／create_trigger／update_trigger／delete_trigger／fire_trigger／send_later`（要先 ToolSearch 載入）；GitHub 工具 `mcp__github__actions_list／actions_run_trigger／get_job_logs`。
 
-## A. 一眼看完（2026-11-19 狀態）
+## A. 一眼看完（2026-11-25 狀態）
 
 | # | 排程 | 時間（台北） | 誰在跑 | 綁定對話 | 狀態 |
 |---|---|---|---|---|---|
-| 1 | **Claude 虛擬自組ETF 每日操作＋雙引擎＋新聞否決** `trig_01RJT1FieteRvuw8i22jQHQC` | 週一～五 16:40 | Claude 排程（叫醒綁定的對話） | `session_01JrEEmaPZT7sMSm276njmzN`（**目前對話，11/19 轉入**） | **啟用中** |
-| 2 | **虛擬ETF每週檢視** `trig_015gHFMUth4MzpFVHA92rzuk` | 週六 09:50 | Claude 排程 | 同上 | **啟用中**（下一次 11/21） |
-| 5 | **收盤後股市資訊推播**（11/25 新增，使用者要求）`trig_01B1qjmMCvx6qjBC6Qrr7Gm1` | 週一～五 17:00（系統會錯開幾分鐘，實際約 17:07） | Claude 排程（叫醒綁定的對話） | `session_01JrEEmaPZT7sMSm276njmzN` | **啟用中，換對話必須轉移**（見 §D 第 9 點；定義在 §E-4） |
+| 1 | **Claude 虛擬自組ETF 每日操作＋雙引擎＋新聞否決** `trig_01RJT1FieteRvuw8i22jQHQC` | 週一～五 16:40 | Claude 排程（叫醒綁定的對話） | `session_01JrEEmaPZT7sMSm276njmzN`（**目前對話「接收金雷達」，11/25 轉入**） | **啟用中** |
+| 2 | **虛擬ETF每週檢視** `trig_015gHFMUth4MzpFVHA92rzuk` | 週六 09:50 | Claude 排程 | 同上 | **啟用中**（下一次 11/28 09:50） |
 | 3 | 貝爾威勒（興櫃 7861）轉上市進度追蹤 `trig_01MHAM59HPmLsnWaH6vs6zaX` | 週五 18:30 | Claude 排程（不綁對話，Sonnet） | 無 | 啟用中，**不需轉移** |
 | 4 | Stock Backtest Daily（GitHub 定時） | 週一～五 16:40／17:10／17:40／18:40 | GitHub Actions（預設分支 `claude/conversation-start-guide-ya0q8x`） | 無 | 啟用中，**不需轉移**（見 §C） |
+| 5 | **收盤後股市資訊推播**（11/25 新增，使用者要求）`trig_01B1qjmMCvx6qjBC6Qrr7Gm1` | 週一～五 17:00（系統會錯開幾分鐘，實際約 17:07） | Claude 排程（叫醒綁定的對話） | `session_01JrEEmaPZT7sMSm276njmzN` | **啟用中，換對話必須轉移**（見 §D 第 9 點；定義在 §E-4） |
+| — | **已停用（11/25 轉出）**：`trig_01Vw5Wq5B5YnS863Ho2nx4ip`（每日）、`trig_011RBJFtAWwRWm5CtJHCpjpi`（每週），原綁對話 `session_01JrEEmaZvY5uHpZ3UCVJ3ip`（「金雷達工作交接-1117」） | — | — | — | 同下 |
 | — | **已停用（11/19 轉出）**：`trig_01N2FNVWPGY5BLFzHRPR6rkv`（每日）、`trig_011Nd3V6ANET3xfxvEhqtyR2`（每週），原綁舊對話 `session_01JrEEmdeMmbdXWNmHqz45Ep` | — | — | — | `enabled=false`，保留當歷史，不要重新啟用 |
 | — | 更早已停用：`trig_01P8toMCwxC8oqAhFiSS27tp`、`trig_015iTBWsQ3HRo3CfsdP7Djom`、`trig_01GKTYGpLeqWRS2Nrv75CoTv` | — | — | — | 同上 |
 
+**11/25 已完成第二次轉移**：#1、#2 重建並綁到「接收金雷達」對話，舊的兩個停用，提示詞與舊的逐字相同；另新增 #5。（以下為 11/19 第一次轉移的紀錄：）
 **11/19 已完成轉移**：使用者要求「舊對話停用、改用最新對話執行全部功能」，已在同一回合建好 #1、#2（綁本對話）並停用舊的兩個；提示詞與舊的逐字相同（已用 `get_trigger` 比對）。舊對話 `session_01JrEEmdeMmbdXWNmHqz45Ep` 不再有任何啟用排程。
 **下次換對話**：照 §D 再轉一次（新 id 要更新本表與 HANDOFF.md §7）。
-**驗證待辦**：11/20 16:40 之後確認新排程有跑（`list_triggers` 的 `last_run`、`virtual-etf: 20261120 收盤更新` 提交、`dual-veto.json`）；沒跑就 `fire_trigger`。
+**驗證待辦**：11/25 16:40 之後確認新每日排程有跑（`list_triggers` 的 `last_run`、`virtual-etf: 20261125 收盤更新` 提交、`dual-veto.json`），17:07 左右確認 #5 股市資訊推播有發出、格式與數字正確；沒跑就 `fire_trigger`。
 **風險**：#1 每天更新 `stock-app/virtual/dual-veto.json`（雙引擎＋新聞否決），雙引擎實單的買賣清單會用它。
-**未驗證**：綁定的對話被封存或刪除後排程會怎樣；本對話上下文已用掉約 86%，若逼近上限會需要再轉移一次，改用 §D 第 8 點（每次新開對話）可根治。
+**未驗證**：綁定的對話被封存或刪除後排程會怎樣；對話上下文逼近上限時要再轉移一次。#1、#2 可改用 §D 第 8 點（每次新開對話）根治，但 #5 不行（需要「台股官方」連接器，見 §D 第 9 點）。
 
 ## B. 本對話（`session_01JrEEmaZvY5uHpZ3UCVJ3ip`，標題「金雷達工作交接-1117」）
 - 11/19 起**承接**每日與每週兩個排程（見 §A）；舊對話 `session_01JrEEmdeMmbdXWNmHqz45Ep` 已停用。

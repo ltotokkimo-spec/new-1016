@@ -122,7 +122,7 @@ function check(ok, name, detail = "") {
     return els.length >= 3 ? els.slice(0, 3).map((e) => e.closest(".item").querySelector(".px").innerText.replace(/\s+/g, " ")) : null;
   }, null, { timeout: 30000 }).then((h) => h.jsonValue()).catch(() => null);
   log("選股今日漲跌", JSON.stringify(pickDay));
-  check(!!pickDay && pickDay.every((t) => /(現價|試搓|收盤).*今日\s*[+-]?\d/.test(t)), "選股每列顯示今日漲跌", JSON.stringify(pickDay));
+  check(!!pickDay && pickDay.every((t) => /(現價|試搓(?:舊價)?|收盤).*今日\s*[+-]?\d/.test(t)), "選股每列顯示今日漲跌", JSON.stringify(pickDay));
   // 漲停亮紅燈、跌停亮綠燈：畫面上有燈的列，今日漲跌幅方向與幅度要對得上（沒有漲跌停的日子就沒有燈，這項自然通過）
   const lights = await page.evaluate(() => [...document.querySelectorAll('[data-testid="limit-light"]')].map((l) => ({ limit: l.getAttribute("data-limit"), row: (l.closest(".item")?.innerText || "").replace(/\s+/g, " ").slice(0, 120) })));
   log("選股漲跌停燈", JSON.stringify(lights.slice(0, 6)));
@@ -886,7 +886,7 @@ function check(ok, name, detail = "") {
     return els.length && document.querySelector('[data-testid="virtual-view"]').innerText.includes("今日") ? els.map((e) => e.innerText.replace(/\s+/g, " ")) : null;
   }, null, { timeout: 30000 }).then((h) => h.jsonValue()).catch(() => null);
   log("即時價", JSON.stringify(livePx));
-  check(!!livePx && livePx.every((t) => /(現價|試搓|收盤).*\d/.test(t)), "Claude 虛擬操作持股顯示即時價（證交所 mis）");
+  check(!!livePx && livePx.every((t) => /(現價|試搓(?:舊價)?|收盤).*\d/.test(t)), "Claude 虛擬操作持股顯示即時價（證交所 mis）");
   const vTrades = await page.$eval('[data-testid="virtual-trades"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   check(/成交價 [\d.,]+/.test(vTrades) && !vTrades.includes("@"), "虛擬成交紀錄寫「成交價」、不再用 @ 符號", vTrades.slice(0, 120));
   const schedV = await page.$eval('[data-testid="virtual-schedule"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
@@ -1067,7 +1067,7 @@ function check(ok, name, detail = "") {
     // 持股價格膠囊（11/16）：收盤／盤中／試搓＋價格＋漲跌（或漲停跌停）
     const pills = await page.$$eval('[data-testid="dualreal-pxpill"]', (es) => es.map((e) => e.textContent.trim() + "|" + e.getAttribute("data-k")));
     log("持股價格膠囊", JSON.stringify(pills.slice(0, 5)));
-    if (drRecorded) check(pills.length > 0 && pills.every((x) => /^(收盤|盤中|試搓) [\d,.]+ (▲|▼|－)/.test(x)), "雙引擎實單持股顯示價格膠囊（收盤／盤中／試搓、價格、漲跌）", JSON.stringify(pills.slice(0, 5)));
+    if (drRecorded) check(pills.length > 0 && pills.every((x) => /^(收盤|盤中|試搓(?:舊價)?) [\d,.]+ (▲|▼|－)/.test(x)), "雙引擎實單持股顯示價格膠囊（收盤／盤中／試搓、價格、漲跌）", JSON.stringify(pills.slice(0, 5)));
   }
   // 模式按鈕排成三列（每列 4 個），文字不能被擠成直排
   const segRows = await page.$$eval('[data-testid^="mode-"]', (bs) => ({ tops: [...new Set(bs.map((b) => Math.round(b.getBoundingClientRect().top)))].length, maxH: Math.max(...bs.map((b) => b.getBoundingClientRect().height)) }));
@@ -1373,7 +1373,7 @@ function check(ok, name, detail = "") {
   });
   log("台積電現價（設停損用）", px2330);
   const realPills = await page.$$eval('[data-testid="real-pxpill"]', (es) => es.map((e) => e.textContent.trim()));
-  check(realPills.length > 0 && realPills.every((x) => /^(收盤|盤中|試搓) [\d,.]+( (▲|▼|－)|$)/.test(x)), "我的實單持股顯示價格膠囊（收盤／盤中／試搓、價格；有漲跌資料時帶漲跌）", JSON.stringify(realPills.slice(0, 5)));
+  check(realPills.length > 0 && realPills.every((x) => /^(收盤|盤中|試搓(?:舊價)?) [\d,.]+( (▲|▼|－)|$)/.test(x)), "我的實單持股顯示價格膠囊（收盤／盤中／試搓、價格；有漲跌資料時帶漲跌）", JSON.stringify(realPills.slice(0, 5)));
   await page.click('[data-e2e="tsmc"] [data-testid="stop-edit"]');
   await page.fill('[data-testid="stop-input"]', String(Math.ceil(Number(px2330) * 1.05)));
   await page.click('[data-testid="stop-save"]');

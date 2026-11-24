@@ -27,6 +27,7 @@ const DRAWS = Number(process.env.LBT_DRAWS ?? 1000);
 const openB = process.env.LBT_OPEN_B === "1";
 const exp2 = process.env.LBT_EXP2 === "1"; // 雙引擎候選限定在選股頁名單（PREREG 第 10 節）
 const exp = process.env.LBT_EXP === "1"; // 成長組走勢濾網實驗（PREREG 第 9 節）
+const exp4 = process.env.LBT_EXP4 === "1"; // 推薦（每天「買入」名單）停損與大盤弱勢暫停的事件研究（11/24 使用者要求）
 const exp3 = process.env.LBT_EXP3 === "1"; // 達標離場（獲利 ≥10% 且跌破 5 日線，不等判斷日先賣）對雙引擎的影響（11/24 使用者要求）
 const diag = process.env.LBT_DIAG === "1"; // 成本對照診斷：同一批組合分別用零成本、低滑價（0.05%）再跑一次，只印出來比較，不改判定
 const BENCH = "0050";
@@ -125,6 +126,53 @@ async function main() {
     const inputs = buildTwInputs({ latest: use[i].quotes, week: use[i + 5].quotes, month: use[m1].quotes, quarter: use[m3].quotes, flows: use.slice(i, i + 10).map((d) => d.flows), companies, tpexCodes: use[i].tpexCodes });
     return scoreStocks(inputs.filter((x) => !isEtf(x.code))).scored;
   };
+  if (exp4) {
+    // 每個交易日收盤記下「買入」名單（和 App 推薦績效同一套）：推薦價＝當日收盤，持有 5／10／20 天，扣買賣手續費與證交稅
+    const COST = 0.001425 * 2 + 0.003;
+    const maN = (code: string, j: number, n: number) => { let t = 0; for (let k = j - n + 1; k <= j; k++) { const p = px(code, k); if (!(p > 0)) return NaN; t += p; } return t / n; };
+    const stops: Record<string, (code: string, entry: number, k: number) => boolean> = {
+      "無停損": () => false,
+      "−8%（現行）": (code, e, k) => px(code, k) <= e * 0.92,
+      "−10%": (code, e, k) => px(code, k) <= e * 0.90,
+      "−12%": (code, e, k) => px(code, k) <= e * 0.88,
+      "跌破20日線3%": (code, e, k) => px(code, k) < maN(code, k, 20) * 0.97 || px(code, k) <= e * 0.85,
+    };
+    const weak20 = (j: number) => px(BENCH, j) < maN(BENCH, j, 20);
+    const weak60 = (j: number) => !aboveMa60(j);
+    const dd5 = (j: number) => { let hi = 0; for (let k = j - 19; k <= j; k++) hi = Math.max(hi, px(BENCH, k) || 0); return px(BENCH, j) < hi * 0.95; };
+    type Acc = { n: number; ret: number; ex: number; win: number; beat: number; rets: number[] };
+    const acc = new Map<string, Acc>();
+    const add = (key: string, r: number, ex: number) => { let a = acc.get(key); if (!a) acc.set(key, (a = { n: 0, ret: 0, ex: 0, win: 0, beat: 0, rets: [] })); a.n++; a.ret += r; a.ex += ex; if (r > 0) a.win++; if (ex > 0) a.beat++; a.rets.push(r); };
+    const endA = c.dates.findLastIndex((d) => d <= A_END);
+    let days = 0, picks = 0;
+    for (let j = j0; j <= endA - 20; j++) {
+      const buys = scoredAt(j).filter((x) => x.rating === "買入");
+      if (!buys.length) continue;
+      days++; picks += buys.length;
+      const regimes: [string, boolean][] = [["全部", true], ["大盤強（0050 在 20 日線上）", !weak20(j)], ["大盤弱（0050 跌破 20 日線）", weak20(j)], ["0050 在 60 日線上", !weak60(j)], ["0050 跌破 60 日線", weak60(j)], ["0050 距 20 日高點 <5%", !dd5(j)], ["0050 距 20 日高點 ≥5%", dd5(j)]];
+      for (const h of [5, 10, 20]) {
+        const b0 = px(BENCH, j), bh = px(BENCH, j + h), bret = b0 > 0 && bh > 0 ? bh / b0 - 1 : NaN;
+        if (!Number.isFinite(bret)) continue;
+        for (const x of buys) {
+          const e = px(x.code, j);
+          if (!(e > 0) || !(px(x.code, j + h) > 0)) continue;
+          for (const [sk, hit] of Object.entries(stops)) {
+            let exitP = px(x.code, j + h);
+            for (let k = j + 1; k <= j + h; k++) { const p = px(x.code, k); if (p > 0 && hit(x.code, e, k)) { exitP = p; break; } }
+            const r = exitP / e - 1 - COST;
+            for (const [rk, on] of regimes) if (on) add(`${h}|${sk}|${rk}`, r, r - bret);
+          }
+        }
+      }
+    }
+    log(`LBT_EXP4 推薦事件研究：${days} 個推薦日、${picks} 筆推薦（${c.dates[j0]}～${c.dates[endA - 20]}）`);
+    const pc2 = (x: number) => `${x >= 0 ? "+" : ""}${(x * 100).toFixed(2)}%`;
+    for (const h of [5, 10, 20]) for (const rk of ["全部", "大盤強（0050 在 20 日線上）", "大盤弱（0050 跌破 20 日線）", "0050 在 60 日線上", "0050 跌破 60 日線", "0050 距 20 日高點 <5%", "0050 距 20 日高點 ≥5%"]) for (const sk of Object.keys(stops)) {
+      const a = acc.get(`${h}|${sk}|${rk}`); if (!a) continue;
+      const med = a.rets.sort((x, y) => x - y)[Math.floor(a.rets.length / 2)];
+      console.log(`LBT_EXP4 ${h}日｜${rk}｜停損 ${sk}｜筆數 ${a.n}｜平均淨報酬 ${pc2(a.ret / a.n)}｜中位 ${pc2(med)}｜賺錢 ${((a.win / a.n) * 100).toFixed(0)}%｜平均超額(對0050) ${pc2(a.ex / a.n)}｜贏0050 ${((a.beat / a.n) * 100).toFixed(0)}%`);
+    }
+  }
   const hold0050: Picker = () => new Map([[BENCH, 1]]);
   const mixP = (a: Picker, wa: number, b: Picker): Picker => (j) => {
     const m = new Map<string, number>();

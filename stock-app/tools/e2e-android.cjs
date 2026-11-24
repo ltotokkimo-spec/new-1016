@@ -1163,6 +1163,16 @@ function check(ok, name, detail = "") {
   if (olLay) check(olLay.overflow <= 1 && /^為什麼/.test(olLay.why) && /如果|之後|注意/.test(olLay.cond), "今日下單清單：每檔有「為什麼」與「如果…就…」條件、不用左右捲動", JSON.stringify(olLay));
   await page.evaluate(() => document.querySelector('[data-testid="order-list"]')?.scrollIntoView());
   await shot("05b2-今日下單清單");
+  // 今日下單清單可收合（11/24）：收起後不顯示個股列，再展開恢復
+  if (await page.$('[data-testid="order-list-toggle"]')) {
+    const cnt = () => page.evaluate(() => document.querySelectorAll('[data-testid="order-list"] [data-testid="order-row"], [data-testid="order-list"] [data-testid="order-hold"]').length);
+    const before = await cnt();
+    await page.click('[data-testid="order-list-toggle"]'); await sleep(300);
+    const closed = await cnt();
+    await page.click('[data-testid="order-list-toggle"]'); await sleep(300);
+    const after = await cnt();
+    check(closed === 0 && after === before, "今日下單清單可以收起與展開", JSON.stringify({ before, closed, after }));
+  }
   const tsmcVerdict = (hc.rows.find((r) => /2330/.test(r)) || "").match(/出場|減碼|可加碼|續抱/)?.[0];
   check(ol.top < ol.summaryTop && (tsmcVerdict === "出場" || tsmcVerdict === "減碼"
     ? ol.rows.some((r) => /^賣\s?台積電 2330/.test(r) && /\b\d+\b/.test(r) && /[\d,.]+/.test(r)) && /賣出 [\d,.]+/.test(ol.total) && /下單後現金約 [\d,.]+/.test(ol.total)

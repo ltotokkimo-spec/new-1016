@@ -1799,12 +1799,19 @@ export function OrderList({ rows, holds, cash, asOf, planAsOf, hasPlan, wait, ca
       main={`${h.shares.toLocaleString()} 股・${h.price ? fmtPrice(h.price) : "—"}`} sub={`停損 ${fmtPrice(h.stop)}`}
       whyLabel={h.addOk ? "續抱，想加碼也可以" : "為什麼續抱"} why={h.why} cond={h.cond} src={h.src} />
   );
+  // 可收合（11/24 使用者）：記住上次的開合；收起時只留標題與買賣合計
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem("orderListOpen") !== "0"; } catch { return true; } });
+  const toggle = () => { const v = !open; setOpen(v); try { localStorage.setItem("orderListOpen", v ? "1" : "0"); } catch { /* 無法儲存就只影響這次 */ } };
   return (
     <div class="card stack" data-testid="order-list">
       <div class="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
         <b style={{ fontSize: "16px" }}>今日下單清單</b>
-        <span class="muted" style={{ fontSize: "12px" }}>{day ? `建議 ${day} 盤中下單` : ""}</span>
+        <span class="row" style={{ gap: "10px", alignItems: "baseline" }}>
+          <span class="muted" style={{ fontSize: "12px" }}>{day ? `建議 ${day} 盤中下單` : ""}</span>
+          <button class="linkbtn" onClick={toggle} data-testid="order-list-toggle">{open ? "收起" : "展開"}</button>
+        </span>
       </div>
+      {open && <>
       {rows.length === 0 && <div class="muted" style={{ fontSize: "13px", lineHeight: 1.6 }} data-testid="order-empty">今天沒有要賣的持股（規則檢查都沒觸發出場或減碼）{hasPlan ? "" : "，也還沒有買進建議"}。{!hasPlan && "要買進建議可以按下面「請 Claude 建議」。"}</div>}
       <div>
         {sells.length > 0 && <>{sec("賣出（先做，賣出的錢拿來買）")}{sells.map(item)}</>}
@@ -1820,6 +1827,7 @@ export function OrderList({ rows, holds, cash, asOf, planAsOf, hasPlan, wait, ca
           )}
         </>}
       </div>
+      </>}
       {rows.length > 0 && <>
         <div class="row" style={{ justifyContent: "space-between", fontSize: "13px", flexWrap: "wrap", gap: "4px 12px", borderTop: "1px solid var(--line)", paddingTop: "10px" }} data-testid="order-total">
           <span>賣出 <b class="num down">{fmtMoney(sell)}</b>（{sells.length} 檔）</span>
@@ -1827,9 +1835,9 @@ export function OrderList({ rows, holds, cash, asOf, planAsOf, hasPlan, wait, ca
           {holds.length > 0 && <span>續抱 {holds.length} 檔{holds.some((h) => h.addOk) ? `（${holds.filter((h) => h.addOk).length} 檔可加碼）` : ""}</span>}
           <span>下單後現金約 <b class="num">{fmtMoney(cash - buy * 1.001425 + sell * (1 - 0.001425 - 0.003))}</b></span>
         </div>
-        <div class="muted" style={{ fontSize: "11.5px", lineHeight: 1.6 }}>{buys.some((r) => r.rank) ? "買進依 Claude 的優先順位排（黑底數字，1＝最先買），只想先買幾檔就從上往下買。" : ""}參考價是最新價{planAsOf ? `（Claude 建議依 ${prettyW(planAsOf)} 收盤）` : ""}；「如果…」的條件一部分是 Claude 寫的，其餘是 App 規則自動算的（限價 +1.5% 不追、停損、漲多後把停損價調高）。成交後到下方「填入實際成交」記錄。</div>
+        {open && <div class="muted" style={{ fontSize: "11.5px", lineHeight: 1.6 }}>{buys.some((r) => r.rank) ? "買進依 Claude 的優先順位排（黑底數字，1＝最先買），只想先買幾檔就從上往下買。" : ""}參考價是最新價{planAsOf ? `（Claude 建議依 ${prettyW(planAsOf)} 收盤）` : ""}；「如果…」的條件一部分是 Claude 寫的，其餘是 App 規則自動算的（限價 +1.5% 不追、停損、漲多後把停損價調高）。成交後到下方「填入實際成交」記錄。</div>}
       </>}
-      {wait && (wait.once.length > 0 || wait.low.length > 0) && (
+      {open && wait && (wait.once.length > 0 || wait.low.length > 0) && (
         <div class="warn-box" style={{ fontSize: "13px", lineHeight: 1.7 }} data-testid="order-wait">
           <b>先不執行</b>（{wait.n} 份 Claude 回覆比對）
           {wait.once.length > 0 && <div>只出現 1 次，等再問一次確認：{wait.once.map((x) => `${x.side === "buy" ? "買" : "賣"}${x.name}`).join("、")}</div>}

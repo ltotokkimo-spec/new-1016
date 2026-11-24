@@ -1,4 +1,6 @@
-# 排程總表與轉移程序（2026-11-19 盤點；新對話接手時第一份要讀、要照做的）
+# 排程總表與轉移程序（2026-11-19 盤點、11/25 更新；新對話接手時第一份要讀、要照做的）
+
+> **11/25：本對話（…Ip，「金雷達工作交接-1117」）上下文已滿，使用者要換新對話。** 新對話照 §D 轉移：要停用的舊 id 現在是 **`trig_01Vw5Wq5B5YnS863Ho2nx4ip`（每日）與 `trig_011RBJFtAWwRWm5CtJHCpjpi`（每週）**（§D 第 3、4 點寫的 `trig_01N2F…`／`trig_011Nd…` 是 11/19 前的舊 id，已停用）。本對話留下的一次性提醒（send_later，名稱「檢查…打包」）都只是檢查 CI，可以不理或停用。
 
 > 這份**不含任何持股、成本、損益**（repo 公開）。排程的「定義」都寫在這裡：換對話時可以**原樣重建**，不需要翻舊對話。
 > 工具：`mcp__claude-code-remote__list_triggers／create_trigger／update_trigger／delete_trigger／fire_trigger／send_later`（要先 ToolSearch 載入）；GitHub 工具 `mcp__github__actions_list／actions_run_trigger／get_job_logs`。

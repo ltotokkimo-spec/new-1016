@@ -430,7 +430,11 @@ function check(ok, name, detail = "") {
   if (await page.$('[data-testid="etf-sort-score"]')) {
     await page.click('[data-testid="etf-sort-score"]');
     // 等標題換成「依參考分數排序」再讀（11/13 run 370：固定等 0.5 秒時清單還沒重排）
-    await page.waitForFunction(() => /依參考分數排序/.test(document.querySelector(".section-title")?.innerText || ""), null, { timeout: 8000 }).catch(() => {});
+    let switched = await page.waitForFunction(() => /依參考分數排序/.test(document.querySelector(".section-title")?.innerText || ""), null, { timeout: 8000 }).then(() => true).catch(() => false);
+    if (!switched) { // 模擬器偶爾吃掉點擊（11/24 run 478）：直接觸發按鈕再等一次
+      await page.evaluate(() => { const b = document.querySelector('[data-testid="etf-sort-score"]'); b?.scrollIntoView({ block: "center" }); b?.click(); });
+      switched = await page.waitForFunction(() => /依參考分數排序/.test(document.querySelector(".section-title")?.innerText || ""), null, { timeout: 8000 }).then(() => true).catch(() => false);
+    }
     await page.waitForTimeout(300);
     const byScore = await page.evaluate(() => ({ title: document.querySelector(".section-title")?.innerText || "", scores: [...document.querySelectorAll(".item")].slice(0, 8).map((r) => Number(/分數 (\d+)/.exec(r.innerText)?.[1] ?? NaN)) }));
     log("ETF 依參考分數", JSON.stringify(byScore));
@@ -1228,8 +1232,8 @@ function check(ok, name, detail = "") {
   await page.click('[data-testid="flow-open"]');
   await page.fill('[data-testid="flow-amount"]', "50000");
   await page.click('[data-testid="flow-save"]');
-  await page.waitForSelector('[data-testid="flow-row"]', { timeout: 5000 });
-  await sleep(500);
+  await page.waitForSelector('[data-testid="flow-row"]', { timeout: 10000 }).catch(() => {});
+  await sleep(1500); // 存入後會重算淨值與快照，模擬器上等久一點再讀（11/24 連續幾次在這裡 WebView 關閉）
   const fl1 = await fsum();
   log("存入資金", JSON.stringify({ fl0, fl1 }));
   await page.evaluate(() => document.querySelector('[data-testid="flow-list"]')?.scrollIntoView({ block: "center" }));

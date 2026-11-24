@@ -32,6 +32,7 @@ export interface AiEtf {
   nav: NavPoint[]; // 每天記一筆
   planKey?: string; // 最近一次 Claude 建議的報告 key
   appliedKey?: string; // 已經填入成交的建議（不再顯示填單表）
+  appliedDay?: string; // 已照 Claude 建議記錄成交的下單日（YYYYMMDD）：同一個下單日只能照建議記一次（11/24 使用者：重新解析出新建議又能再下單）
   stops?: Record<string, number>; // 每檔的停損價（Claude 建議或自己設定）
   proKey?: string; // 最近一次貼回的 Claude App（Pro）回覆
   proKeys?: string[]; // 同一個資料日貼回的所有 Claude App 回覆（最多 3 份，用來比對重複出現的交易）

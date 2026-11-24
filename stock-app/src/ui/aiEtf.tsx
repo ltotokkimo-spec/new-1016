@@ -16,7 +16,7 @@ import { DUAL_REAL, dualOrders, waterLevel, type DualOrder } from "../engine/dua
 import { limitFromChg } from "../lib/limit";
 import { isEtf } from "../data/tw";
 import { emptyEtf, type AiEtf, type Valuation } from "../engine/aiEtf";
-import { addWeekdays, orderDay, pretty, prettyW, taipeiClock, taipeiHour, taipeiToday } from "../lib/dates";
+import { addWeekdays, nextWeekday, openedOn, orderDay, pretty, prettyW, taipeiClock, taipeiHour, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
 import { livePolling, trialLabel, type LiveQuote } from "../data/twLive";
 import { CostValue, cls, fmtMoney, fmtPct, fmtPrice, fmtSigned, LimitPx, Markdown } from "./common";
@@ -1060,7 +1060,12 @@ function DualManual() {
 function PlanFill({ items, planKey, cash, stops, source, asOf }: { items: PlanItem[]; planKey: string; cash: number; stops: Record<string, number>; source: string; asOf?: string }) {
   const fitted = useMemo(() => fitBudget(items, etfPrice, cash), [items]);
   // 這份建議是在下單前問的：你可能已經先下了單、記過了（11/20 使用者：「持股買賣搭不上，我已賣過」）。已經記錄過的筆預設取消勾選，並標出原因，免得重複記或賣到沒有的持股
-  const since = asOf ? orderDay(asOf) : taipeiToday();
+  // 下單日固定是資料日的下一個平日（以前用 orderDay，下單日收盤後會跳到再下一天，導致當天已記的成交沒被認出來）
+  const since = asOf ? nextWeekday(asOf) : taipeiToday();
+  // 11/24 使用者：明天要下的單，要等明天開盤後才能記；同一個下單日照建議記過一次，重新解析出新建議也不能再記
+  const appliedDay = useStore((s) => s.aiEtf.appliedDay);
+  const early = !!asOf && !openedOn(since);
+  const already = !!asOf && appliedDay === since;
   const doneNote = (it: PlanItem): string => {
     const tr = getState().aiEtf.trades;
     const sum = tr.filter((t) => t.code === it.code && t.side === it.side && t.date >= since).reduce((a, t) => a + t.shares, 0);
@@ -1085,6 +1090,8 @@ function PlanFill({ items, planKey, cash, stops, source, asOf }: { items: PlanIt
   };
   const total = rows.filter((r) => r.keep).reduce((a, r) => a + (r.side === "buy" ? 1 : -1) * Number(r.shares) * Number(r.price), 0);
   const save = async () => {
+    if (early) return setErr(`這份建議是 ${prettyW(since)} 要下的單，開盤（09:00）後才能記錄成交`);
+    if (already) return setErr(`${prettyW(since)} 已經照建議記錄過成交，同一天不能再記一次`);
     const ok = rows.filter((r) => r.keep);
     if (!ok.length) return setErr("請至少勾選一筆");
     if (ok.some((r) => !(Number(r.shares) > 0) || !(Number(r.price) > 0))) return setErr("股數和成交價都要大於 0");
@@ -1099,12 +1106,14 @@ function PlanFill({ items, planKey, cash, stops, source, asOf }: { items: PlanIt
     // 停損價：Claude 對「不動」持股給的，加上這次每筆買進填的
     const st = { ...stops };
     for (const r of ok) if (r.side === "buy" && Number(r.stopText) > 0) st[r.code] = Number(r.stopText);
-    await addEtfTrades(ok.map((r) => ({ date: today, code: r.code, name: getState().prices[r.code]?.name ?? r.code, side: r.side, shares: Number(r.shares), price: Number(r.price) })), planKey, st);
+    await addEtfTrades(ok.map((r) => ({ date: today, code: r.code, name: getState().prices[r.code]?.name ?? r.code, side: r.side, shares: Number(r.shares), price: Number(r.price) })), planKey, st, asOf ? since : undefined);
   };
   return (
     <div class="card stack" data-testid="plan-fill">
       <b>照 {source} 的建議下單後，在這裡填入實際成交</b>
-      {asOf && <div class="muted" style={{ fontSize: "12px" }}>預填的成交價是 {prettyW(asOf)} 收盤價，請改成你 {prettyW(orderDay(asOf))} 實際成交的價格。</div>}
+      {asOf && <div class="muted" style={{ fontSize: "12px" }}>預填的成交價是 {prettyW(asOf)} 收盤價，請改成你 {prettyW(since)} 實際成交的價格。</div>}
+      {early && <div class="notice" style={{ fontSize: "13px" }} data-testid="plan-early">⏰ 這是 {prettyW(since)} 要下的單：等 {prettyW(since)} 09:00 開盤、實際成交後才能記錄。現在可以先看，儲存按鈕會在開盤後打開。</div>}
+      {already && <div class="notice" style={{ fontSize: "13px" }} data-testid="plan-already">✅ 你 {prettyW(since)} 已經照 Claude 的建議記錄過成交了；重新解析出的新建議不能再記一次，免得重複下單。如果真的還有別的成交，請用「手動新增一筆成交」。</div>}
       {rows.length > 0 && rows.every((r) => r.done) && <div class="notice" style={{ fontSize: "13px" }} data-testid="plan-all-done">這份建議的買賣，你都已經記錄過了，不用再填。</div>}
       <button class="btn secondary block" onClick={() => fillLive(rows.map((_, i) => i))} data-testid="plan-px-all">↻ 全部帶入現價</button>
       {pxMsg && <div class="muted" style={{ fontSize: "12px" }} data-testid="plan-px-msg">{pxMsg}</div>}
@@ -1123,7 +1132,7 @@ function PlanFill({ items, planKey, cash, stops, source, asOf }: { items: PlanIt
       ))}
       <div class="num" style={{ fontSize: "13px" }}>淨買進金額約 {fmtMoney(total)}（不含手續費）・可用現金 {fmtMoney(cash)}</div>
       {err && <div class="error">{err}</div>}
-      <button class="btn block" onClick={save} data-testid="plan-save">我已照這樣成交，儲存</button>
+      <button class="btn block" onClick={save} disabled={early || already} data-testid="plan-save">{early ? `${prettyW(since)} 開盤後才能記錄` : already ? "這個下單日已記錄過" : "我已照這樣成交，儲存"}</button>
     </div>
   );
 }

@@ -68,6 +68,20 @@ export function orderDay(asOf: string, now = Date.now()): string {
   return d;
 }
 
+/** 收盤資料日之後的第一個平日（固定不隨現在時間往後跳；國定假日沒有列入） */
+export function nextWeekday(asOf: string): string {
+  let d = addDays(asOf, 1);
+  while (!isWeekday(d)) d = addDays(d, 1);
+  return d;
+}
+
+/** 現在（台北）是否已到 day 這天 09:00 開盤之後 */
+export function openedOn(day: string, now = Date.now()): boolean {
+  const today = taipeiToday(now);
+  const d8 = new Date(now + 8 * 3600_000);
+  return today > day || (today === day && d8.getUTCHours() * 60 + d8.getUTCMinutes() >= 9 * 60);
+}
+
 /** 台北時間當天的分鐘數（0～1439） */
 function taipeiMinutes(t: number): number {
   const d = new Date(t + 8 * 3600_000);

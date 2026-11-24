@@ -1173,11 +1173,11 @@ export async function snapshotEtfNav(date = state.tw.asOf ?? taipeiToday()) {
 /** 這檔現在不在 App 選股的「買入」清單裡嗎（只用來警告） */
 export const offListNow = (code: string) => isOffList(findScored(code, "TW"));
 
-export async function addEtfTrades(trades: Omit<EtfTrade, "id" | "benchPrice">[], fromPlan?: string, stops: Record<string, number> = {}) {
+export async function addEtfTrades(trades: Omit<EtfTrade, "id" | "benchPrice">[], fromPlan?: string, stops: Record<string, number> = {}, planDay?: string) {
   const bench = etfPrice("0050") ?? NaN;
   const add = trades.map((t, i) => ({ ...t, id: `${Date.now()}-${i}-${t.code}`, benchPrice: bench, ...(t.side === "buy" ? { offList: offListNow(t.code) } : {}) }));
   const etf = state.aiEtf;
-  await saveAiEtf({ ...etf, trades: [...etf.trades, ...add], appliedKey: fromPlan ?? etf.appliedKey, stops: { ...etf.stops, ...stops } });
+  await saveAiEtf({ ...etf, trades: [...etf.trades, ...add], appliedKey: fromPlan ?? etf.appliedKey, ...(planDay ? { appliedDay: planDay } : {}), stops: { ...etf.stops, ...stops } });
   await snapshotEtfNav();
 }
 

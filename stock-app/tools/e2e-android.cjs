@@ -876,6 +876,9 @@ function check(ok, name, detail = "") {
   check(posLines.length >= 1 && posLines.every((t) => /均價 [\d.,]+・累計損益 [+-]?[\d,]+・佔/.test(t)), "虛擬操作每檔持股在均價後顯示台幣損益", JSON.stringify(posLines.slice(0, 2)));
   const gauge = await page.$eval('[data-testid="cash-gauge"]', (e) => e.innerText.replace(/\s+/g, " ")).catch(() => "");
   log("資金水位", gauge.slice(0, 200));
+  // 11/24 使用者：全部水位表換成有特效的橫條（深藍流光成本、賺賠光暈、現金白光、金色虛線目標）
+  const fxV = await page.evaluate(() => ({ bar: !!document.querySelector('[data-testid="virtual-bar"] .wb-cost'), cash: !!document.querySelector('[data-testid="virtual-bar"] .wb-cash'), target: !!document.querySelector('[data-testid="virtual-target"]') }));
+  check(fxV.bar && fxV.cash && fxV.target, "Claude 虛擬操作的資金水位改用有特效的橫條（含目標虛線）", JSON.stringify(fxV));
   const noteN = await page.$$eval('[data-testid="virtual-notes"] > div', (d) => d.length).catch(() => -1);
   check(noteN === 1, "每日操作說明只顯示最新一天", `${noteN} 則`);
   check(/股票 \d+%・現金 \d+%/.test(gauge) && /目標股票 \d+%/.test(gauge) && /7 成股票・3 成現金/.test(gauge), "虛擬操作顯示資金水位（股票／現金比重、目標、規劃）", gauge.slice(0, 160));
@@ -919,6 +922,8 @@ function check(ok, name, detail = "") {
     pending: document.querySelector('[data-testid="virtual-pending"]')?.innerText.replace(/\s+/g, " ") || "",
   }));
   log("N5 水位／每日損益／明日調整", JSON.stringify(watchBlocks).slice(0, 400));
+  const fxW = await page.evaluate(() => !!document.querySelector('[data-testid="cash-reserve"] .wb .wb-cash'));
+  check(fxW, "規則組合的資金水位改用有特效的橫條", String(fxW));
   check(/資金水位 股票 \d+%・現金 \d+%/.test(watchBlocks.reserve) && (/明天調整後的規則目標：股票約 \d+%・現金約 \d+%/.test(watchBlocks.reserve) || /沒有新的判斷/.test(watchBlocks.reserve)), "N5 顯示資金水位（目前股票／現金比重、明天調整後目標）", watchBlocks.reserve.slice(0, 160));
   check(/組合 [+-]?[\d,]+ 元（[+-]?\d+\.\d\d%）・0050 [+-]?[\d,]+ 元（[+-]?\d+\.\d\d%）/.test(watchBlocks.daily), "N5 顯示每日損益 vs 0050（金額、%、當天贏輸）", watchBlocks.daily.slice(0, 160));
   check(/\d+\/\d+（.）\s*(要調整的股票|沒有要調整的股票)/.test(watchBlocks.pending) && (/收盤價成交（遇國定假日順延）/.test(watchBlocks.pending) || /沒有要調整/.test(watchBlocks.pending)), "N5 標明明天要調整的股票與日期註記（或說明為何不調整）", watchBlocks.pending.slice(0, 200));

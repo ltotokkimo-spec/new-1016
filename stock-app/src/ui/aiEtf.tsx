@@ -12,7 +12,7 @@ import type { VirtualEtf } from "../engine/virtualEtf";
 import { twHistory } from "../data/history";
 import { buyConds, sellConds, holdConds, dailyHoldingCheck, takeProfitSignal, TAKE_PROFIT, type HoldCheck, type EtfTrade, type EtfFlow, agreePlans, comparePlans, DEFAULT_STOP, planReadable, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, proClipboardAction, replySig, parsePlan, positions, tradePnls, oversold, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { onAppResume, readClipboard } from "../lib/clip";
-import { DUAL_REAL, dualOrders, waterLevel, type DualOrder } from "../engine/dualReal";
+import { DUAL_REAL, dualOrders, waterLevel, type DualOrder, type WaterLevel } from "../engine/dualReal";
 import { limitFromChg } from "../lib/limit";
 import { isEtf } from "../data/tw";
 import { emptyEtf, type AiEtf, type Valuation } from "../engine/aiEtf";
@@ -201,7 +201,7 @@ function NavChart({ points, budget, mine = "我的自組 ETF", flows }: { points
 }
 
 /** 資金水位：一條 0~100% 的橫條，看股票佔多少、目標在哪、還能不能加碼；下面一張小表列出規劃，目前所在的那一段標出來 */
-export function CashGauge({ plan, nav, marketValue, pendingNet = 0, note, pendingLabel = "已排定委託", embedded = false }: { plan?: CashPlan; nav: number; marketValue: number; pendingNet?: number; note?: string; pendingLabel?: string; embedded?: boolean }) {
+export function CashGauge({ plan, nav, marketValue, pendingNet = 0, note, pendingLabel = "已排定委託", embedded = false, fx }: { plan?: CashPlan; nav: number; marketValue: number; pendingNet?: number; note?: string; pendingLabel?: string; embedded?: boolean; fx?: { etf: { trades: AiEtf["trades"]; budget: number } & Partial<AiEtf>; price: (code: string) => number | undefined; tid: string } }) {
   const lv = cashLevel(plan, nav, marketValue);
   const pct = (x: number) => `${Math.round(x * 100)}%`;
   const after = nav > 0 ? (marketValue + pendingNet) / nav : 0; // 已排定的委託成交後
@@ -242,6 +242,7 @@ export function CashGauge({ plan, nav, marketValue, pendingNet = 0, note, pendin
         <b>資金水位</b>
         <span class="num" style={{ fontSize: "14px" }}>股票 <b>{pct(lv.stock)}</b>・現金 <b>{pct(lv.cash)}</b></span>
       </div>
+      {fx ? <><FxWaterBar w={waterLevel(fx.etf as AiEtf, fx.price)} tid={fx.tid} target={lv.target} /><WaterLegend target /></> : <>
       <div style={{ position: "relative", height: "22px", borderRadius: "6px", background: "var(--surface-2, var(--line))", overflow: "hidden" }}>
         {/* 跌深加碼區（7~9 成）與保留現金區（9 成以上，斜線） */}
         <div style={{ position: "absolute", left: pct(CASH_BASE), width: pct(CASH_MAX - CASH_BASE), top: 0, bottom: 0, background: "var(--hold-bg)" }} />
@@ -255,6 +256,7 @@ export function CashGauge({ plan, nav, marketValue, pendingNet = 0, note, pendin
         <span style={{ position: "absolute", left: pct(CASH_BASE), transform: "translateX(-50%)" }}>7 成</span>
         <span style={{ position: "absolute", left: pct(CASH_MAX), transform: "translateX(-50%)" }}>9 成</span>
       </div>
+      </>}
       <div style={{ fontSize: "14px", lineHeight: 1.6 }} data-testid="cash-status">
         目標股票 <b class="num">{pct(lv.target)}</b>（{lv.label}）・<b>{status}</b>
         {pendingNet !== 0 && <div class="muted" style={{ fontSize: "12px" }}>{pendingLabel} {pendingNet > 0 ? "淨買進" : "淨賣出"}約 {fmtMoney(Math.abs(pendingNet))}，成交後股票約 {pct(after)}（虛線）</div>}
@@ -738,14 +740,45 @@ function Roll({ value, fmt }: { value: number; fmt: (x: number) => string }) {
   return <>{fmt(v)}</>;
 }
 const WATER = { cost: "#2f4b6e", cash: "#c9d8ea", tick: "#12263a", gain: "#d7263d", loss: "#00e676" };
+/** 水位橫條的圖例 */
+function WaterLegend({ target }: { target?: boolean }) {
+  const sw = (background: string) => <i style={{ width: "11px", height: "11px", borderRadius: "3px", display: "inline-block", background }} />;
+  const lg = { display: "inline-flex", alignItems: "center", gap: "4px", marginRight: "10px" } as const;
+  return (
+    <div class="muted" style={{ fontSize: "11.5px", lineHeight: 1.6 }}>
+      <span style={lg}>{sw(WATER.cost)}股票成本</span><span style={lg}>{sw(WATER.gain)}賺</span><span style={lg}>{sw(WATER.loss)}賠</span><span style={lg}>{sw("#c9d8ea")}現金</span>{target && <span style={lg}><i style={{ width: "0", height: "11px", borderLeft: "2px dashed #b77a07", display: "inline-block" }} />目標</span>}
+    </div>
+  );
+}
+
+/** 有特效的資金水位橫條（11/15 雙引擎實單起用；11/24 使用者：全部的水位表都換成這一種）：
+ *  深藍流光＝股票成本、紅光暈＝賺、綠光暈＝賠、淺藍白光＝現金；黑細線＝成本線；金色虛線＝目標股票比重（有給才畫） */
+function FxWaterBar({ w, tid, coin = 0, target }: { w: WaterLevel; tid: string; coin?: number; target?: number }) {
+  const [grown, setGrown] = useState(false); // 第一次顯示時橫條從 0 長出來
+  useEffect(() => { const id = requestAnimationFrame(() => requestAnimationFrame(() => setGrown(true))); return () => cancelAnimationFrame(id); }, []);
+  return (
+    <div class="wb" data-testid={`${tid}-bar`}>
+        <div class="wb-track">
+          <div class="wb-seg wb-cost" style={{ left: 0, width: `${grown ? w.bar.stock : 0}%` }} />
+          <div class="wb-seg" style={{ left: `${w.bar.stock}%`, width: `${grown ? w.bar.gain : 0}%`, background: WATER.gain }} />
+          <div class="wb-seg" style={{ left: `${w.bar.stock}%`, width: `${grown ? w.bar.loss : 0}%`, background: WATER.loss }} />
+          <div class="wb-seg wb-cash" style={{ left: `${w.bar.stock + w.bar.gain + w.bar.loss}%`, width: `${grown ? w.bar.cash : 0}%` }} />
+        </div>
+        {(w.bar.gain > 0 || w.bar.loss > 0) && <div class={`wb-halo ${w.bar.gain > 0 ? "g" : "l"}`} style={{ left: `${w.bar.stock}%`, width: `${Math.max(w.bar.gain, w.bar.loss)}%` }} />}
+        {w.reserve > 0 && w.bar.reserve > 0 && <div class="wb-keep" style={{ left: `${100 - w.bar.reserve}%`, width: `${w.bar.reserve}%` }} data-testid={`${tid}-keep-mark`} />}
+        {w.cost > 0 && <div class="wb-tick" style={{ left: `calc(${w.bar.tick}% - 1px)` }} />}
+        {target !== undefined && Number.isFinite(target) && <div class="wb-target" style={{ left: `calc(${Math.min(100, Math.max(0, target * 100))}% - 1px)` }} data-testid={`${tid}-target`} />}
+        {coin > 0 && <span key={coin} class="wb-coin" style={{ left: "85%" }}>＋💰</span>}
+      </div>
+  );
+}
+
 function DualWater({ etf, v, price, tid = "dualreal", onFlow = addDualFlow, onReserve = setDualReserve, showMetrics = true, children }: { etf: AiEtf; v: Valuation; price: (code: string) => number | undefined; tid?: string; onFlow?: (delta: number) => Promise<void>; onReserve?: (n: number) => Promise<void>; showMetrics?: boolean; children?: any }) {
   const w = waterLevel(etf, price);
   const [edit, setEdit] = useState<"" | "add" | "cash" | "keep">("");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
-  const [grown, setGrown] = useState(false); // 第一次顯示時橫條從 0 長出來
   const [coin, setCoin] = useState(0);
-  useEffect(() => { const id = requestAnimationFrame(() => requestAnimationFrame(() => setGrown(true))); return () => cancelAnimationFrame(id); }, []);
   const num = Number(text.replace(/[,\s]/g, ""));
   const delta = edit === "add" ? num : edit === "keep" ? 0 : num - w.cash; // 改現金：和帳上現金的差額記成存入／提領
   const ok = text.trim() !== "" && Number.isFinite(num) && (edit === "keep" ? num >= 0 && Math.round(num) !== Math.round(w.reserve) : edit === "add" ? num !== 0 && w.cash + num >= 0 && w.invested + num > 0 : num >= 0 && Math.round(delta) !== 0 && w.invested + delta > 0);
@@ -762,18 +795,7 @@ function DualWater({ etf, v, price, tid = "dualreal", onFlow = addDualFlow, onRe
         <b>資金水位</b>
         <span style={{ fontSize: "13px" }}><span class="muted">投入 </span><b class="num" data-testid={`${tid}-invested`} data-v={Math.round(w.invested)}><Roll value={w.invested} fmt={moneyU} /></b></span>
       </div>
-      <div class="wb" data-testid={`${tid}-bar`}>
-        <div class="wb-track">
-          <div class="wb-seg wb-cost" style={{ left: 0, width: `${grown ? w.bar.stock : 0}%` }} />
-          <div class="wb-seg" style={{ left: `${w.bar.stock}%`, width: `${grown ? w.bar.gain : 0}%`, background: WATER.gain }} />
-          <div class="wb-seg" style={{ left: `${w.bar.stock}%`, width: `${grown ? w.bar.loss : 0}%`, background: WATER.loss }} />
-          <div class="wb-seg wb-cash" style={{ left: `${w.bar.stock + w.bar.gain + w.bar.loss}%`, width: `${grown ? w.bar.cash : 0}%` }} />
-        </div>
-        {(w.bar.gain > 0 || w.bar.loss > 0) && <div class={`wb-halo ${w.bar.gain > 0 ? "g" : "l"}`} style={{ left: `${w.bar.stock}%`, width: `${Math.max(w.bar.gain, w.bar.loss)}%` }} />}
-        {w.reserve > 0 && w.bar.reserve > 0 && <div class="wb-keep" style={{ left: `${100 - w.bar.reserve}%`, width: `${w.bar.reserve}%` }} data-testid={`${tid}-keep-mark`} />}
-        {w.cost > 0 && <div class="wb-tick" style={{ left: `calc(${w.bar.tick}% - 1px)` }} />}
-        {coin > 0 && <span key={coin} class="wb-coin" style={{ left: "85%" }}>＋💰</span>}
-      </div>
+      <FxWaterBar w={w} tid={tid} coin={coin} />
       <div style={{ fontSize: "13px", lineHeight: 1.7 }}>
         <div class="row" style={{ justifyContent: "space-between", gap: "8px" }}>
           <span>股票成本 <b class="num"><Roll value={w.cost} fmt={moneyU} /></b>・市值 <b class="num"><Roll value={w.marketValue} fmt={moneyU} /></b></span>
@@ -1568,7 +1590,7 @@ function DailyCompare({ v, liveNav, liveBench }: { v: VirtualEtf; liveNav?: numb
 }
 
 /** 規則組合的資金水位：目前股票與現金比重、明天調整後的目標，以及這個規則怎麼留現金 */
-function CashReserve({ v, nav, marketValue, kind }: { v: VirtualEtf; nav: number; marketValue: number; kind: string }) {
+function CashReserve({ v, nav, marketValue, kind, price }: { v: VirtualEtf; nav: number; marketValue: number; kind: string; price: (code: string) => number | undefined }) {
   const stock = nav > 0 ? marketValue / nav : 0, pct = (x: number) => `${Math.round(x * 100)}%`;
   const nextStock = v.plan?.nextStock;
   const policy: Record<string, string> = {
@@ -1586,12 +1608,10 @@ function CashReserve({ v, nav, marketValue, kind }: { v: VirtualEtf; nav: number
         <b>資金水位</b>
         <span class="num" style={{ fontSize: "14px" }}>股票 <b>{pct(stock)}</b>・現金 <b>{pct(1 - stock)}</b>（{fmtMoney(nav - marketValue)}）</span>
       </div>
-      <div style={{ position: "relative", height: "18px", borderRadius: "6px", background: "var(--surface-2, var(--line))", overflow: "hidden" }}>
-        <div style={{ position: "absolute", left: 0, width: pct(Math.min(1, Math.max(0, stock))), top: "4px", bottom: "4px", borderRadius: "0 4px 4px 0", background: "var(--accent)" }} />
-        {nextStock !== undefined && <div style={{ position: "absolute", left: pct(Math.min(1, nextStock)), top: 0, bottom: 0, width: "2px", marginLeft: "-1px", background: "var(--fg)" }} />}
-      </div>
+      <FxWaterBar w={waterLevel(v as unknown as AiEtf, price)} tid={`rule-${kind}`} target={nextStock} />
+      <WaterLegend target={nextStock !== undefined} />
       <div style={{ fontSize: "14px", lineHeight: 1.6 }} data-testid="cash-reserve-next">
-        {nextStock !== undefined ? <>明天調整後的規則目標：股票約 <b>{pct(nextStock)}</b>・現金約 <b>{pct(1 - nextStock)}</b>（黑線）</> : <span class="muted">這個資料日沒有新的判斷，目標沿用上一次調整後的持股</span>}
+        {nextStock !== undefined ? <>明天調整後的規則目標：股票約 <b>{pct(nextStock)}</b>・現金約 <b>{pct(1 - nextStock)}</b>（金色虛線）</> : <span class="muted">這個資料日沒有新的判斷，目標沿用上一次調整後的持股</span>}
       </div>
       <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>{policy[kind] ?? ""}</div>
     </div>
@@ -1681,8 +1701,8 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
         <button class="btn secondary" onClick={reload} disabled={busy} data-testid="virtual-reload">{busy ? "更新中…" : "重新下載最新紀錄"}</button>
       </div>
 
-      {!isWatch && <CashGauge plan={v.cashPlan} nav={val.nav} marketValue={val.marketValue} pendingNet={v.pending.reduce((t, o) => t + (o.side === "buy" ? 1 : -1) * o.shares * (o.limit ?? px(o.code) ?? 0), 0)} />}
-      {isWatch && <CashReserve v={v} nav={val.nav} marketValue={val.marketValue} kind={kind} />}
+      {!isWatch && <CashGauge fx={{ etf: v as unknown as AiEtf, price: px, tid: "virtual" }} plan={v.cashPlan} nav={val.nav} marketValue={val.marketValue} pendingNet={v.pending.reduce((t, o) => t + (o.side === "buy" ? 1 : -1) * o.shares * (o.limit ?? px(o.code) ?? 0), 0)} />}
+      {isWatch && <CashReserve v={v} nav={val.nav} marketValue={val.marketValue} kind={kind} price={px} />}
       <DailyCompare v={v} liveNav={intraday ? val.nav : undefined} liveBench={intraday ? val.bench : undefined} />
 
       {v.nav.length >= 2 && <><div class="section-title"><span>報酬走勢</span><span>{v.nav.length} 天</span></div><NavChart points={v.nav} budget={v.budget} mine={isPlus ? "雙引擎＋組合" : isDual ? "雙引擎組合" : isTurn ? "剛轉強組合" : isRule ? "實單規則組合" : isAi ? "AI 供應鏈組合" : isLead ? "權值強化組合" : isRegime ? "攻守輪動組合" : isWide ? "全個股組合" : isWatch ? "N5 觀察組合" : "Claude 虛擬組合"} /></>}
@@ -2050,7 +2070,7 @@ function RealEtfScreen() {
           note="目標和 Claude 虛擬組合用同一套規則（每天收盤後依加權指數距 20 日高點的跌幅判斷），只是參考：要不要加碼由你決定，不用為了補水位硬買。" />;
         // 11/22 使用者：兩張資金水位合成一張（成本／賺賠／現金橫條＋目標比重與加碼空間）
         if (etf.trades.length > 0) return <DualWater etf={etf} v={v} price={livePx} tid="real" showMetrics={false} onFlow={(d) => addEtfFlow(d, { nav: v.nav, bench: v.bench })} onReserve={setEtfReserve}>{gauge(true)}</DualWater>;
-        return pos.length > 0 || v.cash < v.invested ? gauge(false) : null;
+        return pos.length > 0 || v.cash < v.invested ? <CashGauge fx={{ etf, price: livePx, tid: "real-empty" }} plan={cashPlanMkt} nav={v.nav} marketValue={v.marketValue} note="目標和 Claude 虛擬組合用同一套規則，只是參考：要不要加碼由你決定。" /> : null;
       })()}
 
       {etf.nav.length >= 2 && <><div class="section-title"><span>報酬走勢</span><span>{etf.nav.length} 天</span></div><NavChart points={etf.nav} budget={etf.budget} flows={etf.flows} /></>}

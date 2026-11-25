@@ -3,6 +3,7 @@ import { autoRefresh, etfAlertsNow, findScored, init, refreshEsb, refreshMacro, 
 import type { Scored } from "./engine/score";
 import { pretty, taipeiToday } from "./lib/dates";
 import { livePolling } from "./data/twLive";
+import { startDtRank } from "./data/dtRank";
 import { AiEtfScreen } from "./ui/aiEtf";
 import { EtfRankScreen } from "./ui/etfRank";
 import { setPushDetail } from "./ui/detailNav";
@@ -57,7 +58,7 @@ export function App() {
     return qs.length ? { date: today, final: qs.every((q) => q.final) || !livePolling() } : null;
   });
   const etfAlert = etfAlertsNow().length > 0;
-  useEffect(() => { init(); }, []);
+  useEffect(() => { init(); startDtRank(); }, []); // 當沖排行 App 一開就在背景抓（不用等切到當沖分頁）
   // 從背景切回 App 時，資料過時就自動更新（例如傍晚 4:30 後有當天評分）
   useEffect(() => {
     const onShow = () => { if (document.visibilityState === "visible") autoRefresh(); };

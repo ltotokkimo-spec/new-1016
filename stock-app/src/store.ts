@@ -155,6 +155,8 @@ let state: State = {
 const listeners = new Set<() => void>();
 
 export function getState() { return state; }
+/** 訂閱狀態變動（畫面以外的背景工作用，例如當沖排行）；回傳取消訂閱函式 */
+export function subscribe(l: () => void): () => void { listeners.add(l); return () => { listeners.delete(l); }; }
 function set(patch: Partial<State>) {
   state = { ...state, ...patch };
   listeners.forEach((l) => l());

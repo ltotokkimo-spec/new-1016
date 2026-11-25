@@ -1,21 +1,17 @@
 // 選股頁「當沖」分頁（11/12 使用者）：盤中成交量即時排名前 15 名，停在這頁時每 10 秒更新名次與成交量。
-import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { fetchRankQuotes } from "../data/volRank";
-import { loadDtFlags } from "../data/dtFlags";
-import { flagOf, type DtFlag, type DtLists } from "../engine/dtFlags";
+import { useMemo, useState } from "preact/hooks";
+import { dtPull, dtSetEtf, RANK_MS, TOP, useDtRank } from "../data/dtRank";
+import { flagOf, type DtFlag } from "../engine/dtFlags";
 import { livePolling, marketOpen } from "../data/twLive";
-import { dtPicks, fmtValue, rankPool, rankQuotes, type DtPick, type RankBy, type RankRow } from "../engine/volRank";
+import { fmtValue, rankPool, rankQuotes, type DtPick, type RankBy, type RankRow } from "../engine/volRank";
 import type { Scored } from "../engine/score";
 import { pretty, taipeiToday } from "../lib/dates";
 import { useStore } from "../store";
 import { cls, fmtPct, fmtPrice } from "./common";
 
-export const RANK_MS = 10_000;
+export { RANK_MS };
 /** 台北時間平日 9:00 以前 */
 const beforeOpen = () => { const d = new Date(Date.now() + 8 * 3600_000); return d.getUTCHours() < 9; };
-const TOP = 15;
-/** 今天交易時段（9:00～13:30）已經過的比例；收盤後與非交易時間＝1 */
-const sessionFrac = () => { const d = new Date(Date.now() + 8 * 3600_000), m = d.getUTCHours() * 60 + d.getUTCMinutes() - 9 * 60; return m <= 0 ? 1 : Math.min(1, m / 270); };
 const load = (k: string, d: string) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
 const save = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* 不記也沒關係 */ } };
 
@@ -35,62 +31,20 @@ function Move({ m }: { m: RankRow["move"] }) {
 
 export function DayTradeRank({ open }: { open: (s: Scored, list?: Scored[]) => void }) {
   const st = useStore((s) => ({ tw: s.tw.scored, etf: s.etf.scored, status: s.tw.status, asOf: s.tw.asOf }));
+  const { snap, busy, flags, withEtf } = useDtRank(); // 11/25：抓取在 App 啟動時就開始（data/dtRank.ts），這頁只顯示
   const [by, setBy0] = useState<RankBy>(() => (load("dtBy", "vol") === "value" ? "value" : "vol"));
   const [pickMode, setPick0] = useState(() => load("dtPick", "0") === "1"); // 11/25：當沖推薦
   const setPick = (v: boolean) => { setPick0(v); save("dtPick", v ? "1" : "0"); };
-  const [picks, setPicks] = useState<DtPick[]>([]);
-  const [withEtf, setEtf0] = useState(() => load("dtEtf", "0") === "1");
   const setBy = (v: RankBy) => { setBy0(v); save("dtBy", v); };
-  const setEtf = (v: boolean) => { setEtf0(v); save("dtEtf", v ? "1" : "0"); };
+  const setEtf = (v: boolean) => dtSetEtf(v);
   const pool = useMemo(() => rankPool(st.tw, withEtf ? st.etf : [], 200, withEtf ? 40 : 0), [st.tw, st.etf, withEtf]);
-  const [snap, setSnap] = useState<{ rows: RankRow[]; at: number; time?: string; date?: string; failed: number; total: number } | null>(null);
-  const [busy, setBusy] = useState(false);
-  const prev = useRef(new Map<string, number>());
-  const quotesRef = useRef<Parameters<typeof rankQuotes>[0]>([]);
-  const busyRef = useRef(false);
-  // 每 10 秒的自動更新是開頁時設好的計時器，要讀「現在」選的排序（11/13 盤中測試：切到成交值後，下一輪又被排回成交量）
-  const byRef = useRef(by);
-  byRef.current = by;
-  // 處置股、可當沖標的：一天抓一次
-  const [flags, setFlags] = useState<{ lists: DtLists; status: Record<string, string> } | undefined>();
-  useEffect(() => { loadDtFlags().then(setFlags).catch(() => {}); }, []);
-  const flagsRef = useRef(flags);
-  flagsRef.current = flags;
-
-  const pull = async () => {
-    if (busyRef.current || !pool.length) return;
-    busyRef.current = true; setBusy(true);
-    try {
-      const r = await fetchRankQuotes(pool);
-      const qs = Object.values(r.quotes);
-      if (!qs.length) { setSnap((s) => ({ rows: s?.rows ?? [], at: s?.at ?? 0, time: s?.time, date: s?.date, failed: r.failed, total: r.total })); return; }
-      quotesRef.current = qs;
-      const rows = rankQuotes(qs, byRef.current, TOP, prev.current);
-      setPicks(dtPicks(qs as any, new Map(pool.map((x) => [x.code, x.volume ?? 0])), sessionFrac(), (c) => { const f = flagOf(c, (st.tw.find((x) => x.code === c) ?? st.etf.find((x) => x.code === c))?.market, flagsRef.current?.lists); return !!(f.disposal || f.noDayTrade); }));
-      prev.current = new Map(rows.map((x) => [x.code, x.rank]));
-      const time = qs.reduce((m, q) => (q.time > m ? q.time : m), "");
-      const date = qs.reduce((m, q) => (q.date > m ? q.date : m), "");
-      setSnap({ rows, at: Date.now(), time, date, failed: r.failed, total: r.total });
-    } finally { busyRef.current = false; setBusy(false); }
-  };
-  // 換排序方式：用手上的報價馬上重排（不用等下一輪），名次升降從這次重新算
-  useEffect(() => {
-    if (!quotesRef.current.length) return;
-    const rows = rankQuotes(quotesRef.current, by, TOP);
-    prev.current = new Map(rows.map((x) => [x.code, x.rank]));
-    setSnap((s) => (s ? { ...s, rows } : s));
-  }, [by]);
-  useEffect(() => {
-    prev.current = new Map();
-    void pull();
-    const t = setInterval(() => { if (livePolling() && document.visibilityState !== "hidden") void pull(); }, RANK_MS);
-    return () => clearInterval(t);
-  }, [pool]);
+  const picks = snap?.picks ?? [];
+  const pull = () => dtPull();
 
   // 開盤前（今天還沒有成交量）：先列前一個交易日的排名
   const yesterday = useMemo(() => rankQuotes(pool.map((s) => ({ code: s.code, name: s.name, price: s.close, prevClose: s.close / (1 + (s.chg1d ?? 0)), volume: s.volume })), by, TOP), [pool, by]);
-  const live = !!snap?.rows.length;
-  const rows = live ? snap!.rows : yesterday;
+  const live = !!snap?.rows[by].length;
+  const rows = live ? snap!.rows[by] : yesterday;
   const today = taipeiToday();
   const isOpen = marketOpen();
   // 證交所的資料日期比今天舊：週末休市、平日開盤前（11/13 使用者 05:59 看到「今天沒有交易」是錯的）、或平日收盤後仍是舊日期（休市日）

@@ -16,7 +16,7 @@
 | 3 | 貝爾威勒（興櫃 7861）轉上市進度追蹤 `trig_01MHAM59HPmLsnWaH6vs6zaX` | 週五 18:30 | Claude 排程（不綁對話，Sonnet） | 無 | 啟用中，**不需轉移** |
 | 4 | Stock Backtest Daily（GitHub 定時） | 週一～五 16:40／17:10／17:40／18:40 | GitHub Actions（預設分支 `claude/conversation-start-guide-ya0q8x`） | 無 | 啟用中，**不需轉移**（見 §C） |
 | 5 | **股市資訊第一批：三大法人與買賣超**（11/25 新增、同日改成分批）`trig_01B1qjmMCvx6qjBC6Qrr7Gm1` | 週一～五 15:30 起（資料沒公布每 15 分鐘 `send_later` 重試，最多到約 17:30） | Claude 排程（叫醒綁定的對話） | `session_01JrEEmaPZT7sMSm276njmzN` | **啟用中，換對話必須轉移**（見 §D 第 9 點；定義在 §E-4a） |
-| 6 | **股市資訊第二批：融資**（11/25 新增）`trig_01G3gGByLn2tWMSfxHXrM2US` | 週一～五 21:00 起（沒公布每 20 分鐘重試，最多到約 23:40） | 同上 | 同上 | **啟用中，換對話必須轉移**（定義在 §E-4b） |
+| 6 | **股市資訊第二批：融資**（11/25 新增）`trig_01G3gGByLn2tWMSfxHXrM2US` | 週一～五 18:30 起（11/25 由 21:00 提早；沒公布每 20 分鐘重試，最多 17 次到約 23:50） | 同上 | 同上 | **啟用中，換對話必須轉移**（定義在 §E-4b） |
 | — | **已停用（11/25 轉出）**：`trig_01Vw5Wq5B5YnS863Ho2nx4ip`（每日）、`trig_011RBJFtAWwRWm5CtJHCpjpi`（每週），原綁對話 `session_01JrEEmaZvY5uHpZ3UCVJ3ip`（「金雷達工作交接-1117」） | — | — | — | 同下 |
 | — | **已停用（11/19 轉出）**：`trig_01N2FNVWPGY5BLFzHRPR6rkv`（每日）、`trig_011Nd3V6ANET3xfxvEhqtyR2`（每週），原綁舊對話 `session_01JrEEmdeMmbdXWNmHqz45Ep` | — | — | — | `enabled=false`，保留當歷史，不要重新啟用 |
 | — | 更早已停用：`trig_01P8toMCwxC8oqAhFiSS27tp`、`trig_015iTBWsQ3HRo3CfsdP7Djom`、`trig_01GKTYGpLeqWRS2Nrv75CoTv` | — | — | — | 同上 |
@@ -56,7 +56,7 @@
 5. `list_triggers` 再看一次：新兩個 `enabled=true`、舊兩個 `enabled=false`、沒有重複啟用；把新 id 記進 `HANDOFF.md` §9c 與本檔 §A（改表格）；不要刪舊的（保留執行歷史，方便回復）。
 6. 當天 16:40 後確認新每日排程有跑（`last_run`、`stock-app/virtual/v-2wy3g7efad1c.json` 有當日提交 `virtual-etf: D 收盤更新`、`dual-veto.json` 是否更新）。沒跑就用 `fire_trigger` 手動補一次。
 7. **不要**同時留兩份啟用（會重複操作、重複推送、重複通知）；也**不要**在建好新的之前先停舊的（會有空窗）。
-9. **第三、四個綁對話的排程（11/25 起）**：股市資訊第一批 `trig_01B1qjmMCvx6qjBC6Qrr7Gm1`（15:30 起）、第二批 `trig_01G3gGByLn2tWMSfxHXrM2US`（21:00 起）。換對話時同樣各自 `create_trigger`（預設綁新對話；cron 分別 `CRON_TZ=Asia/Taipei 30 15 * * 1-5`、`CRON_TZ=Asia/Taipei 0 21 * * 1-5`，`prompt` 用 §E-4a／E-4b 原文；**第一批提示詞裡的重試訊息寫死舊 id `trig_01B1qj…`，重建後要改成新 id**），再把舊的 `enabled:false`。**不能改成「每次新開對話」（create_new_session_on_fire）**：這個組織的排程不能掛連接器，新開的對話抓不到「台股官方」資料。重試用的 `send_later` 也是綁在觸發它的對話。
+9. **第三、四個綁對話的排程（11/25 起）**：股市資訊第一批 `trig_01B1qjmMCvx6qjBC6Qrr7Gm1`（15:30 起）、第二批 `trig_01G3gGByLn2tWMSfxHXrM2US`（18:30 起）。換對話時同樣各自 `create_trigger`（預設綁新對話；cron 分別 `CRON_TZ=Asia/Taipei 30 15 * * 1-5`、`CRON_TZ=Asia/Taipei 30 18 * * 1-5`，`prompt` 用 §E-4a／E-4b 原文；**第一批提示詞裡的重試訊息寫死舊 id `trig_01B1qj…`，重建後要改成新 id**），再把舊的 `enabled:false`。**不能改成「每次新開對話」（create_new_session_on_fire）**：這個組織的排程不能掛連接器，新開的對話抓不到「台股官方」資料。重試用的 `send_later` 也是綁在觸發它的對話。
 8. 另一個選擇（需要使用者同意才做）：建成 `create_new_session_on_fire: true`（每次新開對話、不綁任何對話），之後換對話就不必再轉移；代價是每次從零開始、不能累積上下文（提示詞已寫成自給自足，會自己讀 `DAILY.md`）。
 
 ## E. 完整提示詞原文（建立新排程時整段複製；不含任何持股）
@@ -100,7 +100,7 @@
 共通：只讀資料＋發訊息，不改檔案、不推 git、不觸發 workflow。
 - **LINE（完整版）**：LINE 官方帳號「金雷達通知」的 broadcast 接口（`POST https://api.line.me/v2/bot/message/broadcast`，發給該帳號所有好友，不需要 User ID）。**權杖存在 Default 環境的「網路憑證」（host `api.line.me`，11/25 用 `request_credential` 存入，值不在任何檔案裡）**，由代理自動帶入標頭，排程裡不用也不能寫權杖。換環境要重新 `request_credential`（host `api.line.me`）。官方帳號免費額度每月 200 則（`GET /v2/bot/message/quota/consumption` 看已用）；App 的停損警示也共用。
 - **手機 Claude 通知（備援）**：`PushNotification` 要求單行、200 字內（11/25 實測：9 行約 300 字的版本使用者沒收到，短訊息收得到），所以只發短摘要。
-- **分批**（使用者 11/25 建議）：三大法人等 15:00～16:00 公布的先推；融資更晚（17:00～18:06 都還沒有，目前推測約 21:00 以後，**實際公布時間待觀察幾天後調整第二批的起始時間**）另外推。cron 最短間隔 1 小時，所以「資料一公布就推」是用 cron 起頭＋`send_later` 每 15／20 分鐘重試做的。
+- **分批**（使用者 11/25 建議）：三大法人等 15:00～16:00 公布的先推；融資更晚（11/25 實測 17:08、18:06 都還沒有；第二批 18:30 起檢查，**成功時回覆會記錄實際公布時間，觀察幾天後再調整起始時間與重試間隔**）另外推。cron 最短間隔 1 小時，所以「資料一公布就推」是用 cron 起頭＋`send_later` 每 15／20 分鐘重試做的。
 - 休市日：第一批只發手機「今天休市」，第二批不發；用 `get_market_holiday_schedule` 判斷。
 
 ### E-4a 第一批：大盤、三大法人、個股買賣超、外資期貨（`trig_01B1qjmMCvx6qjBC6Qrr7Gm1`，`CRON_TZ=Asia/Taipei 30 15 * * 1-5`）
@@ -140,16 +140,16 @@
 【回覆】第一行寫 ✅ 第一批已發送（LINE＋手機） 或 ⏳ 尚未公布，已排第 N+1 次重試 或 ❌ 失敗：原因；已發送時貼出 LINE 全文。只讀資料與發訊息；不要改任何檔案、不要推送 git、不要觸發任何 workflow。
 ```
 
-### E-4b 第二批：融資（`trig_01G3gGByLn2tWMSfxHXrM2US`，`CRON_TZ=Asia/Taipei 0 21 * * 1-5`）
+### E-4b 第二批：融資（`trig_01G3gGByLn2tWMSfxHXrM2US`，`CRON_TZ=Asia/Taipei 30 18 * * 1-5`）
 ```
-【排程：股市資訊第二批（融資、外資期貨補報）】平日台北約 21:00 起，當天融資資料一公布就整理推播；沒公布就每 20 分鐘重試（最多 8 次，到約 23:40）。這批只發融資（和第一批沒抓到的外資期貨），不要重發三大法人。全部繁體中文；漲紅 🔴、跌綠 🟢；只用工具回傳的數字，不要自己編。
+【排程：股市資訊第二批（融資、外資期貨補報）】平日台北約 18:30 起，當天融資資料一公布就整理推播；沒公布就每 20 分鐘重試（最多 17 次，到約 23:50）。這批只發融資（和第一批沒抓到的外資期貨），不要重發三大法人。全部繁體中文；漲紅 🔴、跌綠 🟢；只用工具回傳的數字，不要自己編。
 
 【步驟】
 0. 先用 ToolSearch 載入：「台股官方」的 get_market_holiday_schedule、get_margin_balance、get_futures_institutional，以及 PushNotification。
 1. 休市檢查：get_market_holiday_schedule，今天（台北日期）若是休市日：結束，什麼都不發。
 2. 公布檢查：get_margin_balance（limit=1）標題的日期是不是「今天」。
-   - 還不是今天：這是第 N 次嘗試（本排程自己觸發＝第 1 次）。N<9 就用 send_later（delay_minutes=20，name「股市資訊第二批重試 N+1/9」）排下一次，message：「【股市資訊第二批重試 N+1/9】請用 list_triggers 找名稱含「股市資訊第二批」的排程，用 get_trigger 讀取它的提示詞並照做；這是第 N+1 次嘗試（最多到第 9 次）。」然後結束，不要發推播。
-   - N=9 仍然不是今天：用 PushNotification 發「股市資訊：今天融資資料 23:40 仍未公布，明天再看」，結束。
+   - 還不是今天：這是第 N 次嘗試（本排程自己觸發＝第 1 次）。N<17 就用 send_later（delay_minutes=20，name「股市資訊第二批重試 N+1/17」）排下一次，message：「【股市資訊第二批重試 N+1/17】請用 list_triggers 找名稱含「股市資訊第二批」的排程，用 get_trigger 讀取它的提示詞並照做；這是第 N+1 次嘗試（最多到第 17 次）。」然後結束，不要發推播。
+   - N=17 仍然不是今天：用 PushNotification 發「股市資訊：今天融資資料 23:50 仍未公布，明天再看」，結束。
 3. 取資料：get_margin_balance（limit=1）全市場「融資金額（仟元）」今日餘額與前日餘額，換算成億與增減；「融資(交易單位)」今日餘額與前日餘額（張）；「融券(交易單位)」今日餘額與前日餘額（張）。
    外資期貨：get_futures_institutional（最新交易日）日期若是今天，取「外資及陸資」期貨未平倉淨口數；這項只有在第一批沒抓到時才需要補，但也可一律附上。
 4. 先發 LINE（多行，無 markdown）：
@@ -162,6 +162,6 @@
    發送：LINE 官方帳號「金雷達通知」的 broadcast 接口，權杖由網路代理自動帶入，**不要自己加 Authorization 標頭、不要找或印出權杖**。用 python3 組 JSON（json.dumps(..., ensure_ascii=False)），再 `curl -sS -X POST https://api.line.me/v2/bot/message/broadcast -H 'Content-Type: application/json' --data-binary @-`，成功是 HTTP 200 回 {}。非 200 重試一次，仍失敗就在手機推播最前面加「⚠️ LINE 發送失敗：HTTP 狀態碼」。只發上面格式的內容。
 5. 再發手機 Claude 通知備援（PushNotification，一則單行 200 字內）：「📊M/D 融資N億（🔴/🟢±N億）｜融資N萬張｜融券N萬張｜外資期貨淨空／淨多N萬口」
 
-【回覆】第一行寫 ✅ 第二批已發送（LINE＋手機） 或 ⏳ 尚未公布，已排第 N+1 次重試 或 ❌ 失敗：原因；已發送時貼出 LINE 全文。只讀資料與發訊息；不要改任何檔案、不要推送 git、不要觸發任何 workflow。
+【回覆】第一行寫 ✅ 第二批已發送（LINE＋手機） 或 ⏳ 尚未公布，已排第 N+1 次重試 或 ❌ 失敗：原因；已發送時貼出 LINE 全文，並在最後加一行「第 N 次嘗試成功，台北時間 HH:MM」（記錄融資實際公布時間，供調整起始時間）。只讀資料與發訊息；不要改任何檔案、不要推送 git、不要觸發任何 workflow。
 ```
 > 11/25 調整紀錄（使用者同意）：先是單一排程 17:00→18:00、個股縮成一行；再改走 LINE 完整版＋手機短摘要備援（LINE 測試訊息使用者確認收到）；最後依使用者建議分批（買賣超資訊公布後先推、融資等晚公布的另一批）。

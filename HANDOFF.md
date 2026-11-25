@@ -60,7 +60,7 @@
 - 其他 MCP：「台股官方」（工具前綴 `mcp__1710cc71-…__`，有即時報價、技術指標、法人、財報；上櫃歷史用 `get_otc_stock_history`，上市單日用 `get_stock_daily_trading`）。
 
 ## 7. 排程與算力（2026-11-19 重盤點；完整表與提示詞原文在 `stock-app/virtual/ROUTINES.md`）
-- **綁在對話上的排程有四個，換對話必須轉移**（第三、四個是 11/25 新增的「股市資訊」第一批 `trig_01B1qjmMCvx6qjBC6Qrr7Gm1`（週一～五 15:30 起，三大法人與買賣超）、第二批 `trig_01G3gGByLn2tWMSfxHXrM2US`（21:00 起，融資），走 LINE＋手機通知，定義在 ROUTINES.md §E-4）：每日 16:40（`trig_01RJT1FieteRvuw8i22jQHQC`，虛擬ETF＋雙引擎＋新聞否決）、每週六 09:50（`trig_015gHFMUth4MzpFVHA92rzuk`，週檢視）。**11/19 已從舊對話 `session_01JrEEmdeMmbdXWNmHqz45Ep` 轉到本對話 `session_01JrEEmaPZT7sMSm276njmzN`，舊的兩個（`trig_01N2FNVWPGY5BLFzHRPR6rkv`、`trig_011Nd3V6ANET3xfxvEhqtyR2`）已停用。**下次換對話照 ROUTINES.md §D 再轉一次。
+- **綁在對話上的排程有四個，換對話必須轉移**（第三、四個是 11/25 新增的「股市資訊」第一批 `trig_01B1qjmMCvx6qjBC6Qrr7Gm1`（週一～五 15:30 起，三大法人與買賣超）、第二批 `trig_01G3gGByLn2tWMSfxHXrM2US`（18:30 起，融資），走 LINE＋手機通知，定義在 ROUTINES.md §E-4）：每日 16:40（`trig_01RJT1FieteRvuw8i22jQHQC`，虛擬ETF＋雙引擎＋新聞否決）、每週六 09:50（`trig_015gHFMUth4MzpFVHA92rzuk`，週檢視）。**11/19 已從舊對話 `session_01JrEEmdeMmbdXWNmHqz45Ep` 轉到本對話 `session_01JrEEmaPZT7sMSm276njmzN`，舊的兩個（`trig_01N2FNVWPGY5BLFzHRPR6rkv`、`trig_011Nd3V6ANET3xfxvEhqtyR2`）已停用。**下次換對話照 ROUTINES.md §D 再轉一次。
 - 不需轉移：貝爾威勒週五 18:30（`trig_01MHAM59HPmLsnWaH6vs6zaX`，不綁對話）；GitHub 定時 `stock-backtest-daily.yml`（預設分支，週一～五 16:40／17:10／17:40／18:40，有「今天已成功就跳過」）。
 - 已停用且不要重啟：`trig_01P8toMCwxC8oqAhFiSS27tp`、`trig_015iTBWsQ3HRo3CfsdP7Djom`、`trig_01GKTYGpLeqWRS2Nrv75CoTv`。
 - 10/20 曾因 `USAGE_LIMIT_REACHED` 所有排程失敗（備援與主排程共用額度）；10/21 已精簡排程（補漏不寫 mcp_avail、15:00 拿掉興櫃、貝爾威勒改每週）。

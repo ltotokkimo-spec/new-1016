@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DUAL_REAL, dualOrders, waterLevel } from "../src/engine/dualReal";
+import { DUAL_REAL, dualExitOrders, dualOrders, waterLevel } from "../src/engine/dualReal";
 import { emptyEtf, FEE, valuate, type AiEtf } from "../src/engine/aiEtf";
 
 const px: Record<string, number> = { "2330": 1000, "2412": 120, "2886": 40, "0050": 60 };
@@ -96,5 +96,31 @@ describe("先不買：指定的代號這次不買，空出的現金不轉去買�
     expect(all.map((x) => x.code)).toEqual(["2412", "2330"]);
     expect(skipped.map((x) => x.code)).toEqual(["2330"]);
     expect(skipped[0].shares).toBe(all[1].shares);
+  });
+});
+
+describe("雙引擎實單：跌破停損／停利的持股列進要下的單（11/26，和手機推播同一條件）", () => {
+  const held = (extra: Partial<AiEtf> = {}): AiEtf => ({ ...emptyEtf(500_000), ...extra, trades: [
+    { id: "1", date: "20261113", code: "2886", name: "兆豐金", side: "buy", shares: 5000, price: 50, benchPrice: 60 }, // 均價 50，預設停損 45
+    { id: "2", date: "20261113", code: "2412", name: "中華電", side: "buy", shares: 1000, price: 120, benchPrice: 60 },
+  ] });
+  it("沒跌破：不列", () => {
+    expect(dualExitOrders(held(), (c) => ({ "2886": 46, "2412": 118 })[c], name)).toEqual([]);
+  });
+  it("現價 ≤ 預設停損（均價 −10%）：整檔列賣出，說明寫停損價與報酬", () => {
+    const o = dualExitOrders(held(), (c) => ({ "2886": 44, "2412": 118 })[c], name);
+    expect(o).toHaveLength(1);
+    expect(o[0]).toMatchObject({ code: "2886", side: "sell", shares: 5000, price: 44 });
+    expect(o[0].reason).toContain("跌破停損價 45.06");
+    expect(o[0].reason).toContain("預設均價 −10%");
+    expect(o[0].reason).toContain("-12.1%");
+  });
+  it("自己設的停損價高於均價＝停利價：寫達標離場", () => {
+    const o = dualExitOrders(held({ stops: { "2412": 125 } }), (c) => ({ "2886": 52, "2412": 124 })[c], name);
+    expect(o.map((x) => x.code)).toEqual(["2412"]);
+    expect(o[0].reason).toContain("跌破停利價（達標離場）");
+  });
+  it("沒有價格的持股跳過", () => {
+    expect(dualExitOrders(held(), () => undefined, name)).toEqual([]);
   });
 });

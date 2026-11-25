@@ -1,7 +1,7 @@
 // 雙引擎實單（使用者 11/15）：用真的錢照「雙引擎」觀察組合的目標配置下單，和「我的實單」分開記帳。
 // 本金 50 萬（和觀察組合的虛擬資金一樣）；完全照觀察組合：和目標差距 ≥ 淨值 0.5% 才調整（DUAL.band），其餘不動。
 // 目標配置由每天的回測算好（dual.json 的 targets：最後一個資料日收盤後的目標權重，下一個交易日調整）。
-import { cashFlow, positions, valuate, FEE, type AiEtf } from "./aiEtf";
+import { cashFlow, positions, stopOf, valuate, FEE, type AiEtf } from "./aiEtf";
 
 export const DUAL_REAL = { budget: 500_000, band: 0.005 } as const;
 
@@ -64,4 +64,27 @@ export function waterLevel(etf: AiEtf, price: (code: string) => number | undefin
   const pct = (x: number) => (total > 0 ? (x / total) * 100 : 0);
   const bar = { stock: pct(Math.min(cost, v.marketValue)), gain: pct(Math.max(0, unrealized)), loss: pct(Math.max(0, -unrealized)), cash: pct(cash), tick: pct(cost), reserve: pct(Math.min(Math.max(0, etf.cashReserve ?? 0), cash)) };
   return { cost, marketValue: v.marketValue, cash: v.cash, invested: v.invested, nav: v.nav, unrealized, realized, reserve: Math.max(0, etf.cashReserve ?? 0), bar };
+}
+
+/**
+ * 停損／停利離場提醒（11/26 使用者）：手機推播用的條件（現價 ≤ 停損價；沒設就是均價 −10%；停損價高於均價時是停利價）
+ * 也列進「要下的單」，免得推播說要出場、App 卻寫「今天不用下單」找不到可以離場的清單。
+ * 這是提醒，不是雙引擎判斷本身（回測：達標先賣整體年化變差），所以只列出來，賣不賣由使用者決定；賣出整檔持股。
+ */
+export function dualExitOrders(etf: AiEtf, price: (code: string) => number | undefined, name: (code: string) => string): DualOrder[] {
+  const nav = valuate(etf, price).nav;
+  const out: DualOrder[] = [];
+  for (const p of positions(etf.trades)) {
+    if (p.shares <= 0) continue;
+    const px = price(p.code);
+    if (!(px && px > 0)) continue;
+    const { stop, isDefault } = stopOf(p, etf.stops);
+    if (px > stop) continue;
+    const profit = stop > p.avgCost;
+    out.push({
+      code: p.code, name: p.name || name(p.code), side: "sell", shares: p.shares, price: px, target: 0, now: nav > 0 ? (p.shares * px) / nav : 0,
+      reason: `${profit ? "跌破停利價（達標離場）" : "跌破停損價"} ${stop}（${isDefault ? "預設均價 −10%" : "你設的"}），現價 ${px}，報酬 ${((px / p.avgCost - 1) * 100).toFixed(1)}%：和手機推播同一條件，不是雙引擎判斷，賣不賣由你決定`,
+    });
+  }
+  return out;
 }

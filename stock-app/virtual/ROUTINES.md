@@ -96,25 +96,29 @@
 ```
 
 ### E-4 收盤後股市資訊推播（週一～五 18:00，綁對話，**換對話必須轉移**）
-`trig_01B1qjmMCvx6qjBC6Qrr7Gm1`，`CRON_TZ=Asia/Taipei 0 18 * * 1-5`。只讀資料＋手機推播，不改檔案、不推 git、不觸發 workflow。提示詞：
+`trig_01B1qjmMCvx6qjBC6Qrr7Gm1`，`CRON_TZ=Asia/Taipei 0 18 * * 1-5`。只讀資料＋發訊息，不改檔案、不推 git、不觸發 workflow。
+- **LINE（完整版）**：用 LINE 官方帳號「金雷達通知」的 broadcast 接口（`POST https://api.line.me/v2/bot/message/broadcast`，發給該帳號所有好友，不需要 User ID）。**權杖存在 Default 環境的「網路憑證」（host `api.line.me`，11/25 用 `request_credential` 存入，值不在任何檔案裡）**，由代理自動帶入標頭，所以排程裡不用也不能寫權杖。換對話時綁在同一個環境就繼續可用；若環境換了，要重新 `request_credential`（host `api.line.me`）。官方帳號免費額度每月 200 則（`GET /v2/bot/message/quota/consumption` 看已用）；App 的停損警示也共用這個額度。
+- **手機 Claude 通知（備援，兩則短摘要）**：`PushNotification` 要求單行、200 字內（11/25 實測：9 行約 300 字的版本使用者沒收到，短訊息收得到）。
+- **融資**：17:00～18:06 證交所都還沒公布當天融資，目前顯示「尚未公布（最新 M/D）」；使用者尚未決定要不要拿掉（11/25 待決）。
+提示詞：
 ```
-【排程：收盤後股市資訊推播】現在是台北時間平日約 18:00。請用「台股官方」MCP 工具（先用 ToolSearch 載入需要的工具，例如 get_taiex_index_history、get_market_turnover_history、get_market_institutional_amounts_history、get_twse_institutional_investors_summary、get_futures_institutional、get_margin_balance，以及 PushNotification），整理今天的收盤資訊，最後用 PushNotification 發一則手機推播。全部繁體中文；漲紅 🔴、跌綠 🟢；只用工具回傳的數字，不要自己編。
+【排程：收盤後股市資訊推播】現在是台北時間平日約 18:00。請用「台股官方」MCP 工具（先用 ToolSearch 載入需要的工具，例如 get_taiex_index_history、get_market_turnover_history、get_market_institutional_amounts_history、get_twse_institutional_investors_summary、get_futures_institutional、get_margin_balance，以及 PushNotification），整理今天的收盤資訊，然後：(A) 用 LINE 發完整版；(B) 用 PushNotification 發兩則短摘要當備援。全部繁體中文；漲紅 🔴、跌綠 🟢；只用工具回傳的數字，不要自己編。
 
 【取資料】
 1. 大盤：get_taiex_index_history（本月）取今天收盤與漲跌點數，算漲跌幅；get_market_turnover_history 取今天成交金額（換算成「億」）。
 2. 三大法人合計：get_market_institutional_amounts_history（單日，億元）：合計、外資及陸資、投信、自營商（自行買賣＋避險合計，括號寫兩者）。
-3. 個股買賣超：get_twse_institutional_investors_summary，category="stock"（排除 ETF），limit=3：side=buy sort_by=foreign（外資買超前3）、side=sell sort_by=foreign（外資賣超前3）、side=buy sort_by=trust（投信買超前3）。股數除以 10,000 換成「萬張」，取 1 位小數（不到 0.1 萬張的寫張數，千分位）。
+3. 個股買賣超：get_twse_institutional_investors_summary，category="stock"（排除 ETF），limit=3：side=buy sort_by=foreign（外資買超前3）、side=sell sort_by=foreign（外資賣超前3）、side=buy sort_by=trust（投信買超前3）。LINE 完整版寫「名稱 N張」（千分位）；手機短摘要寫「名稱 N.N」（萬張，1 位小數）。
 4. 外資期貨：get_futures_institutional（最新交易日），取「外資及陸資」期貨未平倉淨口數，寫「淨多／淨空 N口」。期交所偶爾逾時：失敗就重試一次，仍失敗才寫「尚未更新」。
 5. 融資：get_margin_balance（limit=1）取全市場「融資金額（仟元）」今日餘額與前日餘額，換算成億與增減。
 
 【日期檢查（先做）】
-- 每個工具回傳都有日期。若 get_taiex_index_history 沒有「今天」的資料（今天休市或還沒更新），且今天是平日：推播「股市資訊：今天休市或資料尚未公布」，結束。週末不會觸發。
-- 若三大法人（步驟 2、3）回傳的日期不是今天：推播時該區塊寫「三大法人尚未公布（最新為 M/D）」，其餘照常。融資、期貨同理，各自標註未更新（融資寫「尚未公布（最新 M/D：N億）」）。
+- 每個工具回傳都有日期。若 get_taiex_index_history 沒有「今天」的資料（今天休市或還沒更新），且今天是平日：LINE 與手機都只發「股市資訊：今天休市或資料尚未公布」，結束。週末不會觸發。
+- 若三大法人（步驟 2、3）回傳的日期不是今天：該區塊寫「三大法人尚未公布（最新為 M/D）」，其餘照常。融資、期貨同理，各自標註未更新（融資寫「尚未公布（最新 M/D：N億）」）。
 
 【資料合理性檢查】
-- 今天成交金額若低於近 5 個交易日平均的 60%，或大盤單日漲跌幅絕對值 ≥ 5%，在推播第 2 行後加一行「⚠️ 成交金額／漲跌幅異常，資料可能未完整，請再確認」。這個檢查只標註，不要修改或猜測數字。
+- 今天成交金額若低於近 5 個交易日平均的 60%，或大盤單日漲跌幅絕對值 ≥ 5%，在第 2 行後加一行「⚠️ 成交金額／漲跌幅異常，資料可能未完整，請再確認」（LINE 與手機第一則都要加）。這個檢查只標註，不要修改或猜測數字。
 
-【推播格式（照這個，一則訊息，無 markdown，每行簡短；個股三組合成一行，用「｜」分隔）】
+【(A) LINE 完整版（先發這個）】格式（多行文字，無 markdown）：
 📊 M/D 收盤｜三大法人
 加權 X 🔴/🟢±點數（±幅度%）
 成交 N億
@@ -122,11 +126,18 @@
  外資 ±N億　投信 ±N億
  自營 ±N億（自行±N、避險±N）
 
-個股(萬張)：外資買 名稱N、名稱N、名稱N｜賣 名稱N、名稱N、名稱N｜投信買 名稱N、名稱N、名稱N
+外資買超：名稱 N張、名稱 N張、名稱 N張
+外資賣超：名稱 N張、名稱 N張、名稱 N張
+投信買超：名稱 N張、名稱 N張、名稱 N張
+
 外資期貨未平倉 淨空／淨多 N口
 融資餘額 N億（±N億）
+發送方式：LINE 官方帳號「金雷達通知」的 broadcast 接口，權杖由網路代理自動帶入（已存在環境的網路憑證裡），**不要自己加 Authorization 標頭、不要找或印出權杖**。用 python3 組 JSON（json.dumps(..., ensure_ascii=False)，避免換行與引號出錯），再 `curl -sS -X POST https://api.line.me/v2/bot/message/broadcast -H 'Content-Type: application/json' --data-binary @-`（要檢查 HTTP 狀態，成功是 200 回 {}）。失敗（非 200）就重試一次；仍失敗就在回覆與手機推播第一則最前面加「⚠️ LINE 發送失敗：HTTP 狀態碼」。注意：這是對這個官方帳號的所有好友發送，只發上面格式的收盤資訊，不要發其他內容。
 
-【回覆】第一行寫 ✅ 已推播 或 ❌ 失敗：原因，之後貼出推播全文。只讀資料、發推播；不要改任何檔案、不要推送 git、不要觸發任何 workflow。
+【(B) 手機 Claude 通知備援（LINE 之後發，兩則，每則單行、200 字以內）】用 PushNotification：
+第 1 則：📊M/D 加權X 🔴/🟢±幅度%｜成交N億｜三大法人🔴/🟢±N億（外資±N、投信±N、自營±N）
+第 2 則：個股(萬張)外資買 名稱N.N/名稱N.N/名稱N.N｜賣 名稱N.N/名稱N.N/名稱N.N｜投信買 名稱N.N/名稱N.N/名稱N.N｜外資期貨淨空／淨多N萬口｜融資尚未公布 或 融資N億（±N億）
+
+【回覆】第一行寫 ✅ 已發送（LINE＋手機） 或 ❌ 失敗：原因，之後貼出 LINE 完整版全文。只讀資料與發訊息；不要改任何檔案、不要推送 git、不要觸發任何 workflow。
 ```
-> 11/24 實測資料的注意點：當天成交金額只有約 4,326 億（近日約 9,000～11,000 億）但大盤單日 +9.0%，兩者對不起來，推播的「異常」標註就是為此設計；11/25 起請對照實際推播確認格式與數字。
-> 11/25 第一次實際推播後調整（使用者同意）：時間 17:00→18:00（17:00 時融資只有前一天）；個股買賣超三行合成一行、單位改萬張；期貨逾時重試一次。
+> 11/25 調整紀錄（使用者同意）：時間 17:00→18:00；個股買賣超縮成手機一行、單位萬張；期貨逾時重試一次；改走 LINE 完整版＋手機短摘要備援（LINE 測試訊息使用者確認收到）。

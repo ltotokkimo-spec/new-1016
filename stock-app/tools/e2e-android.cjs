@@ -1242,10 +1242,13 @@ function check(ok, name, detail = "") {
   // 中途存入／提領資金：存入 5 萬 → 投入本金 15 萬、現金多 5 萬、報酬率與總損益不變；刪掉這筆後恢復原狀（不影響後面的測試）
   // 11/24 好幾次在這一段 WebView 被系統關掉：重新連上、回到自組ETF「我的實單」再繼續（fsum 每次讀之前都先確認）
   const recoverReal = async () => {
-    for (let i = 1; page.isClosed() || !(await page.$('[data-testid="etf-summary"]').catch(() => null)); i++) {
-      if (i > 3) throw new Error("我的實單畫面一直中斷");
+    // 11/26：WebView 斷線時 page.isClosed() 可能仍是 false，page.$ 直接丟錯，迴圈 1 秒內就用完 3 次；改用 evaluate 探活判斷斷線，斷了就重新取得頁面，每次之間等一下
+    const alive = async () => !page.isClosed() && (await withTimeout(page.evaluate(() => 1), 5000, "探活").then(() => true).catch(() => false));
+    for (let i = 1; !(await alive()) || !(await page.$('[data-testid="etf-summary"]').catch(() => null)); i++) {
+      if (i > 5) throw new Error("我的實單畫面一直中斷");
       log(`我的實單畫面中斷（第 ${i} 次），重新連接`);
-      if (page.isClosed()) {
+      if (i > 1) await sleep(3000);
+      if (!(await alive())) {
         try { webview = await withTimeout(device.webView({ pkg: PKG }), 90_000, "重新等待 WebView"); page = await withTimeout(webview.page(), 60_000, "重新連接頁面"); }
         catch { await device.shell(`am start -n ${PKG}/.MainActivity`); await sleep(5000); continue; }
         await page.waitForSelector("nav.tabs", { timeout: 60000 }).catch(() => {});

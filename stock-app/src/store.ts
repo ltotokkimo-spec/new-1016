@@ -1102,6 +1102,13 @@ export async function addDualTrades(trades: Omit<EtfTrade, "id" | "benchPrice">[
   await snapshotDualNav();
 }
 export async function hideDualTrade(id: string) { const etf = dualRealOf(); await saveDualReal({ ...etf, trades: etf.trades.map((t) => (t.id === id ? { ...t, hidden: true } : t)) }); }
+/** 雙引擎實單真正刪除一筆成交（11/28 使用者：開盤前誤記、其實沒成交的單）：持股、現金、損益一起還原；那天照清單記的都刪光就解除「同一天只能記一次」 */
+export async function removeDualTrade(id: string) {
+  const etf = dualRealOf();
+  const trades = etf.trades.filter((t) => t.id !== id);
+  const keepApplied = etf.appliedDay && trades.some((t) => t.date === etf.appliedDay); // 隱藏的仍算有成交
+  await saveDualReal({ ...etf, trades, ...(etf.appliedDay && !keepApplied ? { appliedDay: undefined } : {}) });
+}
 export async function setDualBudget(budget: number) { if (budget > 0) await saveDualReal({ ...dualRealOf(), budget }); }
 /** 雙引擎實單增加／減少投入資金（11/15 資金水位）：還沒有成交時直接改本金；有成交後記成存入／提領（報酬用時間加權，不會被存入的錢稀釋） */
 export async function addDualFlow(amount: number) {

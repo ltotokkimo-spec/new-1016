@@ -1,7 +1,7 @@
 // 「自組ETF」分頁：請 Claude 建議要買什麼、買幾股，照著實際下單後填入成交，追蹤淨值並和 0050 比較。
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import {
-  addDualTrades, addDualFlow, setDualReserve, setDualSkip, hideDualTrade, resetDualReal, snapshotDualNav,
+  addDualTrades, addDualFlow, setDualReserve, setDualSkip, hideDualTrade, removeDualTrade, resetDualReal, snapshotDualNav,
   LIVE_MS, findScored, getFetcher, getKv, addEtfFlow, setEtfReserve, removeEtfFlow, addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshTurn, refreshDual, refreshDualPlus, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, livePriceNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError } from "../ai/claude";
@@ -914,6 +914,7 @@ function DualRealScreen() {
   const pnl = useMemo(() => tradePnls(etf.trades, etfPrice), [etf.trades, twReady]);
   const over = useMemo(() => oversold(etf.trades), [etf.trades]);
   const [tradesOpen, setTradesOpen] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
   const asOf = getState().tw.asOf;
   return (
     <div data-testid="dualreal">
@@ -965,12 +966,17 @@ function DualRealScreen() {
         <details open={tradesOpen} onToggle={(e) => setTradesOpen((e.currentTarget as HTMLDetailsElement).open)} data-testid="dualreal-trades-box">
           <summary class="section-title" style={{ cursor: "pointer", listStyle: "none" }}><span>{tradesOpen ? "▾" : "▸"} 成交紀錄</span><span>{etf.trades.filter((t) => !t.hidden).length} 筆・{tradesOpen ? "點一下收合" : "點一下展開"}</span></summary>
           <div class="card" style={{ padding: "6px 10px" }} data-testid="dualreal-trades">
-            {[...etf.trades].reverse().filter((t) => !t.hidden).map((t) => (
-              <div class="row" style={{ justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: "13px", flexWrap: "nowrap" }}>
-                <TradeLine t={t} pnl={pnl[t.id]} over={over[t.id]} />
-                <button class="iconbtn" style={{ width: "28px", height: "28px" }} aria-label="刪除這筆" onClick={() => window.confirm("把這一列從成交紀錄移除？\n\n只是不再顯示在列表，持股、現金和損益不會變。") && hideDualTrade(t.id)}>✕</button>
+            {[...etf.trades].reverse().filter((t) => showHidden || !t.hidden).map((t) => (
+              <div class="row" style={{ justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: "13px", flexWrap: "nowrap", opacity: t.hidden ? 0.55 : 1 }} data-testid={t.hidden ? "dualreal-trade-hidden" : "dualreal-trade"}>
+                <TradeLine t={t} pnl={pnl[t.id]} over={over[t.id]} />{t.hidden && <span class="muted" style={{ fontSize: "11px", whiteSpace: "nowrap" }}>已隱藏・仍計入</span>}
+                {/* 11/28 使用者：✕ 原本只隱藏、持股現金照算，開盤前誤記的單刪了帳還是錯 → 先問是不是沒成交（真正刪除），否則才只隱藏 */}
+                <button class="iconbtn" style={{ width: "28px", height: "28px" }} aria-label="刪除這筆" data-testid="dualreal-trade-del" onClick={() => {
+                  if (window.confirm(`${prettyW(t.date)} ${t.side === "buy" ? "買" : "賣"} ${t.name} ${t.shares.toLocaleString()} 股：這筆是記錯、其實沒有成交嗎？\n\n按「確定」＝真的刪除，持股、現金和損益一起還原。\n按「取消」＝不是記錯（下一步可選擇只從列表隱藏）。`)) void removeDualTrade(t.id);
+                  else if (!t.hidden && window.confirm("只把這一列從列表隱藏？\n\n持股、現金和損益照這筆計算，不會變。")) void hideDualTrade(t.id);
+                }}>✕</button>
               </div>
             ))}
+            {etf.trades.some((t) => t.hidden) && <button class="linkbtn" style={{ fontSize: "12px", marginTop: "6px" }} onClick={() => setShowHidden(!showHidden)} data-testid="dualreal-show-hidden">{showHidden ? "收起已隱藏的成交" : `顯示已隱藏的 ${etf.trades.filter((t) => t.hidden).length} 筆（仍計入持股與現金；記錯的可在這裡真的刪除）`}</button>}
           </div>
         </details>
         <button class="btn danger block" style={{ marginTop: "12px" }} onClick={() => window.confirm("清空雙引擎實單（成交紀錄與走勢）重新開始？") && resetDualReal()}>清空重新開始</button>

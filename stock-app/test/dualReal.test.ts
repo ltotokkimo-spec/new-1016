@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DUAL_REAL, dualExitOrders, dualOrders, soldSinceDecision, waterLevel } from "../src/engine/dualReal";
+import { DUAL_REAL, dualExitOrders, dualOrders, fullTargets, soldSinceDecision, waterLevel } from "../src/engine/dualReal";
 import { emptyEtf, FEE, valuate, type AiEtf } from "../src/engine/aiEtf";
 
 const px: Record<string, number> = { "2330": 1000, "2412": 120, "2886": 40, "0050": 60 };
@@ -8,7 +8,7 @@ const name = (c: string) => `股${c}`;
 
 describe("雙引擎實單：依目標權重算出這個帳戶要下的單（11/15）", () => {
   it("本金 50 萬、差距 0.5% 才調整（和觀察組合一樣）", () => {
-    expect(DUAL_REAL).toEqual({ budget: 500_000, band: 0.005 });
+    expect(DUAL_REAL).toEqual({ budget: 500_000, band: 0.005, checkpointDays: 60 });
   });
   it("空帳戶：照權重買進，股數無條件捨去，現金夠用、權重大的先列", () => {
     const o = dualOrders(emptyEtf(500_000), { "2330": 0.1, "2412": 0.3, "2886": 0.0001 }, price, name);
@@ -139,5 +139,20 @@ describe("雙引擎實單：判斷日之後賣掉的不買回（11/28，停損�
   it("放進 skip 後，目標裡的這檔不會被列成新增買進", () => {
     const o = dualOrders(emptyEtf(500_000), { "2412": 0.3, "2886": 0.2 }, price, name, DUAL_REAL.band, new Set(["2886"]));
     expect(o.map((x) => x.code)).toEqual(["2412"]);
+  });
+});
+
+describe("雙引擎實單：滿水位（11/28，目標權重等比例放大到淨值減保留現金）", () => {
+  it("合計 62% 放大到 100%，比例不變", () => {
+    const t = fullTargets({ a: 0.31, b: 0.31 }, 500_000);
+    expect(t.a).toBeCloseTo(0.5, 6); expect(t.b).toBeCloseTo(0.5, 6);
+  });
+  it("有保留現金：放大到（淨值－保留）／淨值", () => {
+    const t = fullTargets({ a: 0.2, b: 0.4 }, 500_000, 50_000);
+    expect(t.a + t.b).toBeCloseTo(0.9, 6); expect(t.b / t.a).toBeCloseTo(2, 6);
+  });
+  it("空目標或淨值 0 原樣回傳", () => {
+    expect(fullTargets({}, 500_000)).toEqual({});
+    expect(fullTargets({ a: 0.5 }, 0)).toEqual({ a: 0.5 });
   });
 });

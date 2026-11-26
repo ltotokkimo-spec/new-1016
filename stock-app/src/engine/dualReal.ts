@@ -3,7 +3,7 @@
 // 目標配置由每天的回測算好（dual.json 的 targets：最後一個資料日收盤後的目標權重，下一個交易日調整）。
 import { cashFlow, positions, stopOf, valuate, FEE, type AiEtf } from "./aiEtf";
 
-export const DUAL_REAL = { budget: 500_000, band: 0.005 } as const;
+export const DUAL_REAL = { budget: 500_000, band: 0.005, checkpointDays: 60 } as const; // checkpointDays：11/28 使用者選「繼續當實驗」，從第一筆成交起 60 個交易日檢查一次
 
 export interface DualOrder { code: string; name: string; side: "buy" | "sell"; shares: number; price: number; target: number; now: number; reason: string }
 
@@ -97,4 +97,17 @@ export function dualExitOrders(etf: AiEtf, price: (code: string) => number | und
 export function soldSinceDecision(etf: AiEtf, targetsDate?: string): Set<string> {
   if (!targetsDate) return new Set();
   return new Set(etf.trades.filter((t) => t.side === "sell" && t.date > targetsDate).map((t) => t.code));
+}
+
+/**
+ * 滿水位（11/28 使用者）：雙引擎＋的目標權重合計常不到 100%（低波動組候選少時留現金，例如 11/24 只有 62%），
+ * 實單改成把目標等比例放大到「可投入資金」＝淨值減保留現金，其餘照原比例；保留現金照設定留著。
+ * 買進受 band 與零股取整影響，可能略高於滿水位；之後有賣出回收的現金再補回滿水位。
+ */
+export function fullTargets(targets: Record<string, number>, nav: number, reserve = 0): Record<string, number> {
+  const sum = Object.values(targets).reduce((a, w) => a + (w > 0 ? w : 0), 0);
+  if (!(sum > 0) || !(nav > 0)) return targets;
+  const investable = Math.max(0, Math.min(1, (nav - Math.max(0, reserve)) / nav));
+  const k = investable / sum;
+  return Object.fromEntries(Object.entries(targets).map(([c, w]) => [c, w > 0 ? w * k : w]));
 }

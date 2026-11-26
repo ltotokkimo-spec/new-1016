@@ -12,7 +12,7 @@ import type { VirtualEtf } from "../engine/virtualEtf";
 import { twHistory } from "../data/history";
 import { buyConds, cashFlow, FEE, sellConds, holdConds, dailyHoldingCheck, takeProfitSignal, TAKE_PROFIT, type HoldCheck, type EtfTrade, type EtfFlow, agreePlans, comparePlans, DEFAULT_STOP, planReadable, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, proClipboardAction, replySig, parsePlan, positions, tradePnls, oversold, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { onAppResume, readClipboard } from "../lib/clip";
-import { DUAL_REAL, dualExitOrders, dualOrders, soldSinceDecision, waterLevel, type DualOrder, type WaterLevel } from "../engine/dualReal";
+import { DUAL_REAL, dualExitOrders, dualOrders, fullTargets, soldSinceDecision, waterLevel, type DualOrder, type WaterLevel } from "../engine/dualReal";
 import { limitFromChg } from "../lib/limit";
 import { isEtf } from "../data/tw";
 import { emptyEtf, type AiEtf, type Valuation } from "../engine/aiEtf";
@@ -886,8 +886,19 @@ function DualRealScreen() {
   // 11/28：判斷日之後賣掉的（停損離場或手動賣出），下次判斷日前不買回，避免賣了隔天又被列成「新增」買回來
   const soldAfter = soldSinceDecision(etf, d?.targetsDate);
   const heldCodes = new Set(pos.map((p) => p.code));
-  const noRebuy = [...soldAfter].filter((c) => !heldCodes.has(c) && (d?.targets?.[c] ?? 0) > 0);
-  const orders = [...exits, ...(d?.targets && twReady ? dualOrders(etf, d.targets, orderPx, name, DUAL_REAL.band, new Set([...skipCodes, ...soldAfter])).filter((o) => !exitCodes.has(o.code)) : [])];
+  // 11/28 使用者：繼續當實驗，從第一筆成交起 60 個交易日檢查一次
+  const checkpoint = etf.trades.length ? (() => {
+    const from = [...etf.trades].map((t) => t.date).sort()[0];
+    const day = addWeekdays(from, DUAL_REAL.checkpointDays);
+    let left = 0, x = taipeiToday();
+    while (x < day && left < 400) { x = addWeekdays(x, 1); left++; }
+    return { from, day, left };
+  })() : undefined;
+  // 11/28 使用者：實單維持滿水位（淨值減保留現金），雙引擎＋目標權重等比例放大
+  const tgt = d?.targets ? fullTargets(d.targets, valuate(etf, orderPx).nav, etf.cashReserve ?? 0) : undefined;
+  const tgtSum = d?.targets ? Object.values(d.targets).reduce((a, w) => a + w, 0) : 0;
+  const noRebuy = [...soldAfter].filter((c) => !heldCodes.has(c) && (tgt?.[c] ?? 0) > 0);
+  const orders = [...exits, ...(d?.targets && twReady ? dualOrders(etf, tgt!, orderPx, name, DUAL_REAL.band, new Set([...skipCodes, ...soldAfter])).filter((o) => !exitCodes.has(o.code)) : [])];
   const flags: Record<string, string> = {};
   for (const o of orders) { // 價格提醒：漲停（買不到）、跌停（賣不掉）、買進的比昨收漲 5% 以上、賣出的比昨收跌 5% 以上
     const q = liveQ(o.code);
@@ -926,6 +937,8 @@ function DualRealScreen() {
     <div data-testid="dualreal">
       <div class="card stack" data-testid="dualreal-summary">
         <b>雙引擎實單（照「雙引擎＋」用真的錢下單）</b>
+        {checkpoint && <div class="notice" style={{ fontSize: "13px" }} data-testid="dualreal-checkpoint">🧪 實驗檢查點：<b>{prettyW(checkpoint.day)}</b>（從 {prettyW(checkpoint.from)} 第一筆成交起 {DUAL_REAL.checkpointDays} 個交易日，{checkpoint.left > 0 ? `還有 ${checkpoint.left} 個交易日` : "已到，請比較和 0050 的差距，決定要不要繼續"}）。到時比較雙引擎實單和同樣的錢買 0050，再決定是否繼續。</div>}
+        {tgt && tgtSum > 0 && tgtSum < 0.995 && <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }} data-testid="dualreal-full">滿水位：雙引擎＋目標股票比重 {(tgtSum * 100).toFixed(0)}%，實單等比例放大到可投入資金（淨值{etf.cashReserve ? `減保留現金 ${Math.round(etf.cashReserve).toLocaleString()} 元` : ""}），各檔目標約 ×{(1 / tgtSum).toFixed(2)}。買進取整可能略超過，賣出回收的錢會再補回滿水位。</div>}
         <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
           規則和「雙引擎＋」觀察組合一樣（成長組五成＋低波動組五成、低波動組也看外資，每 5 個交易日收盤後判斷、成長組每 20 個交易日重選；Claude 每天查新聞，被否決的不買、持有的賣出；11/17 起兩組候選都限定當天選股頁評為「買入」的個股，持股會變少、現金變多），差距 ≥ 淨值 {(DUAL_REAL.band * 100).toFixed(1)}% 才調整。
           下單清單用這個帳戶自己的淨值與最近收盤價估算股數（零股），建議在判斷日的下一個交易日、收盤前下單，成交後按「記錄勾選的成交」改成實際成交價。
@@ -955,7 +968,7 @@ function DualRealScreen() {
         <div class="card" style={{ padding: "6px 10px" }} data-testid="dualreal-pos">
           <div class="muted" style={{ fontSize: "11.5px", padding: "2px 0 4px", borderBottom: "1px solid var(--line)", lineHeight: 1.6 }}>左：股數・均價（含手續費的買進平均價）・佔總值比重（目標比重）。右：報酬＝現價比均價漲跌；損益＝現價減均價乘股數，單位元。</div>
           {pos.sort((a, b) => (nowPx(b.code) ?? 0) * b.shares - (nowPx(a.code) ?? 0) * a.shares).map((p) => {
-            const px = nowPx(p.code), val = (px ?? 0) * p.shares, w = v.nav > 0 ? val / v.nav : 0, tw = d?.targets?.[p.code] ?? 0;
+            const px = nowPx(p.code), val = (px ?? 0) * p.shares, w = v.nav > 0 ? val / v.nav : 0, tw = tgt?.[p.code] ?? 0;
             const r = px ? px / p.avgCost - 1 : NaN;
             return (
               <div class="row" style={{ justifyContent: "space-between", alignItems: "center", flexWrap: "nowrap", gap: "8px", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: "13px" }}>

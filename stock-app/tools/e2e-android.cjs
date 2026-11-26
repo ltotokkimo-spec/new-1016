@@ -1387,10 +1387,12 @@ function check(ok, name, detail = "") {
   check(/成交價 [\d.,]+・損益 [+-]?[\d,]+/.test(rTrades) && !rTrades.includes("@"), "實單成交紀錄寫「成交價・損益」、不再用 @ 符號", rTrades.slice(0, 120));
   // 按成交紀錄的 ✕：只是從列表移除，持股不能跟著消失
   const posBefore = await page.$$eval('.list .item .name', (e) => e.length);
-  page.once("dialog", (d) => d.accept());
+  { let n = 0; const h = (d) => { n++; if (n === 1) d.dismiss(); else { d.accept(); page.off("dialog", h); } }; page.on("dialog", h); } // 11/28：第一個問「是不是記錯」按取消、第二個「只隱藏」按確定
   await page.click('[data-testid="trade-hide"]');
   await page.waitForTimeout(600);
   await device.shell("input keyevent 111"); // 同上：關掉留在手機上的確認視窗
+  await page.waitForTimeout(300);
+  await device.shell("input keyevent 111"); // 11/28 起有兩個確認視窗，第二個也關掉
   await page.waitForTimeout(300);
   const afterHide = await page.evaluate(() => ({ rows: document.querySelectorAll('[data-testid="etf-trades"] .row').length, pos: document.querySelectorAll('.list .item .name').length, nav: document.querySelector('[data-testid="etf-summary"]').innerText.includes("股票市值") }));
   check(afterHide.rows === 0 && afterHide.pos === posBefore && afterHide.pos > 0 && afterHide.nav, "刪除成交紀錄那一列時，持股不會跟著消失", JSON.stringify({ posBefore, ...afterHide }));

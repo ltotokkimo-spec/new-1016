@@ -1197,6 +1197,14 @@ export async function hideEtfTrade(id: string) {
   await saveAiEtf({ ...state.aiEtf, trades: state.aiEtf.trades.map((t) => (t.id === id ? { ...t, hidden: true } : t)) });
 }
 
+/** 我的實單真正刪除一筆成交（11/28 使用者：和雙引擎實單一樣，記錯、沒成交的單要能刪掉，持股、現金、損益一起還原）；那天照建議記的都刪光就解除「同一天只能照建議記一次」 */
+export async function removeEtfTrade(id: string) {
+  const etf = state.aiEtf;
+  const trades = etf.trades.filter((t) => t.id !== id);
+  const keepApplied = etf.appliedDay && trades.some((t) => t.date === etf.appliedDay); // 隱藏的仍算有成交
+  await saveAiEtf({ ...etf, trades, ...(etf.appliedDay && !keepApplied ? { appliedDay: undefined } : {}) });
+}
+
 /** 設定或清除（undefined）某檔的停損價 */
 export async function setEtfStop(code: string, stop: number | undefined) {
   const stops = { ...state.aiEtf.stops };

@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import {
   addDualTrades, addDualFlow, setDualReserve, setDualSkip, hideDualTrade, removeDualTrade, resetDualReal, snapshotDualNav,
-  LIVE_MS, findScored, getFetcher, getKv, addEtfFlow, setEtfReserve, removeEtfFlow, addEtfTrades, hideEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshTurn, refreshDual, refreshDualPlus, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, livePriceNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
+  LIVE_MS, findScored, getFetcher, getKv, addEtfFlow, setEtfReserve, removeEtfFlow, addEtfTrades, hideEtfTrade, removeEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshTurn, refreshDual, refreshDualPlus, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, livePriceNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError } from "../ai/claude";
 import { nameLookup, parseOcrHoldings } from "../engine/ocrHoldings";
@@ -1959,6 +1959,7 @@ function HoldCheckCard({ checks, asOf, priceNote }: { checks: HoldCheck[]; asOf?
 
 function RealEtfScreen() {
   const [tradesOpen, setTradesOpen] = useState(() => { try { return localStorage.getItem("etfTradesOpen") === "1"; } catch { return false; } }); // 成交紀錄預設收合（11/14 使用者）
+  const [showHiddenReal, setShowHiddenReal] = useState(false);
   const st = useStore((s) => ({ asOf: s.tw.asOf, etf: s.aiEtf, prices: s.prices, scored: s.tw.scored, reports: s.reports, jobs: s.aiJobs, apiKey: s.settings.apiKey, twReady: s.tw.status === "ready" }));
   const { etf } = st;
   // 價格：盤中（或今天收盤後）用證交所即時價，沒有就用最近收盤；開著這頁每 30 秒更新
@@ -2209,15 +2210,20 @@ function RealEtfScreen() {
           <details open={tradesOpen} onToggle={(e) => { const o = (e.currentTarget as HTMLDetailsElement).open; setTradesOpen(o); try { localStorage.setItem("etfTradesOpen", o ? "1" : "0"); } catch { /* 不重要 */ } }} data-testid="etf-trades-box">
           <summary class="section-title" style={{ cursor: "pointer", listStyle: "none" }} data-testid="etf-trades-toggle"><span>{tradesOpen ? "▾" : "▸"} 成交紀錄</span><span>{etf.trades.filter((t) => !t.hidden).length} 筆・{tradesOpen ? "點一下收合" : "點一下展開"}</span></summary>
           <div class="card" style={{ padding: "6px 10px" }} data-testid="etf-trades">
-            {[...etf.trades].reverse().filter((t) => !t.hidden).map((t) => (
-              <div class="row" style={{ justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: "13px", flexWrap: "nowrap" }}>
-                <TradeLine t={t} pnl={tradePnl[t.id]} over={overM[t.id]} />
-                <button class="iconbtn" style={{ width: "28px", height: "28px" }} aria-label="刪除這筆" onClick={() => window.confirm("把這一列從成交紀錄移除？\n\n只是不再顯示在列表，持股、現金和損益不會變。") && hideEtfTrade(t.id)} data-testid="trade-hide">✕</button>
+            {[...etf.trades].reverse().filter((t) => showHiddenReal || !t.hidden).map((t) => (
+              <div class="row" style={{ justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--line)", fontSize: "13px", flexWrap: "nowrap", opacity: t.hidden ? 0.55 : 1 }} data-testid={t.hidden ? "etf-trade-hidden" : "etf-trade"}>
+                <TradeLine t={t} pnl={tradePnl[t.id]} over={overM[t.id]} />{t.hidden && <span class="muted" style={{ fontSize: "11px", whiteSpace: "nowrap" }}>已隱藏・仍計入</span>}
+                {/* 11/28 使用者：✕ 先問是不是記錯（確定＝真的刪除、持股現金還原），否則才只隱藏 */}
+                <button class="iconbtn" style={{ width: "28px", height: "28px" }} aria-label="刪除這筆" onClick={() => {
+                  if (window.confirm(`${prettyW(t.date)} ${t.side === "buy" ? "買" : "賣"} ${t.name} ${t.shares.toLocaleString()} 股：這筆是記錯、其實沒有成交嗎？\n\n按「確定」＝真的刪除，持股、現金和損益一起還原。\n按「取消」＝不是記錯（下一步可選擇只從列表隱藏）。`)) void removeEtfTrade(t.id);
+                  else if (!t.hidden && window.confirm("只把這一列從列表隱藏？\n\n持股、現金和損益照這筆計算，不會變。")) void hideEtfTrade(t.id);
+                }} data-testid="trade-hide">✕</button>
               </div>
             ))}
+            {etf.trades.some((t) => t.hidden) && <button class="linkbtn" style={{ fontSize: "12px", marginTop: "6px" }} onClick={() => setShowHiddenReal(!showHiddenReal)} data-testid="etf-show-hidden">{showHiddenReal ? "收起已隱藏的成交" : `顯示已隱藏的 ${etf.trades.filter((t) => t.hidden).length} 筆（仍計入持股與現金；記錯的可在這裡真的刪除）`}</button>}
           </div>
           </details>
-          <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, marginTop: "6px" }}>{TRADE_HINT}　按 ✕ 只是把那一列從列表移除，上面的持股、現金和損益不會跟著變；要更正持股，請用持股的「賣出」或「手動新增一筆成交」。</div>
+          <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, marginTop: "6px" }}>{TRADE_HINT}　按 ✕ 會先問是不是記錯：記錯（其實沒成交）就真的刪除，持股、現金和損益一起還原；不是記錯可選擇只從列表隱藏（帳照算）。</div>
           <button class="btn danger block" style={{ marginTop: "12px" }} onClick={() => window.confirm("清空整個自組 ETF（成交紀錄與走勢）重新開始？") && resetAiEtf()}>清空重新開始</button>
         </>
       )}

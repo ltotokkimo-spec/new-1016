@@ -894,11 +894,14 @@ function DualRealScreen() {
     while (x < day && left < 400) { x = addWeekdays(x, 1); left++; }
     return { from, day, left };
   })() : undefined;
+  // 11/28 使用者：判斷日這次的必買（判斷後還沒照清單記過）可以動用保留現金當緩衝、買超過一般水位；之後賣出的錢先補回保留現金
+  const judgeTrade = d?.targetsDate ? nextWeekday(d.targetsDate) : undefined;
+  const mustBuy = !!judgeTrade && !!(etf.cashReserve && etf.cashReserve > 0) && (!etf.appliedDay || etf.appliedDay < judgeTrade);
   // 11/28 使用者：實單維持滿水位（淨值減保留現金），雙引擎＋目標權重等比例放大
   const tgt = d?.targets ? fullTargets(d.targets, valuate(etf, orderPx).nav, etf.cashReserve ?? 0) : undefined;
   const tgtSum = d?.targets ? Object.values(d.targets).reduce((a, w) => a + w, 0) : 0;
   const noRebuy = [...soldAfter].filter((c) => !heldCodes.has(c) && (tgt?.[c] ?? 0) > 0);
-  const orders = [...exits, ...(d?.targets && twReady ? dualOrders(etf, tgt!, orderPx, name, DUAL_REAL.band, new Set([...skipCodes, ...soldAfter])).filter((o) => !exitCodes.has(o.code)) : [])];
+  const orders = [...exits, ...(d?.targets && twReady ? dualOrders(etf, tgt!, orderPx, name, DUAL_REAL.band, new Set([...skipCodes, ...soldAfter]), mustBuy).filter((o) => !exitCodes.has(o.code)) : [])];
   const flags: Record<string, string> = {};
   for (const o of orders) { // 價格提醒：漲停（買不到）、跌停（賣不掉）、買進的比昨收漲 5% 以上、賣出的比昨收跌 5% 以上
     const q = liveQ(o.code);
@@ -938,6 +941,7 @@ function DualRealScreen() {
       <div class="card stack" data-testid="dualreal-summary">
         <b>雙引擎實單（照「雙引擎＋」用真的錢下單）</b>
         {checkpoint && <div class="notice" style={{ fontSize: "13px" }} data-testid="dualreal-checkpoint">🧪 實驗檢查點：<b>{prettyW(checkpoint.day)}</b>（從 {prettyW(checkpoint.from)} 第一筆成交起 {DUAL_REAL.checkpointDays} 個交易日，{checkpoint.left > 0 ? `還有 ${checkpoint.left} 個交易日` : "已到，請比較和 0050 的差距，決定要不要繼續"}）。到時比較雙引擎實單和同樣的錢買 0050，再決定是否繼續。</div>}
+        {(etf.cashReserve ?? 0) > 0 && <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }} data-testid="dualreal-buffer">保留現金 {Math.round(etf.cashReserve!).toLocaleString()} 元是緩衝：{mustBuy ? "這次判斷的必買可以動用它、買超過一般水位（目前清單已算進去）" : "判斷日的必買才會動用；現在的清單不動用它"}，之後有賣出，收回的錢先補回保留現金、降回一般水位。</div>}
         {tgt && tgtSum > 0 && tgtSum < 0.995 && <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }} data-testid="dualreal-full">滿水位：雙引擎＋目標股票比重 {(tgtSum * 100).toFixed(0)}%，實單等比例放大到可投入資金（淨值{etf.cashReserve ? `減保留現金 ${Math.round(etf.cashReserve).toLocaleString()} 元` : ""}），各檔目標約 ×{(1 / tgtSum).toFixed(2)}。買進取整可能略超過，賣出回收的錢會再補回滿水位。</div>}
         <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
           規則和「雙引擎＋」觀察組合一樣（成長組五成＋低波動組五成、低波動組也看外資，每 5 個交易日收盤後判斷、成長組每 20 個交易日重選；Claude 每天查新聞，被否決的不買、持有的賣出；11/17 起兩組候選都限定當天選股頁評為「買入」的個股，持股會變少、現金變多），差距 ≥ 淨值 {(DUAL_REAL.band * 100).toFixed(1)}% 才調整。

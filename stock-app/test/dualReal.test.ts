@@ -156,3 +156,13 @@ describe("雙引擎實單：滿水位（11/28，目標權重等比例放大到�
     expect(fullTargets({ a: 0.5 }, 0)).toEqual({ a: 0.5 });
   });
 });
+
+describe("雙引擎實單：保留現金是緩衝（11/28，判斷日的必買可動用，平常不動用）", () => {
+  it("平常：買進只用到保留現金以上；必買：可以動用保留現金", () => {
+    const etf: AiEtf = { ...emptyEtf(500_000), cashReserve: 450_000 };
+    const normal = dualOrders(etf, { "2412": 0.3 }, price, name);
+    expect(normal.map((x) => x.shares)).toEqual([416]); // 只有 5 萬可用：50,000/1.001425/120 ≈ 416 股
+    const must = dualOrders(etf, { "2412": 0.3 }, price, name, DUAL_REAL.band, undefined, true);
+    expect(must.map((x) => x.shares)).toEqual([1250]); // 動用保留現金，買滿目標 15 萬
+  });
+});

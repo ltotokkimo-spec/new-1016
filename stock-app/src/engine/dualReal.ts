@@ -12,14 +12,15 @@ export interface DualOrder { code: string; name: string; side: "buy" | "sell"; s
  * 和目標差距小於淨值 band 的不動；買進受現金限制（先算完賣出回收的錢），股數無條件捨去（零股）。
  * price：估算用的價格（收盤價）；沒有價格的股票跳過。
  */
-export function dualOrders(etf: AiEtf, targets: Record<string, number>, price: (code: string) => number | undefined, name: (code: string) => string, band: number = DUAL_REAL.band, skip?: ReadonlySet<string>): DualOrder[] {
+export function dualOrders(etf: AiEtf, targets: Record<string, number>, price: (code: string) => number | undefined, name: (code: string) => string, band: number = DUAL_REAL.band, skip?: ReadonlySet<string>, useReserve = false): DualOrder[] {
   const v = valuate(etf, price);
   const nav = v.nav;
   if (!(nav > 0)) return [];
   const held = new Map(positions(etf.trades).filter((p) => p.shares > 0).map((p) => [p.code, p]));
   const out: DualOrder[] = [];
   let cash = v.cash;
-  const reserve = Math.max(0, etf.cashReserve ?? 0); // 保留現金：買進最多只動用到這個水位（賣出回收的錢算進可動用）
+  // 保留現金：平常買進最多只動用到這個水位（賣出回收的錢先補回保留現金）；useReserve＝判斷日這次的必買，可以動用保留現金當緩衝、買超過一般水位（11/28 使用者）
+  const reserve = useReserve ? 0 : Math.max(0, etf.cashReserve ?? 0);
   for (const [code, p] of held) { // 先賣
     const px = price(code);
     if (!(px && px > 0)) continue;

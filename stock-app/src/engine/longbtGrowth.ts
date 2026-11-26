@@ -109,15 +109,19 @@ export function aPicksLB(c: Ctx, j: number, allow?: ReadonlySet<string>, foreign
 }
 
 /** 成長 wG＋低波動 A wA；每 5 個交易日呼叫一次，成長組每 reselectEvery 次重選（4＝每 20 個交易日、1＝每週）。allowAt：每個判斷日的候選名單（沒給＝不限） */
-export function growthLbPicker(c: Ctx, wG: number, wA: number, trend: boolean, reselectEvery: number, allowAt?: (j: number) => ReadonlySet<string>, foreignOk = false): Picker {
+export function growthLbPicker(c: Ctx, wG: number, wA: number, trend: boolean, reselectEvery: number, allowAt?: (j: number) => ReadonlySet<string>, foreignOk = false, variant: { steadyAll?: boolean; fillGrowth?: boolean } = {}): Picker {
   let last: { code: string; weight: number }[] | null = null, n = 0;
   return (j) => {
     const allow = allowAt?.(j);
     if (!last || n % reselectEvery === 0) last = growthPicksLB(c, j, new Set((last ?? []).map((x) => x.code)), trend, allow);
     n++;
+    // 11/26 實驗（LBT_EXP6）：steadyAll＝低波動組的候選不限定名單（成長組照舊限定）；fillGrowth＝低波動組權重上限造成沒用完的部分，等比例補給成長組
+    const steady = wA ? aPicksLB(c, j, variant.steadyAll ? undefined : allow, foreignOk) : new Map<string, number>();
+    const used = [...steady.values()].reduce((a, v) => a + v * wA, 0);
+    const gScale = variant.fillGrowth && wG > 0 && last.length ? (wG + Math.max(0, wA - used)) / wG : 1;
     const m = new Map<string, number>();
-    for (const x of last) m.set(x.code, (m.get(x.code) ?? 0) + x.weight * wG);
-    if (wA) for (const [k, v] of aPicksLB(c, j, allow, foreignOk)) m.set(k, (m.get(k) ?? 0) + v * wA);
+    for (const x of last) m.set(x.code, (m.get(x.code) ?? 0) + x.weight * wG * gScale);
+    for (const [k, v] of steady) m.set(k, (m.get(k) ?? 0) + v * wA);
     return m;
   };
 }

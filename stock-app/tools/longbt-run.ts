@@ -30,6 +30,7 @@ const exp2 = process.env.LBT_EXP2 === "1"; // 雙引擎候選限定在選股頁�
 const exp = process.env.LBT_EXP === "1"; // 成長組走勢濾網實驗（PREREG 第 9 節）
 const exp5 = process.env.LBT_EXP5 === "1"; // 前一晚美股（那斯達克、費半）大跌／大漲時，隔天照「買入」名單買的表現（11/24 使用者要求）
 const exp4 = process.env.LBT_EXP4 === "1"; // 推薦（每天「買入」名單）停損與大盤弱勢暫停的事件研究（11/24 使用者要求）
+const exp6 = process.env.LBT_EXP6 === "1"; // 雙引擎＋現金偏多：低波動組不限名單（DB4S）、空出的權重補給成長組（DB4F）的影響（11/26 使用者要求，只看階段 A；需同時 LBT_EXP2=1）
 const exp3 = process.env.LBT_EXP3 === "1"; // 達標離場（獲利 ≥10% 且跌破 5 日線，不等判斷日先賣）對雙引擎的影響（11/24 使用者要求）
 const diag = process.env.LBT_DIAG === "1"; // 成本對照診斷：同一批組合分別用零成本、低滑價（0.05%）再跑一次，只印出來比較，不改判定
 const BENCH = "0050";
@@ -282,6 +283,11 @@ async function main() {
       { key: "DB4", label: "DB4 雙引擎＋的外資條件加上候選限定「買入」（實際上線的組合，B 已用掉，只看階段 A）", start: "rev", opts: o, make: () => growthLbPicker(c, 0.5, 0.5, false, 4, (j) => lists(j).buy, true) },
       { key: "DQ", label: "DQ 雙引擎，候選限定當天四因子名單", start: "rev", opts: o, make: () => growthLbPicker(c, 0.5, 0.5, false, 4, (j) => lists(j).quad) },
     );
+    if (exp6) defs.push(
+      { key: "DB4S", label: "DB4S 雙引擎＋（實際上線），低波動組候選不限「買入」（成長組照舊限定）", start: "rev", opts: o, make: () => growthLbPicker(c, 0.5, 0.5, false, 4, (j) => lists(j).buy, true, { steadyAll: true }) },
+      { key: "DB4F", label: "DB4F 雙引擎＋（實際上線），低波動組沒用完的權重補給成長組", start: "rev", opts: o, make: () => growthLbPicker(c, 0.5, 0.5, false, 4, (j) => lists(j).buy, true, { fillGrowth: true }) },
+      { key: "DB4SF", label: "DB4SF 兩者都做（低波動不限名單＋沒用完的補給成長組）", start: "rev", opts: o, make: () => growthLbPicker(c, 0.5, 0.5, false, 4, (j) => lists(j).buy, true, { steadyAll: true, fillGrowth: true }) },
+    );
     if (exp3) defs.push(
       { key: "DB4R", label: "DB4R 雙引擎＋（實際上線）＋達標離場（可買回）", start: "rev", opts: { ...o, takeProfit: { gain: 0.1 } }, make: () => growthLbPicker(c, 0.5, 0.5, false, 4, (j) => lists(j).buy, true) },
       { key: "DB4N", label: "DB4N 雙引擎＋（實際上線）＋達標離場（不買回）", start: "rev", opts: { ...o, takeProfit: { gain: 0.1, noRebuy: true } }, make: () => growthLbPicker(c, 0.5, 0.5, false, 4, (j) => lists(j).buy, true) },
@@ -380,6 +386,27 @@ async function main() {
       const [ra, ba] = [cutA(r, r.sim.eq), cutA(b, b.sim.eq)];
       console.log(`LBT_EXP3 ${k.padEnd(4)} vs ${base}：成本後年化 ${pc(cagr(ra))}（${pc(cagr(ba))}）｜最大回撤 ${pc(maxDd(ra))}（${pc(maxDd(ba))}）｜全期間年化 ${pc(r.s.cagr)}（${pc(b.s.cagr)}）｜換手 ${r.s.turnover.toFixed(1)}x（${b.s.turnover.toFixed(1)}x）｜曝險 ${pc(r.sim.exposure, 0)}（${pc(b.sim.exposure, 0)}）｜達標離場賣出 ${(r.sim as any).tpSells} 次｜${cagr(ra) > cagr(ba) && maxDd(ra) > maxDd(ba) ? "年化較高且回撤較淺" : cagr(ra) > cagr(ba) ? "年化較高但回撤沒有較淺" : maxDd(ra) > maxDd(ba) ? "回撤較淺但年化較低" : "年化較低、回撤也沒有較淺"}`);
     }
+  }
+
+  if (exp6) {
+    const by = new Map(rows.map((r) => [r.key, r]));
+    const cutA = (r: Row, e: number[]) => e.filter((_, i) => c.dates[r.start + i] <= A_END);
+    const b0 = by.get("0050");
+    for (const k of ["DB4", "DB4S", "DB4F", "DB4SF", "D1"] as const) {
+      const r = by.get(k), b = by.get("DB4");
+      if (!r || !b) continue;
+      const [ra, ba, za] = [cutA(r, r.sim.eq), cutA(b, b.sim.eq), cutA(r, r.bench.eq)];
+      // 年度報酬（階段 A）：逐年看，避免只看平均
+      const years: string[] = [];
+      for (let y = Number(c.dates[r.start].slice(0, 4)); y <= Number(A_END.slice(0, 4)); y++) {
+        const idx = r.sim.eq.map((_, i) => i).filter((i) => c.dates[r.start + i].startsWith(String(y)));
+        if (idx.length < 20) continue;
+        const ry = r.sim.eq[idx.at(-1)!] / r.sim.eq[Math.max(0, idx[0] - 1)] - 1, by0 = r.bench.eq[idx.at(-1)!] / r.bench.eq[Math.max(0, idx[0] - 1)] - 1;
+        years.push(`${y} ${pc(ry)}(0050 ${pc(by0)})`);
+      }
+      console.log(`LBT_EXP6 ${k.padEnd(5)}：成本後年化 ${pc(cagr(ra))}（DB4 ${pc(cagr(ba))}，0050 ${pc(cagr(za))}）｜最大回撤 ${pc(maxDd(ra))}（DB4 ${pc(maxDd(ba))}，0050 ${pc(maxDd(za))}）｜平均曝險 ${pc(r.sim.exposure, 0)}（DB4 ${pc(b.sim.exposure, 0)}）｜平均持股 ${r.sim.avgHold.toFixed(1)}｜換手 ${r.s.turnover.toFixed(1)}x｜${k === "DB4" ? "基準" : cagr(ra) > cagr(ba) && maxDd(ra) > maxDd(ba) ? "年化較高且回撤較淺" : cagr(ra) > cagr(ba) ? "年化較高但回撤較深" : maxDd(ra) > maxDd(ba) ? "回撤較淺但年化較低" : "年化較低、回撤也較深"}｜逐年 ${years.join("、")}`);
+    }
+    if (b0) log("LBT_EXP6 備註：只看階段 A（2019～2021，B 已在 11/17 開封過一次不再開）；樣本只有 3 年，結果只當參考");
   }
 
   // ---- 判定 ----

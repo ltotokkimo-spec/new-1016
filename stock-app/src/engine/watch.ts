@@ -7,7 +7,7 @@ import { DUALPLUS, buyCodesAt, aiTargets, aPicks, buildCtx, DUAL, GROWTH, growth
 import type { RevTable } from "./revHist";
 import type { DualVeto } from "./virtualEtf";
 import { addNote, newVirtual, type PendingOrder, type VirtualEtf } from "./virtualEtf";
-import type { Company } from "../data/tw";
+import { isCommonStock, type Company } from "../data/tw";
 
 export const WATCH = {
   start: "20261023", // 第一次決定的日期（當天收盤後選股，下一個交易日收盤成交）
@@ -17,6 +17,11 @@ export const WATCH = {
   aiEvery: 20, // AI 供應鏈每幾個交易日調整一次（約每月，和回測一致）
   minTrade: 0.002, // 與目標差距小於淨值的 0.2% 就不動，避免零碎交易
 } as const;
+/**
+ * 共識股觀察組合（使用者 11/27 選「共識股」）：不放 0050，每天收盤看各規則組（N5、全個股、攻守輪動、權值強化、AI 供應鏈、實單規則、剛轉強、雙引擎、雙引擎＋）
+ * 當天收盤的持股，被 minVotes 組以上同時持有的個股才買；票數多的優先、同票數成交金額大的優先，最多 maxN 檔，每檔 1/max(檔數, minDiv)（不到 minDiv 檔時其餘放現金）。
+ */
+export const CONS = { minVotes: 2, maxN: 10, minDiv: 5, band: 0.005 } as const;
 const BENCH = "0050";
 const r2 = (x: number) => Math.round(x * 100) / 100;
 const pc = (x: number, d = 1) => `${x >= 0 ? "+" : ""}${(x * 100).toFixed(d)}%`;
@@ -27,8 +32,8 @@ const pc = (x: number, d = 1) => `${x >= 0 ? "+" : ""}${(x * 100).toFixed(d)}%`;
  * mode "dual"：雙引擎（使用者 11/14 同意上線）：成長組五成（每 20 個交易日重選，需要 opts.rev 歷史月營收）＋方案 A 五成（每 5 個交易日重選）。
  *   雙引擎＋（11/18 使用者要求乾淨重新開始）起始日是 DUALPLUS.rankFrom（11/17）：新規則從 11/17 收盤的判斷起算，歷史不含舊規則；原版雙引擎起始日是 DUAL.start（規則定案前最後一個資料日 11/13），不是其他組的 10/23：規則是看過 11/13 以前的資料才訂的，從定案日起算才是真正的事後觀察。
  */
-export function runWatch(days: BtDay[], companies: Company[], opts: { start?: string; budget?: number; now?: number; mode?: "n5" | "wide" | "regime" | "lead" | "ai" | "real" | "turn" | "dual" | "dualplus"; rev?: RevTable; vetoes?: DualVeto[]; rankFrom?: string; buyAt?: (j: number) => ReadonlySet<string> } = {}): VirtualEtf {
-  const wide = opts.mode === "wide", regime = opts.mode === "regime", lead = opts.mode === "lead", ai = opts.mode === "ai", real = opts.mode === "real", turn = opts.mode === "turn", plus = opts.mode === "dualplus", dual = opts.mode === "dual" || plus;
+export function runWatch(days: BtDay[], companies: Company[], opts: { start?: string; budget?: number; now?: number; mode?: "n5" | "wide" | "regime" | "lead" | "ai" | "real" | "turn" | "dual" | "dualplus" | "consensus"; rev?: RevTable; vetoes?: DualVeto[]; rankFrom?: string; buyAt?: (j: number) => ReadonlySet<string>; votes?: (date: string) => ReadonlyMap<string, string[]> } = {}): VirtualEtf {
+  const wide = opts.mode === "wide", regime = opts.mode === "regime", lead = opts.mode === "lead", ai = opts.mode === "ai", real = opts.mode === "real", turn = opts.mode === "turn", cons = opts.mode === "consensus", plus = opts.mode === "dualplus", dual = opts.mode === "dual" || plus;
   // 雙引擎＋：當天有效的新聞否決（代號 → 否決）
   const vetoAt = (d: string) => new Map((plus ? opts.vetoes ?? [] : []).filter((x) => x.from <= d && (!x.until || d <= x.until)).map((x) => [x.code, x]));
   let lastA: Map<string, number> | undefined;
@@ -65,7 +70,7 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
       const px = (code: string) => close(code, j) ?? last[code]?.close ?? 0;
       let total = cash;
       for (const [code, sh] of hold) total += sh * px(code);
-      const minAmt = total * (wide ? STEADY.wideBand : turn ? TURN2.band : dual ? DUAL.band : lead || ai ? LEAD.band : WATCH.minTrade);
+      const minAmt = total * (wide ? STEADY.wideBand : cons ? CONS.band : turn ? TURN2.band : dual ? DUAL.band : lead || ai ? LEAD.band : WATCH.minTrade);
       const book = (code: string, side: "buy" | "sell", shares: number) => {
         const price = r2(px(code));
         const t: EtfTrade = { id: `${date}-${code}-${side}`, date, code, name: name(code, j), side, shares, price, benchPrice: bench };
@@ -96,7 +101,7 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
     const val = valuate(v, (code) => close(code, j) ?? last[code]?.close);
     if (!val.missing.length) v = { ...v, ...recordNav(v, date, val) };
     // 3. 收盤後重新選股：全個股、N5、權值強化每天；攻守輪動每 5 個交易日；AI 供應鏈每 20 個交易日
-    const scheduled = wide || lead || turn || !(regime || ai || real || dual) || (j - (jRank >= 0 && j >= jRank ? jRank : j0)) % (ai ? WATCH.aiEvery : real ? REAL.every : dual ? DUAL.every : WATCH.every) === 0;
+    const scheduled = wide || lead || turn || cons || !(regime || ai || real || dual) || (j - (jRank >= 0 && j >= jRank ? jRank : j0)) % (ai ? WATCH.aiEvery : real ? REAL.every : dual ? DUAL.every : WATCH.every) === 0;
     const vetoNow = vetoAt(date);
     // 雙引擎＋：持股當天被否決，就算不是判斷日也要在收盤後排賣出
     const decide = scheduled || (plus && [...hold.keys()].some((k) => vetoNow.has(k)));
@@ -104,7 +109,17 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
     const stopped = real ? positions(trades).filter((p) => p.shares > 0 && hold.has(p.code) && (close(p.code, j) ?? Infinity) < p.avgCost * (1 - REAL.stop)) : [];
     if (decide) lastDecision = date;
     let text = `資料日收盤：組合 ${pc(val.ret, 2)}，0050 對照 ${pc(val.benchRet, 2)}；股票 ${val.nav > 0 ? Math.round((val.marketValue / val.nav) * 100) : 0}%，持有 ${hold.size} 檔。`;
-    if (turn && turnPick) {
+    if (cons) {
+      const vs = opts.votes?.(date) ?? new Map<string, string[]>();
+      const amt = (code: string) => c.rows[j].get(code)?.[4] ?? 0;
+      const pickd = [...vs].filter(([code, g]) => g.length >= CONS.minVotes && isCommonStock(code) && close(code, j))
+        .sort((a, b) => b[1].length - a[1].length || amt(b[0]) - amt(a[0])).slice(0, CONS.maxN);
+      const w = 1 / Math.max(pickd.length, CONS.minDiv);
+      const t = new Map(pickd.map(([code]) => [code, w]));
+      setTarget(t);
+      const list = pickd.map(([code, g]) => `・${name(code, j)} ${code}　${(w * 100).toFixed(1)}%　${g.length} 組：${g.join("、")}`).join("\n");
+      text += `\n本日判斷：各規則組今天收盤的持股，被 ${CONS.minVotes} 組以上同時持有的個股（不含 ETF），票數多的優先、最多 ${CONS.maxN} 檔，每檔 ${(w * 100).toFixed(0)}%${pickd.length < CONS.minDiv ? "，其餘放現金" : ""}；共 ${pickd.length} 檔：\n${list || "目前沒有共識股，先放現金"}\n下一個交易日收盤價調整。`;
+    } else if (turn && turnPick) {
       const t = turnPick(j);
       setTarget(t);
       const adds = [...t.keys()].filter((code) => !hold.has(code)), drops = [...hold.keys()].filter((code) => !t.has(code));
@@ -194,7 +209,7 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
     const px = (code: string) => v.last[code]?.close ?? close(code, c.N - 1) ?? 0;
     let total = cash;
     for (const [code, sh] of hold) total += sh * px(code);
-    const minAmt = total * (wide ? STEADY.wideBand : turn ? TURN2.band : dual ? DUAL.band : lead || ai ? LEAD.band : WATCH.minTrade);
+    const minAmt = total * (wide ? STEADY.wideBand : cons ? CONS.band : turn ? TURN2.band : dual ? DUAL.band : lead || ai ? LEAD.band : WATCH.minTrade);
     const nm = (code: string) => name(code, c.N - 1);
     for (const [code, sh] of hold) { // 先賣
       const p = px(code), want = (lastDayTarget.get(code) ?? 0) * total, have = sh * p;
@@ -209,8 +224,18 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
       if (n > 0) pending.push({ code, name: nm(code), side: "buy", shares: n, reason: have > 0 ? `加碼：目標 ${(w * 100).toFixed(1)}%，目前 ${((have / total) * 100).toFixed(1)}%` : `新增：目標 ${(w * 100).toFixed(1)}%`, placed: v.asOf });
     }
   }
-  const every = wide || lead || turn || !(regime || ai || real || dual) ? 1 : ai ? WATCH.aiEvery : real ? REAL.every : dual ? DUAL.every : WATCH.every;
+  const every = wide || lead || turn || cons || !(regime || ai || real || dual) ? 1 : ai ? WATCH.aiEvery : real ? REAL.every : dual ? DUAL.every : WATCH.every;
   const nextStock = lastDayTarget ? [...lastDayTarget.values()].reduce((a, b) => a + b, 0) : undefined; // 明天調整完的股票目標比重（其餘是現金）
   const lastVetoes = plus && v.asOf ? [...vetoAt(v.asOf).values()].map((x) => ({ ...x, name: x.name ?? name(x.code, c.N - 1) })) : undefined;
-  return { ...v, pending, ...(lastVetoes ? { vetoes: lastVetoes } : {}), ...(curGroups ? { groups: curGroups } : {}), ...(curTarget ? { targets: Object.fromEntries([...curTarget].map(([k, w]) => [k, Math.round(w * 1e6) / 1e6])), targetsDate: curTargetDate } : {}), plan: { every, lastDecision, nextStock, ...(dual ? { growthEvery: GROWTH.every, lastGrowth } : {}), band: wide ? STEADY.wideBand : turn ? TURN2.band : dual ? DUAL.band : lead || ai ? LEAD.band : WATCH.minTrade } };
+  return { ...v, pending, ...(lastVetoes ? { vetoes: lastVetoes } : {}), ...(curGroups ? { groups: curGroups } : {}), ...(curTarget ? { targets: Object.fromEntries([...curTarget].map(([k, w]) => [k, Math.round(w * 1e6) / 1e6])), targetsDate: curTargetDate } : {}), plan: { every, lastDecision, nextStock, ...(dual ? { growthEvery: GROWTH.every, lastGrowth } : {}), band: wide ? STEADY.wideBand : cons ? CONS.band : turn ? TURN2.band : dual ? DUAL.band : lead || ai ? LEAD.band : WATCH.minTrade } };
+}
+
+/** 共識股用：某組在某天收盤後的持股（該天以前所有成交累計，股數 > 0） */
+export function holdingsAt(v: VirtualEtf): (date: string) => Set<string> {
+  const ts = [...v.trades].sort((a, b) => a.date.localeCompare(b.date));
+  return (date: string) => {
+    const sh = new Map<string, number>();
+    for (const t of ts) { if (t.date > date) break; sh.set(t.code, (sh.get(t.code) ?? 0) + (t.side === "buy" ? t.shares : -t.shares)); }
+    return new Set([...sh].filter(([, n]) => n > 0).map(([k]) => k));
+  };
 }

@@ -386,3 +386,25 @@ describe("雙引擎＋ 11/17：候選限定選股頁「買入」（從 rankFrom 
     expect(growthPicks(c, j).map((x) => x.code)).toEqual(growthPicksLB(c, j, new Set(), false).map((x) => x.code));
   });
 });
+
+describe("共識股觀察組合（11/27）", () => {
+  // 2001 三組都持有、2002 兩組、2003 只有一組、0050 兩組（ETF 不買）
+  const votes = () => new Map([["2001", ["N5", "全個股", "剛轉強"]], ["2002", ["N5", "雙引擎"]], ["2003", ["N5"]], ["0050", ["N5", "攻守輪動"]]]);
+  const v = runWatch(days, companies, { start: startAt, now: 0, mode: "consensus", votes });
+  it("只買 2 組以上同時持有的個股，不買 ETF；不到 5 檔每檔 20%、其餘現金", () => {
+    const codes = new Set(v.trades.filter((t) => t.side === "buy").map((t) => t.code));
+    expect([...codes].sort()).toEqual(["2001", "2002"]);
+    const val = valuate(v, (c) => v.last[c]?.close);
+    expect(val.cash).toBeGreaterThanOrEqual(0);
+    expect(val.marketValue / val.nav).toBeGreaterThan(0.35);
+    expect(val.marketValue / val.nav).toBeLessThan(0.45);
+    expect(v.notes.at(-1)?.text).toContain("3 組：N5、全個股、剛轉強");
+  });
+  it("holdingsAt：依成交累計出某天收盤後的持股", async () => {
+    const { holdingsAt } = await import("../src/engine/watch");
+    const at = holdingsAt(v);
+    const first = [...new Set(v.trades.map((t) => t.date))].sort()[0];
+    expect(at(first).size).toBe(2);
+    expect(at("19990101").size).toBe(0);
+  });
+});

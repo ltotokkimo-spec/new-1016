@@ -49,6 +49,7 @@ const ppKey = (b: PickBook) => (b === "TW" ? "picksPerf" : `picksPerf:${b}`); //
 export const QUAD_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/quad.json"; // 四因子選股名單（11/15）
 export const DUALPLUS_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/dualplus.json"; // 雙引擎＋（11/15）
 export const DUAL_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/dual.json"; // 雙引擎觀察組合（11/14）
+export const CONS_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/consensus.json"; // 共識股觀察組合（11/27）
 export const TURN_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/turn.json"; // 剛轉強觀察組合
 export const RULE_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/real.json"; // 實單規則觀察組合（「我的實單」的選股規則）
 export const LEAD_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/lead.json"; // 權值強化觀察組合
@@ -123,6 +124,7 @@ export interface State {
   ai?: { data: VirtualEtf; fetchedAt: number; error?: string };
   rule?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 實單規則觀察組合
   turn?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 剛轉強觀察組合
+  cons?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 共識股觀察組合（11/27）
   dual?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 雙引擎觀察組合（成長組＋低波動組）
   dualPlus?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 雙引擎＋（加外資條件與 Claude 新聞否決）
   picksPerf: Partial<Record<PickBook, PicksPerfEntry>>; // 推薦績效追蹤（台股、ETF、美股）
@@ -235,6 +237,8 @@ async function initInner() {
   if (rule0) set({ rule: rule0 });
   const turn0 = await kv.get<State["turn"]>("turn");
   if (turn0) set({ turn: turn0 });
+  const cons0 = await kv.get<State["cons"]>("cons");
+  if (cons0) set({ cons: cons0 });
   const quad0 = await kv.get<State["quad"]>("quad");
   if (quad0) set({ quad: quad0 });
   const dr0 = await kv.get<AiEtf>("dualReal");
@@ -835,6 +839,19 @@ export async function refreshTurn() {
   } catch {
     if (state.turn) set({ turn: { ...state.turn, error: "這次沒下載到最新資料，顯示上次的內容" } });
     else set({ turn: undefined });
+  }
+}
+
+export async function refreshCons() {
+  try {
+    const data = (await fetchData(CONS_URL)) as VirtualEtf;
+    if (data?.version !== 1 || !Array.isArray(data.trades)) throw new Error("格式不對");
+    const v = { data, fetchedAt: Date.now() };
+    await kv.set("cons", v);
+    set({ cons: v });
+  } catch {
+    if (state.cons) set({ cons: { ...state.cons, error: "這次沒下載到最新資料，顯示上次的內容" } });
+    else set({ cons: undefined });
   }
 }
 

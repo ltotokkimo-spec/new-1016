@@ -1877,7 +1877,10 @@ function check(ok, name, detail = "") {
   const ny = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23" }).formatToParts(new Date());
   const P = Object.fromEntries(ny.map((x) => [x.type, x.value]));
   let exp = new Date(Date.UTC(+P.year, +P.month - 1, +P.day - (+P.hour >= 17 ? 0 : 1)));
-  while ([0, 6].includes(exp.getUTCDay())) exp = new Date(exp.getTime() - 86400000);
+  // 11/27：美國假日（感恩節、聖誕等）美股休市，預期日往前跳到前一個開市日
+  const usHoliday = (d) => { const y = d.getUTCFullYear(), m = d.getUTCMonth() + 1, day = d.getUTCDate(), wd = d.getUTCDay(), nth = Math.ceil(day / 7), last = day + 7 > new Date(Date.UTC(y, m, 0)).getUTCDate();
+    return (m === 1 && day === 1) || (m === 1 && wd === 1 && nth === 3) || (m === 2 && wd === 1 && nth === 3) || (m === 5 && wd === 1 && last) || (m === 6 && day === 19) || (m === 7 && day === 4) || (m === 9 && wd === 1 && nth === 1) || (m === 11 && wd === 4 && nth === 4) || (m === 12 && day === 25); };
+  while ([0, 6].includes(exp.getUTCDay()) || usHoliday(exp)) exp = new Date(exp.getTime() - 86400000);
   const expTxt = `${exp.getUTCMonth() + 1}/${exp.getUTCDate()}`;
   log("美股資料日", usAsof, "預期", expTxt);
   check(usAsof.includes(`美股資料 ${expTxt}`), "美股資料是最近一個收盤日", `${usAsof} 預期 ${expTxt}（美國假日會不同）`);

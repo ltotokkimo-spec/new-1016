@@ -1055,6 +1055,10 @@ function check(ok, name, detail = "") {
   await page.waitForFunction(() => /要下的單/.test(document.querySelector('[data-testid="dualreal"]')?.innerText || "") && !/等台股收盤價下載完/.test(document.querySelector('[data-testid="dualreal"]')?.innerText || ""), null, { timeout: 30000 }).catch(() => {});
   const drTxt = await page.$eval('[data-testid="dualreal"]', (e) => e.innerText.replace(/\s+/g, " "));
   const drOrders = await page.$$eval('[data-testid="dualreal-order"]', (rs) => rs.length);
+  if (drOrders > 0) { // 11/28：清單標明是幾號要下的單
+    const ld = await page.$eval('[data-testid="dualreal-listday"]', (e) => e.innerText).catch(() => "");
+    check(/\d+\/\d+（.）\s*要下的單/.test(ld), "雙引擎實單要下的單標明是幾號的單", ld);
+  }
   log("雙引擎實單", drTxt.slice(0, 600), "下單筆數", drOrders);
   check(/雙引擎實單（照「雙引擎＋」/.test(drTxt) && /資金水位/.test(drTxt) && /投入 50\.0 萬/.test(drTxt) && (drOrders > 0 || /今天不用下單|還沒有目標配置/.test(drTxt)), "自組ETF 有「雙引擎實單」：本金 50 萬，依雙引擎目標配置列出要下的單", drTxt.slice(0, 200));
   await shot("05d6-雙引擎實單");

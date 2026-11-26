@@ -16,7 +16,7 @@ import { DUAL_REAL, dualExitOrders, dualOrders, soldSinceDecision, waterLevel, t
 import { limitFromChg } from "../lib/limit";
 import { isEtf } from "../data/tw";
 import { emptyEtf, type AiEtf, type Valuation } from "../engine/aiEtf";
-import { addWeekdays, nextWeekday, openedOn, orderDay, pretty, prettyW, taipeiClock, taipeiHour, taipeiToday } from "../lib/dates";
+import { addWeekdays, isWeekday, nextWeekday, openedOn, orderDay, pretty, prettyW, taipeiClock, taipeiHour, taipeiToday } from "../lib/dates";
 import { beforeTopUp, CASH_BASE, CASH_MAX, CASH_STEPS, cashLevel, type CashPlan } from "../engine/virtualEtf";
 import { livePolling, trialLabel, type LiveQuote } from "../data/twLive";
 import { CostValue, cls, fmtMoney, fmtPct, fmtPrice, fmtSigned, LimitPx, Markdown } from "./common";
@@ -1019,10 +1019,15 @@ function OrderMoney({ side, code, shares, price, avgCost }: { side: "buy" | "sel
 
 function DualFill({ orders, groups, flags = {}, onSkip, targetsDate }: { orders: DualOrder[]; groups?: DualGroups; flags?: Record<string, string>; onSkip?: (code: string) => void; targetsDate?: string }) {
   // 11/24 使用者：和「我的實單」一樣，判斷日收盤後算出的單要等下一個交易日 09:00 開盤後才能記；同一天照清單只能記一次（剩下沒成交的隔天再記，或用「手動新增一筆成交」）
-  const tradeDay = targetsDate ? nextWeekday(targetsDate) : undefined;
+  // 11/28 使用者：清單標明是幾號的單，而且一律要等那天 09:00 開盤後才能記（以前判斷日的隔天之後就不限時間，清晨也能記到還沒成交的單）
+  // 這張清單是「今天」的單（週末算下一個平日），但不早於判斷日的下一個交易日；收盤後仍算今天（記今天的成交）
+  const todayD = taipeiToday();
+  const tradingDay = isWeekday(todayD) ? todayD : nextWeekday(todayD);
+  const judgeNext = targetsDate ? nextWeekday(targetsDate) : undefined;
+  const tradeDay = judgeNext && judgeNext > tradingDay ? judgeNext : tradingDay;
   const appliedDay = useStore((s) => s.dualReal?.appliedDay);
   const gateOff = !!(globalThis as any).__srIgnoreOrderGate; // 自動測試用
-  const early = !gateOff && !!tradeDay && !openedOn(tradeDay);
+  const early = !gateOff && !openedOn(tradeDay);
   const already = !gateOff && appliedDay === taipeiToday();
   const fresh = (o: DualOrder) => ({ ...o, keep: true, sharesText: String(o.shares), priceText: String(o.price) });
   const avgOf = useMemo(() => new Map(positions(getState().dualReal?.trades ?? []).filter((p) => p.shares > 0).map((p) => [p.code, p.avgCost])), []); // 賣出損益用的平均成本（含買進手續費）
@@ -1058,6 +1063,7 @@ function DualFill({ orders, groups, flags = {}, onSkip, targetsDate }: { orders:
   const buys = rows.filter((r) => r.side === "buy").length, sells = rows.length - buys;
   return (
     <div class="card stack" data-testid="dualreal-orders">
+      <div style={{ fontSize: "16px", fontWeight: 800 }} data-testid="dualreal-listday">📅 {prettyW(tradeDay)} 要下的單{targetsDate ? <span class="muted" style={{ fontSize: "12.5px", fontWeight: 400 }}>（依 {prettyW(targetsDate)} 收盤的判斷）</span> : null}</div>
       <div style={{ fontSize: "13.5px" }}>共 {rows.length} 筆：賣出 {sells} 筆、買進 {buys} 筆（先賣後買）。右邊兩格是「股數」和「股價」，用最近收盤價估算，可改成實際成交的股數與價格；沒成交的取消勾選。</div>
       <button class="btn secondary block" onClick={() => fillLive(rows.map((_, i) => i))} data-testid="dualreal-px-all">↻ 全部帶入現價</button>
       {pxMsg && <div class="muted" style={{ fontSize: "12px" }} data-testid="dualreal-px-msg">{pxMsg}</div>}
@@ -1078,7 +1084,7 @@ function DualFill({ orders, groups, flags = {}, onSkip, targetsDate }: { orders:
       ))}
       {err && <div class="error">{err}</div>}
       {done && <div class="notice" style={{ fontSize: "13px" }}>{done}</div>}
-      {early && <div class="notice" style={{ fontSize: "13px" }} data-testid="dualreal-early">⏰ 這是 {prettyW(tradeDay!)} 要下的單：等 {prettyW(tradeDay!)} 09:00 開盤、實際成交後才能記錄。</div>}
+      {early && <div class="notice" style={{ fontSize: "13px" }} data-testid="dualreal-early">⏰ 這是 {prettyW(tradeDay)} 要下的單：等 {prettyW(tradeDay)} 09:00 開盤、實際成交後才能記錄（開盤前不能先記，免得記到還沒成交的單）。</div>}
       {already && !done && <div class="notice" style={{ fontSize: "13px" }} data-testid="dualreal-already">✅ 今天已經照清單記錄過成交了，同一天不能再記一次，免得重複下單。沒成交完的明天再記；真的還有別的成交，請用「手動新增一筆成交」。</div>}
       <button class="btn block" onClick={save} disabled={early || already} data-testid="dualreal-save">{early ? `${prettyW(tradeDay!)} 開盤後才能記錄` : already ? "今天已記錄過" : "記錄勾選的成交"}</button>
     </div>

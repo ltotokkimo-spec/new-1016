@@ -564,7 +564,8 @@ function check(ok, name, detail = "") {
     check((dtp.rows.length > 0 && dtp.rows.length <= 10 && dtp.note && dtp.rows.every((r) => /成交值 .+・振幅 \d+\.\d%・量能 \d+\.\d 倍/.test(r) && /今天在(高檔|低檔|區間中段)/.test(r))) || /開盤|沒有同時符合/.test(dtp.empty), "當沖分頁有「當沖推薦」：成交值、振幅、量能與今天位置（或說明為何沒有）", JSON.stringify(dtp).slice(0, 200));
     await page.click('[data-testid="dt-by-vol"]');
     await sleep(500);
-    const first = dtv.rows[0];
+    // 11/27 run 502：dtv 是重新整理前抓的，更新後排行可能換人（1802 → 3189）；點之前再讀一次目前第一名
+    const first = await page.$eval('[data-testid="dt-row"]', (e) => ({ code: e.dataset.code })).catch(() => dtv.rows[0]);
     await page.click('[data-testid="dt-row"]');
     await page.waitForSelector(".sheet[role=dialog]", { timeout: 15000 }).catch(() => {});
     const dtTitle = await page.$eval(".sheet[role=dialog]", (e) => e.getAttribute("aria-label") || "").catch(() => "");

@@ -10,7 +10,7 @@ import { fileToBase64, recognizeText } from "../lib/ocr";
 import type { Scored } from "../engine/score";
 import type { VirtualEtf } from "../engine/virtualEtf";
 import { twHistory } from "../data/history";
-import { buyConds, sellConds, holdConds, dailyHoldingCheck, takeProfitSignal, TAKE_PROFIT, type HoldCheck, type EtfTrade, type EtfFlow, agreePlans, comparePlans, DEFAULT_STOP, planReadable, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, proClipboardAction, replySig, parsePlan, positions, tradePnls, oversold, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
+import { buyConds, cashFlow, FEE, sellConds, holdConds, dailyHoldingCheck, takeProfitSignal, TAKE_PROFIT, type HoldCheck, type EtfTrade, type EtfFlow, agreePlans, comparePlans, DEFAULT_STOP, planReadable, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, proClipboardAction, replySig, parsePlan, positions, tradePnls, oversold, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { onAppResume, readClipboard } from "../lib/clip";
 import { DUAL_REAL, dualExitOrders, dualOrders, waterLevel, type DualOrder, type WaterLevel } from "../engine/dualReal";
 import { limitFromChg } from "../lib/limit";
@@ -995,6 +995,23 @@ async function nowPrices(codes: string[]): Promise<{ px: Record<string, number>;
 }
 
 /** 雙引擎實單的下單清單：勾選、改成實際的股數與成交價，一次記錄 */
+/**
+ * 要下的單每一筆的金額（11/26 使用者）：賣出寫「實收」（扣手續費與證交稅）和這筆賣出的損益（實收減平均成本×股數，平均成本已含買進手續費）；
+ * 買進寫「應付」（含手續費）。費率和記帳一致（cashFlow：手續費 0.1425% 未打折、證交稅一般股票 0.3%／ETF 0.1%）。
+ */
+function OrderMoney({ side, code, shares, price, avgCost }: { side: "buy" | "sell"; code: string; shares: number; price: number; avgCost?: number }) {
+  const amt = shares * price, net = cashFlow({ side, shares, price, code }), fee = amt * FEE;
+  const n = (x: number) => Math.round(x).toLocaleString("zh-TW");
+  if (side === "buy") return <div class="muted num" style={{ fontSize: "11.5px" }} data-testid="order-money">買進應付約 {n(-net)} 元（成交 {n(amt)}＋手續費 {n(fee)}）</div>;
+  const tax = amt - fee - net, pnl = avgCost && avgCost > 0 ? net - avgCost * shares : NaN;
+  return (
+    <div class="num" style={{ fontSize: "11.5px" }} data-testid="order-money">
+      <div class="muted">賣出實收約 {n(net)} 元（成交 {n(amt)}－手續費 {n(fee)}－證交稅 {n(tax)}）</div>
+      {Number.isFinite(pnl) && <div class={cls(pnl)} style={{ fontWeight: 700 }} data-testid="order-pnl">這筆賣出{pnl < 0 ? "賠" : "賺"} {n(Math.abs(pnl))} 元（{fmtPct(net / (avgCost! * shares) - 1, 1)}，已扣買賣手續費與稅）</div>}
+    </div>
+  );
+}
+
 function DualFill({ orders, groups, flags = {}, onSkip, targetsDate }: { orders: DualOrder[]; groups?: DualGroups; flags?: Record<string, string>; onSkip?: (code: string) => void; targetsDate?: string }) {
   // 11/24 使用者：和「我的實單」一樣，判斷日收盤後算出的單要等下一個交易日 09:00 開盤後才能記；同一天照清單只能記一次（剩下沒成交的隔天再記，或用「手動新增一筆成交」）
   const tradeDay = targetsDate ? nextWeekday(targetsDate) : undefined;
@@ -1003,6 +1020,7 @@ function DualFill({ orders, groups, flags = {}, onSkip, targetsDate }: { orders:
   const early = !gateOff && !!tradeDay && !openedOn(tradeDay);
   const already = !gateOff && appliedDay === taipeiToday();
   const fresh = (o: DualOrder) => ({ ...o, keep: true, sharesText: String(o.shares), priceText: String(o.price) });
+  const avgOf = useMemo(() => new Map(positions(getState().dualReal?.trades ?? []).filter((p) => p.shares > 0).map((p) => [p.code, p.avgCost])), []); // 賣出損益用的平均成本（含買進手續費）
   const [rows, setRows] = useState(() => orders.map(fresh));
   const [err, setErr] = useState("");
   const [done, setDone] = useState("");
@@ -1047,7 +1065,7 @@ function DualFill({ orders, groups, flags = {}, onSkip, targetsDate }: { orders:
             <button class="linkbtn" style={{ fontSize: "11.5px", padding: 0, marginRight: "10px" }} onClick={() => fillLive([i])} data-testid="dualreal-px-one">↻ 帶入現價</button>
             {r.side === "buy" && onSkip && <button class="linkbtn" style={{ fontSize: "11.5px", padding: 0 }} onClick={() => onSkip(r.code)} data-testid="dualreal-skip">✕ 這次先不買</button>}
             {flags[r.code] && <div style={{ fontSize: "11.5px", color: "#b25e00", fontWeight: 700 }} data-testid="dualreal-flag">⚠ {flags[r.code]}</div>}
-            {Number(r.sharesText) > 0 && Number(r.priceText) > 0 && <div class="muted num" style={{ fontSize: "11.5px" }}>約 {moneyU(Number(r.sharesText) * Number(r.priceText))}</div>}
+            {Number(r.sharesText) > 0 && Number(r.priceText) > 0 && <OrderMoney side={r.side} code={r.code} shares={Number(r.sharesText)} price={Number(r.priceText)} avgCost={avgOf.get(r.code)} />}
           </div>
           <label style={{ width: "64px", fontSize: "11px", color: "var(--muted)" }}>股數（股）<input class="num" style={{ width: "100%", boxSizing: "border-box" }} inputMode="numeric" value={r.sharesText} onInput={(e) => upd(i, { sharesText: (e.target as HTMLInputElement).value })} aria-label="股數" /></label>
           <label style={{ width: "64px", fontSize: "11px", color: "var(--muted)" }}>股價（元）<input class="num" style={{ width: "100%", boxSizing: "border-box" }} inputMode="decimal" value={r.priceText} onInput={(e) => upd(i, { priceText: (e.target as HTMLInputElement).value })} aria-label="成交價" /></label>

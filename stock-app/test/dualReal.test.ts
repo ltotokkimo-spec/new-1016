@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DUAL_REAL, dualExitOrders, dualOrders, waterLevel } from "../src/engine/dualReal";
+import { DUAL_REAL, dualExitOrders, dualOrders, soldSinceDecision, waterLevel } from "../src/engine/dualReal";
 import { emptyEtf, FEE, valuate, type AiEtf } from "../src/engine/aiEtf";
 
 const px: Record<string, number> = { "2330": 1000, "2412": 120, "2886": 40, "0050": 60 };
@@ -122,5 +122,22 @@ describe("雙引擎實單：跌破停損／停利的持股列進要下的單（1
   });
   it("沒有價格的持股跳過", () => {
     expect(dualExitOrders(held(), () => undefined, name)).toEqual([]);
+  });
+});
+
+describe("雙引擎實單：判斷日之後賣掉的不買回（11/28，停損賣出隔天又被列成新增）", () => {
+  it("只算判斷日之後（不含當天）的賣出", () => {
+    const etf: AiEtf = { ...emptyEtf(500_000), trades: [
+      { id: "1", date: "20261125", code: "2880", name: "華南金", side: "buy", shares: 606, price: 49, benchPrice: 60 },
+      { id: "2", date: "20261124", code: "2885", name: "元大金", side: "sell", shares: 10, price: 60, benchPrice: 60 },
+      { id: "3", date: "20261126", code: "2880", name: "華南金", side: "sell", shares: 606, price: 42.75, benchPrice: 60 },
+    ] };
+    expect([...soldSinceDecision(etf, "20261124")]).toEqual(["2880"]);
+    expect([...soldSinceDecision(etf, "20261201")]).toEqual([]);
+    expect([...soldSinceDecision(etf, undefined)]).toEqual([]);
+  });
+  it("放進 skip 後，目標裡的這檔不會被列成新增買進", () => {
+    const o = dualOrders(emptyEtf(500_000), { "2412": 0.3, "2886": 0.2 }, price, name, DUAL_REAL.band, new Set(["2886"]));
+    expect(o.map((x) => x.code)).toEqual(["2412"]);
   });
 });

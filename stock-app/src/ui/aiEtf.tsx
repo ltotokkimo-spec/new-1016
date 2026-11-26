@@ -12,7 +12,7 @@ import type { VirtualEtf } from "../engine/virtualEtf";
 import { twHistory } from "../data/history";
 import { buyConds, cashFlow, FEE, sellConds, holdConds, dailyHoldingCheck, takeProfitSignal, TAKE_PROFIT, type HoldCheck, type EtfTrade, type EtfFlow, agreePlans, comparePlans, DEFAULT_STOP, planReadable, fitBudget, groupBySector, isOwnPrompt, looksLikePlanReply, proClipboardAction, replySig, parsePlan, positions, tradePnls, oversold, reconcilePhoto, stopOf, type PhotoRow, valuate, type EtfAlert, type PlanItem, type Position } from "../engine/aiEtf";
 import { onAppResume, readClipboard } from "../lib/clip";
-import { DUAL_REAL, dualExitOrders, dualOrders, waterLevel, type DualOrder, type WaterLevel } from "../engine/dualReal";
+import { DUAL_REAL, dualExitOrders, dualOrders, soldSinceDecision, waterLevel, type DualOrder, type WaterLevel } from "../engine/dualReal";
 import { limitFromChg } from "../lib/limit";
 import { isEtf } from "../data/tw";
 import { emptyEtf, type AiEtf, type Valuation } from "../engine/aiEtf";
@@ -877,7 +877,11 @@ function DualRealScreen() {
   // 11/26：跌破停損／停利的持股也列進要下的單（和手機推播同一條件）；同一檔以離場為準
   const exits = twReady ? dualExitOrders(etf, orderPx, name) : [];
   const exitCodes = new Set(exits.map((o) => o.code));
-  const orders = [...exits, ...(d?.targets && twReady ? dualOrders(etf, d.targets, orderPx, name, DUAL_REAL.band, new Set(skipCodes)).filter((o) => !exitCodes.has(o.code)) : [])];
+  // 11/28：判斷日之後賣掉的（停損離場或手動賣出），下次判斷日前不買回，避免賣了隔天又被列成「新增」買回來
+  const soldAfter = soldSinceDecision(etf, d?.targetsDate);
+  const heldCodes = new Set(pos.map((p) => p.code));
+  const noRebuy = [...soldAfter].filter((c) => !heldCodes.has(c) && (d?.targets?.[c] ?? 0) > 0);
+  const orders = [...exits, ...(d?.targets && twReady ? dualOrders(etf, d.targets, orderPx, name, DUAL_REAL.band, new Set([...skipCodes, ...soldAfter])).filter((o) => !exitCodes.has(o.code)) : [])];
   const flags: Record<string, string> = {};
   for (const o of orders) { // 價格提醒：漲停（買不到）、跌停（賣不掉）、買進的比昨收漲 5% 以上、賣出的比昨收跌 5% 以上
     const q = liveQ(o.code);
@@ -930,6 +934,7 @@ function DualRealScreen() {
         <button class="btn secondary block" disabled={refreshing} onClick={() => void refresh()} data-testid="dualreal-refresh">{refreshing ? "重新整理中…" : "🔄 重新整理清單（用即時價）"}</button>
         <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }} data-testid="dualreal-refresh-note">{stamp || "要下單前按一下：重抓最新的目標與新聞否決，股數改用現在的價格重算；漲停、大漲的會標出來。選股本身仍是收盤後的判斷，不會盤中重選。"}</div>
       </div>}
+      {noRebuy.length > 0 && <div class="notice" style={{ fontSize: "12.5px", marginBottom: "8px" }} data-testid="dualreal-norebuy">判斷日（{d?.targetsDate ? prettyW(d.targetsDate) : ""}）之後已賣出的 {noRebuy.map(name).join("、")}，這次不買回；下次判斷日（約 {d?.plan?.lastDecision ? prettyW(addWeekdays(d.plan.lastDecision, d.plan.every)) : "幾天後"}）目標還有它才會重新列入。空出的現金不轉去買別檔。</div>}
       {skipCodes.length > 0 && <div class="notice" style={{ fontSize: "12.5px", marginBottom: "8px" }} data-testid="dualreal-skipped">你設定這次先不買：{skipCodes.map((c) => <span key={c} style={{ marginRight: "8px", whiteSpace: "nowrap" }}>{name(c)} <button class="linkbtn" onClick={() => void setDualSkip(c, false, d?.targetsDate ?? "")}>✕ 取消</button></span>)}。空出來的現金不會轉去買別檔，下次判斷（新的目標配置）自動失效。</div>}
       {orders.length > 0 ? <>{d?.vetoes && d.vetoes.length > 0 && <div class="notice" style={{ fontSize: "12.5px", marginBottom: "8px" }} data-testid="dualreal-vetoes">新聞否決中：{d.vetoes.map((x) => `${x.name ?? x.code}（${x.reason}）`).join("、")}。這些不在下單清單裡，持有的會列在賣出。</div>}<DualFill key={orders.map((o) => `${o.side}${o.code}${o.shares}`).join(",")} orders={orders} groups={d?.groups} flags={flags} targetsDate={d?.targetsDate} onSkip={d?.targetsDate ? (c) => void setDualSkip(c, true, d.targetsDate!) : undefined} /></>
         : !d ? <div class="card muted" style={{ fontSize: "13px" }}>還沒有下載到雙引擎＋的資料，請確認網路後到「雙引擎＋」分頁按重新下載。</div>

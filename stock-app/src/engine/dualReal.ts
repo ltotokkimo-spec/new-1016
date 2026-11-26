@@ -88,3 +88,13 @@ export function dualExitOrders(etf: AiEtf, price: (code: string) => number | und
   }
   return out;
 }
+
+/**
+ * 判斷日之後賣出過的代號（11/28 使用者：11/26 停損賣出華南金、第一金、藥華藥，11/27 又被「新增」買回來）。
+ * 停損／離場賣掉的股票，在下一個判斷日之前不再列入買進；下次判斷日目標還有它，才重新買。
+ * targetsDate＝目前目標配置的判斷日（YYYYMMDD）；只看這天之後（不含當天）的賣出。
+ */
+export function soldSinceDecision(etf: AiEtf, targetsDate?: string): Set<string> {
+  if (!targetsDate) return new Set();
+  return new Set(etf.trades.filter((t) => t.side === "sell" && t.date > targetsDate).map((t) => t.code));
+}

@@ -46,6 +46,7 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
   const name = (code: string, j: number) => c.rows[j].get(code)?.[1] ?? code;
 
   let lastDecision: string | undefined; // 最近一次判斷日
+  let lastGrowth: string | undefined; // 雙引擎：成長組最近一次重選日（11/28：要下的單標示下次判斷是 5 日例行還是 20 日成長組重選）
   let curTarget: Map<string, number> | undefined, curTargetDate = ""; // 最近一次判斷的目標（不論哪天判斷的）
   let lastDayTarget = undefined as Map<string, number> | undefined; // 最後一個資料日收盤後做的決定（明天要成交的目標，還沒成交）
   let target = null as Map<string, number> | null; // 昨天收盤後決定、今天收盤要調整成的目標
@@ -158,7 +159,7 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
       const useList = onNew;
       const reGrowth = (j - (onNew ? jRank : j0)) % GROWTH.every === 0;
       const allow = useList && (reGrowth || scheduled || !lastA) ? (opts.buyAt ? opts.buyAt(j) : buyCodesAt(days, companies, c, j)) : undefined;
-      if (reGrowth) growth = growthPicks(c, j, new Set(growth.map((x) => x.code)), allow);
+      if (reGrowth) { growth = growthPicks(c, j, new Set(growth.map((x) => x.code)), allow); lastGrowth = date; }
       const a = scheduled || !lastA ? aPicks(c, j, { foreignOk: plus, allow }) : lastA;
       lastA = a;
       const t = new Map<string, number>();
@@ -211,5 +212,5 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
   const every = wide || lead || turn || !(regime || ai || real || dual) ? 1 : ai ? WATCH.aiEvery : real ? REAL.every : dual ? DUAL.every : WATCH.every;
   const nextStock = lastDayTarget ? [...lastDayTarget.values()].reduce((a, b) => a + b, 0) : undefined; // 明天調整完的股票目標比重（其餘是現金）
   const lastVetoes = plus && v.asOf ? [...vetoAt(v.asOf).values()].map((x) => ({ ...x, name: x.name ?? name(x.code, c.N - 1) })) : undefined;
-  return { ...v, pending, ...(lastVetoes ? { vetoes: lastVetoes } : {}), ...(curGroups ? { groups: curGroups } : {}), ...(curTarget ? { targets: Object.fromEntries([...curTarget].map(([k, w]) => [k, Math.round(w * 1e6) / 1e6])), targetsDate: curTargetDate } : {}), plan: { every, lastDecision, nextStock, band: wide ? STEADY.wideBand : turn ? TURN2.band : dual ? DUAL.band : lead || ai ? LEAD.band : WATCH.minTrade } };
+  return { ...v, pending, ...(lastVetoes ? { vetoes: lastVetoes } : {}), ...(curGroups ? { groups: curGroups } : {}), ...(curTarget ? { targets: Object.fromEntries([...curTarget].map(([k, w]) => [k, Math.round(w * 1e6) / 1e6])), targetsDate: curTargetDate } : {}), plan: { every, lastDecision, nextStock, ...(dual ? { growthEvery: GROWTH.every, lastGrowth } : {}), band: wide ? STEADY.wideBand : turn ? TURN2.band : dual ? DUAL.band : lead || ai ? LEAD.band : WATCH.minTrade } };
 }

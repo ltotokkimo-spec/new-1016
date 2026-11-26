@@ -877,6 +877,12 @@ function DualRealScreen() {
   // 11/26：跌破停損／停利的持股也列進要下的單（和手機推播同一條件）；同一檔以離場為準
   const exits = twReady ? dualExitOrders(etf, orderPx, name) : [];
   const exitCodes = new Set(exits.map((o) => o.code));
+  // 11/28 使用者：要下的單旁標示下次判斷日，以及是 5 日例行（低波動組重選）還是 20 日（成長組也重選）
+  const nextJudge = d?.plan?.lastDecision ? (() => {
+    const day = addWeekdays(d.plan!.lastDecision!, d.plan!.every);
+    const growth = d.plan!.lastGrowth && d.plan!.growthEvery ? addWeekdays(d.plan!.lastGrowth, d.plan!.growthEvery) : undefined;
+    return { day, growth, big: !!growth && growth <= day };
+  })() : undefined;
   // 11/28：判斷日之後賣掉的（停損離場或手動賣出），下次判斷日前不買回，避免賣了隔天又被列成「新增」買回來
   const soldAfter = soldSinceDecision(etf, d?.targetsDate);
   const heldCodes = new Set(pos.map((p) => p.code));
@@ -930,7 +936,8 @@ function DualRealScreen() {
 
       {etf.nav.length >= 2 && <><div class="section-title"><span>報酬走勢</span><span>{etf.nav.length} 天</span></div><NavChart points={etf.nav} budget={etf.budget} mine="雙引擎實單" /></>}
 
-      <div class="section-title"><span>要下的單</span><span>{d?.targetsDate ? `依 ${prettyW(d.targetsDate)} 收盤的判斷` : ""}</span></div>
+      <div class="section-title"><span>要下的單</span><span>{d?.targetsDate ? `依 ${prettyW(d.targetsDate)} 判斷` : ""}{nextJudge ? <>・<b data-testid="dualreal-nextjudge">下次 {prettyW(nextJudge.day)} {nextJudge.big ? "20 日" : "5 日"}</b></> : null}</span></div>
+      {nextJudge && <div class="muted" style={{ fontSize: "11.5px", marginTop: "-4px", marginBottom: "6px" }} data-testid="dualreal-nextjudge-note">{nextJudge.big ? `下次 ${prettyW(nextJudge.day)} 是 20 日判斷：成長組（每 20 個交易日）和低波動組（每 5 個交易日）都重新選股，換股通常較多。` : `下次 ${prettyW(nextJudge.day)} 是 5 日例行判斷：只重選低波動組，成長組沿用${nextJudge.growth ? `（成長組下次重選約 ${prettyW(nextJudge.growth)}）` : "（每 20 個交易日重選）"}。`}</div>}
       {d?.targets && twReady && <div class="stack" style={{ gap: "4px", marginBottom: "8px" }}>
         <button class="btn secondary block" disabled={refreshing} onClick={() => void refresh()} data-testid="dualreal-refresh">{refreshing ? "重新整理中…" : "🔄 重新整理清單（用即時價）"}</button>
         <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }} data-testid="dualreal-refresh-note">{stamp || "要下單前按一下：重抓最新的目標與新聞否決，股數改用現在的價格重算；漲停、大漲的會標出來。選股本身仍是收盤後的判斷，不會盤中重選。"}</div>

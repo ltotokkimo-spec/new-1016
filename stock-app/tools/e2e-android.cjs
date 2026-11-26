@@ -1232,7 +1232,8 @@ function check(ok, name, detail = "") {
   const posItem = await page.$('[data-testid="real-pos-item"] .name');
   if (posItem) {
     const want = await posItem.evaluate((e) => (e.innerText.match(/\b(\d{4,6}[A-Z]?)\b/) || [])[1] || "");
-    await posItem.click();
+    // 11/26：模擬器偶爾把點擊吃掉（元素可見、穩定卻逾時 30 秒）：先點 8 秒，逾時改用 DOM 直接觸發（同 11/24 停損按鈕的做法）
+    await posItem.click({ timeout: 8000 }).catch(() => posItem.evaluate((e) => e.click()));
     const sheet = await page.waitForFunction(() => document.querySelector(".sheet h2")?.textContent || "", null, { timeout: 15000 }).then((h) => h.jsonValue()).catch(() => "");
     log("持股點進個股頁", JSON.stringify({ want, sheet }));
     check(!!want && String(sheet).includes(want), "我的實單「目前持股」點一下打開那一檔的個股頁", JSON.stringify({ want, sheet }));

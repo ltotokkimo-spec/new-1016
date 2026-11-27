@@ -17,7 +17,7 @@ import merge_core
 import updater
 from version import VERSION
 
-APP_TITLE = "測試資料工具"
+APP_TITLE = "USS測試資料工具"
 CONFIG_PATH = os.path.join(updater.APPDATA_DIR, "settings.json")
 CODE_INFO = {"dir": os.path.dirname(os.path.abspath(__file__)), "label": "原始碼"}
 
@@ -44,7 +44,7 @@ class Shell:
         self.app_dir = updater.exe_dir()
         self._checking = False
 
-        root.title(f"{APP_TITLE}  v{VERSION}")
+        root.title(f"{APP_TITLE} v{VERSION}")
         root.geometry(self.cfg.get("geometry", "1500x800"))
         root.minsize(1000, 600)
         if self.cfg.get("maximized"):
@@ -160,7 +160,6 @@ class Shell:
         m.add_cascade(label="檔案", menu=f)
         h = tk.Menu(m, tearoff=0)
         h.add_command(label="檢查更新…", command=self.check_update)
-        h.add_command(label="更新來源設定…", command=self.set_update_source)
         self.auto_upd = tk.BooleanVar(value=self.cfg.get("auto_check_update", True))
         h.add_checkbutton(label="啟動時自動檢查更新", variable=self.auto_upd,
                           command=lambda: (self.cfg.__setitem__("auto_check_update", self.auto_upd.get()), self.save()))
@@ -231,16 +230,6 @@ class Shell:
     def _installed(self, dlg):
         dlg.set(1.0, "更新完成，程式即將重新開啟…", "")
         self.root.after(1200, lambda: (self.on_close(), updater.restart()))
-
-    def set_update_source(self):
-        from tkinter import simpledialog
-        v = simpledialog.askstring(
-            APP_TITLE,
-            "更新來源：GitHub raw 網址，或共用資料夾路徑（例如 \\\\server\\share\\TestDataTool）\n留空 = 預設",
-            initialvalue=self.cfg.get("update_source", ""), parent=self.root)
-        if v is not None:
-            self.cfg["update_source"] = v.strip()
-            self.save()
 
     def reset_update(self):
         from tkinter import messagebox

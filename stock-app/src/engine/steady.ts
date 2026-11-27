@@ -610,10 +610,10 @@ export function turnPicker(c: Ctx, o: { strict: boolean; regime: boolean; exit?:
  * 強勢股（使用者 11/27 要求：會大漲強漲的強勢股，不分種類，跌破 8% 停損停利、只要漲停損價就往上拉，每天重新評估）：
  *   候選：個股＋ETF（不含槓桿反向）、當天成交金額 ≥ 2 億、收盤 > 20 日線 > 60 日線且 60 日線上彎、離 60 日最高價 5% 以內、近 60 日漲 15% 以上、近 20 日也上漲；
  *   依「近 20 日漲幅＋近 60 日漲幅」排序，每天最多新增 3 檔、每檔 10%、最多 10 檔、每個產業最多 3 檔，其餘現金。
- *   出場：收盤跌破「買進後最高收盤價 × (1 − 8%)」（移動停損：一開始是買進價 −8%，創新高就跟著往上拉）。賣出後 10 個交易日內不再買回。
+ *   出場：收盤跌破「買進後最高收盤價 × (1 − 8%)」（移動停損：一開始是買進價 −8%，創新高就跟著往上拉）。賣出後 5 個交易日內不再買回（11/27 使用者：條件達標 5 日後就可買回）。
  *   持有中的不加碼也不減碼（讓漲多的繼續漲），只有停損才賣。
  */
-export const MOM = { weight: 0.1, maxN: 10, perSector: 3, newPerDay: 3, minValue: 2e8, trail: 0.08, cool: 10, near: 0.05, min60: 0.15 } as const;
+export const MOM = { weight: 0.1, maxN: 10, perSector: 3, newPerDay: 3, minValue: 2e8, trail: 0.08, cool: 5, near: 0.05, min60: 0.15 } as const;
 export type MomPicker = Picker & { held: () => Map<string, { j: number; entry: number; peak: number; trail: number }> };
 /** trail：移動停損幅度；regime：0050 跌破 60 日線時不開新倉；ma20Exit：收盤跌破 20 日線也出場（每天重新評估強不強）；etf：是否含 ETF */
 export function momPicker(c: Ctx, o: { trail?: number; regime?: boolean; ma20Exit?: boolean; etf?: boolean } = {}): MomPicker {

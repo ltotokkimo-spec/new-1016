@@ -608,15 +608,17 @@ export function turnPicker(c: Ctx, o: { strict: boolean; regime: boolean; exit?:
  // 目標權重（合計 ≤ 1，其餘現金）
 /**
  * 強勢股（使用者 11/27 要求：會大漲強漲的強勢股，不分種類，跌破 8% 停損停利、只要漲停損價就往上拉，每天重新評估）：
- *   候選：個股＋ETF（不含槓桿反向）、當天成交金額 ≥ 2 億、收盤 > 20 日線 > 60 日線且 60 日線上彎、離 60 日最高價 5% 以內、近 60 日漲 15% 以上、近 20 日也上漲；
- *   依「近 20 日漲幅＋近 60 日漲幅」排序，每天最多新增 3 檔、每檔 10%、最多 10 檔、每個產業最多 3 檔，其餘現金。
+ *   候選（11/27 使用者選「更短更猛」）：個股＋ETF（不含槓桿反向）、當天成交金額 ≥ 2 億、近 20 日漲 20% 以上、收盤創 20 日新高、
+ *   當天成交金額是近 20 日平均的 1.5 倍以上（量能放大）；依近 20 日漲幅排序（最強的先買）。
+ *   （style "long" 是第一版：收盤 > 20 日線 > 60 日線且 60 日線上彎、離 60 日最高價 5% 以內、近 60 日漲 15% 以上、近 20 日也上漲，依 20＋60 日漲幅排序；留著回測比較）
+ *   每天最多新增 3 檔、每檔 10%、最多 10 檔、每個產業最多 3 檔，其餘現金。
  *   出場：收盤跌破「買進後最高收盤價 × (1 − 8%)」（移動停損：一開始是買進價 −8%，創新高就跟著往上拉）。賣出後 5 個交易日內不再買回（11/27 使用者：條件達標 5 日後就可買回）。
  *   持有中的不加碼也不減碼（讓漲多的繼續漲），只有停損才賣。
  */
-export const MOM = { weight: 0.1, maxN: 10, perSector: 3, newPerDay: 3, minValue: 2e8, trail: 0.08, cool: 5, near: 0.05, min60: 0.15 } as const;
+export const MOM = { weight: 0.1, maxN: 10, perSector: 3, newPerDay: 3, minValue: 2e8, trail: 0.08, cool: 5, near: 0.05, min60: 0.15, min20: 0.2, volX: 1.5 } as const;
 export type MomPicker = Picker & { held: () => Map<string, { j: number; entry: number; peak: number; trail: number }> };
 /** trail：移動停損幅度；regime：0050 跌破 60 日線時不開新倉；ma20Exit：收盤跌破 20 日線也出場（每天重新評估強不強）；etf：是否含 ETF */
-export function momPicker(c: Ctx, o: { trail?: number; regime?: boolean; ma20Exit?: boolean; etf?: boolean } = {}): MomPicker {
+export function momPicker(c: Ctx, o: { trail?: number; regime?: boolean; ma20Exit?: boolean; etf?: boolean; style?: "short" | "long" } = {}): MomPicker {
   const trail = o.trail ?? MOM.trail, etfOk = o.etf ?? true;
   const held = new Map<string, { j: number; entry: number; peak: number; trail: number }>();
   const cool = new Map<string, number>(); // 代號 → 賣出那天
@@ -641,13 +643,22 @@ export function momPicker(c: Ctx, o: { trail?: number; regime?: boolean; ma20Exi
         const cd = cool.get(code); if (cd !== undefined && j - cd < MOM.cool) continue;
         const s = c.series.get(code); if (!s) continue;
         const p = j - s.start; if (p < 130 || p >= s.adj.length) continue;
-        const cl = s.adj[p], m20 = ma(s, j, 20), m60 = ma(s, j, 60), m60b = ma(s, j - 20, 60);
-        if (!(cl > m20 && m20 > m60 && m60 > m60b)) continue;
-        let hi = 0; for (let k = 0; k < 60; k++) hi = Math.max(hi, s.adj[p - k]);
-        if (!(cl >= hi * (1 - MOM.near))) continue;
-        const r20 = cl / s.adj[p - 20] - 1, r60 = cl / s.adj[p - 60] - 1;
-        if (!(r60 >= MOM.min60 && r20 > 0)) continue;
-        cands.push({ code, score: r20 + r60, sector: etf ? "ETF" : c.sector.get(code) ?? "其他" });
+        const cl = s.adj[p], r20 = cl / s.adj[p - 20] - 1, r60 = cl / s.adj[p - 60] - 1;
+        if (o.style === "long") {
+          const m20 = ma(s, j, 20), m60 = ma(s, j, 60), m60b = ma(s, j - 20, 60);
+          if (!(cl > m20 && m20 > m60 && m60 > m60b)) continue;
+          let hi = 0; for (let k = 0; k < 60; k++) hi = Math.max(hi, s.adj[p - k]);
+          if (!(cl >= hi * (1 - MOM.near))) continue;
+          if (!(r60 >= MOM.min60 && r20 > 0)) continue;
+          cands.push({ code, score: r20 + r60, sector: etf ? "ETF" : c.sector.get(code) ?? "其他" });
+          continue;
+        }
+        if (!(r20 >= MOM.min20)) continue;
+        let hi = 0; for (let k = 1; k < 20; k++) hi = Math.max(hi, s.adj[p - k]);
+        if (!(cl >= hi)) continue; // 創 20 日新高
+        let vs = 0, vn = 0; for (let k = 1; k <= 20; k++) { const v = c.rows[j - k]?.get(code)?.[4]; if (v && v > 0) { vs += v; vn++; } }
+        if (!(vn >= 10 && row[4] >= (vs / vn) * MOM.volX)) continue; // 量能放大
+        cands.push({ code, score: r20, sector: etf ? "ETF" : c.sector.get(code) ?? "其他" });
       }
       cands.sort((a, b) => b.score - a.score);
       const per = new Map<string, number>();
@@ -965,11 +976,12 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
   }
   // 強勢股（使用者 11/27）：移動停損 8%（創新高停損價跟著拉高），每天重新評估；比較停損幅度、大盤濾網、跌破 20 日線出場、只做個股
   const mOpt = { every: 1, keep: true };
-  add("M1_mom", "M1 強勢股（個股＋ETF，近 60 日新高附近、多頭排列，移動停損 8%，每檔 10% 最多 10 檔）", momPicker(c), mOpt);
+  add("M1_mom", "M1 強勢股（個股＋ETF，近 20 日漲 20% 以上、創 20 日新高、量能 1.5 倍，移動停損 8%，每檔 10% 最多 10 檔）", momPicker(c), mOpt);
   add("M2_mom12", "M2 強勢股，移動停損 12%", momPicker(c, { trail: 0.12 }), mOpt);
   add("M3_momRegime", "M3 強勢股＋大盤濾網（0050 跌破 60 日線不開新倉）", momPicker(c, { regime: true }), mOpt);
   add("M4_momMa20", "M4 強勢股，另外收盤跌破 20 日線也出場", momPicker(c, { ma20Exit: true }), mOpt);
   add("M5_momStock", "M5 強勢股只做個股（不含 ETF）", momPicker(c, { etf: false }), mOpt);
+  add("M6_momLong", "M6 第一版強勢股（近 60 日漲 15%、60 日新高附近、多頭排列；移動停損 8%）", momPicker(c, { style: "long" }), mOpt);
   out.push(stats("0050", "買進持有 0050", c, j0, benchSim, benchSim.eq));
 
   const last = N - 1;

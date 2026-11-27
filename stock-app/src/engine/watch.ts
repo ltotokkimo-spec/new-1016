@@ -124,7 +124,7 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
       }
       const adds = [...t.keys()].filter((code) => !hold.has(code)), drops = [...hold.keys()].filter((code) => !t.has(code));
       const nm = (list: string[]) => (list.length ? list.map((code) => `${name(code, j)}${code}`).join("、") : "無");
-      text += `\n本日判斷：強勢股（近 60 日新高附近、多頭排列、近 60 日漲 ${Math.round(MOM.min60 * 100)}% 以上，個股與 ETF 都可）每天最多新增 ${MOM.newPerDay} 檔、每檔 ${Math.round(MOM.weight * 100)}%、最多 ${MOM.maxN} 檔；持有 ${t.size} 檔。下一個交易日收盤價調整，新增：${nm(adds)}；賣出：${nm(drops)}（收盤跌破買進後最高收盤價 ${Math.round(MOM.trail * 100)}%）。`
+      text += `\n本日判斷：強勢股（近 20 日漲 ${Math.round(MOM.min20 * 100)}% 以上、創 20 日新高、成交金額是 20 日平均 ${MOM.volX} 倍以上，個股與 ETF 都可，最強的先買）每天最多新增 ${MOM.newPerDay} 檔、每檔 ${Math.round(MOM.weight * 100)}%、最多 ${MOM.maxN} 檔；持有 ${t.size} 檔。下一個交易日收盤價調整，新增：${nm(adds)}；賣出：${nm(drops)}（收盤跌破買進後最高收盤價 ${Math.round(MOM.trail * 100)}%）。`
         + (Object.keys(stops).length ? `\n目前停損價（跟著最高價往上拉）：${Object.entries(stops).map(([code, st]) => `${name(code, j)} ${st}`).join("、")}` : "");
     } else if (cons) {
       const vs = opts.votes?.(date) ?? new Map<string, string[]>();

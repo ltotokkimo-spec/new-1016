@@ -5,7 +5,7 @@ import { runWatch } from "../src/engine/watch";
 import { weekdaysBack } from "../src/lib/dates";
 import type { FRow, QRow } from "../src/data/twLoader";
 
-// 2001：前 200 天每天漲 1%，之後連跌；2002：平；0050 緩漲
+// 2001：前 200 天每天漲 1%（近 20 日約 +22%、天天創新高），之後連跌；2002：平；0050 緩漲
 function makeDays(n = 230): BtDay[] {
   const dates = weekdaysBack("20261126", n).reverse(); // 舊到新產生價格，最後轉成新到舊（和回測資料一樣）
   const price = new Map([["2001", 50], ["2002", 100], ["0050", 100]]);
@@ -16,7 +16,7 @@ function makeDays(n = 230): BtDay[] {
       const r = c === "2001" ? (t < 200 ? 0.01 : -0.02) : c === "0050" ? 0.001 : 0;
       const p = +(p0 * (1 + r)).toFixed(4);
       price.set(c, p);
-      quotes.push([c, `股${c}`, p, +(p - p0).toFixed(4), 5e8, 1e6]);
+      quotes.push([c, `股${c}`, p, +(p - p0).toFixed(4), c === "2001" && t % 10 === 0 ? 1e9 : 5e8, 1e6]); // 2001 每 10 天量能放大一次
       flows.push([c, 0, 0, 0]);
     }
     return { date, quotes, flows, tpexCodes: new Set<string>() };

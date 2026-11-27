@@ -1,4 +1,4 @@
-// 詳情頁的 K 線圖（Canvas）：K 線＋5/20/60 日均線、成交量、下方可切換 KD／MACD／RSI。
+// 詳情頁的 K 線圖（Canvas）：K 線＋三條可設定的均線（預設 5/20/60 日）、成交量、下方可切換 KD／MACD／RSI。
 // 手指：左右拖曳平移、兩指縮放、點一下看那一天的數字；另有 ＋／－／全部 按鈕（電腦滾輪也可縮放）。
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { kdSeries, macdSeries, rsiSeries, smaSeries } from "../engine/indicators";
@@ -6,11 +6,15 @@ import { kdSeries, macdSeries, rsiSeries, smaSeries } from "../engine/indicators
 export interface CandleBar { date: string; open: number; high: number; low: number; close: number; volume: number; live?: boolean } // live：盤中用即時報價拼的暫時 K 棒
 type Tab = "KD" | "MACD" | "RSI";
 
-const MA_DEFS = [
-  { n: 5, color: "#3b8bef", label: "5日" },
-  { n: 20, color: "", label: "20日" }, // 空字串＝用主題的強調色
-  { n: 60, color: "#a46be0", label: "60日" },
-] as const;
+// 均線（11/27 使用者：K 線圖要可以設定幾日線）：三條，天數可改、填 0 或空白就不畫；所有 K 線圖共用，記在手機上
+const MA_COLORS = ["#3b8bef", "", "#a46be0"]; // 空字串＝用主題的強調色
+export const MA_DEFAULT = [5, 20, 60];
+const MA_KEY = "candleMaDays";
+export function loadMaDays(): number[] {
+  try { const a = JSON.parse(localStorage.getItem(MA_KEY) || "null"); if (Array.isArray(a) && a.length === 3 && a.every((x) => Number.isInteger(x) && x >= 0 && x <= 240)) return a; } catch { /* 用預設 */ }
+  return [...MA_DEFAULT];
+}
+function saveMaDays(a: number[]) { try { localStorage.setItem(MA_KEY, JSON.stringify(a)); } catch { /* 記不住就只這次有效 */ } }
 const MIN_BARS = 20;
 const DEFAULT_BARS = 90;
 
@@ -41,6 +45,10 @@ export function CandleChart({ bars, us = false, cost, noVol = false, intraday = 
   const [view, setViewState] = useState<View>(() => clampView({ start: n, count: DEFAULT_BARS }, n));
   const [sel, setSel] = useState<number | null>(null);
   const [wpx, setWpx] = useState(0); // 畫布寬度：旋轉螢幕、分割視窗時要重畫
+  const [maDays, setMaDaysState] = useState(loadMaDays);
+  const [maEdit, setMaEdit] = useState<string[] | null>(null);
+  const MA_DEFS = maDays.map((d, k) => ({ n: d, color: MA_COLORS[k], label: `${d}日` })).filter((m) => m.n > 0);
+  const maKey = maDays.join(",");
   const viewRef = useRef(view);
   const setView = (v: View) => { const c = clampView(v, n); viewRef.current = c; setViewState(c); };
   const touched = useRef(false); // 使用者手動拖曳或縮放過：之後資料增加（更早的月份載入）就保留他的縮放；沒動過就用預設寬度
@@ -64,7 +72,7 @@ export function CandleChart({ bars, us = false, cost, noVol = false, intraday = 
       macd: macdSeries(closes),
       rsi: rsiSeries(closes),
     };
-  }, [bars]);
+  }, [bars, maKey]);
 
   // ---------- 畫圖 ----------
   useEffect(() => {
@@ -208,7 +216,7 @@ export function CandleChart({ bars, us = false, cost, noVol = false, intraday = 
       tag(py(sb.close), fmtP(sb.close), sb.close >= sb.open ? up : down);
       if (!noVol) tag(vTop + volH - (sb.volume / vmax) * volH, volTag(sb.volume, us), sb.close >= sb.open ? up : down);
     }
-  }, [bars, view, tab, sel, ind, wpx, cost, noVol]);
+  }, [bars, view, tab, sel, ind, wpx, cost, noVol, maKey]);
 
   useEffect(() => {
     const c = ref.current;
@@ -300,8 +308,15 @@ export function CandleChart({ bars, us = false, cost, noVol = false, intraday = 
         {!noVol && <span>　量 {fmtVol(b.volume, us)}</span>}
       </div>
       <div class="row num" style={{ fontSize: "12px", gap: "10px", flexWrap: "wrap" }} data-testid="candle-ma">
-        {MA_DEFS.map((m, k) => <span key={m.n} style={{ color: m.color || "var(--accent)" }}>{intraday ? `MA${m.n}` : m.label} {fmtP(ind.ma[k][idx])}</span>)}
+        {MA_DEFS.map((m, k) => <span key={k} style={{ color: m.color || "var(--accent)" }}>{intraday ? `MA${m.n}` : m.label} {fmtP(ind.ma[k][idx])}</span>)}
+        <button class="linkbtn" style={{ fontSize: "12px", padding: 0 }} onClick={() => setMaEdit(maEdit ? null : maDays.map((d) => (d ? String(d) : "")))} data-testid="ma-edit">⚙ 均線</button>
       </div>
+      {maEdit && <div class="row" style={{ gap: "6px", alignItems: "center", flexWrap: "wrap", fontSize: "12px", margin: "4px 0" }} data-testid="ma-editor">
+        {maEdit.map((v, k) => <label key={k} style={{ color: MA_COLORS[k] || "var(--accent)" }}>第 {k + 1} 條<input class="num" inputMode="numeric" style={{ width: "48px", marginLeft: "4px" }} value={v} placeholder="不畫" onInput={(e) => { const x = [...maEdit]; x[k] = (e.target as HTMLInputElement).value; setMaEdit(x); }} aria-label={`第 ${k + 1} 條均線天數`} data-testid={`ma-input-${k}`} /> 日</label>)}
+        <button class="btn mini" onClick={() => { const a = maEdit.map((v) => Math.max(0, Math.min(240, Math.round(Number(v) || 0)))); setMaDaysState(a); saveMaDays(a); setMaEdit(null); }} data-testid="ma-save">套用</button>
+        <button class="btn secondary mini" onClick={() => { setMaDaysState([...MA_DEFAULT]); saveMaDays([...MA_DEFAULT]); setMaEdit(null); }} data-testid="ma-reset">還原 5／20／60</button>
+        <span class="muted" style={{ flexBasis: "100%" }}>1～240 日，空白或 0 就不畫；所有個股的 K 線圖都會用這組設定。</span>
+      </div>}
       {costOk && <div class="num" style={{ fontSize: "12px", color: "#f0b23e" }} data-testid="candle-cost">┄ 我的均價 {fmtP(cost!)}（現價 {fmtP(bars[bars.length - 1].close)}，{bars[bars.length - 1].close >= cost! ? "+" : ""}{((bars[bars.length - 1].close / cost! - 1) * 100).toFixed(2)}%）</div>}
       <canvas ref={ref} class="chart candle" aria-label="K 線圖"
         onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onCancel} />

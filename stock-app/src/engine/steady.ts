@@ -615,10 +615,10 @@ export function turnPicker(c: Ctx, o: { strict: boolean; regime: boolean; exit?:
  *   出場：收盤跌破「買進後最高收盤價 × (1 − 8%)」（移動停損：一開始是買進價 −8%，創新高就跟著往上拉）。賣出後 5 個交易日內不再買回（11/27 使用者：條件達標 5 日後就可買回）。
  *   持有中的不加碼也不減碼（讓漲多的繼續漲），只有停損才賣。
  */
-export const MOM = { weight: 0.1, maxN: 10, perSector: 3, newPerDay: 3, minValue: 2e8, trail: 0.08, cool: 5, near: 0.05, min60: 0.15, min20: 0.2, volX: 1.5 } as const;
+export const MOM = { weight: 0.1, maxN: 10, perSector: 3, newPerDay: 3, minValue: 2e8, trail: 0.08, cool: 5, near: 0.05, min60: 0.15, min20: 0.2, volX: 1.5, activeBonus: 0.02 } as const; // activeBonus：每 1 家主動式 ETF 主動加碼，排序分數（近 20 日漲幅）加 2%，最多 3 家
 export type MomPicker = Picker & { held: () => Map<string, { j: number; entry: number; peak: number; trail: number }> };
 /** trail：移動停損幅度；regime：0050 跌破 60 日線時不開新倉；ma20Exit：收盤跌破 20 日線也出場（每天重新評估強不強）；etf：是否含 ETF */
-export function momPicker(c: Ctx, o: { trail?: number; regime?: boolean; ma20Exit?: boolean; etf?: boolean; style?: "short" | "long" } = {}): MomPicker {
+export function momPicker(c: Ctx, o: { trail?: number; regime?: boolean; ma20Exit?: boolean; etf?: boolean; style?: "short" | "long"; bonus?: (j: number) => ReadonlyMap<string, number> } = {}): MomPicker {
   const trail = o.trail ?? MOM.trail, etfOk = o.etf ?? true;
   const held = new Map<string, { j: number; entry: number; peak: number; trail: number }>();
   const cool = new Map<string, number>(); // 代號 → 賣出那天
@@ -635,6 +635,7 @@ export function momPicker(c: Ctx, o: { trail?: number; regime?: boolean; ma20Exi
     const regimeOk = !o.regime || !(px(bench, j) < ma(bench, j, 60));
     if (regimeOk && held.size < MOM.maxN) {
       const cands: { code: string; score: number; sector: string }[] = [];
+      const act = o.bonus?.(j); // 主動式 ETF 主動加碼家數（11/27 使用者：同樣強時優先；只有觀察組有資料，2 年回測沒有）
       for (const [code, row] of c.rows[j]) {
         if (held.has(code) || code === BENCH && !etfOk) continue;
         const etf = isEtf(code);
@@ -658,7 +659,7 @@ export function momPicker(c: Ctx, o: { trail?: number; regime?: boolean; ma20Exi
         if (!(cl >= hi)) continue; // 創 20 日新高
         let vs = 0, vn = 0; for (let k = 1; k <= 20; k++) { const v = c.rows[j - k]?.get(code)?.[4]; if (v && v > 0) { vs += v; vn++; } }
         if (!(vn >= 10 && row[4] >= (vs / vn) * MOM.volX)) continue; // 量能放大
-        cands.push({ code, score: r20, sector: etf ? "ETF" : c.sector.get(code) ?? "其他" });
+        cands.push({ code, score: r20 + MOM.activeBonus * Math.min(3, act?.get(code) ?? 0), sector: etf ? "ETF" : c.sector.get(code) ?? "其他" });
       }
       cands.sort((a, b) => b.score - a.score);
       const per = new Map<string, number>();

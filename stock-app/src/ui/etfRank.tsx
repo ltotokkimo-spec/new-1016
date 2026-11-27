@@ -5,7 +5,8 @@ import { activeCoverage, activeRank, etfBreakdown, liveNeeded, type RankSort } f
 import { flowRank } from "../engine/etfRank";
 import type { Scored } from "../engine/score";
 import { prettyW } from "../lib/dates";
-import { LIVE_MS, getState, refreshActiveEtf, refreshActiveLive, refreshLive, useStore } from "../store";
+import { LIVE_MS, getState, refreshActiveEtf, refreshActiveLive, refreshActiveTrack, refreshLive, useStore } from "../store";
+import { ATRACK } from "../engine/activeTrack";
 import type { LiveQuote } from "../data/twLive";
 import { isLiveNow, livePolling } from "../data/twLive";
 import { taipeiHour, taipeiToday } from "../lib/dates";
@@ -126,6 +127,7 @@ export function EtfRankScreen({ open }: { open: (s: Scored, list?: Scored[]) => 
     const old = (t?: number) => !t || Date.now() - t > 10 * 60_000;
     // 已經全部公布到應有的日期就不用再向 MoneyDJ 抓一輪（以前每次打開都重抓、畫面一直停在舊資料等更新）
     const live = () => { if (liveNeeded(getState().activeEtf?.data)) refreshActiveLive(); };
+    if (old(getState().activeTrack?.fetchedAt)) void refreshActiveTrack();
     if (!active || old(active.fetchedAt)) refreshActiveEtf().then(live);
     else if (old(active.liveAt)) live();
   }, []);
@@ -216,6 +218,7 @@ export function EtfRankScreen({ open }: { open: (s: Scored, list?: Scored[]) => 
       </div>}
       {who && <WhoSheet row={who} days={days} live={live} onClose={() => setWho(null)} openDetail={() => open(who.item, ((rank.buy as Row[]).some((x) => x.item.code === who.item.code) ? (rank.buy as Row[]) : (rank.sell as Row[])).map((x) => x.item))} />}
       {src === "active" && active?.error && <div class="card empty" style={{ marginBottom: "8px" }}>{active.error}</div>}
+      {src === "active" && <ActiveTrackCard />}
       {!ready ? <div class="card empty">{tw.status === "error" ? tw.error ?? "資料下載失敗" : "資料下載中…"}</div>
         : accumulating ? <div class="card empty" data-testid="etfrank-accum">資料累積中：已取得 {active!.data.etfs.length} 檔主動式 ETF 的持股{latestHold ? `（${ymdW(latestHold)}）` : ""}，下一份持股公布後就能比對出第一天的買賣超。</div>
         : <>
@@ -225,5 +228,23 @@ export function EtfRankScreen({ open }: { open: (s: Scored, list?: Scored[]) => 
           <RankList rows={rank.sell} side="sell" open={pick} live={live} />
         </>}
     </div>
+  );
+}
+
+/** 主動加碼追蹤（11/27 使用者：主動式 ETF 買超當參考，證實有用再納入條件） */
+function ActiveTrackCard() {
+  const tr = useStore((s) => s.activeTrack?.data);
+  if (!tr) return null;
+  const f = (x?: { n: number; avg: number; win: number }) => (x && x.n ? <><b class={cls(x.avg)}>{fmtPct(x.avg, 2)}</b>（贏大盤 {Math.round(x.win * 100)}%、{x.n} 次）</> : <span class="muted">累積中</span>);
+  const enough = (tr.buy[20]?.n ?? 0) >= 40;
+  return (
+    <details class="card" style={{ marginBottom: "8px", fontSize: "13px", lineHeight: 1.6 }} data-testid="active-track">
+      <summary style={{ cursor: "pointer", fontWeight: 700 }}>📊 主動加碼有沒有用？追蹤 {tr.signalDays} 天{enough ? "" : "（樣本還不夠，先當參考）"}</summary>
+      <div>每天取被 {ATRACK.min} 檔以上主動式 ETF 同時「主動加碼」的個股（扣掉申購造成的同比例買進），看到資料的隔天收盤買進，和同期大盤（成交金額 ≥ 5 千萬個股平均）比：</div>
+      <div>加碼組：5 日 {f(tr.buy[5])}；20 日 {f(tr.buy[20])}</div>
+      <div>減碼組（對照）：5 日 {f(tr.sell[5])}；20 日 {f(tr.sell[20])}</div>
+      <div class="muted" style={{ fontSize: "12px" }}>{tr.from ? `${ymdW(tr.from)} 起追蹤。` : ""}加碼組明顯贏大盤、減碼組輸大盤，而且 20 日累積 40 次以上，才算有依據納入選股條件；在那之前，選股與實單清單上的「主動ETF N 家加碼／減碼」標記只當參考，強勢股觀察組只在同樣強時讓加碼的優先。</div>
+      {tr.recent.length > 0 && <div style={{ marginTop: "4px" }}>{tr.recent.slice(0, 5).map((d) => <div key={d.date} class="num" style={{ fontSize: "12px" }}>{ymdW(d.date)}：{d.picks.map((p) => `${p.name}(${p.n})`).join("、")}{d.ex5 !== undefined ? `　5 日 ${fmtPct(d.ex5, 1)}` : ""}</div>)}</div>}
+    </details>
   );
 }

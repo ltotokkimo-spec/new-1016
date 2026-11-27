@@ -9,6 +9,8 @@ import { formatFactors, runFactors } from "../src/engine/factors";
 import { formatCompare, runScoreCompare } from "../src/engine/scoreCompare";
 import { AI_CODES, aiTargets, buildCtx, formatSteady, runSteady } from "../src/engine/steady";
 import { CONS, holdingsAt, runWatch, WATCH } from "../src/engine/watch";
+import { runActiveTrack } from "../src/engine/activeTrack";
+import { tiltDays, type TiltCount } from "../src/lib/activeEtf";
 import { runQuad } from "../src/engine/quad";
 import { knownYm, parseRevHtml, prevYm, revTable, type RevEntry, type RevTable } from "../src/engine/revHist";
 import { adjustedSeries, indicators } from "../src/engine/turning";
@@ -21,7 +23,7 @@ import { appendPicks, applyFinal, assertAppendOnly, assertFinalAppendOnly, BOOK_
 import { UsLoader } from "../src/data/usLoader";
 import type { KV } from "../src/lib/kv";
 
-const [cacheDir = ".bt-cache", outFile = "backtest.json", factorsFile = "factors.json", compareFile = "scorecompare.json", steadyFile = "steady.json", watchFile = "n5.json", wideFile = "wide.json", regimeFile = "regime.json", leadFile = "lead.json", aiFile = "ai.json", realFile = "real.json", turnFile = "turn.json", dualFile = "dual.json", quadFile = "quad.json", dualPlusFile = "dualplus.json", consFile = "consensus.json", momFile = "mom.json"] = process.argv.slice(2);
+const [cacheDir = ".bt-cache", outFile = "backtest.json", factorsFile = "factors.json", compareFile = "scorecompare.json", steadyFile = "steady.json", watchFile = "n5.json", wideFile = "wide.json", regimeFile = "regime.json", leadFile = "lead.json", aiFile = "ai.json", realFile = "real.json", turnFile = "turn.json", dualFile = "dual.json", quadFile = "quad.json", dualPlusFile = "dualplus.json", consFile = "consensus.json", momFile = "mom.json", activeHistFile = "active-etf-hist.json", activeTrackFile = "active-track.json"] = process.argv.slice(2);
 fs.mkdirSync(cacheDir, { recursive: true });
 
 const fileKV = (dir: string): KV => {
@@ -337,9 +339,19 @@ try {
   log(`全個股試跑（${trial.start} 起）：成交 ${trial.trades.length} 筆，淨值 ${tv?.nav}（${tv ? ((tv.nav / trial.budget - 1) * 100).toFixed(2) : "—"}%）0050 對照 ${tv?.bench}（${tv ? ((tv.bench / trial.budget - 1) * 100).toFixed(2) : "—"}%）`);
   log("全個股試跑最後說明：", trial.notes.at(-1)?.text);
 } catch (e) { log("全個股觀察組合失敗（不影響回測）：", e); }
+// 主動式 ETF 主動加碼（11/27 使用者：當參考）：歷史持股由工作流程從 Releases 下載；沒有就略過
+let tilts: TiltCount[] = [];
+try {
+  if (fs.existsSync(activeHistFile)) tilts = tiltDays(JSON.parse(fs.readFileSync(activeHistFile, "utf8")));
+  const tr = runActiveTrack(days, tilts);
+  fs.writeFileSync(activeTrackFile, JSON.stringify(tr));
+  const f = (x?: { n: number; avg: number; win: number }) => (x && x.n ? `${(x.avg * 100).toFixed(2)}%（贏 ${(x.win * 100).toFixed(0)}%、n=${x.n}）` : "尚無");
+  log(`主動式 ETF 主動加碼追蹤：${tr.from || "—"} 起 ${tr.signalDays} 個訊號日｜加碼組 5 日超額 ${f(tr.buy[5])} 20 日 ${f(tr.buy[20])}｜減碼組 5 日 ${f(tr.sell[5])} 20 日 ${f(tr.sell[20])}`);
+} catch (e) { log("主動式 ETF 追蹤失敗（不影響回測）：", e); }
+const activeAt = (d: string) => { const t = tilts.find((x) => x.date === d); return new Map(Object.entries(t?.buy ?? {}).map(([k, v]) => [k, v.length])); };
 // 強勢股觀察組合（使用者 11/27：強勢股、移動停損 8%、每天重新評估；和其他組一樣 10/23 起算，11/27 以前是回填）
 try {
-  const w = runWatch(days, companies, { mode: "mom" });
+  const w = runWatch(days, companies, { mode: "mom", activeAt });
   fs.writeFileSync(momFile, JSON.stringify(w));
   log(`強勢股觀察組合：${w.start} 起，資料日 ${w.asOf || "（尚未開始）"}，成交 ${w.trades.length} 筆，淨值 ${w.nav.at(-1)?.nav ?? WATCH.budget}（0050 對照 ${w.nav.at(-1)?.bench ?? WATCH.budget}），明天委託 ${w.pending.length} 筆`);
   log("強勢股最後說明：", w.notes.at(-1)?.text);

@@ -1,4 +1,5 @@
 import { NewsPane } from "./news";
+import { ActiveTag } from "./activeTag";
 import { DayTradeRank } from "./dayTrade";
 import { ProfilePanel } from "./profile";
 import { nameLookup, parseOcrHoldings, soldByOmission, type OcrLine } from "../engine/ocrHoldings";
@@ -236,7 +237,7 @@ function StockRow({ s, q, turn, quad, onClick }: { s: Scored; q?: LiveQuote; tur
   return (
     <button class="item" onClick={onClick} data-live={q ? "1" : undefined}>
       <div style={{ minWidth: 0 }}>
-        <div class="name">{s.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{s.code}</span></div>
+        <div class="name">{s.name} <span class="muted num" style={{ fontWeight: 400, fontSize: "13px" }}>{s.code}</span>{s.market !== "US" && <ActiveTag code={s.code} />}</div>
         <div class="sub" style={{ whiteSpace: "normal" }}>
           {s.sector}
           {isEtf(s.code) && s.volume ? <>・量 <b class="num">{Math.round(s.volume / 1000).toLocaleString("zh-TW")}</b> 張</> : null}

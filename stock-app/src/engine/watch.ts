@@ -32,7 +32,7 @@ const pc = (x: number, d = 1) => `${x >= 0 ? "+" : ""}${(x * 100).toFixed(d)}%`;
  * mode "dual"：雙引擎（使用者 11/14 同意上線）：成長組五成（每 20 個交易日重選，需要 opts.rev 歷史月營收）＋方案 A 五成（每 5 個交易日重選）。
  *   雙引擎＋（11/18 使用者要求乾淨重新開始）起始日是 DUALPLUS.rankFrom（11/17）：新規則從 11/17 收盤的判斷起算，歷史不含舊規則；原版雙引擎起始日是 DUAL.start（規則定案前最後一個資料日 11/13），不是其他組的 10/23：規則是看過 11/13 以前的資料才訂的，從定案日起算才是真正的事後觀察。
  */
-export function runWatch(days: BtDay[], companies: Company[], opts: { start?: string; budget?: number; now?: number; mode?: "n5" | "wide" | "regime" | "lead" | "ai" | "real" | "turn" | "dual" | "dualplus" | "consensus" | "mom"; rev?: RevTable; vetoes?: DualVeto[]; rankFrom?: string; buyAt?: (j: number) => ReadonlySet<string>; votes?: (date: string) => ReadonlyMap<string, string[]> } = {}): VirtualEtf {
+export function runWatch(days: BtDay[], companies: Company[], opts: { start?: string; budget?: number; now?: number; mode?: "n5" | "wide" | "regime" | "lead" | "ai" | "real" | "turn" | "dual" | "dualplus" | "consensus" | "mom"; rev?: RevTable; vetoes?: DualVeto[]; rankFrom?: string; buyAt?: (j: number) => ReadonlySet<string>; votes?: (date: string) => ReadonlyMap<string, string[]>; activeAt?: (date: string) => ReadonlyMap<string, number> } = {}): VirtualEtf {
   const wide = opts.mode === "wide", regime = opts.mode === "regime", lead = opts.mode === "lead", ai = opts.mode === "ai", real = opts.mode === "real", turn = opts.mode === "turn", cons = opts.mode === "consensus", mom = opts.mode === "mom", plus = opts.mode === "dualplus", dual = opts.mode === "dual" || plus;
   // 雙引擎＋：當天有效的新聞否決（代號 → 否決）
   const vetoAt = (d: string) => new Map((plus ? opts.vetoes ?? [] : []).filter((x) => x.from <= d && (!x.until || d <= x.until)).map((x) => [x.code, x]));
@@ -61,7 +61,7 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
   let cash = budget;
   // 剛轉強（使用者 11/04 選 T1-混合）：每天收盤判斷；選股器自己記住持股的買進日與買進價，所以要從起始日每天依序呼叫
   const turnPick = turn ? turnPicker(c, { strict: false, regime: false, exit: "hybrid" }) : undefined;
-  const momPick = mom ? momPicker(c) : undefined; // 強勢股：選股器記住買進後最高價（移動停損），所以也要從起始日每天依序呼叫
+  const momPick = mom ? momPicker(c, opts.activeAt ? { bonus: (j) => opts.activeAt!(c.dates[j]) } : {}) : undefined; // 強勢股：選股器記住買進後最高價（移動停損），所以也要從起始日每天依序呼叫
   const stops: Record<string, number> = {};
   for (let j = j0; j < c.N; j++) {
     const date = c.dates[j];
@@ -124,7 +124,7 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
       }
       const adds = [...t.keys()].filter((code) => !hold.has(code)), drops = [...hold.keys()].filter((code) => !t.has(code));
       const nm = (list: string[]) => (list.length ? list.map((code) => `${name(code, j)}${code}`).join("、") : "無");
-      text += `\n本日判斷：強勢股（近 20 日漲 ${Math.round(MOM.min20 * 100)}% 以上、創 20 日新高、成交金額是 20 日平均 ${MOM.volX} 倍以上，個股與 ETF 都可，最強的先買）每天最多新增 ${MOM.newPerDay} 檔、每檔 ${Math.round(MOM.weight * 100)}%、最多 ${MOM.maxN} 檔；持有 ${t.size} 檔。下一個交易日收盤價調整，新增：${nm(adds)}；賣出：${nm(drops)}（收盤跌破買進後最高收盤價 ${Math.round(MOM.trail * 100)}%）。`
+      text += `\n本日判斷：強勢股（近 20 日漲 ${Math.round(MOM.min20 * 100)}% 以上、創 20 日新高、成交金額是 20 日平均 ${MOM.volX} 倍以上，個股與 ETF 都可，最強的先買；同樣強時，主動式 ETF 主動加碼的優先）每天最多新增 ${MOM.newPerDay} 檔、每檔 ${Math.round(MOM.weight * 100)}%、最多 ${MOM.maxN} 檔；持有 ${t.size} 檔。下一個交易日收盤價調整，新增：${nm(adds)}；賣出：${nm(drops)}（收盤跌破買進後最高收盤價 ${Math.round(MOM.trail * 100)}%）。`
         + (Object.keys(stops).length ? `\n目前停損價（跟著最高價往上拉）：${Object.entries(stops).map(([code, st]) => `${name(code, j)} ${st}`).join("、")}` : "");
     } else if (cons) {
       const vs = opts.votes?.(date) ?? new Map<string, string[]>();

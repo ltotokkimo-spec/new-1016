@@ -23,6 +23,7 @@ import * as upd from "./lib/update";
 import type { BacktestResult } from "./engine/backtest";
 import type { VirtualEtf } from "./engine/virtualEtf";
 import { mergeLive, parseMoneyDjHoldings, type ActiveEtfData } from "./lib/activeEtf";
+import type { ActiveTrack } from "./engine/activeTrack";
 import { liveUrl, parseLive, preOpen, type LiveQuote } from "./data/twLive";
 import { esbLiveUrl, parseEsbLive } from "./data/esb";
 import { twHistory } from "./data/history";
@@ -50,6 +51,7 @@ export const QUAD_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/do
 export const DUALPLUS_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/dualplus.json"; // 雙引擎＋（11/15）
 export const DUAL_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/dual.json"; // 雙引擎觀察組合（11/14）
 export const CONS_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/consensus.json"; // 共識股觀察組合（11/27）
+export const ACTIVE_TRACK_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/active-track.json"; // 主動式 ETF 主動加碼追蹤（11/27）
 export const MOM_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/mom.json"; // 強勢股觀察組合（11/27）
 export const TURN_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/turn.json"; // 剛轉強觀察組合
 export const RULE_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/real.json"; // 實單規則觀察組合（「我的實單」的選股規則）
@@ -127,6 +129,7 @@ export interface State {
   turn?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 剛轉強觀察組合
   cons?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 共識股觀察組合（11/27）
   mom?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 強勢股觀察組合（11/27）
+  activeTrack?: { data: ActiveTrack; fetchedAt: number }; // 主動式 ETF 主動加碼追蹤（11/27）
   dual?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 雙引擎觀察組合（成長組＋低波動組）
   dualPlus?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 雙引擎＋（加外資條件與 Claude 新聞否決）
   picksPerf: Partial<Record<PickBook, PicksPerfEntry>>; // 推薦績效追蹤（台股、ETF、美股）
@@ -288,6 +291,7 @@ export function autoRefresh() {
   if (usNeedsRefresh(state.us.fetchedAt, Date.now(), state.us.asOf)) refreshUs();
   else ensureUsHoldings(); // 今天的美股已下載過，但持股裡可能有還沒下載的代號
   if (twNeedsRefresh(esbFetchedAt)) refreshEsb();
+  if (!state.activeEtf || Date.now() - state.activeEtf.fetchedAt > 3 * 3600_000) void refreshActiveEtf(); // 選股、實單清單的「主動ETF 加減碼」標記要用（11/27）
   refreshMacro(); refreshTwIndex(); refreshFutures(); refreshTurnover(); void refreshNews();
   if (!state.virtual || Date.now() - state.virtual.fetchedAt > 10 * 60_000) refreshVirtual();
   if (!state.backtest || Date.now() - state.backtest.fetchedAt > 6 * 3600_000) refreshBacktest();
@@ -844,6 +848,14 @@ export async function refreshTurn() {
     if (state.turn) set({ turn: { ...state.turn, error: "這次沒下載到最新資料，顯示上次的內容" } });
     else set({ turn: undefined });
   }
+}
+
+export async function refreshActiveTrack() {
+  try {
+    const data = (await fetchData(ACTIVE_TRACK_URL)) as ActiveTrack;
+    if (data?.version !== 1 || !data.buy) throw new Error("格式不對");
+    set({ activeTrack: { data, fetchedAt: Date.now() } });
+  } catch { /* 沒有就不顯示 */ }
 }
 
 export async function refreshMom() {

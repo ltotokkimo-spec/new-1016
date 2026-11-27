@@ -240,3 +240,54 @@ export function liveNeeded(data: ActiveEtfData | undefined, now = Date.now()): b
   if (!cov) return true;
   return cov.date < expectedHoldingDate(now) || cov.n < cov.of;
 }
+
+/**
+ * 主動加減碼（11/27 使用者：主動式 ETF 買超當參考）：股數變化含申購買回造成的「全部同比例」買賣，那不是經理人看好或看壞。
+ * 所以每檔 ETF 先算它所有持股股數變化率的中位數（≈ 資金進出造成的同比例變化），某檔股票變化率比中位數多 TILT 以上才算「主動加碼」、少 TILT 以上算「主動減碼」；新買進算加碼、全部賣光算減碼。
+ */
+export const TILT = 0.02;
+export function tiltOf(s0: Record<string, number>, s1: Record<string, number>): { buys: string[]; sells: string[] } {
+  const codes = [...new Set([...Object.keys(s0), ...Object.keys(s1)])].filter((c) => /^[1-9]\d{3}$/.test(c));
+  const r = codes.filter((c) => (s0[c] ?? 0) > 0 && (s1[c] ?? 0) > 0).map((c) => s1[c] / s0[c] - 1).sort((a, b) => a - b);
+  if (!r.length) return { buys: [], sells: [] };
+  const med = r[r.length >> 1];
+  const buys: string[] = [], sells: string[] = [];
+  for (const c of codes) {
+    const a = s0[c] ?? 0, b = s1[c] ?? 0;
+    if (a <= 0 && b > 0) buys.push(c);
+    else if (a > 0 && b <= 0) sells.push(c);
+    else if (a > 0 && b / a - 1 > med + TILT) buys.push(c);
+    else if (a > 0 && b / a - 1 < med - TILT) sells.push(c);
+  }
+  return { buys, sells };
+}
+export interface TiltCount { date: string; buy: Record<string, string[]>; sell: Record<string, string[]> } // 代號 → 主動加碼／減碼的 ETF
+/** 歷史持股：每個資料日各股被幾檔主動式 ETF 主動加碼／減碼（舊到新） */
+export function tiltDays(hist: ActiveHist): TiltCount[] {
+  const by = new Map<string, TiltCount>();
+  for (const [etf, { snaps }] of Object.entries(hist.etfs)) {
+    for (let i = 1; i < snaps.length; i++) {
+      const t = tiltOf(snaps[i - 1].shares, snaps[i].shares), d = snaps[i].date;
+      const x = by.get(d) ?? { date: d, buy: {}, sell: {} }; by.set(d, x);
+      for (const c of t.buys) (x.buy[c] ??= []).push(etf);
+      for (const c of t.sells) (x.sell[c] ??= []).push(etf);
+    }
+  }
+  return [...by.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+/** App 用：最新一天各股被幾檔主動式 ETF 主動加碼／減碼（用最新持股和當天增減還原前一份） */
+export function latestTilt(data: ActiveEtfData | undefined): TiltCount | undefined {
+  const day = data?.days[0];
+  if (!day || !data?.latest) return undefined;
+  const out: TiltCount = { date: day.date, buy: {}, sell: {} };
+  for (const etf of Object.keys(day.prev)) {
+    const last = data.latest[etf];
+    if (!last || last.date !== day.date) continue;
+    const s1 = last.shares, s0: Record<string, number> = { ...s1 };
+    for (const [code, f] of Object.entries(day.flows)) { const d = f.b.find((x) => x[0] === etf)?.[1]; if (d) s0[code] = (s1[code] ?? 0) - d; }
+    const t = tiltOf(s0, s1);
+    for (const c of t.buys) (out.buy[c] ??= []).push(etf);
+    for (const c of t.sells) (out.sell[c] ??= []).push(etf);
+  }
+  return out;
+}

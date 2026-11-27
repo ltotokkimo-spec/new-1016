@@ -1,5 +1,6 @@
 // 「自組ETF」分頁：請 Claude 建議要買什麼、買幾股，照著實際下單後填入成交，追蹤淨值並和 0050 比較。
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { ActiveTag } from "./activeTag";
 import {
   addDualTrades, addDualFlow, setDualReserve, setDualSkip, hideDualTrade, removeDualTrade, resetDualReal, snapshotDualNav,
   LIVE_MS, findScored, getFetcher, getKv, addEtfFlow, setEtfReserve, removeEtfFlow, addEtfTrades, hideEtfTrade, removeEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshTurn, refreshCons, refreshMom, refreshDual, refreshDualPlus, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, livePriceNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
@@ -1106,7 +1107,7 @@ function DualFill({ orders, groups, flags = {}, onSkip, targetsDate }: { orders:
         <div class="row" style={{ gap: "6px", alignItems: "center", borderBottom: "1px solid var(--line)", paddingBottom: "6px" }} data-testid="dualreal-order">
           <input type="checkbox" checked={r.keep} disabled={isDone(r)} onChange={(e) => upd(i, { keep: (e.target as HTMLInputElement).checked })} aria-label={`記錄 ${r.name}`} />
           <div style={{ flex: 1, minWidth: 0, fontSize: "13px" }}>
-            <b class={r.side === "buy" ? "up" : "down"}>{r.side === "buy" ? "買" : "賣"}</b> {r.name} <span class="muted num">{r.code}</span><GroupTag groups={groups} code={r.code} />
+            <b class={r.side === "buy" ? "up" : "down"}>{r.side === "buy" ? "買" : "賣"}</b> {r.name} <span class="muted num">{r.code}</span><GroupTag groups={groups} code={r.code} /><ActiveTag code={r.code} />
             <div class="muted" style={{ fontSize: "11.5px" }}>{r.reason}</div>
             {isDone(r) && <div style={{ fontSize: "11.5px", color: "var(--up, #2fb457)", fontWeight: 700 }} data-testid="dualreal-order-done">✅ 今天已記錄這筆{r.side === "buy" ? "買進" : "賣出"}</div>}
             <button class="linkbtn" style={{ fontSize: "11.5px", padding: 0, marginRight: "10px" }} onClick={() => fillLive([i])} data-testid="dualreal-px-one">↻ 帶入現價</button>
@@ -1796,7 +1797,7 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
           {isWatch && <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }} data-testid="pending-note">{prettyW(v.asOf)} 收盤後判斷、{nextDay ? `${prettyW(nextDay)} ` : "下一個交易日"}收盤價成交（遇國定假日順延）；股數依 {prettyW(v.asOf)} 收盤價估算，實際以成交日收盤價為準。</div>}
           {v.pending.map((o) => (
             <div style={{ fontSize: "14px", lineHeight: 1.6 }}>
-              <span class={o.side === "buy" ? "up" : "down"}>{o.side === "buy" ? "買進" : "賣出"}</span> <b>{o.name}</b> <span class="muted num">{o.code}</span><GroupTag groups={v.groups} code={o.code} /> {o.shares.toLocaleString()} 股{o.limit ? `・限價 ${o.limit}` : isWatch ? "・收盤價" : "・開盤價"}
+              <span class={o.side === "buy" ? "up" : "down"}>{o.side === "buy" ? "買進" : "賣出"}</span> <b>{o.name}</b> <span class="muted num">{o.code}</span><GroupTag groups={v.groups} code={o.code} /><ActiveTag code={o.code} /> {o.shares.toLocaleString()} 股{o.limit ? `・限價 ${o.limit}` : isWatch ? "・收盤價" : "・開盤價"}
               <div class="muted" style={{ fontSize: "12px" }}>{o.reason}</div>
             </div>
           ))}

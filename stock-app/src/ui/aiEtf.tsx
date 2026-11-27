@@ -1621,18 +1621,19 @@ function CompareView() {
       <div class="section-title"><span>贏／輸 0050 排行</span><span>到今天為止</span></div>
       <CompareRank rows={cmp.rows} />
 
-      <div class="section-title"><span>每組走勢</span><span>實線組合・虛線同操作 0050</span></div>
-      <CompareMinis rows={cmp.rows} series={groups.filter((g) => g.v && g.v.nav.length).map((g) => ({ label: g.short, pts: g.v!.nav.map((p) => ({ date: p.date, r: g.v!.budget ? p.nav / g.v!.budget - 1 : 0 })), own: g.v!.nav.map((p) => ({ date: p.date, r: g.v!.budget ? p.bench / g.v!.budget - 1 : 0 })) }))} />
-
-      <details style={{ marginTop: "10px" }} data-testid="compare-all-lines">
-      <summary class="section-title" style={{ cursor: "pointer", listStyle: "none" }}><span>▸ 全部疊在一起看（每天走勢圖）</span><span>累積報酬</span></summary>
+      {/* 11/28 使用者：原本的疊圖要保留、直接顯示（不收摺疊），放在排行和每組小走勢之間 */}
+      <div class="section-title" data-testid="compare-all-lines"><span>每天走勢圖（全部疊在一起）</span><span>累積報酬</span></div>
       <CompareChart
         waiting={groups.filter((g) => g.v && !g.v.nav.length && !g.real).map((g) => ({ label: g.short, note: `${prettyW(g.v!.asOf ? addWeekdays(g.v!.asOf, 1) : g.v!.start)} 收盤後開始畫線` }))}
         series={groups.filter((g) => g.v && g.v.nav.length).map((g) => ({ label: g.short, pts: g.v!.nav.map((p) => ({ date: p.date, r: g.v!.budget ? p.nav / g.v!.budget - 1 : 0 })), own: g.v!.nav.map((p) => ({ date: p.date, r: g.v!.budget ? p.bench / g.v!.budget - 1 : 0 })), hold: (() => { const c = cmp.closes, p0 = c.get(g.v!.nav[0].date); return p0 ? g.v!.nav.filter((p) => c.has(p.date)).map((p) => ({ date: p.date, r: c.get(p.date)! / p0 - 1 })) : []; })() }))}
       />
 
 <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, margin: "6px 4px 0" }}>圖上每條線都從自己的起始日 0% 出發；虛線 0050 預設是 Claude 虛擬組的對照（10/19 起）；點下面的組名，虛線會換成那一組自己的 0050 對照，實線在虛線上方＝贏過 0050（和表格紅字一致）。線的右端數字＝下面表格第一欄「報酬」。</div>
-      </details>
+
+      <div class="section-title"><span>每組走勢</span><span>實線組合・虛線同操作 0050</span></div>
+      <CompareMinis rows={cmp.rows} series={groups.filter((g) => g.v && g.v.nav.length).map((g) => ({ label: g.short, pts: g.v!.nav.map((p) => ({ date: p.date, r: g.v!.budget ? p.nav / g.v!.budget - 1 : 0 })), own: g.v!.nav.map((p) => ({ date: p.date, r: g.v!.budget ? p.bench / g.v!.budget - 1 : 0 })) }))} />
+
+
 
       <div class="section-title"><span>各組從自己的起始日算起</span><span>報酬為相對起始資金</span></div>
       <div class="card" style={{ padding: "6px 8px", overflowX: "auto" }} data-testid="compare-all">

@@ -11,6 +11,8 @@ import os
 import sys
 import traceback
 
+SUPPORTS_SELFTEST = True        # updater 安裝前會用「exe --selftest 資料夾」試載入新程式
+
 MODULES = ["version", "updater", "merge_core", "csv_core", "grid_table", "viewer_base", "tab_csv", "tab_summary",
            "summary_merge_app"]
 
@@ -50,7 +52,20 @@ def _load_from(code_dir):
     return summary_merge_app
 
 
+def selftest(code_dir):
+    try:
+        _load_from(code_dir)
+        return 0
+    except Exception:  # noqa: BLE001
+        if sys.stderr:
+            traceback.print_exc()
+            sys.stderr.flush()
+        return 1
+
+
 def main():
+    if len(sys.argv) >= 3 and sys.argv[1] == "--selftest":
+        return selftest(sys.argv[2])
     import updater as bundled_updater
     candidates = [(bundled_updater.LOCAL_DIR, "本機 app 資料夾"), (bundled_updater.UPDATE_DIR, "線上更新")]
     load_error = None

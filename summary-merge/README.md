@@ -4,7 +4,7 @@
 
 | 分頁 | 內容 |
 |---|---|
-| **Cal Testing**（測試結果 CSV） | operator_log.csv 即時檢視。兩組來源設定（各自可啟用 / 清除），資料合併顯示並以「來源」欄區分。測試程式往下追加資料時自動更新 |
+| **Cal2_Testing**（測試結果 CSV） | operator_log.csv 即時檢視。兩組來源設定（各自可啟用 / 清除），資料合併顯示並以「來源」欄區分。測試程式往下追加資料時自動更新 |
 | **Roll Testing**（Summary 統計） | 來源目錄往下找所有 `Summary*.xlsx`，合併 TestRecord / Summary_SN，即時更新、篩選、統計、匯出 |
 
 ## 共同功能

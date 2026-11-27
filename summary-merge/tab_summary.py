@@ -8,10 +8,11 @@ from viewer_base import TableTab, open_path
 
 RESULT_COLORS = {"pass": ("#66FF33", "#000000"), "fail": ("#FF0000", "#FFFFFF"), "abort": ("#BFBFBF", "#000000")}
 SHEET_HIDDEN = {"TestRecord": ["Folder", "Thermal_history", "Slider", "Mode", "Recipe", "Thermal_with", "Source_File",
-                               "Detail", "Repicks", "Thermal_checks", "Total_s"],
-                "Summary_SN": ["Source_File", "Detail"]}
+                               "Detail", "Repicks", "Thermal_checks", "Total_s", "Note", "Test_SN"],
+                "Summary_SN": ["Source_File", "Detail", "Test_SN"]}
 # 已經自己選過欄位的人，這些欄位也補進隱藏清單一次（之後可在「選擇欄位」再打開）
-HIDE_ONCE = {"v2.1.5": {"TestRecord": ["Detail", "Repicks", "Thermal_checks", "Total_s"], "Summary_SN": ["Detail"]}}
+HIDE_ONCE = {"v2.1.5": {"TestRecord": ["Detail", "Repicks", "Thermal_checks", "Total_s"], "Summary_SN": ["Detail"]},
+             "v2.1.7": {"TestRecord": ["Note", "Test_SN"], "Summary_SN": ["Test_SN"]}}
 NO_SEC_COLS = {"Note", "Folder", "Thermal_history", "Detail", "Source_File", "SN", "Timestamp"}
 
 

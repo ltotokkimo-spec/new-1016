@@ -175,42 +175,62 @@ class Shell:
         return self.cfg.get("update_source") or updater.DEFAULT_SOURCE
 
     def check_update(self, silent=False):
+        """silent=True：啟動時背景檢查，有新版才跳出視窗；否則一開始就顯示進度視窗。"""
         if self._checking:
             return
         self._checking = True
         src = self.update_source()
         import version as running_version
         files = getattr(running_version, "FILES", [])
+        dlg = None if silent else UpdateDialog(self, "檢查更新")
+
+        def progress(frac, step, detail=""):
+            if dlg:
+                self.post(lambda: dlg.set(frac, step, detail))
 
         def work():
             try:
-                has, ver, contents = updater.check(src, CODE_INFO.get("dir"), files)
-                self.post(lambda: self._update_result(silent, has, ver, contents, None))
+                has, ver, contents = updater.check(src, CODE_INFO.get("dir"), files, progress=progress)
+                self.post(lambda: self._update_result(dlg, has, ver, contents, None))
             except Exception as e:  # noqa: BLE001
                 msg = str(e)
-                self.post(lambda: self._update_result(silent, False, None, None, msg))
+                self.post(lambda: self._update_result(dlg, False, None, None, msg))
         threading.Thread(target=work, daemon=True).start()
 
-    def _update_result(self, silent, has, ver, contents, err):
-        from tkinter import messagebox
+    def _update_result(self, dlg, has, ver, contents, err):
         self._checking = False
         if err:
-            if not silent:
-                messagebox.showerror(APP_TITLE, f"無法檢查更新：\n{err}\n\n更新來源：{self.update_source()}")
+            if dlg:
+                dlg.finish(f"無法檢查更新：\n{err}\n\n更新來源：{self.update_source()}", error=True)
             return
         if not has:
-            if not silent:
-                messagebox.showinfo(APP_TITLE, f"目前已是最新版（v{VERSION}）")
+            if dlg:
+                dlg.finish(f"目前已是最新版（v{VERSION}）")
             return
-        if not messagebox.askyesno(APP_TITLE, f"有新版本：v{ver}（目前 v{VERSION}）\n\n要更新並重新開啟程式嗎？"):
-            return
-        try:
-            updater.install(contents)
-        except Exception as e:  # noqa: BLE001
-            messagebox.showerror(APP_TITLE, f"更新失敗：{e}")
-            return
-        self.on_close()
-        updater.restart()
+        if dlg is None:
+            dlg = UpdateDialog(self, "有新版本")
+            dlg.set(1.0, "下載完成", f"新版 v{ver}")
+        dlg.ask(f"有新版本：v{ver}（目前 v{VERSION}）\n要更新並重新開啟程式嗎？",
+                lambda: self._install(dlg, contents))
+
+    def _install(self, dlg, contents):
+        dlg.busy()
+
+        def progress(frac, step, detail=""):
+            self.post(lambda: dlg.set(frac, step, detail))
+
+        def work():
+            try:
+                updater.install(contents, progress=progress)
+                self.post(lambda: self._installed(dlg))
+            except Exception as e:  # noqa: BLE001
+                msg = str(e)
+                self.post(lambda: dlg.finish(f"更新失敗：\n{msg}", error=True))
+        threading.Thread(target=work, daemon=True).start()
+
+    def _installed(self, dlg):
+        dlg.set(1.0, "更新完成，程式即將重新開啟…", "")
+        self.root.after(1200, lambda: (self.on_close(), updater.restart()))
 
     def set_update_source(self):
         from tkinter import simpledialog
@@ -235,6 +255,96 @@ class Shell:
         messagebox.showinfo(APP_TITLE, f"{APP_TITLE}\n版本 v{VERSION}\n\n程式來源：{CODE_INFO.get('label')}\n"
                                        f"{CODE_INFO.get('dir')}\n\n更新來源：{self.update_source()}\n"
                                        f"設定檔：{CONFIG_PATH}")
+
+
+class UpdateDialog:
+    """更新進度視窗：步驟說明、進度條（百分比）、目前檔案 / 大小，詢問與結果都在同一個視窗。"""
+
+    def __init__(self, shell, title):
+        tk, ttk = shell.tk, shell.ttk
+        self.shell = shell
+        w = self.w = tk.Toplevel(shell.root)
+        w.title(title)
+        w.transient(shell.root)
+        w.resizable(False, False)
+        w.protocol("WM_DELETE_WINDOW", self.close)
+        f = ttk.Frame(w, padding=16)
+        f.pack(fill="both", expand=True)
+        self.step = tk.StringVar(value="準備中…")
+        self.detail = tk.StringVar(value="")
+        self.pct = tk.StringVar(value="0%")
+        ttk.Label(f, textvariable=self.step, font=("", 10, "bold"), wraplength=440, justify="left").pack(anchor="w")
+        row = ttk.Frame(f)
+        row.pack(fill="x", pady=(8, 2))
+        self.bar = ttk.Progressbar(row, length=380, maximum=100, mode="determinate")
+        self.bar.pack(side="left")
+        ttk.Label(row, textvariable=self.pct, width=6, anchor="e").pack(side="left", padx=(6, 0))
+        ttk.Label(f, textvariable=self.detail, foreground="#666666", wraplength=440, justify="left").pack(anchor="w")
+        self.btns = ttk.Frame(f)
+        self.btns.pack(fill="x", pady=(12, 0))
+        self._indet = False
+        self._closable = True
+        w.update_idletasks()
+        x = shell.root.winfo_rootx() + (shell.root.winfo_width() - w.winfo_width()) // 2
+        y = shell.root.winfo_rooty() + (shell.root.winfo_height() - w.winfo_height()) // 3
+        w.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+
+    def exists(self):
+        return self.w.winfo_exists()
+
+    def set(self, frac, step, detail=""):
+        if not self.exists():
+            return
+        self.step.set(step)
+        self.detail.set(detail)
+        if frac is None:                       # 不確定要多久：跑馬燈
+            if not self._indet:
+                self.bar.configure(mode="indeterminate")
+                self.bar.start(12)
+                self._indet = True
+            self.pct.set("")
+        else:
+            if self._indet:
+                self.bar.stop()
+                self.bar.configure(mode="determinate")
+                self._indet = False
+            self.bar["value"] = max(0, min(100, frac * 100))
+            self.pct.set(f"{frac * 100:.0f}%")
+
+    def _buttons(self, *specs):
+        ttk = self.shell.ttk
+        for c in self.btns.winfo_children():
+            c.destroy()
+        for text, cmd in reversed(specs):
+            ttk.Button(self.btns, text=text, command=cmd).pack(side="right", padx=(6, 0))
+
+    def ask(self, text, on_yes):
+        self.step.set(text)
+        self._buttons(("更新並重新開啟", on_yes), ("稍後", self.close))
+        self.w.lift()
+
+    def busy(self):
+        self._closable = False
+        self._buttons()
+        self.bar["value"] = 0
+        self.pct.set("0%")
+
+    def finish(self, text, error=False):
+        self._closable = True
+        if self._indet:
+            self.bar.stop()
+            self.bar.configure(mode="determinate")
+            self._indet = False
+        if not error:
+            self.bar["value"] = 100
+            self.pct.set("100%")
+        self.step.set(text)
+        self.detail.set("")
+        self._buttons(("關閉", self.close))
+
+    def close(self):
+        if self._closable and self.exists():
+            self.w.destroy()
 
 
 # ---------------------------------------------------------------- 進入點

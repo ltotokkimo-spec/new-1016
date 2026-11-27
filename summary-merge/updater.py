@@ -34,12 +34,27 @@ LOCAL_DIR = os.path.join(exe_dir(), "app")      # 本機開發用：exe 旁邊�
 RAW_RE = re.compile(r"https://raw\.githubusercontent\.com/([^/]+)/([^/]+)/(.+)$", re.I)
 
 
-def _http(url, accept=None):
+def _noop(*_a):
+    pass
+
+
+def _http(url, accept=None, on_bytes=None):
+    """下載；on_bytes(已下載, 總大小或 None) 回報進度。"""
     headers = {"Cache-Control": "no-cache", "User-Agent": "SummaryMerge"}
     if accept:
         headers["Accept"] = accept
     with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=20) as r:
-        return r.read()
+        total = r.headers.get("Content-Length")
+        total = int(total) if total and total.isdigit() else None
+        buf = bytearray()
+        while True:
+            chunk = r.read(16384)
+            if not chunk:
+                break
+            buf += chunk
+            if on_bytes:
+                on_bytes(len(buf), total)
+        return bytes(buf)
 
 
 def pin_source(source):
@@ -63,12 +78,15 @@ def pin_source(source):
     return source
 
 
-def _read_source(source, name):
+def _read_source(source, name, on_bytes=None):
     if re.match(r"https?://", source, re.I):
         url = f"{source.rstrip('/')}/{name}?t={int(time.time())}"
-        return _http(url)
+        return _http(url, on_bytes=on_bytes)
     with open(os.path.join(source, name), "rb") as f:
-        return f.read()
+        data = f.read()
+    if on_bytes:
+        on_bytes(len(data), len(data))
+    return data
 
 
 def _parse_files(version_src):
@@ -107,23 +125,35 @@ def current_digest(code_dir, files):
     return digest(contents)
 
 
-def fetch(source):
-    """下載來源的全部檔案並檢查語法，回傳 (版本, {檔名: bytes})。"""
+def fetch(source, progress=None):
+    """下載來源的全部檔案並檢查語法，回傳 (版本, {檔名: bytes})。
+    progress(比例 0~1, 步驟說明, 細節) 回報進度（在背景執行緒呼叫）。"""
+    progress = progress or _noop
+    progress(0.02, "連線更新來源…", source)
     source = pin_source(source)
+    progress(0.08, "讀取版本資訊…", "version.py")
     vsrc = _read_source(source, "version.py")
     version, files = _parse_files(vsrc.decode("utf-8"))
     contents = {"version.py": vsrc}
-    for name in files:
-        if name not in contents:
-            contents[name] = _read_source(source, name)
+    todo = [n for n in files if n not in contents]
+    for i, name in enumerate(todo):
+        lo, hi = 0.1 + 0.8 * i / len(todo), 0.1 + 0.8 * (i + 1) / len(todo)
+
+        def on_bytes(done, total, lo=lo, hi=hi, name=name, i=i):
+            frac = done / total if total else 0.5
+            size = f"{done / 1024:.1f} / {total / 1024:.1f} KB" if total else f"{done / 1024:.1f} KB"
+            progress(lo + (hi - lo) * frac, f"下載 v{version}（{i + 1}/{len(todo)}）", f"{name}　{size}")
+        contents[name] = _read_source(source, name, on_bytes=on_bytes)
+    progress(0.92, "檢查程式碼…", "")
     for name, data in contents.items():            # 有語法錯誤就不更新，避免程式打不開
         compile(data, name, "exec")
+    progress(1.0, "下載完成", f"共 {len(contents)} 個檔案，{sum(map(len, contents.values())) / 1024:.0f} KB")
     return version, contents
 
 
-def check(source, running_dir, running_files):
+def check(source, running_dir, running_files, progress=None):
     """回傳 (有無更新, 來源版本, 下載內容)。"""
-    version, contents = fetch(source)
+    version, contents = fetch(source, progress)
     cur = current_digest(running_dir, running_files) if running_dir else None
     return cur != digest(contents), version, contents
 
@@ -147,14 +177,17 @@ def _selftest(code_dir):
         raise RuntimeError(f"新版程式無法在這個 exe 上執行，已取消更新（需要下載新版 exe）：\n{err}")
 
 
-def install(contents):
+def install(contents, progress=None):
+    progress = progress or _noop
     staging = UPDATE_DIR + ".new"
     shutil.rmtree(staging, ignore_errors=True)
     os.makedirs(staging)
-    for name, data in contents.items():
+    for i, (name, data) in enumerate(contents.items()):
+        progress(0.05 + 0.35 * (i + 1) / len(contents), "寫入新版程式…", name)
         with open(os.path.join(staging, name), "wb") as f:
             f.write(data)
     try:
+        progress(None, "試開新版程式（確認可以在這個 exe 上執行）…", "約需數秒")
         _selftest(staging)
     except Exception:
         shutil.rmtree(staging, ignore_errors=True)
@@ -163,8 +196,10 @@ def install(contents):
     shutil.rmtree(old, ignore_errors=True)
     if os.path.isdir(UPDATE_DIR):
         os.replace(UPDATE_DIR, old)
+    progress(0.9, "套用新版…", UPDATE_DIR)
     os.replace(staging, UPDATE_DIR)
     shutil.rmtree(old, ignore_errors=True)
+    progress(1.0, "更新完成", "")
 
 
 def reset():

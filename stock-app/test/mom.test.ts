@@ -51,4 +51,10 @@ describe("強勢股（移動停損）", () => {
     expect(st).toBeGreaterThan(buys[0].price * 0.92);
     expect(st).toBeCloseTo(v.last["2001"].close * 0.92, 0);
   });
+  it("整段空手（沒有任何成交）也每天記淨值＝起始資金", () => {
+    const v = runWatch(days, companies, { start: days[8].date, now: 0, mode: "mom" });
+    expect(v.trades.length).toBe(0);
+    expect(v.nav.length).toBeGreaterThan(5);
+    expect(v.nav.every((p) => p.nav === v.budget && p.bench === v.budget)).toBe(true);
+  });
 });

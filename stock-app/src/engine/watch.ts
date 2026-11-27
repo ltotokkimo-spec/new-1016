@@ -103,7 +103,8 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
     for (const code of [...hold.keys(), BENCH]) { const p = close(code, j); if (p) last[code] = { name: name(code, j), close: p }; }
     v = { ...v, trades: [...trades], last: { ...last }, asOf: date };
     const val = valuate(v, (code) => close(code, j) ?? last[code]?.close);
-    if (!val.missing.length) v = { ...v, ...recordNav(v, date, val) };
+    // 還沒有任何成交（例如強勢股被大盤濾網擋住、整段空手）也要記每天淨值＝起始資金，App 的走勢圖與總評比才畫得出線（11/27）
+    if (!val.missing.length) v = trades.length ? { ...v, ...recordNav(v, date, val) } : { ...v, nav: [...v.nav.filter((x) => x.date !== date), { date, nav: budget, bench: budget }] };
     // 3. 收盤後重新選股：全個股、N5、權值強化每天；攻守輪動每 5 個交易日；AI 供應鏈每 20 個交易日
     const scheduled = wide || lead || turn || cons || mom || !(regime || ai || real || dual) || (j - (jRank >= 0 && j >= jRank ? jRank : j0)) % (ai ? WATCH.aiEvery : real ? REAL.every : dual ? DUAL.every : WATCH.every) === 0;
     const vetoNow = vetoAt(date);

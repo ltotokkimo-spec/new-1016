@@ -201,7 +201,7 @@ class Shell:
         self._checking = False
         if err:
             if dlg:
-                dlg.finish(f"無法檢查更新：\n{err}\n\n更新來源：{self.update_source()}", error=True)
+                dlg.finish(f"無法檢查更新：\n{err}", error=True)
             return
         if not has:
             if dlg:
@@ -253,7 +253,7 @@ class Shell:
     def about(self):
         from tkinter import messagebox
         messagebox.showinfo(APP_TITLE, f"{APP_TITLE}\n版本 v{VERSION}\n\n程式來源：{CODE_INFO.get('label')}\n"
-                                       f"{CODE_INFO.get('dir')}\n\n更新來源：{self.update_source()}\n"
+                                       f"{CODE_INFO.get('dir')}\n\n"
                                        f"設定檔：{CONFIG_PATH}")
 
 

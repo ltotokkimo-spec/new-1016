@@ -129,7 +129,7 @@ def fetch(source, progress=None):
     """下載來源的全部檔案並檢查語法，回傳 (版本, {檔名: bytes})。
     progress(比例 0~1, 步驟說明, 細節) 回報進度（在背景執行緒呼叫）。"""
     progress = progress or _noop
-    progress(0.02, "連線更新來源…", source)
+    progress(0.02, "連線更新來源…", "")
     source = pin_source(source)
     progress(0.08, "讀取版本資訊…", "version.py")
     vsrc = _read_source(source, "version.py")

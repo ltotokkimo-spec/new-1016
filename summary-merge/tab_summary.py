@@ -7,8 +7,11 @@ import merge_core
 from viewer_base import TableTab, open_path
 
 RESULT_COLORS = {"pass": ("#66FF33", "#000000"), "fail": ("#FF0000", "#FFFFFF"), "abort": ("#BFBFBF", "#000000")}
-SHEET_HIDDEN = {"TestRecord": ["Folder", "Thermal_history", "Slider", "Mode", "Recipe", "Thermal_with", "Source_File"],
-                "Summary_SN": ["Source_File"]}
+SHEET_HIDDEN = {"TestRecord": ["Folder", "Thermal_history", "Slider", "Mode", "Recipe", "Thermal_with", "Source_File",
+                               "Detail", "Repicks", "Thermal_checks", "Total_s"],
+                "Summary_SN": ["Source_File", "Detail"]}
+# 已經自己選過欄位的人，這些欄位也補進隱藏清單一次（之後可在「選擇欄位」再打開）
+HIDE_ONCE = {"v2.1.5": {"TestRecord": ["Detail", "Repicks", "Thermal_checks", "Total_s"], "Summary_SN": ["Detail"]}}
 NO_SEC_COLS = {"Note", "Folder", "Thermal_history", "Detail", "Source_File", "SN", "Timestamp"}
 
 
@@ -29,6 +32,16 @@ class SummaryTab(TableTab):
         self.data = {s: [] for s in merge_core.SHEETS}
         self.widths = {s: {} for s in merge_core.SHEETS}
         self.file_info = []
+        cfg = shell.cfg.setdefault(self.TAB_KEY, {})
+        done = cfg.setdefault("hide_once", [])
+        for tag, sheets in HIDE_ONCE.items():
+            if tag in done:
+                continue
+            for sheet, cols in sheets.items():
+                key = "hidden_" + sheet
+                if key in cfg:
+                    cfg[key] = list(cfg[key]) + [c for c in cols if c not in cfg[key]]
+            done.append(tag)
         super().__init__(shell, parent)
 
     # 每個資料表各自記住隱藏欄位

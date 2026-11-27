@@ -61,7 +61,7 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
   let cash = budget;
   // 剛轉強（使用者 11/04 選 T1-混合）：每天收盤判斷；選股器自己記住持股的買進日與買進價，所以要從起始日每天依序呼叫
   const turnPick = turn ? turnPicker(c, { strict: false, regime: false, exit: "hybrid" }) : undefined;
-  const momPick = mom ? momPicker(c, { regime: true, ...(opts.activeAt ? { bonus: (j: number) => opts.activeAt!(c.dates[j]) } : {}) }) : undefined; // 11/27 使用者看完回測選 M3：加大盤濾網 // 強勢股：選股器記住買進後最高價（移動停損），所以也要從起始日每天依序呼叫
+  const momPick = mom ? momPicker(c, { regime: true, regimeMa: MOM.regimeMa, ...(opts.activeAt ? { bonus: (j: number) => opts.activeAt!(c.dates[j]) } : {}) }) : undefined; // 11/27 使用者看完回測選 M3：加大盤濾網 // 強勢股：選股器記住買進後最高價（移動停損），所以也要從起始日每天依序呼叫
   const stops: Record<string, number> = {};
   for (let j = j0; j < c.N; j++) {
     const date = c.dates[j];
@@ -124,7 +124,7 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
       }
       const adds = [...t.keys()].filter((code) => !hold.has(code)), drops = [...hold.keys()].filter((code) => !t.has(code));
       const nm = (list: string[]) => (list.length ? list.map((code) => `${name(code, j)}${code}`).join("、") : "無");
-      text += `\n本日判斷：強勢股（近 20 日漲 ${Math.round(MOM.min20 * 100)}% 以上、創 20 日新高、成交金額是 20 日平均 ${MOM.volX} 倍以上，個股與 ETF 都可，最強的先買；同樣強時，主動式 ETF 主動加碼的優先；大盤濾網：0050 收盤跌破 60 日線時不買新的）每天最多新增 ${MOM.newPerDay} 檔、每檔 ${Math.round(MOM.weight * 100)}%、最多 ${MOM.maxN} 檔；持有 ${t.size} 檔。下一個交易日收盤價調整，新增：${nm(adds)}；賣出：${nm(drops)}（收盤跌破買進後最高收盤價 ${Math.round(MOM.trail * 100)}%）。`
+      text += `\n本日判斷：強勢股（近 20 日漲 ${Math.round(MOM.min20 * 100)}% 以上、創 20 日新高、成交金額是 20 日平均 ${MOM.volX} 倍以上，個股與 ETF 都可，最強的先買；同樣強時，主動式 ETF 主動加碼的優先；大盤濾網：0050 收盤跌破 ${MOM.regimeMa} 日線時不買新的）每天最多新增 ${MOM.newPerDay} 檔、每檔 ${Math.round(MOM.weight * 100)}%、最多 ${MOM.maxN} 檔；持有 ${t.size} 檔。下一個交易日收盤價調整，新增：${nm(adds)}；賣出：${nm(drops)}（收盤跌破買進後最高收盤價 ${Math.round(MOM.trail * 100)}%）。`
         + (Object.keys(stops).length ? `\n目前停損價（跟著最高價往上拉）：${Object.entries(stops).map(([code, st]) => `${name(code, j)} ${st}`).join("、")}` : "");
     } else if (cons) {
       const vs = opts.votes?.(date) ?? new Map<string, string[]>();

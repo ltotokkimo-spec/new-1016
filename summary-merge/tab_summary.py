@@ -163,16 +163,16 @@ class SummaryTab(TableTab):
             hdr = [h for h in hdr if h not in moved]
             i = hdr.index("Timestamp") + 1
             hdr[i:i] = moved
-        titles = {"Timestamp": "Time"}           # 日期已有 Date 欄，這裡只顯示 時_分_秒
+        titles = {"Timestamp": "Time"}           # 日期已有 Date 欄，這裡只顯示 時:分:秒
         return [(h, titles.get(h, h), "w" if h in NO_SEC_COLS and h != "Timestamp" else "center") for h in hdr]
 
     def cell(self, rec, key):
         v = rec.get(key)
         if v is None:
             return ""
-        if key == "Timestamp":                    # 2026_11_25_14_00_38 → 14_00_38
+        if key == "Timestamp":                    # 2026_11_25_14_00_38 → 14:00:38
             ts = rec.get("__ts")
-            return ts.strftime("%H_%M_%S") if ts else str(v)
+            return ts.strftime("%H:%M:%S") if ts else str(v)
         if isinstance(v, float):
             return f"{v:g}"
         return str(v)

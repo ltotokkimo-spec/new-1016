@@ -21,7 +21,7 @@ import { appendPicks, applyFinal, assertAppendOnly, assertFinalAppendOnly, BOOK_
 import { UsLoader } from "../src/data/usLoader";
 import type { KV } from "../src/lib/kv";
 
-const [cacheDir = ".bt-cache", outFile = "backtest.json", factorsFile = "factors.json", compareFile = "scorecompare.json", steadyFile = "steady.json", watchFile = "n5.json", wideFile = "wide.json", regimeFile = "regime.json", leadFile = "lead.json", aiFile = "ai.json", realFile = "real.json", turnFile = "turn.json", dualFile = "dual.json", quadFile = "quad.json", dualPlusFile = "dualplus.json", consFile = "consensus.json"] = process.argv.slice(2);
+const [cacheDir = ".bt-cache", outFile = "backtest.json", factorsFile = "factors.json", compareFile = "scorecompare.json", steadyFile = "steady.json", watchFile = "n5.json", wideFile = "wide.json", regimeFile = "regime.json", leadFile = "lead.json", aiFile = "ai.json", realFile = "real.json", turnFile = "turn.json", dualFile = "dual.json", quadFile = "quad.json", dualPlusFile = "dualplus.json", consFile = "consensus.json", momFile = "mom.json"] = process.argv.slice(2);
 fs.mkdirSync(cacheDir, { recursive: true });
 
 const fileKV = (dir: string): KV => {
@@ -337,6 +337,13 @@ try {
   log(`全個股試跑（${trial.start} 起）：成交 ${trial.trades.length} 筆，淨值 ${tv?.nav}（${tv ? ((tv.nav / trial.budget - 1) * 100).toFixed(2) : "—"}%）0050 對照 ${tv?.bench}（${tv ? ((tv.bench / trial.budget - 1) * 100).toFixed(2) : "—"}%）`);
   log("全個股試跑最後說明：", trial.notes.at(-1)?.text);
 } catch (e) { log("全個股觀察組合失敗（不影響回測）：", e); }
+// 強勢股觀察組合（使用者 11/27：強勢股、移動停損 8%、每天重新評估；和其他組一樣 10/23 起算，11/27 以前是回填）
+try {
+  const w = runWatch(days, companies, { mode: "mom" });
+  fs.writeFileSync(momFile, JSON.stringify(w));
+  log(`強勢股觀察組合：${w.start} 起，資料日 ${w.asOf || "（尚未開始）"}，成交 ${w.trades.length} 筆，淨值 ${w.nav.at(-1)?.nav ?? WATCH.budget}（0050 對照 ${w.nav.at(-1)?.bench ?? WATCH.budget}），明天委託 ${w.pending.length} 筆`);
+  log("強勢股最後說明：", w.notes.at(-1)?.text);
+} catch (e) { log("強勢股觀察組合失敗（不影響回測）：", e); }
 // 共識股觀察組合（使用者 11/27 選「共識股」）：各規則組當天收盤的持股，被 2 組以上同時持有的個股才買；讀上面各組剛寫出的檔案
 try {
   const src: [string, string][] = [["N5", watchFile], ["全個股", wideFile], ["攻守輪動", regimeFile], ["權值強化", leadFile], ["AI 供應鏈", aiFile], ["實單規則", realFile], ["剛轉強", turnFile], ["雙引擎", dualFile], ["雙引擎＋", dualPlusFile]];

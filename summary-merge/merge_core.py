@@ -95,9 +95,9 @@ def read_file(path):
                 ts = parse_ts(rec.get("Timestamp"))
                 rec["__ts"] = ts
                 if ts:
-                    rec["Date"] = ts.strftime("%Y-%m-%d")
+                    rec["Date"] = ts.strftime("%Y/%m/%d")
                 elif fdate:
-                    rec["Date"] = f"{fdate[:4]}-{fdate[4:6]}-{fdate[6:]}"
+                    rec["Date"] = f"{fdate[:4]}/{fdate[4:6]}/{fdate[6:]}"
                 else:
                     rec["Date"] = ""
                 rec["Source_File"] = name

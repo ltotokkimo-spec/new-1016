@@ -131,7 +131,7 @@ class TableTab:
         ttk.Label(r1, text="～").pack(side="left")
         self.to_ent = ttk.Entry(r1, textvariable=self.to_var, width=18)
         self.to_ent.pack(side="left")
-        ttk.Label(r1, text="（HH:MM = 每天同時段；含日期 = 指定區間，可跨天）", foreground="#888888").pack(side="left", padx=4)
+        ttk.Label(r1, text="（HH:MM = 每天同時段；含日期如 2026/11/25 08:30 = 指定區間，可跨天）", foreground="#888888").pack(side="left", padx=4)
 
         r2 = ttk.Frame(flt)
         r2.pack(fill="x", pady=(4, 2))
@@ -636,7 +636,7 @@ class TableTab:
             m.add_command(label=f"只看這一天：{d}", command=lambda: self._filter_date(d))
         ts = self.rec_dt(rec)
         if ts:
-            t = ts.strftime("%Y-%m-%d %H:%M:%S")
+            t = ts.strftime("%Y/%m/%d %H:%M:%S")
             m.add_command(label=f"從此時間開始：{t}", command=lambda: self.from_var.set(t))
             m.add_command(label=f"到此時間結束：{t}", command=lambda: self.to_var.set(t))
         for key, label, _w in self.COMBOS:

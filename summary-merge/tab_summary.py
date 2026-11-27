@@ -23,7 +23,7 @@ def is_aborted(rec):
 class SummaryTab(TableTab):
     TAB_KEY = "summary"
     TAB_TITLE = "Roll Testing"
-    COMBOS = [("Result", "結果", 7), ("Detail", "Detail", 12), ("Spec_class", "Spec", 5),
+    COMBOS = [("Result", "結果", 7), ("Spec_class", "Spec", 5),
               ("Operator", "Operator", 9), ("Jig", "Jig", 6)]
 
     def __init__(self, shell, parent):

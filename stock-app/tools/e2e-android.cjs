@@ -277,7 +277,19 @@ function check(ok, name, detail = "") {
   const kLive = await page.$eval('[data-testid="kbar-live"]', (e) => e.innerText).catch(() => "");
   if (kLive) check(/^盤中 開/.test(cd0.info) && /即時價/.test(kLive), "盤中 K 線圖最後一根用即時價並標示盤中", kLive);
   else log("這次沒有盤中 K 棒（非交易時段或今天還沒有成交），略過盤中檢查");
-  check(/^5日 [\d.,]+ 20日 [\d.,]+ 60日 [\d.,]+$/.test(cd0.ma), "K 線圖標示 5／20／60 日均線數值", cd0.ma);
+  check(/^5日 [\d.,]+ 20日 [\d.,]+ 60日 [\d.,]+( ⚙ 均線)?$/.test(cd0.ma), "K 線圖標示 5／20／60 日均線數值", cd0.ma);
+  // 11/27：均線天數可自訂（改第 3 條為 40 日 → 顯示 40日；再還原 5／20／60）
+  try {
+    await page.click('[data-testid="ma-edit"]');
+    await page.fill('[data-testid="ma-input-2"]', "40");
+    await page.click('[data-testid="ma-save"]');
+    await sleep(300);
+    const m40 = (await cd()).ma;
+    check(/^5日 [\d.,]+ 20日 [\d.,]+ 40日 [\d.,]+/.test(m40) && (await page.evaluate(() => localStorage.getItem("candleMaDays"))) === "[5,20,40]", "K 線圖均線可自訂天數（改成 40 日後顯示 40日、記在手機）", m40);
+    await page.click('[data-testid="ma-edit"]');
+    await page.click('[data-testid="ma-reset"]');
+    await sleep(300);
+  } catch (e) { check(false, "K 線圖均線自訂", String(e).slice(0, 200)); }
   check(/顯示 90 日/.test(cd0.ind), "K 線分段載入完成後恢復預設顯示 90 日（沒有停在只有一個月的寬度）", cd0.ind);
   // 預載與分段載入：等更早的月份載完後關掉再打開同一檔，K 線要馬上出現（手機裡已經存好，不用再等下載）
   await page.waitForFunction(() => !document.querySelector('[data-testid="kline-loading-more"]'), null, { timeout: 120000 }).catch(() => {});

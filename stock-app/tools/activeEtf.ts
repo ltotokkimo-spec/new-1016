@@ -47,7 +47,7 @@ for (const code of codes) {
     if (!p || !n) { console.log(code, "沒有台股持股（可能是國外股票或債券 ETF），略過"); continue; }
     if (p.code !== code) { console.log(code, "頁面代號不符", p.code); continue; }
     const prev = hist.etfs[code]?.snaps.at(-1)?.date ?? "-";
-    hist = addSnap(hist, code, p.name, { date: p.date, shares: p.shares });
+    hist = addSnap(hist, code, p.name, { date: p.date, shares: p.shares }, 400); // 11/27：原本只留 12 份，無法驗證「主動式 ETF 買超當參考」有沒有用；改留約 1.5 年（App 仍只顯示最近 10 天）
     ok++;
     console.log(code, p.name, "資料日", p.date, "台股", n, "檔", "上一份", prev);
   } catch (e) { console.log(code, "失敗", String(e)); }

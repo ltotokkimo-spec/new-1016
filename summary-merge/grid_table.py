@@ -9,7 +9,6 @@ Canvas 表格（仿原「測試結果檢視器」）：黑底表頭、格線、�
     style_fn(rec, key) -> (bg, fg, bold) 或 None（用預設）
 """
 import tkinter as tk
-import tkinter.font as tkfont
 from tkinter import ttk
 
 COLORS = {"grid": "#A0A0A0", "header_bg": "#444444", "header_fg": "#FFFFFF", "cell_bg": "#FFFFFF",
@@ -19,6 +18,20 @@ HEAD_H = 28
 RESIZE_ZONE = 5
 
 
+class _Font:
+    """不依賴 tkinter.font 模組的字型（舊版 exe 沒有打包 tkinter.font）。"""
+
+    def __init__(self, widget, family, size, bold=False):
+        self.w = widget
+        self.desc = (family, size, "bold") if bold else (family, size)
+
+    def measure(self, text):
+        return int(self.w.tk.call("font", "measure", self.desc, text))
+
+    def __str__(self):
+        return self.w.tk.call("list", *self.desc)
+
+
 class GridTable(ttk.Frame):
     def __init__(self, master, style_fn=None, on_double=None, on_context=None, on_header=None,
                  on_select=None, on_copy=None):
@@ -26,9 +39,10 @@ class GridTable(ttk.Frame):
         self.style_fn = style_fn or (lambda r, k: None)
         self.on_double, self.on_context, self.on_header = on_double, on_context, on_header
         self.on_select, self.on_copy = on_select, on_copy
-        base = tkfont.nametofont("TkDefaultFont")
-        self.font = tkfont.Font(family=base.actual("family"), size=max(base.actual("size"), 10))
-        self.bold = tkfont.Font(family=base.actual("family"), size=max(base.actual("size"), 10), weight="bold")
+        family = self.tk.call("font", "actual", "TkDefaultFont", "-family")
+        size = abs(int(self.tk.call("font", "actual", "TkDefaultFont", "-size")))
+        self.font = _Font(self, family, max(size, 10))
+        self.bold = _Font(self, family, max(size, 10), bold=True)
         self.cols = []            # [(key, title, anchor, width)]
         self.rows = []
         self.text_fn = lambda r, k: ""
@@ -201,7 +215,7 @@ class GridTable(ttk.Frame):
         x = 0
         for key, title, _a, w in self.cols:
             h.create_rectangle(x, 0, x + w, HEAD_H, fill=COLORS["header_bg"], outline="#777777")
-            h.create_text(x + w / 2, HEAD_H / 2, text=title, fill=COLORS["header_fg"], font=self.bold)
+            h.create_text(x + w / 2, HEAD_H / 2, text=title, fill=COLORS["header_fg"], font=self.bold.desc)
             x += w
 
     def _draw_body(self):
@@ -211,7 +225,7 @@ class GridTable(ttk.Frame):
         vis = self._visible_n() + 1
         width = sum(c[3] for c in self.cols)
         if not n:
-            b.create_text(10, 10, text="（沒有資料）", anchor="nw", fill="#888888", font=self.font)
+            b.create_text(10, 10, text="（沒有資料）", anchor="nw", fill="#888888", font=self.font.desc)
         for vi in range(min(vis, n - self.top)):
             i = self.top + vi
             r = self.rows[i]
@@ -233,11 +247,11 @@ class GridTable(ttk.Frame):
                         tx, an = x + w - 5, "e"
                     else:
                         tx, an = x + w / 2, "center"
-                    item = b.create_text(tx, (y0 + y1) / 2, text=text, anchor=an, fill=fg, font=f)
+                    item = b.create_text(tx, (y0 + y1) / 2, text=text, anchor=an, fill=fg, font=f.desc)
                     bb = b.bbox(item)
                     if bb and (bb[2] - bb[0]) > w - 6:      # 太長就截斷
                         b.delete(item)
-                        b.create_text(x + 5, (y0 + y1) / 2, text=self._clip(text, w - 10, f), anchor="w", fill=fg, font=f)
+                        b.create_text(x + 5, (y0 + y1) / 2, text=self._clip(text, w - 10, f), anchor="w", fill=fg, font=f.desc)
                 x += w
             if selected:
                 b.create_line(0, y0, width, y0, fill=COLORS["select_line"])

@@ -32,6 +32,7 @@ jobs:
         run: >-
           pyinstaller --noconfirm --onefile --windowed --name TestDataTool
           --hidden-import tab_csv --hidden-import tab_summary --hidden-import csv_core --hidden-import viewer_base --hidden-import grid_table
+          --collect-submodules tkinter --hidden-import statistics --hidden-import sqlite3 --hidden-import zipfile
           --add-data "*.py;."
           launcher.py
 

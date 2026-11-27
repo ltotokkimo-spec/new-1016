@@ -74,35 +74,23 @@ def read_sheet(ws):
     return [h for h in headers if h], records
 
 
-def merge(files, log=print):
-    headers = {s: [] for s in SHEETS}
-    data = {s: [] for s in SHEETS}
-    widths = {s: {} for s in SHEETS}
-    file_info = []
-
-    for path in files:
-        name = os.path.basename(path)
-        try:
-            wb = load_workbook(path, data_only=True)
-        except Exception as e:  # noqa: BLE001
-            log(f"  [略過] 無法開啟 {name}: {e}")
-            file_info.append((path, "無法開啟", 0, 0))
-            continue
-        counts = {}
-        fdate = file_date(path)
+def read_file(path):
+    """讀一個 Summary 檔，回傳 {sheet: (headers, records, widths)}；開不了會丟例外。"""
+    name = os.path.basename(path)
+    fdate = file_date(path)
+    wb = load_workbook(path, data_only=True)
+    out = {}
+    try:
         for s in SHEETS:
             if s not in wb.sheetnames:
-                counts[s] = 0
                 continue
             ws = wb[s]
             hdr, recs = read_sheet(ws)
-            for h in hdr:
-                if h not in headers[s]:
-                    headers[s].append(h)
+            widths = {}
             for i, h in enumerate(hdr):
                 w = ws.column_dimensions[get_column_letter(i + 1)].width
                 if w:
-                    widths[s][h] = max(widths[s].get(h, 0), w)
+                    widths[h] = w
             for rec in recs:
                 ts = parse_ts(rec.get("Timestamp"))
                 rec["__ts"] = ts
@@ -113,12 +101,26 @@ def merge(files, log=print):
                 else:
                     rec["Date"] = ""
                 rec["Source_File"] = name
-            data[s].extend(recs)
-            counts[s] = len(recs)
+                rec["__path"] = path
+            out[s] = (hdr, recs, widths)
+    finally:
         wb.close()
-        file_info.append((path, "OK", counts["Summary_SN"], counts["TestRecord"]))
-        log(f"  {name}: Summary_SN {counts['Summary_SN']} 筆, TestRecord {counts['TestRecord']} 筆")
+    return out
 
+
+def combine(results):
+    """results: [(path, read_file 的結果)]，合併、去重、依時間排序。"""
+    headers = {s: [] for s in SHEETS}
+    data = {s: [] for s in SHEETS}
+    widths = {s: {} for s in SHEETS}
+    for _path, res in results:
+        for s, (hdr, recs, w) in res.items():
+            for h in hdr:
+                if h not in headers[s]:
+                    headers[s].append(h)
+            for h, v in w.items():
+                widths[s][h] = max(widths[s].get(h, 0), v)
+            data[s].extend(recs)
     # 同 SN + 同 Timestamp 才算重複（例如同一個檔被複製到兩個資料夾）；
     # 同 SN 不同時間的測試全部保留，以 Date / Timestamp 區分。
     for s in SHEETS:
@@ -128,8 +130,35 @@ def merge(files, log=print):
             if k not in seen:
                 seen.add(k)
                 out.append(rec)
+        # 同一 SN 第幾次測試 / 共幾次
+        total = Counter(str(r.get("SN")) for r in out)
+        nth = Counter()
+        for r in out:
+            sn = str(r.get("SN"))
+            nth[sn] += 1
+            r["__dup_no"], r["__dup_total"] = nth[sn], total[sn]
         data[s] = out
-        headers[s] = EXTRA_FRONT + [h for h in headers[s] if h not in EXTRA_FRONT + EXTRA_BACK] + EXTRA_BACK
+        if headers[s]:
+            headers[s] = EXTRA_FRONT + [h for h in headers[s] if h not in EXTRA_FRONT + EXTRA_BACK] + EXTRA_BACK
+    return headers, data, widths
+
+
+def merge(files, log=print):
+    results, file_info = [], []
+    for path in files:
+        name = os.path.basename(path)
+        try:
+            res = read_file(path)
+        except Exception as e:  # noqa: BLE001
+            log(f"  [略過] 無法開啟 {name}: {e}")
+            file_info.append((path, "無法開啟", 0, 0))
+            continue
+        n1 = len(res.get("Summary_SN", ((), ()))[1])
+        n2 = len(res.get("TestRecord", ((), ()))[1])
+        file_info.append((path, "OK", n1, n2))
+        log(f"  {name}: Summary_SN {n1} 筆, TestRecord {n2} 筆")
+        results.append((path, res))
+    headers, data, widths = combine(results)
     return headers, data, widths, file_info
 
 

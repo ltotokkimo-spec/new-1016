@@ -1,6 +1,6 @@
 name: Summary Merge EXE
 
-# 把 summary-merge/ 打包成 Windows 單一執行檔 SummaryMerge.exe，
+# 把 summary-merge/ 打包成 Windows 單一執行檔 TestDataTool.exe（測試結果 CSV + Summary 統計），
 # 在 Actions 該次執行頁面的 Artifacts 區下載。
 on:
   push:
@@ -29,7 +29,11 @@ jobs:
         run: pip install -r requirements.txt pyinstaller
 
       - name: Build exe
-        run: pyinstaller --noconfirm --onefile --windowed --name SummaryMerge summary_merge_app.py
+        run: >-
+          pyinstaller --noconfirm --onefile --windowed --name TestDataTool
+          --hidden-import tab_csv --hidden-import tab_summary --hidden-import csv_core --hidden-import viewer_base
+          --add-data "*.py;."
+          launcher.py
 
       - name: Smoke test (CLI mode)
         shell: python
@@ -45,15 +49,17 @@ jobs:
               tr.append(["Timestamp", "SN", "Result", "Detail", "Total_s"])
               tr.append([f"{day[:4]}_{day[4:6]}_{day[6:]}_10_00_00", "SN1", "Pass", "1st", 100.0])
               wb.save(f"{sub}/Summary_{day}.xlsx")
-          subprocess.run([r"dist\SummaryMerge.exe", "t"], check=True, timeout=120)
+          subprocess.run([r"dist\TestDataTool.exe", "t"], check=True, timeout=120)
           out = "t/Merged_Summary_20261124-20261125.xlsx"
           assert os.path.exists(out), "output not created"
           wb = load_workbook(out)
           assert wb.sheetnames == ["Statistics", "Summary_SN", "TestRecord", "SourceFiles"], wb.sheetnames
           assert wb["Summary_SN"].max_row == 3
+          assert load_workbook(out)["Statistics"]["A1"].value.startswith("Summary")
+          # 內建的 .py 要跟著打包，線上更新才判斷得出版本差異
           print("smoke test OK")
 
       - uses: actions/upload-artifact@v4
         with:
-          name: SummaryMerge
-          path: summary-merge/dist/SummaryMerge.exe
+          name: TestDataTool
+          path: summary-merge/dist/TestDataTool.exe

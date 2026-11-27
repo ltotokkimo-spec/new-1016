@@ -18,7 +18,7 @@ def is_aborted(rec):
 
 class SummaryTab(TableTab):
     TAB_KEY = "summary"
-    TAB_TITLE = "Summary 統計"
+    TAB_TITLE = "Roll Testing"
     COMBOS = [("Result", "結果", 7), ("Detail", "Detail", 12), ("Spec_class", "Spec", 5),
               ("Operator", "Operator", 9), ("Jig", "Jig", 6)]
 

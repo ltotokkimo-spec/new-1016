@@ -11,7 +11,7 @@ N_SOURCES = 2
 
 class CsvTab(TableTab):
     TAB_KEY = "csv"
-    TAB_TITLE = "測試結果 (CSV)"
+    TAB_TITLE = "Cal Testing"
     COMBOS = [("station", "站別", 8), ("verdict", "結果", 7), ("opid", "OPID", 10)]
     DEFAULT_HIDDEN = ["timestamp"]
 

@@ -4,8 +4,8 @@
 
 | 分頁 | 內容 |
 |---|---|
-| **測試結果 (CSV)** | operator_log.csv 即時檢視。兩組來源設定（各自可啟用 / 清除），資料合併顯示並以「來源」欄區分。測試程式往下追加資料時自動更新 |
-| **Summary 統計** | 來源目錄往下找所有 `Summary*.xlsx`，合併 TestRecord / Summary_SN，即時更新、篩選、統計、匯出 |
+| **Cal Testing**（測試結果 CSV） | operator_log.csv 即時檢視。兩組來源設定（各自可啟用 / 清除），資料合併顯示並以「來源」欄區分。測試程式往下追加資料時自動更新 |
+| **Roll Testing**（Summary 統計） | 來源目錄往下找所有 `Summary*.xlsx`，合併 TestRecord / Summary_SN，即時更新、篩選、統計、匯出 |
 
 ## 共同功能
 - **表格外觀照原程式**：黑底表頭、格線；verdict / Result 整格上色（PASS 綠、FAIL 紅、HOLD 橘、Aborted 灰），FAIL / HOLD 通道格上色，重覆測試的 SN 紫色；拖曳表頭邊界調整欄寬（會記住）

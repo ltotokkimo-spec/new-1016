@@ -11,7 +11,7 @@ import {
   LIVE_MS,
   findScored, getFetcher, getKv, getState, holdingViews, refreshEsb, refreshMacro, refreshTw, refreshUs, saveHoldings, saveReport,
   saveSettings, clearCache, useStore, usBars, recordSpend, estimatedBalance, checkForUpdate, installUpdate,
-  addUsSymbol, removeUsSymbol, refreshLive, refreshUsLive, refreshTwIndex, refreshFutures, refreshTurnover, refreshTurnoverLive, refreshEtfNav, refreshQuad, ensureMarketRegime, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
+  addUsSymbol, removeUsSymbol, refreshLive, refreshUsLive, refreshTwIndex, refreshFutures, refreshTurnover, refreshTurnoverLive, refreshEtfNav, refreshQuad, refreshActiveEtf, ensureMarketRegime, revenueOf, startAiJob, dismissAiJob, type AiJob, type Market,
 } from "../store";
 import { alertStatus, setLine, lineTest, type LineInfo } from "../lib/alerts";
 import { BROKERS, brokerOf, mergeHoldings, type Broker, type Holding, type Rating, type Scored, type SectorStat } from "../engine/score";
@@ -101,6 +101,8 @@ export function PicksScreen({ market, setMarket, sector, setSector, open }: {
   // 四因子（11/15）：追蹤中的候選名單，雲端每天算好；只有台股。不是正式評等，現有買入／觀望／離場不變
   const quad = useStore((s) => (market === "TW" ? s.quad?.data : undefined));
   const quadMap = useMemo(() => new Map((quad?.picks ?? []).map((p) => [p.code, p])), [quad]);
+  // 「主動ETF 加減碼」標記用的資料（11/27）：打開選股頁 5 秒後才在背景抓（3 小時內抓過就不抓），不和開 App 的其他下載搶
+  useEffect(() => { const t = setTimeout(() => { const a = getState().activeEtf; if (!a || Date.now() - a.fetchedAt > 3 * 3600_000) void refreshActiveEtf(); }, 5000); return () => clearTimeout(t); }, []);
   useEffect(() => { const x = getState().quad; if (!x || Date.now() - x.fetchedAt > 10 * 60_000) void refreshQuad(); }, []); // 進選股頁時順便更新（名單每天傍晚才變，10 分鐘內不重抓）
   // 剛轉強：每天回測時一起算好（需要 3 個月以上的日K），只有台股
   const turn = useStore((s) => (market === "TW" ? s.backtest?.data.turning : undefined));

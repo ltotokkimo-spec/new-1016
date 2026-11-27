@@ -291,7 +291,6 @@ export function autoRefresh() {
   if (usNeedsRefresh(state.us.fetchedAt, Date.now(), state.us.asOf)) refreshUs();
   else ensureUsHoldings(); // 今天的美股已下載過，但持股裡可能有還沒下載的代號
   if (twNeedsRefresh(esbFetchedAt)) refreshEsb();
-  if (!state.activeEtf || Date.now() - state.activeEtf.fetchedAt > 3 * 3600_000) void refreshActiveEtf(); // 選股、實單清單的「主動ETF 加減碼」標記要用（11/27）
   refreshMacro(); refreshTwIndex(); refreshFutures(); refreshTurnover(); void refreshNews();
   if (!state.virtual || Date.now() - state.virtual.fetchedAt > 10 * 60_000) refreshVirtual();
   if (!state.backtest || Date.now() - state.backtest.fetchedAt > 6 * 3600_000) refreshBacktest();

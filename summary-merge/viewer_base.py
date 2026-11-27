@@ -463,6 +463,10 @@ class TableTab:
         self.shell.on_click_outside(top, self.date_btn, self.close_date_popup)
 
     # ================================================================ 表格
+    def sort_value(self, rec, key):
+        """排序用的值（預設 = 顯示文字）；子類別可回傳數字或時間。"""
+        return self.cell(rec, key)
+
     def reset_columns(self):
         if self._col_keys is not None:
             self.remember_widths()
@@ -484,7 +488,9 @@ class TableTab:
             def k(r):
                 if sk == DUP_COL:
                     return (0, r.get("__dup_no", 1), "")
-                v = self.cell(r, sk)
+                v = self.sort_value(r, sk)
+                if not isinstance(v, str):
+                    return (0, v, "")
                 try:
                     return (0, float(v), "")
                 except ValueError:

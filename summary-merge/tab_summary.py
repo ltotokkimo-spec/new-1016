@@ -157,19 +157,28 @@ class SummaryTab(TableTab):
     # ---------- 欄位 / 顯示
     def columns_all(self):
         hdr = self.headers.get(self.sheet_var.get()) or []
-        return [(h, h, "w" if h in NO_SEC_COLS or h in ("Note",) else "center") for h in hdr]
+        titles = {"Timestamp": "Time"}           # 日期已有 Date 欄，這裡只顯示 時_分_秒
+        return [(h, titles.get(h, h), "w" if h in NO_SEC_COLS and h != "Timestamp" else "center") for h in hdr]
 
     def cell(self, rec, key):
         v = rec.get(key)
         if v is None:
             return ""
+        if key == "Timestamp":                    # 2026_11_25_14_00_38 → 14_00_38
+            ts = rec.get("__ts")
+            return ts.strftime("%H_%M_%S") if ts else str(v)
         if isinstance(v, float):
             return f"{v:g}"
         return str(v)
 
+    def sort_value(self, rec, key):
+        if key == "Timestamp" and rec.get("__ts"):
+            return rec["__ts"].timestamp()           # Time 欄排序仍依完整日期時間
+        return self.cell(rec, key)
+
     def col_width(self, key, title):
         w = self.widths.get(self.sheet_var.get(), {}).get(key)
-        fixed = {"Date": 88, "Result": 60, "Source_File": 170, "Timestamp": 172, "SN": 160}
+        fixed = {"Date": 88, "Result": 60, "Source_File": 170, "Timestamp": 90, "SN": 160}
         if key in fixed:
             return fixed[key]
         return int(min(w or 12, 50) * 7.5) if w else super().col_width(key, title)
@@ -254,7 +263,7 @@ class SummaryTab(TableTab):
         lines = []
         for k in keys:
             t = "次數" if k == "__dup" else k
-            v = self.text(rec, k)
+            v = str(rec.get(k) or "") if k == "Timestamp" else self.text(rec, k)   # 詳細資料保留完整時間
             lines.append(f"{t}: {v}")
             txt.insert("end", f"{t:<{width}} : ", ("k",))
             txt.insert("end", v + "\n")

@@ -20,6 +20,8 @@ import re
 import subprocess
 import sys
 import threading
+
+from grid_table import GridTable
 from datetime import datetime, time as dtime
 
 ALL = "全部"
@@ -74,7 +76,6 @@ class TableTab:
         self.cfg = shell.cfg.setdefault(self.TAB_KEY, {})
         self.records = []
         self.view_rows = []
-        self.iid_map = {}
         self.only_ids = None
         self.sort_key, self.sort_desc = None, False
         self.sel_dates = set()
@@ -88,6 +89,7 @@ class TableTab:
 
         self.frame = ttk.Frame(parent)
         self._build(self.frame)
+        self.refresh_view()
 
     # ================================================================ 版面
     def _build(self, f):
@@ -168,23 +170,11 @@ class TableTab:
 
         tf = ttk.Frame(f)
         tf.pack(fill="both", expand=True, padx=6, pady=(2, 0))
-        self.tree = ttk.Treeview(tf, show="headings", selectmode="extended")
-        ys = ttk.Scrollbar(tf, orient="vertical", command=self.tree.yview)
-        xs = ttk.Scrollbar(tf, orient="horizontal", command=self.tree.xview)
-        self.tree.configure(yscrollcommand=ys.set, xscrollcommand=xs.set)
-        self.tree.grid(row=0, column=0, sticky="nsew")
-        ys.grid(row=0, column=1, sticky="ns")
-        xs.grid(row=1, column=0, sticky="ew")
-        tf.rowconfigure(0, weight=1)
-        tf.columnconfigure(0, weight=1)
-        for k, c in self.ROW_TAGS.items():
-            self.tree.tag_configure(k, background=c)
-        self.tree.bind("<Double-1>", self._on_double)
-        self.tree.bind("<Return>", lambda _e: self.open_detail())
-        self.tree.bind("<Button-3>", self.on_right_click)
-        self.tree.bind("<Control-c>", lambda _e: self.copy_rows(self.selected_recs()))
-        self.tree.bind("<Control-a>", lambda _e: (self.tree.selection_set(self.tree.get_children()), "break")[1])
-        self.tree.bind("<<TreeviewSelect>>", self._on_select)
+        self.grid = GridTable(tf, style_fn=self.cell_style, on_double=self.show_detail,
+                              on_context=self.on_right_click, on_header=self.sort_by,
+                              on_select=self._on_select, on_copy=lambda: self.copy_rows(self.selected_recs()))
+        self.grid.pack(fill="both", expand=True)
+        self._col_keys = None
 
         self.status = tk.StringVar(value=self.initial_status())
         ttk.Label(f, textvariable=self.status, relief="sunken", anchor="w", padding=(6, 2)).pack(fill="x", side="bottom")
@@ -473,10 +463,18 @@ class TableTab:
         self.shell.on_click_outside(top, self.date_btn, self.close_date_popup)
 
     # ================================================================ 表格
+    def reset_columns(self):
+        if self._col_keys is not None:
+            self.remember_widths()
+        self._col_keys = None
+
+    def cell_style(self, rec, key):
+        """回傳 (底色, 字色, 粗體) 或 None；子類別覆寫。"""
+        return None
+
     def refresh_view(self, scroll=None):
         if self._suspend:
             return
-        tree = self.tree
         cols = self.visible_cols()
         keys = [c[0] for c in cols]
         rows = self.filtered()
@@ -497,42 +495,34 @@ class TableTab:
         self.view_rows = rows
 
         sel_ids = {id(r) for r in self.selected_recs()}
-        y0 = tree.yview()[0]
-        if tuple(tree["columns"]) != tuple(keys):
-            tree["columns"] = keys
+        y0 = self.grid.yview_frac()
+        if self._col_keys != keys:
+            if self._col_keys is not None:
+                self.remember_widths()
             widths = self.cfg.get("widths", {})
-            for key, title, anchor in cols:
-                tree.column(key, width=widths.get(key, self.col_width(key, title)), minwidth=40, stretch=False,
-                            anchor={"w": "w", "e": "e"}.get(anchor, "center"))
-        for key, title, _a in cols:
-            arrow = (" ▼" if self.sort_desc else " ▲") if key == self.sort_key else ""
-            tree.heading(key, text=title + arrow, command=lambda c=key: self.sort_by(c))
-        tree.delete(*tree.get_children())
-        self.iid_map = {}
-        for i, r in enumerate(rows):
-            iid = str(i)
-            self.iid_map[iid] = r
-            tree.insert("", "end", iid=iid, values=[self.text(r, k) for k in keys], tags=(self.row_tag(r),))
-        keep = [iid for iid, r in self.iid_map.items() if id(r) in sel_ids]
-        if keep:
-            tree.selection_set(keep)
-        if scroll == "top" or (scroll == "newest" and self.newest_var.get() and not self.sort_key):
-            tree.yview_moveto(0)
-        elif scroll == "newest":
-            tree.yview_moveto(1)
+            self._col_keys = keys
+            self._titles = {k: t for k, t, _a in cols}
+            gcols = [[k, t, a, widths.get(k, self.col_width(k, t))] for k, t, a in cols]
         else:
-            tree.yview_moveto(y0)
+            gcols = self.grid.cols
+        for c in gcols:
+            arrow = (" ▼" if self.sort_desc else " ▲") if c[0] == self.sort_key else ""
+            c[1] = self._titles[c[0]] + arrow
+        self.grid.set_columns(gcols)
+        self.grid.set_rows(rows, self.text, keep_sel_ids=sel_ids)
+        if scroll == "top" or (scroll == "newest" and self.newest_var.get() and not self.sort_key):
+            self.grid.to_top()
+        elif scroll == "newest":
+            self.grid.to_bottom()
+        else:
+            self.grid.moveto(y0)
         self._update_stats(rows)
-        self.only_btn.configure(state="normal" if tree.selection() else "disabled")
+        self.only_btn.configure(state="normal" if self.grid.sel else "disabled")
         self.all_btn.configure(state="normal" if self.only_ids is not None else "disabled")
 
     def remember_widths(self):
         w = self.cfg.setdefault("widths", {})
-        for k in self.tree["columns"]:
-            try:
-                w[k] = int(self.tree.column(k, "width"))
-            except Exception:  # noqa: BLE001
-                pass
+        w.update(self.grid.widths())
 
     def sort_by(self, col):
         if self.sort_key == col:
@@ -563,10 +553,10 @@ class TableTab:
         return (f" 重覆測試：{len(sns)} 個 SN／{n} 筆 " if sns else " 重覆測試：無 ", "#7F4F00", "#FFF2CC")
 
     def selected_recs(self):
-        return [self.iid_map[i] for i in self.tree.selection() if i in self.iid_map]
+        return self.grid.selected()
 
-    def _on_select(self, _e=None):
-        self.only_btn.configure(state="normal" if self.tree.selection() else "disabled")
+    def _on_select(self, n=0):
+        self.only_btn.configure(state="normal" if n else "disabled")
 
     def show_only_selected(self):
         recs = self.selected_recs()
@@ -596,19 +586,13 @@ class TableTab:
             self.clip(self.rows_text(recs), f" {len(recs)} 列")
         return "break"
 
-    def _col_at(self, x):
-        cols = self.visible_cols()
-        try:
-            return cols[int(self.tree.identify_column(x)[1:]) - 1]
-        except (ValueError, IndexError):
-            return None
-
-    def on_right_click(self, e):
+    def on_right_click(self, e, region, rec, key):
         tk = self.tk
-        region = self.tree.identify_region(e.x, e.y)
-        col = self._col_at(e.x)
+        col = next((c for c in self.visible_cols() if c[0] == key), None)
         m = tk.Menu(self.root, tearoff=0)
-        if region == "heading" and col:
+        if region == "heading":
+            if not col:
+                return
             key, title, _a = col
             vals = [self.text(r, key) for r in self.view_rows]
             m.add_command(label=f"複製整欄「{title}」（{len(vals)} 筆）", command=lambda: self.clip("\n".join(vals), f"整欄「{title}」"))
@@ -617,12 +601,8 @@ class TableTab:
             m.add_command(label="選擇欄位…", command=self.choose_columns)
             m.tk_popup(e.x_root, e.y_root)
             return
-        iid = self.tree.identify_row(e.y)
-        if not iid:
+        if rec is None:
             return
-        if iid not in self.tree.selection():
-            self.tree.selection_set(iid)
-        rec = self.iid_map[iid]
         if col:
             key, title, _a = col
             v = self.text(rec, key)
@@ -683,10 +663,6 @@ class TableTab:
             return
         open_path(path)
 
-    def _on_double(self, e):
-        if self.tree.identify_region(e.x, e.y) == "cell":
-            self.open_detail()
-
     def open_detail(self):
         recs = self.selected_recs()
         if recs:
@@ -725,7 +701,7 @@ class TableTab:
             self.remember_widths()
             self.cfg[self.hidden_key()] = hid
             self.save()
-            self.tree["columns"] = ()
+            self.reset_columns()
             self.refresh_view()
             w.destroy()
         ttk.Button(bar, text="全選", command=lambda: set_all(True)).pack(side="left")

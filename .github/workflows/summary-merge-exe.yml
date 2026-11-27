@@ -31,7 +31,7 @@ jobs:
       - name: Build exe
         run: >-
           pyinstaller --noconfirm --onefile --windowed --name TestDataTool
-          --hidden-import tab_csv --hidden-import tab_summary --hidden-import csv_core --hidden-import viewer_base
+          --hidden-import tab_csv --hidden-import tab_summary --hidden-import csv_core --hidden-import viewer_base --hidden-import grid_table
           --add-data "*.py;."
           launcher.py
 

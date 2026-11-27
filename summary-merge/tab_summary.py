@@ -6,7 +6,7 @@ from datetime import datetime
 import merge_core
 from viewer_base import TableTab, open_path
 
-ROW_TAGS = {"pass": "#FFFFFF", "fail": "#FFD6D6", "abort": "#E7E6E6"}
+RESULT_COLORS = {"pass": ("#66FF33", "#000000"), "fail": ("#FF0000", "#FFFFFF"), "abort": ("#BFBFBF", "#000000")}
 SHEET_HIDDEN = {"TestRecord": ["Folder", "Thermal_history", "Slider", "Mode", "Recipe", "Thermal_with", "Source_File"],
                 "Summary_SN": ["Source_File"]}
 NO_SEC_COLS = {"Note", "Folder", "Thermal_history", "Detail", "Source_File", "SN", "Timestamp"}
@@ -19,9 +19,8 @@ def is_aborted(rec):
 class SummaryTab(TableTab):
     TAB_KEY = "summary"
     TAB_TITLE = "Summary 統計"
-    COMBOS = [("Result", "結果", 7), ("Detail", "Detail", 14), ("Spec_class", "Spec", 5),
+    COMBOS = [("Result", "結果", 7), ("Detail", "Detail", 12), ("Spec_class", "Spec", 5),
               ("Operator", "Operator", 9), ("Jig", "Jig", 6)]
-    ROW_TAGS = ROW_TAGS
 
     def __init__(self, shell, parent):
         self.cache = {}            # path -> (signature, read_file 結果 或 None)
@@ -138,7 +137,7 @@ class SummaryTab(TableTab):
         self.records = self.data.get(self.sheet_var.get(), [])
         self.last_count = len(self.records)
         self._reset_sort()
-        self.tree["columns"] = ()
+        self.reset_columns()
         self._update_choices()
         self.refresh_view(scroll="top")
 
@@ -175,6 +174,15 @@ class SummaryTab(TableTab):
         if is_aborted(rec):
             return "abort"
         return "fail" if str(rec.get("Result") or "").strip().lower() == "fail" else "pass"
+
+    def cell_style(self, rec, key):
+        """Result / Verdict 整格上色（Pass 綠、Fail 紅、Aborted 灰），重覆測試的 SN 紫色。"""
+        if key in ("Result", "Verdict"):
+            bg, fg = RESULT_COLORS[self.row_tag(rec)]
+            return bg, fg, True
+        if key == "SN" and rec.get("__dup_total", 1) > 1:
+            return "#D9B3FF", "#4B0082", True
+        return None
 
     def combo_values(self, key, vals):
         if key == "Result":

@@ -1,74 +1,105 @@
 # -*- coding: utf-8 -*-
-"""分頁 1：測試結果（operator_log.csv）即時檢視，可同時讀多個 CSV。"""
+"""分頁 1：測試結果（operator_log.csv）即時檢視。兩個來源設定，可各自啟用，資料合併顯示。"""
 import os
 
 import csv_core
+from grid_table import COLORS
 from viewer_base import TableTab, open_path
 
-ROW_TAGS = {"PASS": "#FFFFFF", "FAIL": "#FFD6D6", "HOLD": "#FFF0C2", "OTHER": "#F2F2F2"}
+N_SOURCES = 2
 
 
 class CsvTab(TableTab):
     TAB_KEY = "csv"
     TAB_TITLE = "測試結果 (CSV)"
     COMBOS = [("station", "站別", 8), ("verdict", "結果", 7), ("opid", "OPID", 10)]
-    ROW_TAGS = ROW_TAGS
     DEFAULT_HIDDEN = ["timestamp"]
 
     def __init__(self, shell, parent):
         self.n_ch = csv_core.DEFAULT_CHANNELS
         self.sigs = {}
         self.errors = {}
-        super().__init__(shell, parent)
-        if not self.paths():
+        cfg = shell.cfg.setdefault(self.TAB_KEY, {})
+        srcs = cfg.get("sources")
+        if not isinstance(srcs, list):                      # 舊版設定 csv_paths 轉過來
+            old = cfg.pop("csv_paths", [])
+            srcs = [{"path": old[i] if i < len(old) else "", "enabled": True} for i in range(N_SOURCES)]
+        srcs = (srcs + [{"path": "", "enabled": True}] * N_SOURCES)[:N_SOURCES]
+        if not any(s["path"] for s in srcs):
             default = os.path.join(shell.app_dir, csv_core.DEFAULT_CSV_NAME)
             if os.path.exists(default):
-                self.set_paths([default])
+                srcs[0] = {"path": default, "enabled": True}
+        cfg["sources"] = [dict(s) for s in srcs]
+        super().__init__(shell, parent)
 
-    # ---------- 來源
+    # ---------- 來源（兩組，跟原程式一樣：路徑 + 選擇檔案）
     def build_source(self, top):
         tk, ttk = self.tk, self.ttk
-        ttk.Label(top, text="CSV 檔案：").pack(side="left")
-        self.path_var = tk.StringVar(value=" ; ".join(self.cfg.get("csv_paths", [])))
-        ttk.Entry(top, textvariable=self.path_var, state="readonly").pack(side="left", fill="x", expand=True)
-        ttk.Button(top, text="選擇檔案…（可多選）", command=self.choose_files).pack(side="left", padx=(4, 0))
-        ttk.Button(top, text="加入檔案…", command=lambda: self.choose_files(add=True)).pack(side="left", padx=4)
+        self.src_vars, self.en_vars = [], []
+        box = ttk.Frame(top)
+        box.pack(fill="x", expand=True)
+        box.columnconfigure(2, weight=1)
+        for i, src in enumerate(self.cfg["sources"]):
+            ttk.Label(box, text=f"CSV 來源 {i + 1}：").grid(row=i, column=0, sticky="w", pady=1)
+            en = tk.BooleanVar(value=src.get("enabled", True))
+            ttk.Checkbutton(box, text="啟用", variable=en, command=lambda: self._sources_changed()).grid(row=i, column=1, padx=(0, 4))
+            pv = tk.StringVar(value=src.get("path", ""))
+            ttk.Entry(box, textvariable=pv, state="readonly").grid(row=i, column=2, sticky="ew")
+            ttk.Button(box, text="選擇檔案…", command=lambda i=i: self.choose_file(i)).grid(row=i, column=3, padx=(4, 0))
+            ttk.Button(box, text="清除", width=5, command=lambda i=i: self.clear_source(i)).grid(row=i, column=4, padx=(4, 0))
+            self.src_vars.append(pv)
+            self.en_vars.append(en)
 
     def initial_status(self):
-        return "選擇測試結果 CSV（預設讀取程式旁邊的 operator_log.csv），測試程式往下追加資料時會自動更新"
+        return "設定 CSV 來源 1 / 2（預設讀取程式旁邊的 operator_log.csv），測試程式往下追加資料時會自動更新"
+
+    def active(self):
+        """[(來源編號, 路徑)]，只含有啟用且有設定路徑的。"""
+        return [(i + 1, s["path"]) for i, s in enumerate(self.cfg["sources"]) if s.get("enabled", True) and s.get("path")]
 
     def paths(self):
-        return list(self.cfg.get("csv_paths", []))
+        return [p for _n, p in self.active()]
 
-    def set_paths(self, paths):
-        self.cfg["csv_paths"] = paths
-        self.path_var.set(" ; ".join(paths))
+    def _sources_changed(self, clear=False):
+        for i, s in enumerate(self.cfg["sources"]):
+            s["path"] = self.src_vars[i].get()
+            s["enabled"] = self.en_vars[i].get()
         self.sigs, self.errors = {}, {}
         self.reset_data()
+        self.reset_columns()
+        if clear:
+            self.clear_filters(refresh=False)
         self.shell.save()
+        if self.active():
+            self.reload(force=True, scroll="top")
+        else:
+            self.records = []
+            self._update_choices()
+            self.refresh_view(scroll="top")
+            self.status.set(self.initial_status())
 
-    def choose_files(self, add=False):
+    def choose_file(self, i):
         from tkinter import filedialog
-        cur = self.paths()
-        init = os.path.dirname(cur[0]) if cur else self.shell.app_dir
-        ps = filedialog.askopenfilenames(title="選擇測試結果 CSV", initialdir=init,
-                                         filetypes=[("CSV 檔", "*.csv"), ("所有檔案", "*.*")])
-        if not ps:
-            return
-        ps = [os.path.normpath(p) for p in ps]
-        if add:
-            ps = cur + [p for p in ps if p not in cur]
-        self.clear_filters(refresh=False)
-        self.set_paths(ps)
-        self.reload(force=True, scroll="top")
+        cur = self.src_vars[i].get() or (self.paths() or [""])[0]
+        p = filedialog.askopenfilename(title=f"選擇測試結果 CSV（來源 {i + 1}）",
+                                       initialdir=os.path.dirname(cur) if cur else self.shell.app_dir,
+                                       filetypes=[("CSV 檔", "*.csv"), ("所有檔案", "*.*")])
+        if p:
+            self.src_vars[i].set(os.path.normpath(p))
+            self.en_vars[i].set(True)
+            self._sources_changed(clear=True)
+
+    def clear_source(self, i):
+        self.src_vars[i].set("")
+        self._sources_changed(clear=True)
 
     def ready(self):
-        return bool(self.paths())
+        return bool(self.active())
 
     def load(self, force):
-        sig = {}
-        missing = []
-        for p in self.paths():
+        act = self.active()
+        sig, missing = {}, []
+        for _n, p in act:
             try:
                 st = os.stat(p)
                 sig[p] = (st.st_mtime, st.st_size)
@@ -77,14 +108,18 @@ class CsvTab(TableTab):
         if not force and sig == self.sigs and self.records:
             return False, self.records, self._info(missing)
         recs, n_ch, errors = [], 0, {}
-        for p in sig:
+        for n, p in act:
+            if p not in sig:
+                continue
             try:
-                r, n = csv_core.load_records(p)
+                r, nc = csv_core.load_records(p)
+                for x in r:
+                    x["_src"] = f"來源{n}"
                 recs += r
-                n_ch = max(n_ch, n)
+                n_ch = max(n_ch, nc)
             except Exception as e:  # noqa: BLE001  檔案寫入中，稍後重試
                 errors[p] = str(e)
-        if errors and not recs and self.records:
+        if errors and self.records and len(errors) == len(sig):
             self.errors = errors
             return False, self.records, self._info(missing)
         self.sigs = {p: s for p, s in sig.items() if p not in errors}
@@ -93,7 +128,7 @@ class CsvTab(TableTab):
         return True, csv_core.finalize(recs), self._info(missing)
 
     def _info(self, missing):
-        msg = f"{len(self.paths())} 個 CSV"
+        msg = "、".join(f"來源{n}" for n, _p in self.active())
         if missing:
             msg += f"　⚠ 找不到檔案：{', '.join(missing)}"
         if self.errors:
@@ -101,13 +136,13 @@ class CsvTab(TableTab):
         return msg
 
     def on_records_changed(self):
-        self.tree["columns"] = ()          # 通道數可能變了
+        self.reset_columns()          # 通道數可能變了
 
     # ---------- 欄位 / 顯示
     def columns_all(self):
         cols = csv_core.all_columns(self.n_ch)
-        if len(self.paths()) > 1:
-            cols = cols + [("_file", "來源檔", "w")]
+        if len(self.active()) > 1:
+            cols = cols[:1] + [("_src", "來源", "center")] + cols[1:]
         return cols
 
     def sn_key(self):
@@ -119,7 +154,7 @@ class CsvTab(TableTab):
     def col_width(self, key, title):
         return {"timestamp": 130, "date": 85, "time": 70, "opid": 70, "sn": 170, "test_status": 80,
                 "verdict": 62, "hold_channels": 100, "fail_channels": 100, "station": 70,
-                "station_name": 120, "_file": 140}.get(key, 58 if key.startswith("CH") else 90)
+                "station_name": 120, "_src": 56}.get(key, 58 if key.startswith("CH") else 90)
 
     def rec_dt(self, rec):
         return rec["_dt"]
@@ -130,8 +165,21 @@ class CsvTab(TableTab):
     def rec_sn(self, rec):
         return rec["sn"]
 
-    def row_tag(self, rec):
-        return rec["verdict"] if rec["verdict"] in ("PASS", "FAIL", "HOLD") else "OTHER"
+    def cell_style(self, rec, key):
+        """跟原程式一樣：verdict 整格上色、FAIL / HOLD 通道上色、通道數值粗體、重覆測試的 SN 紫色。"""
+        if key == "sn" and rec.get("__dup_total", 1) >= 2:
+            return csv_core.DUP + (True,)
+        if key == "verdict":
+            bg, fg = csv_core.VERDICT_COLORS.get(rec["verdict"], (COLORS["cell_bg"], COLORS["cell_fg"]))
+            return bg, fg, True
+        if key.startswith("CH") and key[2:].isdigit():
+            i = int(key[2:])
+            if i in rec["_fail"]:
+                return csv_core.CH_FAIL + (True,)
+            if i in rec["_hold"]:
+                return csv_core.CH_HOLD + (True,)
+            return COLORS["cell_bg"], COLORS["cell_fg"], True
+        return None
 
     def combo_values(self, key, vals):
         if key == "verdict":
@@ -219,8 +267,7 @@ class CsvTab(TableTab):
         path = self.export_path("test_result_", initialdir=os.path.dirname(cur[0]) if cur else None)
         if not path:
             return
-        cols = self.visible_cols()
-        cols = [c for c in cols if c[0] != "__dup"]
+        cols = [c for c in self.visible_cols() if c[0] != "__dup"]
         try:
             if path.lower().endswith(".csv"):
                 csv_core.export_csv(path, cols, rows)

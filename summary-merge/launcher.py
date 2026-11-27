@@ -11,7 +11,7 @@ import os
 import sys
 import traceback
 
-MODULES = ["version", "updater", "merge_core", "csv_core", "viewer_base", "tab_csv", "tab_summary",
+MODULES = ["version", "updater", "merge_core", "csv_core", "grid_table", "viewer_base", "tab_csv", "tab_summary",
            "summary_merge_app"]
 
 

@@ -157,7 +157,12 @@ class SummaryTab(TableTab):
 
     # ---------- 欄位 / 顯示
     def columns_all(self):
-        hdr = self.headers.get(self.sheet_var.get()) or []
+        hdr = list(self.headers.get(self.sheet_var.get()) or [])
+        if "Timestamp" in hdr:                     # Operator、Jig 放在 Time 右邊
+            moved = [h for h in ("Operator", "Jig") if h in hdr]
+            hdr = [h for h in hdr if h not in moved]
+            i = hdr.index("Timestamp") + 1
+            hdr[i:i] = moved
         titles = {"Timestamp": "Time"}           # 日期已有 Date 欄，這裡只顯示 時_分_秒
         return [(h, titles.get(h, h), "w" if h in NO_SEC_COLS and h != "Timestamp" else "center") for h in hdr]
 

@@ -1399,6 +1399,73 @@ export function AiEtfScreen({ open }: { open?: (s: Scored, list?: Scored[]) => v
 }
 
 
+
+// 11/28 使用者選範本 B＋C：上方「贏／輸 0050 排行」橫條，下方每組一張小走勢（原本全部疊在一起的大圖收進摺疊）
+/** 範本 B：各組到今天為止贏／輸「自己同期、同進出的 0050」幾個百分點，由多到少 */
+function CompareRank({ rows }: { rows: GroupRow[] }) {
+  const rs = rows.filter((r) => r.ready && r.all).sort((a, b) => b.all!.diff - a.all!.diff);
+  if (!rs.length) return null;
+  const mx = Math.max(0.005, ...rs.map((r) => Math.abs(r.all!.diff)));
+  return (
+    <div class="card stack" style={{ padding: "10px 12px", gap: "7px" }} data-testid="compare-rank">
+      {rs.map((r) => {
+        const d = r.all!.diff, w = (Math.abs(d) / mx) * 50;
+        return (
+          <div key={r.key} class="row" style={{ gap: "8px", alignItems: "center", flexWrap: "nowrap", fontSize: "13px" }} data-testid="compare-rank-row">
+            <span style={{ width: "6.2em", flexShrink: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{r.label}</span>
+            <span class="muted num" style={{ width: "8.6em", flexShrink: 0, fontSize: "11px", whiteSpace: "nowrap" }}>{fmtPct(r.all!.ret, 1)}／{fmtPct(r.all!.bench, 1)}</span>
+            <span style={{ flex: 1, minWidth: "40px", position: "relative", height: "14px" }}>
+              <span style={{ position: "absolute", left: "50%", top: 0, bottom: 0, width: "1px", background: "var(--muted)" }} />
+              <span style={{ position: "absolute", top: "2px", height: "10px", borderRadius: "3px", background: d >= 0 ? "var(--up)" : "var(--down)", width: `${Math.max(w, 0.8)}%`, ...(d >= 0 ? { left: "50%" } : { right: "50%" }) }} />
+            </span>
+            <b class={`num ${d >= 0 ? "up" : "down"}`} style={{ width: "4.4em", textAlign: "right", flexShrink: 0, fontSize: "12px" }}>{fmtPct(d, 1)}</b>
+          </div>
+        );
+      })}
+      <div class="muted" style={{ fontSize: "11.5px", lineHeight: 1.5 }}>右邊＝贏（紅）或輸（綠）同期、同進出的 0050 幾個百分點；名字旁是「組合報酬／同操作 0050」，和下面表格的「報酬」「同操作0050」一致。</div>
+    </div>
+  );
+}
+
+type MiniSeries = { label: string; pts: { date: string; r: number }[]; own: { date: string; r: number }[] };
+/** 範本 C：每組一張小走勢，實線＝組合、虛線＝同進出的 0050，兩線之間紅＝領先、綠＝落後 */
+function CompareMinis({ series, rows }: { series: MiniSeries[]; rows: GroupRow[] }) {
+  const diffOf = (label: string) => rows.find((r) => r.label === label)?.all?.diff ?? 0;
+  const list = series.filter((x) => x.pts.length >= 1).sort((a, b) => diffOf(b.label) - diffOf(a.label));
+  if (!list.length) return null;
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "8px" }} data-testid="compare-minis">
+      {list.map((x) => {
+        const own = new Map(x.own.map((p) => [p.date, p.r]));
+        const pts = x.pts.map((p) => ({ d: p.date, a: p.r, b: own.get(p.date) ?? NaN })).filter((p) => Number.isFinite(p.b));
+        const last = pts.at(-1), diff = last ? last.a - last.b : 0;
+        const W = 160, H = 64, P = 3, n = pts.length;
+        const vs = [0, ...pts.flatMap((p) => [p.a, p.b])];
+        let lo = Math.min(...vs), hi = Math.max(...vs); const m = (hi - lo) * 0.08 || 0.01; lo -= m; hi += m;
+        const X = (i: number) => P + (n > 1 ? i / (n - 1) : 0.5) * (W - 2 * P), Y = (v: number) => P + (1 - (v - lo) / (hi - lo)) * (H - 2 * P);
+        const line = (k: "a" | "b") => pts.map((p, i) => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(p[k]).toFixed(1)}`).join("");
+        return (
+          <div key={x.label} class="card" style={{ padding: "8px", margin: 0, minWidth: 0 }} data-testid="compare-mini">
+            <div class="row" style={{ justifyContent: "space-between", gap: "6px", fontSize: "12.5px", fontWeight: 700, flexWrap: "nowrap" }}>
+              <span style={{ overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{x.label}</span>
+              <span class={`num ${diff >= 0 ? "up" : "down"}`}>{fmtPct(diff, 1)}</span>
+            </div>
+            <div class="muted num" style={{ fontSize: "11px" }}>{pts[0] ? `${prettyW(pts[0].d).replace(/（.）/, "")} 起 ` : ""}{last ? `${fmtPct(last.a, 1)}／0050 ${fmtPct(last.b, 1)}` : ""}</div>
+            {n >= 2 ? (
+              <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }} aria-label={`${x.label} 走勢`}>
+                {pts.slice(1).map((p, k) => { const q = pts[k], win = q.a - q.b + p.a - p.b >= 0; return <path key={k} d={`M${X(k)},${Y(q.a)}L${X(k + 1)},${Y(p.a)}L${X(k + 1)},${Y(p.b)}L${X(k)},${Y(q.b)}Z`} fill={win ? "var(--up)" : "var(--down)"} fill-opacity="0.18" />; })}
+                <line x1={P} x2={W - P} y1={Y(0)} y2={Y(0)} stroke="var(--line)" stroke-width="1" />
+                <path d={line("b")} fill="none" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="3 2" />
+                <path d={line("a")} fill="none" stroke="var(--accent)" stroke-width="1.8" />
+              </svg>
+            ) : <div class="muted" style={{ fontSize: "11px", padding: "18px 0" }}>明天收盤後開始畫線</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 const SERIES_COLORS = ["#e5484d", "#3b8bef", "#2fb457", "#f0a020", "#a46be0", "#14b8c4", "#d9468f", "#8a7a2e", "#5b6ee1", "#111111", "#c2410c", "#0f766e", "#64748b"];
 /** 總評比的走勢圖：全部組合（各自累積報酬）加一條 0050 對照，一張圖看每天誰領先 */
 function CompareChart({ series, waiting = [] }: { series: { label: string; pts: { date: string; r: number }[]; own: { date: string; r: number }[]; hold: { date: string; r: number }[] }[]; waiting?: { label: string; note: string }[] }) {
@@ -1551,13 +1618,21 @@ function CompareView() {
         <button class="btn secondary" onClick={reload} disabled={busy} data-testid="compare-reload">{busy ? "更新中…" : "重新下載全部"}</button>
       </div>
 
-      <div class="section-title"><span>每天走勢圖</span><span>累積報酬</span></div>
+      <div class="section-title"><span>贏／輸 0050 排行</span><span>到今天為止</span></div>
+      <CompareRank rows={cmp.rows} />
+
+      <div class="section-title"><span>每組走勢</span><span>實線組合・虛線同操作 0050</span></div>
+      <CompareMinis rows={cmp.rows} series={groups.filter((g) => g.v && g.v.nav.length).map((g) => ({ label: g.short, pts: g.v!.nav.map((p) => ({ date: p.date, r: g.v!.budget ? p.nav / g.v!.budget - 1 : 0 })), own: g.v!.nav.map((p) => ({ date: p.date, r: g.v!.budget ? p.bench / g.v!.budget - 1 : 0 })) }))} />
+
+      <details style={{ marginTop: "10px" }} data-testid="compare-all-lines">
+      <summary class="section-title" style={{ cursor: "pointer", listStyle: "none" }}><span>▸ 全部疊在一起看（每天走勢圖）</span><span>累積報酬</span></summary>
       <CompareChart
         waiting={groups.filter((g) => g.v && !g.v.nav.length && !g.real).map((g) => ({ label: g.short, note: `${prettyW(g.v!.asOf ? addWeekdays(g.v!.asOf, 1) : g.v!.start)} 收盤後開始畫線` }))}
         series={groups.filter((g) => g.v && g.v.nav.length).map((g) => ({ label: g.short, pts: g.v!.nav.map((p) => ({ date: p.date, r: g.v!.budget ? p.nav / g.v!.budget - 1 : 0 })), own: g.v!.nav.map((p) => ({ date: p.date, r: g.v!.budget ? p.bench / g.v!.budget - 1 : 0 })), hold: (() => { const c = cmp.closes, p0 = c.get(g.v!.nav[0].date); return p0 ? g.v!.nav.filter((p) => c.has(p.date)).map((p) => ({ date: p.date, r: c.get(p.date)! / p0 - 1 })) : []; })() }))}
       />
 
 <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6, margin: "6px 4px 0" }}>圖上每條線都從自己的起始日 0% 出發；虛線 0050 預設是 Claude 虛擬組的對照（10/19 起）；點下面的組名，虛線會換成那一組自己的 0050 對照，實線在虛線上方＝贏過 0050（和表格紅字一致）。線的右端數字＝下面表格第一欄「報酬」。</div>
+      </details>
 
       <div class="section-title"><span>各組從自己的起始日算起</span><span>報酬為相對起始資金</span></div>
       <div class="card" style={{ padding: "6px 8px", overflowX: "auto" }} data-testid="compare-all">

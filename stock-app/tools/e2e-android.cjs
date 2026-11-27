@@ -1132,6 +1132,13 @@ function check(ok, name, detail = "") {
   const btTxt = await page.$eval('[data-testid="compare-bt"]', (e) => e.innerText.replace(/\s+/g, " "));
   check(/只抱 0050/.test(btTxt) && /N5 觀察/.test(btTxt) && (btTxt.match(/[+-]\d+\.\d%/g) || []).length >= 6, "總評比附上規則的 2 年回測（年化、最大回檔、夏普）", btTxt.slice(0, 200));
   // 總評比的每天走勢圖：六組＋0050 都有一條線、圖例標最新累積報酬；點圖例可隱藏那條線
+  // 11/28 範本 B＋C：排行橫條（每組一列，由贏多到輸多）與每組小走勢；原本疊在一起的大圖收進摺疊
+  const crk = await page.evaluate(() => ({ rows: [...document.querySelectorAll('[data-testid="compare-rank-row"]')].map((e) => e.innerText.replace(/\s+/g, " ")), minis: document.querySelectorAll('[data-testid="compare-mini"]').length, tableRows: document.querySelectorAll('[data-testid="compare-all"] tbody tr').length }));
+  log("總評比排行", JSON.stringify(crk).slice(0, 400));
+  const rkDiffs = crk.rows.map((t) => parseFloat((/([+-]?\d+\.\d)%\s*$/.exec(t) || [])[1]));
+  check(crk.rows.length >= 6 && rkDiffs.every((v, i) => Number.isFinite(v) && (!i || v <= rkDiffs[i - 1] + 1e-9)) && crk.minis >= 6, "總評比有「贏／輸 0050 排行」（由多到少）與每組小走勢", JSON.stringify(crk).slice(0, 300));
+  await page.evaluate(() => { const d = document.querySelector('[data-testid="compare-all-lines"]'); if (d) d.open = true; });
+  await sleep(400);
   const cc = await page.evaluate(() => ({ svg: document.querySelectorAll('[data-testid="compare-chart"] svg path[stroke-width="2"]').length, dash: document.querySelectorAll('[data-testid="compare-chart"] svg path[stroke-dasharray="5 3"]').length, legend: [...document.querySelectorAll('[data-testid="compare-legend"]')].map((e) => e.innerText.replace(/\s+/g, " ")) }));
   log("總評比走勢圖", JSON.stringify(cc));
   check(cc.svg >= 6 && cc.dash === 1 && cc.legend.length === cc.svg + 1 && cc.legend.every((t) => /[+-]?\d+\.\d\d%|—/.test(t)), "總評比有全部組合＋0050 的每天走勢圖（圖例標最新累積報酬）", JSON.stringify(cc).slice(0, 300));

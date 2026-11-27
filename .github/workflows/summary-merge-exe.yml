@@ -1,0 +1,59 @@
+name: Summary Merge EXE
+
+# 把 summary-merge/ 打包成 Windows 單一執行檔 SummaryMerge.exe，
+# 在 Actions 該次執行頁面的 Artifacts 區下載。
+on:
+  push:
+    paths:
+      - 'summary-merge/**'
+      - '.github/workflows/summary-merge-exe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: summary-merge
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Build exe
+        run: pyinstaller --noconfirm --onefile --windowed --name SummaryMerge summary_merge_app.py
+
+      - name: Smoke test (CLI mode)
+        shell: python
+        run: |
+          import os, subprocess
+          from openpyxl import Workbook, load_workbook
+          os.makedirs("t/a/b", exist_ok=True)
+          for day, sub in (("20261124", "t/a"), ("20261125", "t/a/b")):
+              wb = Workbook(); ws = wb.active; ws.title = "Summary_SN"
+              ws.append(["Timestamp", "SN", "Result", "Detail"])
+              ws.append([f"{day[:4]}_{day[4:6]}_{day[6:]}_10_00_00", "SN1", "Pass", "1st"])
+              tr = wb.create_sheet("TestRecord")
+              tr.append(["Timestamp", "SN", "Result", "Detail", "Total_s"])
+              tr.append([f"{day[:4]}_{day[4:6]}_{day[6:]}_10_00_00", "SN1", "Pass", "1st", 100.0])
+              wb.save(f"{sub}/Summary_{day}.xlsx")
+          subprocess.run([r"dist\SummaryMerge.exe", "t"], check=True, timeout=120)
+          out = "t/Merged_Summary_20261124-20261125.xlsx"
+          assert os.path.exists(out), "output not created"
+          wb = load_workbook(out)
+          assert wb.sheetnames == ["Statistics", "Summary_SN", "TestRecord", "SourceFiles"], wb.sheetnames
+          assert wb["Summary_SN"].max_row == 3
+          print("smoke test OK")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SummaryMerge
+          path: summary-merge/dist/SummaryMerge.exe

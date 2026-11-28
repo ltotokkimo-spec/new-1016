@@ -1396,6 +1396,7 @@ export function AiEtfScreen({ open }: { open?: (s: Scored, list?: Scored[]) => v
         <button aria-pressed={mode === "real"} onClick={() => pick("real")} data-testid="mode-real" style={{ position: "relative" }}>我的實單{realAlertN > 0 && <span class="mode-dot" data-testid="mode-real-dot" aria-label={`有 ${realAlertN} 檔需要注意`}>{realAlertN}</span>}</button>
         <button aria-pressed={mode === "dualReal"} onClick={() => pick("dualReal")} data-testid="mode-dualreal">雙引擎實單</button>
       </div>
+      {(mode === "real" || mode === "dualReal") && <ReviewExport />}
       {mode === "real" ? <RealEtfScreen /> : mode === "dualReal" ? <DualRealScreen /> : mode === "compare" ? <CompareView /> : <VirtualView key={mode} kind={mode} />}
     </div>
   );
@@ -1465,6 +1466,24 @@ function CompareMinis({ series, rows }: { series: MiniSeries[]; rows: GroupRow[]
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/** 11/28 使用者：週六週檢視也要看「我的實單」「雙引擎實單」。兩本帳只存在手機裡，所以按一下把兩本帳複製成一段文字，貼給 Claude 對話 */
+function ReviewExport() {
+  const real = useStore((s) => s.aiEtf), dual = useStore((s) => s.dualReal);
+  const [copied, setCopied] = useState<"" | "ok" | "fail">("");
+  const pack = (e?: AiEtf) => e && {
+    budget: e.budget, cashReserve: e.cashReserve, flows: e.flows?.map((f) => ({ date: f.date, amount: f.amount })),
+    trades: e.trades.map((t) => [t.date, t.code, t.name, t.side, t.shares, t.price, t.benchPrice]), // 隱藏的仍計入持股，一起匯出
+    dividends: e.dividends, stops: e.stops, nav: e.nav.slice(-60),
+  };
+  const text = () => `【金雷達實單匯出・給週檢視】${new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 16).replace("T", " ")}（台北）\n請用這份資料做「我的實單」「雙引擎實單」週檢視。trades 欄位：日期、代號、名稱、買賣、股數、成交價、當時 0050 價。\n` + JSON.stringify({ v: 1, real: pack(real), dual: pack(dual) });
+  return (
+    <div class="row" style={{ gap: "8px", alignItems: "center", flexWrap: "wrap", margin: "0 0 10px" }}>
+      <button class="btn secondary mini" onClick={() => copyText(text(), (ok) => setCopied(ok ? "ok" : "fail"))} data-testid="review-export">📋 複製兩本實單給週檢視</button>
+      <span class="muted" style={{ fontSize: "12px" }}>{copied === "ok" ? "已複製，貼到和 Claude 的對話就好" : copied === "fail" ? "複製失敗，請再按一次" : "週六檢視前貼給 Claude（只在對話裡分析，不會上傳到公開的地方）"}</span>
     </div>
   );
 }

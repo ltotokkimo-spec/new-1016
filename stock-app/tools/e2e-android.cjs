@@ -1119,6 +1119,13 @@ function check(ok, name, detail = "") {
   const segRows = await page.$$eval('[data-testid^="mode-"]', (bs) => ({ tops: [...new Set(bs.map((b) => Math.round(b.getBoundingClientRect().top)))].length, maxH: Math.max(...bs.map((b) => b.getBoundingClientRect().height)) }));
   const segN = await page.$$eval('button[data-testid^="mode-"]', (bs) => bs.length);
   check(segRows.tops === Math.ceil(segN / 4) && segRows.maxH < 60, "自組ETF 模式按鈕每列 4 個、文字不擠成直排", JSON.stringify({ ...segRows, n: segN }));
+  // 週報（11/28）：讀 WEEKLY.md，最新一週展開、歷史週報可點開
+  try {
+    await page.click('[data-testid="mode-weekly"]');
+    await page.waitForFunction(() => /週檢視/.test(document.querySelector('[data-testid="weekly-latest"]')?.innerText || ""), null, { timeout: 30000 });
+    const wk = await page.evaluate(() => ({ head: (document.querySelector('[data-testid="weekly-latest"]')?.innerText || "").slice(0, 60), old: document.querySelectorAll('[data-testid="weekly-old"]').length }));
+    check(/週檢視/.test(wk.head) && wk.old >= 1, "自組ETF「週報」顯示最新一週與歷史週報", JSON.stringify(wk));
+  } catch (e) { check(false, "自組ETF「週報」", String(e).slice(0, 200)); }
   // 總評比：第一組（Claude 虛擬）和三個規則組合放在一起
   await page.click('[data-testid="mode-compare"]');
   await page.waitForSelector('[data-testid="compare-all"]', { timeout: 30000 });

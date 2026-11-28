@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ActiveTag } from "./activeTag";
 import {
   addDualTrades, addDualFlow, setDualReserve, setDualSkip, hideDualTrade, removeDualTrade, resetDualReal, snapshotDualNav,
-  LIVE_MS, findScored, getFetcher, getKv, addEtfFlow, setEtfReserve, removeEtfFlow, addEtfTrades, hideEtfTrade, removeEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshTurn, refreshCons, refreshMom, refreshFii, refreshBig, refreshDual, refreshDualPlus, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, livePriceNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
+  LIVE_MS, findScored, getFetcher, getKv, addEtfFlow, setEtfReserve, removeEtfFlow, addEtfTrades, hideEtfTrade, removeEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshTurn, refreshCons, refreshMom, refreshFii, refreshBig, refreshWeekly, refreshDual, refreshDualPlus, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, livePriceNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError } from "../ai/claude";
 import { nameLookup, parseOcrHoldings } from "../engine/ocrHoldings";
@@ -1369,8 +1369,8 @@ function openPos(code: string, codes: string[], e?: any) {
 
 export function AiEtfScreen({ open }: { open?: (s: Scored, list?: Scored[]) => void } = {}) {
   openStock = open;
-  type Mode = "compare" | "virtual" | "watch" | "wide" | "regime" | "lead" | "ai" | "rule" | "turn" | "dual" | "dualplus" | "cons" | "mom" | "fii" | "big" | "dualReal" | "real";
-  const [mode, setMode] = useState<Mode>(() => { try { const m = localStorage.getItem("aietfMode"); return m === "real" || m === "dualReal" || m === "rule" || m === "turn" || m === "dual" || m === "dualplus" || m === "cons" || m === "mom" || m === "fii" || m === "big" || m === "watch" || m === "wide" || m === "regime" || m === "lead" || m === "ai" || m === "compare" ? m : "virtual"; } catch { return "virtual"; } });
+  type Mode = "compare" | "virtual" | "watch" | "wide" | "regime" | "lead" | "ai" | "rule" | "turn" | "dual" | "dualplus" | "cons" | "mom" | "fii" | "big" | "weekly" | "dualReal" | "real";
+  const [mode, setMode] = useState<Mode>(() => { try { const m = localStorage.getItem("aietfMode"); return m === "real" || m === "dualReal" || m === "rule" || m === "turn" || m === "dual" || m === "dualplus" || m === "cons" || m === "mom" || m === "fii" || m === "big" || m === "weekly" || m === "watch" || m === "wide" || m === "regime" || m === "lead" || m === "ai" || m === "compare" ? m : "virtual"; } catch { return "virtual"; } });
   const pick = (m: Mode) => { setMode(m); try { localStorage.setItem("aietfMode", m); } catch { /* 不重要 */ } };
   // 11/18 使用者：底部「自組ETF」的紅點看不出在指哪裡。紅點是「我的實單」有持股跌破停損／被評離場，所以在子分頁「我的實單」按鈕上也標紅點與檔數
   useStore((s) => ({ e: s.aiEtf, p: s.prices, l: s.live, a: s.tw.asOf }));
@@ -1379,6 +1379,7 @@ export function AiEtfScreen({ open }: { open?: (s: Scored, list?: Scored[]) => v
     <div>
       <div class="seg tight" role="group" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gridAutoFlow: "row", marginBottom: "10px" }}>
         <button aria-pressed={mode === "compare"} onClick={() => pick("compare")} data-testid="mode-compare">總評比</button>
+        <button aria-pressed={mode === "weekly"} onClick={() => pick("weekly")} data-testid="mode-weekly">週報</button>
         <button aria-pressed={mode === "virtual"} onClick={() => pick("virtual")} data-testid="mode-virtual">Claude 虛擬</button>
         <button aria-pressed={mode === "watch"} onClick={() => pick("watch")} data-testid="mode-watch">N5 觀察</button>
         <button aria-pressed={mode === "wide"} onClick={() => pick("wide")} data-testid="mode-wide">全個股</button>
@@ -1397,7 +1398,7 @@ export function AiEtfScreen({ open }: { open?: (s: Scored, list?: Scored[]) => v
         <button aria-pressed={mode === "dualReal"} onClick={() => pick("dualReal")} data-testid="mode-dualreal">雙引擎實單</button>
       </div>
       {(mode === "real" || mode === "dualReal") && <ReviewExport />}
-      {mode === "real" ? <RealEtfScreen /> : mode === "dualReal" ? <DualRealScreen /> : mode === "compare" ? <CompareView /> : <VirtualView key={mode} kind={mode} />}
+      {mode === "real" ? <RealEtfScreen /> : mode === "dualReal" ? <DualRealScreen /> : mode === "compare" ? <CompareView /> : mode === "weekly" ? <WeeklyView /> : <VirtualView key={mode} kind={mode} />}
     </div>
   );
 }
@@ -1466,6 +1467,35 @@ function CompareMinis({ series, rows }: { series: MiniSeries[]; rows: GroupRow[]
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/** 週報（11/28 使用者：要在 App 裡看每週檢視）：讀 WEEKLY.md，最新一週直接展開，往下是歷史週報（點開看）。兩本實單是私人資料，不在這裡 */
+function WeeklyView() {
+  const wk = useStore((s) => s.weekly);
+  const [busy, setBusy] = useState(false);
+  const reload = async () => { setBusy(true); await refreshWeekly(); setBusy(false); };
+  useEffect(() => { if (!wk || Date.now() - wk.fetchedAt > 30 * 60_000) void reload(); }, []);
+  const weeks = useMemo(() => (wk?.text ?? "").split(/\n(?=## )/).filter((x) => x.startsWith("## ")), [wk?.text]);
+  return (
+    <div data-testid="weekly-view">
+      <div class="card stack">
+        <b>每週檢視（週報）</b>
+        <div class="muted" style={{ fontSize: "12.5px", lineHeight: 1.6 }}>每週六 09:50 由 Claude 檢視後更新。內容：一、Claude 虛擬自組 ETF；四、影子評分；五、四因子名單；六、推薦實績；七、給你的建議。「我的實單」「雙引擎實單」是你的私人資料，只在和 Claude 的對話裡檢視，不放在這裡。</div>
+        {wk?.error && <div class="muted" style={{ fontSize: "12px" }}>{wk.error}</div>}
+        <button class="btn secondary" onClick={reload} disabled={busy} data-testid="weekly-reload">{busy ? "下載中…" : "重新下載"}</button>
+      </div>
+      {!weeks.length ? <div class="card empty">{busy || !wk ? "週報下載中…" : "還沒有週報"}</div> : <>
+        <div class="card" style={{ fontSize: "13.5px", lineHeight: 1.7 }} data-testid="weekly-latest"><Markdown text={weeks[0]} /></div>
+        {weeks.length > 1 && <div class="section-title"><span>歷史週報</span><span>{weeks.length - 1} 週</span></div>}
+        {weeks.slice(1).map((w, i) => (
+          <details key={i} class="card" style={{ fontSize: "13.5px", lineHeight: 1.7 }} data-testid="weekly-old">
+            <summary style={{ cursor: "pointer", fontWeight: 700 }}>{w.split("\n")[0].replace(/^##\s*/, "")}</summary>
+            <Markdown text={w.split("\n").slice(1).join("\n")} />
+          </details>
+        ))}
+      </>}
     </div>
   );
 }

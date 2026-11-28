@@ -33,6 +33,7 @@ import { DUAL_REAL } from "./engine/dualReal";
 import { emptyEtf, etfAlerts, isOffList, liquidityCut, pickCandidates, positions as etfPositions, recordNav, stopOf, valuate, type AiEtf, type EtfTrade } from "./engine/aiEtf";
 
 // Claude 每個交易日收盤後更新的虛擬自組 ETF（存在 GitHub 分支上，App 只讀取顯示）
+export const WEEKLY_URL = "https://raw.githubusercontent.com/ltotokkimo-spec/new-1016/claude/ui-calculator-interface-t3x9kh/stock-app/virtual/WEEKLY.md"; // 週報（11/28：每週六檢視）
 export const VIRTUAL_URL = "https://raw.githubusercontent.com/ltotokkimo-spec/new-1016/claude/ui-calculator-interface-t3x9kh/stock-app/virtual/v-2wy3g7efad1c.json";
 // N5 觀察組合（0050 五成＋方案 A 五成）：每天回測工作流程跑完後發布，同樣的格式
 export const WATCH_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/n5.json";
@@ -132,6 +133,7 @@ export interface State {
   cons?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 共識股觀察組合（11/27）
   mom?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 強勢股觀察組合（11/27）
   fii?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 外資買超組（11/28）
+  weekly?: { text: string; fetchedAt: number; error?: string }; // 週報（11/28）
   big?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 大型股組（11/28）
   activeTrack?: { data: ActiveTrack; fetchedAt: number }; // 主動式 ETF 主動加碼追蹤（11/27）
   dual?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 雙引擎觀察組合（成長組＋低波動組）
@@ -252,6 +254,8 @@ async function initInner() {
   if (mom0) set({ mom: mom0 });
   const fii0 = await kv.get<State["fii"]>("fii");
   if (fii0) set({ fii: fii0 });
+  const wk0 = await kv.get<State["weekly"]>("weekly");
+  if (wk0) set({ weekly: wk0 });
   const big0 = await kv.get<State["big"]>("big");
   if (big0) set({ big: big0 });
   const quad0 = await kv.get<State["quad"]>("quad");
@@ -863,6 +867,19 @@ export async function refreshActiveTrack() {
     if (data?.version !== 1 || !data.buy) throw new Error("格式不對");
     set({ activeTrack: { data, fetchedAt: Date.now() } });
   } catch { /* 沒有就不顯示 */ }
+}
+
+export async function refreshWeekly() {
+  try {
+    const text = await textFetcher(`${WEEKLY_URL}?t=${Date.now()}`);
+    if (!/^# /.test(text.trim()) || !text.includes("## ")) throw new Error("格式不對");
+    const v = { text, fetchedAt: Date.now() };
+    await kv.set("weekly", v);
+    set({ weekly: v });
+  } catch {
+    if (state.weekly) set({ weekly: { ...state.weekly, error: "這次沒下載到最新週報，顯示上次的內容" } });
+    else set({ weekly: { text: "", fetchedAt: 0, error: "週報下載失敗，請稍後按「重新下載」" } });
+  }
 }
 
 export async function refreshFii() { await refreshGroup("fii", FII_URL); }

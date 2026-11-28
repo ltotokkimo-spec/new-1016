@@ -356,6 +356,7 @@ const setProStatus = (t: string) => { proStatusText = t ? `${new Date().toLocale
 const scrollToPro = () => setTimeout(() => (document.querySelector('[data-testid="pro-loaded"], [data-testid="pro-found"]') as HTMLElement | null)?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
 let proSettled = false; // 這次回到前景是否已讀到剪貼簿內容
 let proChecking = false; // 正在等焦點／讀剪貼簿：不要同時跑兩次
+let proRecheck = false; // 正在讀時又回到前景：讀完再讀一次
 let proLoading = false; // 回到前景會同時觸發 focus 和 visibilitychange：避免同一份回覆載入兩次
 
 /** 從 Claude App 回來：剪貼簿有完整的 Claude 回覆就直接載入並整理（11/14 起不用再按一次）；回覆被截斷才先問；讀不到剪貼簿就請你按「貼上並載入」 */
@@ -382,7 +383,7 @@ function ProResume() {
   const check = async () => {
     if (!proFlag.get()) { setPending(false); return; }
     setPending(proFlag.waiting());
-    if (proChecking) return;
+    if (proChecking) { proRecheck = true; return; } // 11/28：上一次讀剪貼簿還沒結束時又回到前景，結束後要再讀一次（以前直接略過，回覆就漏讀）
     proChecking = true;
     try {
       setProStatus("正在讀剪貼簿…");
@@ -399,7 +400,7 @@ function ProResume() {
           : `剪貼簿有 ${t.length} 個字，但不像 Claude 的建議回覆（找不到最後的 JSON 買賣清單）。可以貼到下面的輸入框手動儲存。`);
       }
     } catch (e) { setProStatus(`讀不到剪貼簿（${String((e as Error)?.message ?? e).slice(0, 60)}）。請用下面的輸入框手動貼上。`); }
-    finally { proChecking = false; }
+    finally { proChecking = false; if (proRecheck) { proRecheck = false; void check(); } }
   };
   useEffect(() => {
     let tries = 0; // 回到前景後約 1 分鐘內，每 2 秒再讀一次剪貼簿：第 2、3 份回覆時「回到前景」通知有時漏掉，光靠事件不夠（11/19 使用者回報）

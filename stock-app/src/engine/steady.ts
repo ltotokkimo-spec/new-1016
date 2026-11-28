@@ -679,6 +679,25 @@ export function momPicker(c: Ctx, o: { trail?: number; regime?: boolean; ma20Exi
   pick.held = () => held;
   return pick;
 }
+/**
+ * 11/28 使用者看完 685 種規則的回測（前段挑、後段驗證）後加的兩個觀察組（不要正2）：
+ * 外資買超組：近 20 個交易日外資買超金額（股數 × 今天收盤）最多的前 10 檔普通股，等權，每 5 個交易日換一次。
+ * 大型股組：當天成交金額前 50 大普通股等權，每 5 個交易日換一次；0050 收盤跌破 60 日線時全部放現金。
+ */
+export const FII = { lookback: 20, top: 10, every: 5 } as const;
+export const BIG = { top: 50, every: 5, ma: 60 } as const;
+export function fiiTargets(c: Ctx, j: number): Map<string, number> {
+  const s = new Map<string, number>();
+  for (let q = 0; q < FII.lookback; q++) for (const [k, f] of c.flows[j - q] ?? []) if (isCommonStock(k)) s.set(k, (s.get(k) ?? 0) + f[1] * (c.rows[j].get(k)?.[2] ?? 0));
+  const top = [...s].filter(([k, v]) => v > 0 && c.rows[j].has(k)).sort((a, b) => b[1] - a[1]).slice(0, FII.top);
+  return new Map(top.map(([k]) => [k, 1 / FII.top]));
+}
+export function bigTargets(c: Ctx, j: number): Map<string, number> {
+  const b = c.series.get(BENCH);
+  if (px(b, j) < ma(b, j, BIG.ma)) return new Map();
+  const top = [...c.rows[j]].filter(([k, r]) => isCommonStock(k) && r[2] > 0).sort((a, b) => b[1][4] - a[1][4]).slice(0, BIG.top);
+  return new Map(top.map(([k]) => [k, 1 / top.length]));
+}
 export interface SimOpts { stops?: boolean; every?: number; band?: number; costStop?: number; keep?: boolean } // keep：已持有且仍在目標的不加減碼（強勢股：讓漲多的繼續漲） // costStop：收盤跌破買進價這個比例就賣（實單規則用 0.1）
 
 /** 逐日模擬：第 j 天收盤決定，第 j+1 天收盤成交（從 j+2 起承擔漲跌），含手續費與證交稅 */
@@ -983,6 +1002,8 @@ export function runSteady(days: BtDay[], companies: Company[], opts: { now?: num
   add("M4_momMa20", "M4 強勢股，另外收盤跌破 20 日線也出場", momPicker(c, { ma20Exit: true }), mOpt);
   add("M5_momStock", "M5 強勢股只做個股（不含 ETF）", momPicker(c, { etf: false }), mOpt);
   add("M7_momRegime40", "M7 強勢股＋大盤濾網改 40 日線（0050 跌破 40 日線不開新倉；觀察組現行規則）", momPicker(c, { regime: true, regimeMa: MOM.regimeMa }), mOpt);
+  add("F1_fii20", "F1 外資近 20 日買超最多前 10 檔等權，每 5 日換（外資買超組）", (j) => fiiTargets(c, j), { every: FII.every });
+  add("B1_big50", "B1 成交金額前 50 大等權，每 5 日換，0050 跌破 60 日線放現金（大型股組）", (j) => bigTargets(c, j), { every: BIG.every });
   add("M6_momLong", "M6 第一版強勢股（近 60 日漲 15%、60 日新高附近、多頭排列；移動停損 8%）", momPicker(c, { style: "long" }), mOpt);
   out.push(stats("0050", "買進持有 0050", c, j0, benchSim, benchSim.eq));
 

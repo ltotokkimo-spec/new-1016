@@ -3,7 +3,7 @@
 // 成交規則和 2 年回測一致：第 j 天收盤後決定，第 j+1 天收盤價成交，已計手續費與證交稅。
 import { cashFlow, positions, recordNav, valuate, type EtfTrade } from "./aiEtf";
 import type { BtDay } from "./backtest";
-import { DUALPLUS, buyCodesAt, aiTargets, aPicks, buildCtx, DUAL, GROWTH, growthPicks, type GrowthPick, LEAD, leadTargets, MOM, momPicker, REAL, realTargets, regimeStep, STEADY, TURN2, turnPicker, wideTargets } from "./steady";
+import { DUALPLUS, buyCodesAt, aiTargets, aPicks, buildCtx, DUAL, GROWTH, growthPicks, type GrowthPick, LEAD, leadTargets, MOM, momPicker, FII, fiiTargets, BIG, bigTargets, REAL, realTargets, regimeStep, STEADY, TURN2, turnPicker, wideTargets } from "./steady";
 import type { RevTable } from "./revHist";
 import type { DualVeto } from "./virtualEtf";
 import { addNote, newVirtual, type PendingOrder, type VirtualEtf } from "./virtualEtf";
@@ -32,8 +32,8 @@ const pc = (x: number, d = 1) => `${x >= 0 ? "+" : ""}${(x * 100).toFixed(d)}%`;
  * mode "dual"：雙引擎（使用者 11/14 同意上線）：成長組五成（每 20 個交易日重選，需要 opts.rev 歷史月營收）＋方案 A 五成（每 5 個交易日重選）。
  *   雙引擎＋（11/18 使用者要求乾淨重新開始）起始日是 DUALPLUS.rankFrom（11/17）：新規則從 11/17 收盤的判斷起算，歷史不含舊規則；原版雙引擎起始日是 DUAL.start（規則定案前最後一個資料日 11/13），不是其他組的 10/23：規則是看過 11/13 以前的資料才訂的，從定案日起算才是真正的事後觀察。
  */
-export function runWatch(days: BtDay[], companies: Company[], opts: { start?: string; budget?: number; now?: number; mode?: "n5" | "wide" | "regime" | "lead" | "ai" | "real" | "turn" | "dual" | "dualplus" | "consensus" | "mom"; rev?: RevTable; vetoes?: DualVeto[]; rankFrom?: string; buyAt?: (j: number) => ReadonlySet<string>; votes?: (date: string) => ReadonlyMap<string, string[]>; activeAt?: (date: string) => ReadonlyMap<string, number> } = {}): VirtualEtf {
-  const wide = opts.mode === "wide", regime = opts.mode === "regime", lead = opts.mode === "lead", ai = opts.mode === "ai", real = opts.mode === "real", turn = opts.mode === "turn", cons = opts.mode === "consensus", mom = opts.mode === "mom", plus = opts.mode === "dualplus", dual = opts.mode === "dual" || plus;
+export function runWatch(days: BtDay[], companies: Company[], opts: { start?: string; budget?: number; now?: number; mode?: "n5" | "wide" | "regime" | "lead" | "ai" | "real" | "turn" | "dual" | "dualplus" | "consensus" | "mom" | "fii" | "big"; rev?: RevTable; vetoes?: DualVeto[]; rankFrom?: string; buyAt?: (j: number) => ReadonlySet<string>; votes?: (date: string) => ReadonlyMap<string, string[]>; activeAt?: (date: string) => ReadonlyMap<string, number> } = {}): VirtualEtf {
+  const wide = opts.mode === "wide", regime = opts.mode === "regime", lead = opts.mode === "lead", ai = opts.mode === "ai", real = opts.mode === "real", turn = opts.mode === "turn", cons = opts.mode === "consensus", mom = opts.mode === "mom", fii = opts.mode === "fii", big = opts.mode === "big", plus = opts.mode === "dualplus", dual = opts.mode === "dual" || plus;
   // 雙引擎＋：當天有效的新聞否決（代號 → 否決）
   const vetoAt = (d: string) => new Map((plus ? opts.vetoes ?? [] : []).filter((x) => x.from <= d && (!x.until || d <= x.until)).map((x) => [x.code, x]));
   let lastA: Map<string, number> | undefined;
@@ -106,7 +106,7 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
     // 還沒有任何成交（例如強勢股被大盤濾網擋住、整段空手）也要記每天淨值＝起始資金，App 的走勢圖與總評比才畫得出線（11/27）
     if (!val.missing.length) v = trades.length ? { ...v, ...recordNav(v, date, val) } : { ...v, nav: [...v.nav.filter((x) => x.date !== date), { date, nav: budget, bench: budget }] };
     // 3. 收盤後重新選股：全個股、N5、權值強化每天；攻守輪動每 5 個交易日；AI 供應鏈每 20 個交易日
-    const scheduled = wide || lead || turn || cons || mom || !(regime || ai || real || dual) || (j - (jRank >= 0 && j >= jRank ? jRank : j0)) % (ai ? WATCH.aiEvery : real ? REAL.every : dual ? DUAL.every : WATCH.every) === 0;
+    const scheduled = wide || lead || turn || cons || mom || !(regime || ai || real || dual || fii || big) || (j - (jRank >= 0 && j >= jRank ? jRank : j0)) % (ai ? WATCH.aiEvery : real ? REAL.every : dual ? DUAL.every : fii ? FII.every : big ? BIG.every : WATCH.every) === 0;
     const vetoNow = vetoAt(date);
     // 雙引擎＋：持股當天被否決，就算不是判斷日也要在收盤後排賣出
     const decide = scheduled || (plus && [...hold.keys()].some((k) => vetoNow.has(k)));
@@ -161,6 +161,16 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
         ? `\n本日判斷（每 ${REAL.every} 個交易日）：App「買入」候選（每產業最多 ${REAL.perSector} 檔、成交金額達門檻）分數前 ${REAL.pick} 檔等權：${list || "目前沒有符合的，先放現金"}。下一個交易日收盤價調整。`
         : "";
       if (stopped.length) text += `\n停損：${stopped.map((p) => `${p.name}${p.code}（收盤跌破成本 ${Math.round(REAL.stop * 100)}%）`).join("、")}，下一個交易日收盤價賣出。`;
+    } else if (decide && (fii || big)) {
+      const t = fii ? fiiTargets(c, j) : bigTargets(c, j);
+      setTarget(t);
+      const nm = (code: string) => `${name(code, j)}${code}`;
+      const list = [...t.keys()].map(nm), adds = [...t.keys()].filter((code) => !hold.has(code)).map(nm), drops = [...hold.keys()].filter((code) => !t.has(code)).map(nm);
+      text += fii
+        ? `\n本日判斷（每 ${FII.every} 個交易日）：近 ${FII.lookback} 日外資買超金額最多的前 ${FII.top} 檔，每檔 ${100 / FII.top}%：${list.join("、") || "無"}。新增：${adds.join("、") || "無"}；賣出：${drops.join("、") || "無"}。下一個交易日收盤價調整。`
+        : t.size
+          ? `\n本日判斷（每 ${BIG.every} 個交易日）：0050 在 ${BIG.ma} 日線之上，買成交金額前 ${BIG.top} 大等權（每檔 ${(100 / t.size).toFixed(1)}%）。新增 ${adds.length} 檔、賣出 ${drops.length} 檔。下一個交易日收盤價調整。`
+          : `\n本日判斷（每 ${BIG.every} 個交易日）：0050 收盤跌破 ${BIG.ma} 日線，全部放現金${hold.size ? `（賣出 ${hold.size} 檔）` : ""}。下一個交易日收盤價調整。`;
     } else if (decide && wide) {
       const t = wideTargets(c, j, new Set(hold.keys()));
       setTarget(t);
@@ -244,7 +254,7 @@ export function runWatch(days: BtDay[], companies: Company[], opts: { start?: st
       if (n > 0) pending.push({ code, name: nm(code), side: "buy", shares: n, reason: have > 0 ? `加碼：目標 ${(w * 100).toFixed(1)}%，目前 ${((have / total) * 100).toFixed(1)}%` : `新增：目標 ${(w * 100).toFixed(1)}%`, placed: v.asOf });
     }
   }
-  const every = wide || lead || turn || cons || mom || !(regime || ai || real || dual) ? 1 : ai ? WATCH.aiEvery : real ? REAL.every : dual ? DUAL.every : WATCH.every;
+  const every = wide || lead || turn || cons || mom || !(regime || ai || real || dual || fii || big) ? 1 : ai ? WATCH.aiEvery : real ? REAL.every : dual ? DUAL.every : fii ? FII.every : big ? BIG.every : WATCH.every;
   const nextStock = lastDayTarget ? [...lastDayTarget.values()].reduce((a, b) => a + b, 0) : undefined; // 明天調整完的股票目標比重（其餘是現金）
   const lastVetoes = plus && v.asOf ? [...vetoAt(v.asOf).values()].map((x) => ({ ...x, name: x.name ?? name(x.code, c.N - 1) })) : undefined;
   if (mom) v = { ...v, stops: { ...stops } };

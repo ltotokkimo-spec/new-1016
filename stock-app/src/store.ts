@@ -52,6 +52,8 @@ export const DUALPLUS_URL = "https://github.com/ltotokkimo-spec/new-1016/release
 export const DUAL_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/dual.json"; // 雙引擎觀察組合（11/14）
 export const CONS_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/consensus.json"; // 共識股觀察組合（11/27）
 export const ACTIVE_TRACK_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/active-track.json"; // 主動式 ETF 主動加碼追蹤（11/27）
+export const FII_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/fii.json"; // 外資買超組（11/28）
+export const BIG_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/big.json"; // 大型股組（11/28）
 export const MOM_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/mom.json"; // 強勢股觀察組合（11/27）
 export const TURN_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/turn.json"; // 剛轉強觀察組合
 export const RULE_URL = "https://github.com/ltotokkimo-spec/new-1016/releases/download/radar-data-vug13iw701/real.json"; // 實單規則觀察組合（「我的實單」的選股規則）
@@ -129,6 +131,8 @@ export interface State {
   turn?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 剛轉強觀察組合
   cons?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 共識股觀察組合（11/27）
   mom?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 強勢股觀察組合（11/27）
+  fii?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 外資買超組（11/28）
+  big?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 大型股組（11/28）
   activeTrack?: { data: ActiveTrack; fetchedAt: number }; // 主動式 ETF 主動加碼追蹤（11/27）
   dual?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 雙引擎觀察組合（成長組＋低波動組）
   dualPlus?: { data: VirtualEtf; fetchedAt: number; error?: string }; // 雙引擎＋（加外資條件與 Claude 新聞否決）
@@ -246,6 +250,10 @@ async function initInner() {
   if (cons0) set({ cons: cons0 });
   const mom0 = await kv.get<State["mom"]>("mom");
   if (mom0) set({ mom: mom0 });
+  const fii0 = await kv.get<State["fii"]>("fii");
+  if (fii0) set({ fii: fii0 });
+  const big0 = await kv.get<State["big"]>("big");
+  if (big0) set({ big: big0 });
   const quad0 = await kv.get<State["quad"]>("quad");
   if (quad0) set({ quad: quad0 });
   const dr0 = await kv.get<AiEtf>("dualReal");
@@ -855,6 +863,22 @@ export async function refreshActiveTrack() {
     if (data?.version !== 1 || !data.buy) throw new Error("格式不對");
     set({ activeTrack: { data, fetchedAt: Date.now() } });
   } catch { /* 沒有就不顯示 */ }
+}
+
+export async function refreshFii() { await refreshGroup("fii", FII_URL); }
+export async function refreshBig() { await refreshGroup("big", BIG_URL); }
+async function refreshGroup(key: "fii" | "big", url: string) {
+  try {
+    const data = (await fetchData(url)) as VirtualEtf;
+    if (data?.version !== 1 || !Array.isArray(data.trades)) throw new Error("格式不對");
+    const v = { data, fetchedAt: Date.now() };
+    await kv.set(key, v);
+    set({ [key]: v } as Partial<State>);
+  } catch {
+    const old = state[key];
+    if (old) set({ [key]: { ...old, error: "這次沒下載到最新資料，顯示上次的內容" } } as Partial<State>);
+    else set({ [key]: undefined } as Partial<State>);
+  }
 }
 
 export async function refreshMom() {

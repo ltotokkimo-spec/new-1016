@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ActiveTag } from "./activeTag";
 import {
   addDualTrades, addDualFlow, setDualReserve, setDualSkip, hideDualTrade, removeDualTrade, resetDualReal, snapshotDualNav,
-  LIVE_MS, findScored, getFetcher, getKv, addEtfFlow, setEtfReserve, removeEtfFlow, addEtfTrades, hideEtfTrade, removeEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshTurn, refreshCons, refreshMom, refreshDual, refreshDualPlus, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, livePriceNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
+  LIVE_MS, findScored, getFetcher, getKv, addEtfFlow, setEtfReserve, removeEtfFlow, addEtfTrades, hideEtfTrade, removeEtfTrade, offListNow, refreshLive, refreshVirtual, refreshWatch, refreshWide, refreshRegime, refreshLead, refreshAi, refreshRule, refreshTurn, refreshCons, refreshMom, refreshFii, refreshBig, refreshDual, refreshDualPlus, refreshSteady, etfAdviceInput, etfRating, recordSpend, saveProReply, setEtfFillFrom, etfAlertsNow, livePriceNow, etfPrice, getState, resetAiEtf, setEtfBudget, setEtfStop, snapshotEtfNav, startEtfAdvice, useStore,
 } from "../store";
 import { aiEtfPrompt, claudeAppUrl, explainError } from "../ai/claude";
 import { nameLookup, parseOcrHoldings } from "../engine/ocrHoldings";
@@ -1368,8 +1368,8 @@ function openPos(code: string, codes: string[], e?: any) {
 
 export function AiEtfScreen({ open }: { open?: (s: Scored, list?: Scored[]) => void } = {}) {
   openStock = open;
-  type Mode = "compare" | "virtual" | "watch" | "wide" | "regime" | "lead" | "ai" | "rule" | "turn" | "dual" | "dualplus" | "cons" | "mom" | "dualReal" | "real";
-  const [mode, setMode] = useState<Mode>(() => { try { const m = localStorage.getItem("aietfMode"); return m === "real" || m === "dualReal" || m === "rule" || m === "turn" || m === "dual" || m === "dualplus" || m === "cons" || m === "mom" || m === "watch" || m === "wide" || m === "regime" || m === "lead" || m === "ai" || m === "compare" ? m : "virtual"; } catch { return "virtual"; } });
+  type Mode = "compare" | "virtual" | "watch" | "wide" | "regime" | "lead" | "ai" | "rule" | "turn" | "dual" | "dualplus" | "cons" | "mom" | "fii" | "big" | "dualReal" | "real";
+  const [mode, setMode] = useState<Mode>(() => { try { const m = localStorage.getItem("aietfMode"); return m === "real" || m === "dualReal" || m === "rule" || m === "turn" || m === "dual" || m === "dualplus" || m === "cons" || m === "mom" || m === "fii" || m === "big" || m === "watch" || m === "wide" || m === "regime" || m === "lead" || m === "ai" || m === "compare" ? m : "virtual"; } catch { return "virtual"; } });
   const pick = (m: Mode) => { setMode(m); try { localStorage.setItem("aietfMode", m); } catch { /* 不重要 */ } };
   // 11/18 使用者：底部「自組ETF」的紅點看不出在指哪裡。紅點是「我的實單」有持股跌破停損／被評離場，所以在子分頁「我的實單」按鈕上也標紅點與檔數
   useStore((s) => ({ e: s.aiEtf, p: s.prices, l: s.live, a: s.tw.asOf }));
@@ -1390,6 +1390,8 @@ export function AiEtfScreen({ open }: { open?: (s: Scored, list?: Scored[]) => v
         <button aria-pressed={mode === "dualplus"} onClick={() => pick("dualplus")} data-testid="mode-dualplus">雙引擎＋</button>
         <button aria-pressed={mode === "cons"} onClick={() => pick("cons")} data-testid="mode-cons">共識股</button>
         <button aria-pressed={mode === "mom"} onClick={() => pick("mom")} data-testid="mode-mom">強勢股</button>
+        <button aria-pressed={mode === "fii"} onClick={() => pick("fii")} data-testid="mode-fii">外資買超</button>
+        <button aria-pressed={mode === "big"} onClick={() => pick("big")} data-testid="mode-big">大型股</button>
         <button aria-pressed={mode === "real"} onClick={() => pick("real")} data-testid="mode-real" style={{ position: "relative" }}>我的實單{realAlertN > 0 && <span class="mode-dot" data-testid="mode-real-dot" aria-label={`有 ${realAlertN} 檔需要注意`}>{realAlertN}</span>}</button>
         <button aria-pressed={mode === "dualReal"} onClick={() => pick("dualReal")} data-testid="mode-dualreal">雙引擎實單</button>
       </div>
@@ -1555,7 +1557,7 @@ function UpdateStamp({ asOf, updatedAt, fetchedAt, lagging }: { asOf?: string; u
 
 /** 總評比：Claude 虛擬操作（第一組）和三個規則自動計算的觀察組合放在一起看，也和 0050 比 */
 function CompareView() {
-  const ruleG = useStore((s) => s.rule), turnG = useStore((s) => s.turn), consG = useStore((s) => s.cons), momG = useStore((s) => s.mom), dualG = useStore((s) => s.dual), dualPlusG = useStore((s) => s.dualPlus);
+  const ruleG = useStore((s) => s.rule), turnG = useStore((s) => s.turn), consG = useStore((s) => s.cons), momG = useStore((s) => s.mom), fiiG = useStore((s) => s.fii), bigG = useStore((s) => s.big), dualG = useStore((s) => s.dual), dualPlusG = useStore((s) => s.dualPlus);
   const myEtf = useStore((s) => s.aiEtf);
   const dualRealEtf = useStore((s) => s.dualReal); // 雙引擎實單（11/15 使用者要加進總評比）
   const myPrices = useStore((s) => s.prices);
@@ -1563,8 +1565,8 @@ function CompareView() {
   const dualRealG = useMemo(() => { if (!dualRealEtf) return undefined; const v = valuate(dualRealEtf, etfPrice); return realAsGroup(dualRealEtf, { date: taipeiToday(), nav: Math.round(v.nav), bench: Math.round(v.bench) }); }, [dualRealEtf, myPrices]);
   const virtual = useStore((s) => s.virtual), watch = useStore((s) => s.watch), wide = useStore((s) => s.wide), regime = useStore((s) => s.regime), leadG = useStore((s) => s.lead), aiG = useStore((s) => s.ai), steady = useStore((s) => s.steady);
   const [busy, setBusy] = useState(false);
-  const reload = async () => { setBusy(true); await Promise.all([refreshVirtual(), refreshWatch(), refreshWide(), refreshRegime(), refreshLead(), refreshAi(), refreshRule(), refreshTurn(), refreshCons(), refreshMom(), refreshDual(), refreshDualPlus(), refreshSteady()]); setBusy(false); };
-  useEffect(() => { const old = (x?: { fetchedAt: number }) => !x || Date.now() - x.fetchedAt > 10 * 60_000; if (old(virtual) || old(watch) || old(wide) || old(regime) || old(leadG) || old(aiG) || old(ruleG) || old(turnG) || old(consG) || old(momG) || old(dualG) || old(dualPlusG) || !steady) reload(); }, []);
+  const reload = async () => { setBusy(true); await Promise.all([refreshVirtual(), refreshWatch(), refreshWide(), refreshRegime(), refreshLead(), refreshAi(), refreshRule(), refreshTurn(), refreshCons(), refreshMom(), refreshFii(), refreshBig(), refreshDual(), refreshDualPlus(), refreshSteady()]); setBusy(false); };
+  useEffect(() => { const old = (x?: { fetchedAt: number }) => !x || Date.now() - x.fetchedAt > 10 * 60_000; if (old(virtual) || old(watch) || old(wide) || old(regime) || old(leadG) || old(aiG) || old(ruleG) || old(turnG) || old(consG) || old(momG) || old(fiiG) || old(bigG) || old(dualG) || old(dualPlusG) || !steady) reload(); }, []);
   const groups = [
     { key: "virtual", label: "Claude 虛擬操作（第一組，Claude 每天判斷）", short: "Claude 虛擬", v: virtual?.data, bt: undefined as string | undefined },
     { key: "watch", label: "N5（0050 五成＋方案 A 五成）", short: "N5 觀察", v: watch?.data, bt: "N5_half0050_A" },
@@ -1578,6 +1580,8 @@ function CompareView() {
     { key: "dualplus", label: "雙引擎＋（外資條件＋Claude 新聞否決＋候選限定選股頁買入，11/17 起算）", short: "雙引擎＋", v: dualPlusG?.data, bt: "D4_dualPlus" },
     { key: "cons", label: "共識股（各規則組 2 組以上同時持有的個股，等權最多 10 檔）", short: "共識股", v: consG?.data, bt: undefined as string | undefined },
     { key: "mom", label: "強勢股（20 日漲 20%＋創新高＋量增，移動停損 8%，大盤濾網）", short: "強勢股", v: momG?.data, bt: "M7_momRegime40" },
+    { key: "fii", label: "外資買超組（近 20 日外資買超最多前 10 檔，每 5 日換）", short: "外資買超", v: fiiG?.data, bt: "F1_fii20" },
+    { key: "big", label: "大型股組（成交金額前 50 大等權，每 5 日換，0050 跌破 60 日線放現金）", short: "大型股", v: bigG?.data, bt: "B1_big50" },
     { key: "real", label: "我的實單（你實際的買賣，從第一筆成交起算）", short: "我的實單", v: realG, bt: undefined as string | undefined, real: true },
     { key: "dualreal", label: "雙引擎實單（你照雙引擎＋實際的買賣，從第一筆成交起算）", short: "雙引擎實單", v: dualRealG, bt: undefined as string | undefined, real: true },
   ].filter((g) => !g.real || g.v) as { key: string; label: string; short: string; v?: VirtualEtf; bt?: string; real?: boolean }[];
@@ -1768,13 +1772,13 @@ function CashReserve({ v, nav, marketValue, kind, price }: { v: VirtualEtf; nav:
   );
 }
 
-function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide" | "regime" | "lead" | "ai" | "rule" | "turn" | "dual" | "dualplus" | "cons" | "mom" }) {
-  const isWide = kind === "wide", isRegime = kind === "regime", isLead = kind === "lead", isAi = kind === "ai", isRule = kind === "rule", isTurn = kind === "turn", isCons = kind === "cons", isMom = kind === "mom", isPlus = kind === "dualplus", isDual = kind === "dual";
+function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide" | "regime" | "lead" | "ai" | "rule" | "turn" | "dual" | "dualplus" | "cons" | "mom" | "fii" | "big" }) {
+  const isWide = kind === "wide", isRegime = kind === "regime", isLead = kind === "lead", isAi = kind === "ai", isRule = kind === "rule", isTurn = kind === "turn", isCons = kind === "cons", isMom = kind === "mom", isFii = kind === "fii", isBig = kind === "big", isPlus = kind === "dualplus", isDual = kind === "dual";
   const isWatch = kind !== "virtual"; // 三個規則自動計算的觀察組合共用版面
-  const vt = useStore((s) => (isMom ? s.mom : isCons ? s.cons : isPlus ? s.dualPlus : isDual ? s.dual : isTurn ? s.turn : isRule ? s.rule : isAi ? s.ai : isLead ? s.lead : isWide ? s.wide : isRegime ? s.regime : isWatch ? s.watch : s.virtual));
+  const vt = useStore((s) => (isFii ? s.fii : isBig ? s.big : isMom ? s.mom : isCons ? s.cons : isPlus ? s.dualPlus : isDual ? s.dual : isTurn ? s.turn : isRule ? s.rule : isAi ? s.ai : isLead ? s.lead : isWide ? s.wide : isRegime ? s.regime : isWatch ? s.watch : s.virtual));
   const live = useStore((s) => s.live);
   const [busy, setBusy] = useState(false);
-  const reload = async () => { setBusy(true); await (isMom ? refreshMom() : isCons ? refreshCons() : isPlus ? refreshDualPlus() : isDual ? refreshDual() : isTurn ? refreshTurn() : isRule ? refreshRule() : isAi ? refreshAi() : isLead ? refreshLead() : isWide ? refreshWide() : isRegime ? refreshRegime() : isWatch ? refreshWatch() : refreshVirtual()); setBusy(false); };
+  const reload = async () => { setBusy(true); await (isFii ? refreshFii() : isBig ? refreshBig() : isMom ? refreshMom() : isCons ? refreshCons() : isPlus ? refreshDualPlus() : isDual ? refreshDual() : isTurn ? refreshTurn() : isRule ? refreshRule() : isAi ? refreshAi() : isLead ? refreshLead() : isWide ? refreshWide() : isRegime ? refreshRegime() : isWatch ? refreshWatch() : refreshVirtual()); setBusy(false); };
   useEffect(() => { if (!vt || Date.now() - vt.fetchedAt > 10 * 60_000) reload(); }, []);
   // 即時價：打開時抓一次，交易時段每 30 秒更新
   const codes = vt ? [...positions(vt.data.trades).filter((p) => p.shares > 0).map((p) => p.code), ...vt.data.pending.map((o) => o.code), "0050"] : [];
@@ -1785,7 +1789,7 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
     const t = setInterval(() => { if (livePolling()) refreshLive(codes); }, LIVE_MS);
     return () => clearInterval(t);
   }, [codeKey]);
-  const who = isMom ? "強勢股觀察組合" : isCons ? "共識股觀察組合" : isPlus ? "雙引擎＋觀察組合" : isDual ? "雙引擎觀察組合" : isTurn ? "剛轉強觀察組合" : isRule ? "實單規則觀察組合" : isAi ? "AI 供應鏈觀察組合" : isLead ? "權值強化觀察組合" : isRegime ? "攻守輪動觀察組合" : isWide ? "全個股觀察組合" : isWatch ? "N5 觀察組合" : "Claude 的虛擬操作";
+  const who = isFii ? "外資買超觀察組合" : isBig ? "大型股觀察組合" : isMom ? "強勢股觀察組合" : isCons ? "共識股觀察組合" : isPlus ? "雙引擎＋觀察組合" : isDual ? "雙引擎觀察組合" : isTurn ? "剛轉強觀察組合" : isRule ? "實單規則觀察組合" : isAi ? "AI 供應鏈觀察組合" : isLead ? "權值強化觀察組合" : isRegime ? "攻守輪動觀察組合" : isWide ? "全個股觀察組合" : isWatch ? "N5 觀察組合" : "Claude 的虛擬操作";
   if (!vt) return <div class="empty">{busy ? `下載${who}紀錄中…` : `還沒有下載到${who}紀錄，請確認網路後再試一次。`}<div><button class="btn secondary" onClick={reload} disabled={busy} style={{ marginTop: "8px" }}>重新下載</button></div></div>;
   const v = vt.data;
   // 即時報價比 Claude 最後一次收盤更新還新，就用即時價（盤中＝現價，收盤後＝當天收盤）
@@ -1802,7 +1806,7 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
     <div data-testid="virtual-view">
       <div class="card stack" data-testid="virtual-summary">
         <div class="row" style={{ justifyContent: "space-between" }}>
-          <b>{isMom ? "強勢股觀察組合（個股＋ETF，移動停損）" : isCons ? "共識股觀察組合（綜合各規則組，不放 0050）" : isPlus ? "雙引擎＋觀察組合（雙引擎＋外資條件＋Claude 新聞否決）" : isDual ? "雙引擎觀察組合（成長組＋低波動組各半，不放 0050）" : isTurn ? "剛轉強觀察組合（規則自動，不放 0050）" : isRule ? "實單規則觀察組合（我的實單的選股規則）" : isAi ? "AI 供應鏈觀察組合（Claude 設計，不放 0050）" : isLead ? "權值強化觀察組合（Claude 設計，不放 0050）" : isRegime ? "攻守輪動觀察組合（Claude 自訂規則）" : isWide ? "全個股觀察組合（不放 0050、不限檔數）" : isWatch ? "N5 觀察組合（0050 五成＋方案 A 五成）" : "Claude 虛擬自組 ETF"}</b>
+          <b>{isFii ? "外資買超觀察組合（外資近 20 日買超前 10 檔）" : isBig ? "大型股觀察組合（成交金額前 50 大＋60 日線濾網）" : isMom ? "強勢股觀察組合（個股＋ETF，移動停損）" : isCons ? "共識股觀察組合（綜合各規則組，不放 0050）" : isPlus ? "雙引擎＋觀察組合（雙引擎＋外資條件＋Claude 新聞否決）" : isDual ? "雙引擎觀察組合（成長組＋低波動組各半，不放 0050）" : isTurn ? "剛轉強觀察組合（規則自動，不放 0050）" : isRule ? "實單規則觀察組合（我的實單的選股規則）" : isAi ? "AI 供應鏈觀察組合（Claude 設計，不放 0050）" : isLead ? "權值強化觀察組合（Claude 設計，不放 0050）" : isRegime ? "攻守輪動觀察組合（Claude 自訂規則）" : isWide ? "全個股觀察組合（不放 0050、不限檔數）" : isWatch ? "N5 觀察組合（0050 五成＋方案 A 五成）" : "Claude 虛擬自組 ETF"}</b>
           <span class="muted" style={{ fontSize: "12px" }}>虛擬資金 {fmtMoney(v.budget)}・{pretty(v.start)} 開始</span>
         </div>
         <UpdateStamp asOf={v.asOf || undefined} updatedAt={v.updatedAt} fetchedAt={vt?.fetchedAt} />
@@ -1823,7 +1827,11 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
         <SchedulePlanView v={v} isClaude={!isWatch} />
         {intraday && <div class="date-hint" data-testid="virtual-live">⏱ {intraday.trial ? "開盤前試搓價估算" : "盤中即時估算"}（{intraday.time.slice(0, 5)}），每 30 秒更新；收盤後改用收盤價</div>}
         <div class="muted" style={{ fontSize: "12px", lineHeight: 1.6 }}>
-          {v.asOf ? <>資料日 {prettyW(v.asOf)} 收盤・</> : <>今天收盤後第一次更新・</>}{isMom
+          {v.asOf ? <>資料日 {prettyW(v.asOf)} 收盤・</> : <>今天收盤後第一次更新・</>}{isFii
+            ? "由規則自動計算（不需要 Claude），每個交易日收盤後更新（約 17:00）。每 5 個交易日換一次：把每檔普通股近 20 個交易日的外資買超股數乘上當天收盤價，取買超金額最多的前 10 檔，每檔 10%，下一個交易日收盤價成交。11/28 從 685 種規則的回測（2025/6～2026/11，前段挑、後段驗證）選出：全期 +149% 對 0050 +93%，前後兩段都贏 0050，最大回檔 -33%（0050 -27.5%）；回測只有約 1.5 年、以多頭為主，是看過資料才挑的，實際多半會比回測差。和其他組一樣 10/23 起算，11/28 以前是回填。"
+            : isBig
+            ? "由規則自動計算（不需要 Claude），每個交易日收盤後更新（約 17:00）。每 5 個交易日換一次：0050 收盤在 60 日線之上時，買當天成交金額前 50 大的普通股，每檔約 2%；0050 跌破 60 日線時全部賣出放現金，下一個交易日收盤價成交。11/28 從 685 種規則的回測（2025/6～2026/11，前段挑、後段驗證）選出：全期 +147% 對 0050 +93%，最大回檔只有 -17.7%（0050 -27.5%），前後兩段都贏；改成每 20 日換股後段就輸，對換股頻率較敏感。回測只有約 1.5 年、以多頭為主，實際多半會比回測差。和其他組一樣 10/23 起算，11/28 以前是回填。"
+            : isMom
             ? "由規則自動計算（不需要 Claude），每個交易日收盤後更新（約 17:00）。每天找正在噴出的強勢股，個股和 ETF 都可（不含槓桿、反向）：當天成交金額 ≥ 2 億、近 20 日漲 20% 以上、收盤創 20 日新高、當天成交金額是近 20 日平均的 1.5 倍以上（量能放大），依近 20 日漲幅排序、最強的先買；大盤濾網：0050 收盤跌破 40 日線時不買新的（手上的照移動停損處理；11/27 從 60 日改 40 日：回測 5～60 日線，40～50 日最好，20 日以下會被假反彈來回停損），每天最多新增 3 檔、每檔 10%、最多 10 檔、每個產業最多 3 檔，其餘現金。出場只看移動停損：收盤跌破「買進後最高收盤價 −8%」就隔天賣（一開始是買進價 −8%，之後每創新高停損價就往上拉，所以漲多了跌回 8% 就是停利）；賣掉的 5 個交易日內不買回（之後條件達標就可買回）；持有中的不加碼也不減碼。每檔下方的「停損」就是目前的停損價。2 年回測見總評比。規則 11/27 訂，和其他組一樣 10/23 起算，11/27 以前是回填。"
             : isCons
             ? "由規則自動計算（不需要 Claude），每個交易日收盤後更新（約 17:00）。綜合其他規則組：每天收盤看 N5、全個股、攻守輪動、權值強化、AI 供應鏈、實單規則、剛轉強、雙引擎、雙引擎＋ 這 9 組當天的持股，被 2 組以上同時持有的個股才買（不含 ETF、不放 0050）；票數多的優先、同票數成交金額大的優先，最多 10 檔、每檔 1/檔數（不到 5 檔時每檔 20%、其餘放現金），下一個交易日收盤價調整。規則 11/27 訂，和其他組一樣從 10/23 起算，所以 11/27 以前是回填、不是事後觀察；各組大多以方案 A 為底，投票會偏向方案 A 的股票。"
@@ -1859,7 +1867,7 @@ function VirtualView({ kind = "virtual" }: { kind?: "virtual" | "watch" | "wide"
       {isWatch && <CashReserve v={v} nav={val.nav} marketValue={val.marketValue} kind={kind} price={px} />}
       <DailyCompare v={v} liveNav={intraday ? val.nav : undefined} liveBench={intraday ? val.bench : undefined} />
 
-      {v.nav.length >= 2 && <><div class="section-title"><span>報酬走勢</span><span>{v.nav.length} 天</span></div><NavChart points={v.nav} budget={v.budget} mine={isMom ? "強勢股組合" : isCons ? "共識股組合" : isPlus ? "雙引擎＋組合" : isDual ? "雙引擎組合" : isTurn ? "剛轉強組合" : isRule ? "實單規則組合" : isAi ? "AI 供應鏈組合" : isLead ? "權值強化組合" : isRegime ? "攻守輪動組合" : isWide ? "全個股組合" : isWatch ? "N5 觀察組合" : "Claude 虛擬組合"} /></>}
+      {v.nav.length >= 2 && <><div class="section-title"><span>報酬走勢</span><span>{v.nav.length} 天</span></div><NavChart points={v.nav} budget={v.budget} mine={isFii ? "外資買超組合" : isBig ? "大型股組合" : isMom ? "強勢股組合" : isCons ? "共識股組合" : isPlus ? "雙引擎＋組合" : isDual ? "雙引擎組合" : isTurn ? "剛轉強組合" : isRule ? "實單規則組合" : isAi ? "AI 供應鏈組合" : isLead ? "權值強化組合" : isRegime ? "攻守輪動組合" : isWide ? "全個股組合" : isWatch ? "N5 觀察組合" : "Claude 虛擬組合"} /></>}
 
       {isWatch && v.asOf && v.pending.length === 0 && (
         <div class="card" style={{ marginTop: "12px" }} data-testid="virtual-pending">

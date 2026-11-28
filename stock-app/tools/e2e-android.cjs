@@ -1117,7 +1117,8 @@ function check(ok, name, detail = "") {
   }
   // 模式按鈕排成三列（每列 4 個），文字不能被擠成直排
   const segRows = await page.$$eval('[data-testid^="mode-"]', (bs) => ({ tops: [...new Set(bs.map((b) => Math.round(b.getBoundingClientRect().top)))].length, maxH: Math.max(...bs.map((b) => b.getBoundingClientRect().height)) }));
-  check(segRows.tops === 4 && segRows.maxH < 60, "自組ETF 模式按鈕排成四列（13 個）、文字不擠成直排", JSON.stringify(segRows));
+  const segN = await page.$$eval('button[data-testid^="mode-"]', (bs) => bs.length);
+  check(segRows.tops === Math.ceil(segN / 4) && segRows.maxH < 60, "自組ETF 模式按鈕每列 4 個、文字不擠成直排", JSON.stringify({ ...segRows, n: segN }));
   // 總評比：第一組（Claude 虛擬）和三個規則組合放在一起
   await page.click('[data-testid="mode-compare"]');
   await page.waitForSelector('[data-testid="compare-all"]', { timeout: 30000 });

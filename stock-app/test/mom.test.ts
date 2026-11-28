@@ -58,3 +58,14 @@ describe("強勢股（移動停損）", () => {
     expect(v.nav.every((p) => p.nav === v.budget && p.bench === v.budget)).toBe(true);
   });
 });
+
+describe("外資買超組、大型股組（11/28）", () => {
+  it("大型股：0050 在 60 日線上買成交金額前幾大普通股等權；外資買超：沒有外資買超就不買", async () => {
+    const { bigTargets, fiiTargets } = await import("../src/engine/steady");
+    const c = buildCtx(days, companies);
+    const up = bigTargets(c, 150); // 0050 緩漲，在 60 日線上
+    expect([...up.keys()].sort()).toEqual(["2001", "2002"]);
+    expect([...up.values()].every((w) => Math.abs(w - 0.5) < 1e-9)).toBe(true);
+    expect(fiiTargets(c, 150).size).toBe(0); // 測試資料外資都是 0
+  });
+});

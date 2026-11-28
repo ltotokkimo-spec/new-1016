@@ -1124,7 +1124,11 @@ function check(ok, name, detail = "") {
     await page.click('[data-testid="mode-weekly"]');
     await page.waitForFunction(() => /週檢視/.test(document.querySelector('[data-testid="weekly-latest"]')?.innerText || ""), null, { timeout: 30000 });
     const wk = await page.evaluate(() => ({ head: (document.querySelector('[data-testid="weekly-latest"]')?.innerText || "").slice(0, 60), old: document.querySelectorAll('[data-testid="weekly-old"]').length }));
-    check(/週檢視/.test(wk.head) && wk.old >= 1, "自組ETF「週報」顯示最新一週與歷史週報", JSON.stringify(wk));
+    // 每週一筆可收合：點最新一週的標題會收起來
+    await page.click('[data-testid="weekly-latest"] summary');
+    const closed = await page.$eval('[data-testid="weekly-latest"]', (e) => !e.open);
+    await page.click('[data-testid="weekly-latest"] summary');
+    check(/週檢視/.test(wk.head) && wk.old >= 1 && closed, "自組ETF「週報」每週一筆、可收合展開（最新一週預設展開）", JSON.stringify({ ...wk, closed }));
   } catch (e) { check(false, "自組ETF「週報」", String(e).slice(0, 200)); }
   // 總評比：第一組（Claude 虛擬）和三個規則組合放在一起
   await page.click('[data-testid="mode-compare"]');

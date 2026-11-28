@@ -1487,12 +1487,12 @@ function WeeklyView() {
         <button class="btn secondary" onClick={reload} disabled={busy} data-testid="weekly-reload">{busy ? "下載中…" : "重新下載"}</button>
       </div>
       {!weeks.length ? <div class="card empty">{busy || !wk ? "週報下載中…" : "還沒有週報"}</div> : <>
-        <div class="card" style={{ fontSize: "13.5px", lineHeight: 1.7 }} data-testid="weekly-latest"><Markdown text={weeks[0]} /></div>
-        {weeks.length > 1 && <div class="section-title"><span>歷史週報</span><span>{weeks.length - 1} 週</span></div>}
-        {weeks.slice(1).map((w, i) => (
-          <details key={i} class="card" style={{ fontSize: "13.5px", lineHeight: 1.7 }} data-testid="weekly-old">
-            <summary style={{ cursor: "pointer", fontWeight: 700 }}>{w.split("\n")[0].replace(/^##\s*/, "")}</summary>
-            <Markdown text={w.split("\n").slice(1).join("\n")} />
+        {/* 11/28 使用者：每週一筆、都可以收合展開；最新一週預設展開 */}
+        <div class="section-title"><span>每週一筆（點標題收合／展開）</span><span>共 {weeks.length} 週</span></div>
+        {weeks.map((w, i) => (
+          <details key={w.split("\n")[0]} open={i === 0} class="card" style={{ fontSize: "13.5px", lineHeight: 1.7 }} data-testid={i === 0 ? "weekly-latest" : "weekly-old"}>
+            <summary style={{ cursor: "pointer", fontWeight: 700, fontSize: "14.5px" }} data-testid="weekly-title">{i === 0 ? "🆕 " : ""}{w.split("\n")[0].replace(/^##\s*/, "")}</summary>
+            <div style={{ marginTop: "8px" }}><Markdown text={w.split("\n").slice(1).join("\n")} /></div>
           </details>
         ))}
       </>}
